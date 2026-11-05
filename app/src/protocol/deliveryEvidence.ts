@@ -17,6 +17,9 @@ export interface DeliveryEvidence {
   advisories?: string[];
   changeSummary?: string[];
   detailsTruncated?: boolean;
+  problemTotal?: number;
+  criteriaTotal?: number;
+  criteriaStatusCounts?: {passed: number; failed: number; unverified: number};
 }
 
 /** Çekirdeğin `completion_evidence.py` tavanları; aşan liste GEÇERSİZLİK değil, kesilir. */
@@ -28,6 +31,10 @@ const MAX_BYTES = 32 * 1024;
 
 function isTextList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === "string");
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 /** UTF-16 kesimi bir Unicode karakterini ortadan bölmesin. */
@@ -71,6 +78,33 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     if (data[key] !== undefined && !isTextList(data[key])) return invalid(data);
   }
   if (data.ayrintilar_kisaltildi !== undefined && typeof data.ayrintilar_kisaltildi !== "boolean") return invalid(data);
+  const problemTotal = data.sorun_sayisi;
+  const criteriaTotal = data.criteria_count;
+  if (problemTotal !== undefined && (!isCount(problemTotal) || problemTotal < data.sorunlar.length)) return invalid(data);
+  if (criteriaTotal !== undefined && !isCount(criteriaTotal)) return invalid(data);
+  let observedFailed = false;
+  let observedUnverified = false;
+  let retainedCriteria = 0;
+  if (data.criteria !== undefined) {
+    if (!Array.isArray(data.criteria)) return invalid(data);
+    retainedCriteria = data.criteria.length;
+    for (const criterion of data.criteria) {
+      if (!criterion || typeof criterion !== "object" || Array.isArray(criterion) ||
+          !["passed", "failed", "unverified"].includes(criterion.status)) return invalid(data);
+      observedFailed ||= criterion.status === "failed";
+      observedUnverified ||= criterion.status === "unverified";
+    }
+  }
+  if (typeof criteriaTotal === "number" && criteriaTotal < retainedCriteria) return invalid(data);
+  let statusCounts: DeliveryEvidence["criteriaStatusCounts"];
+  if (data.criteria_status_counts !== undefined) {
+    const counts = data.criteria_status_counts;
+    if (!counts || typeof counts !== "object" || Array.isArray(counts)) return invalid(data);
+    const record = counts as Record<string, unknown>;
+    if (!isCount(record.passed) || !isCount(record.failed) || !isCount(record.unverified)) return invalid(data);
+    statusCounts = {passed: record.passed, failed: record.failed, unverified: record.unverified};
+    if (!Number.isSafeInteger(statusCounts.passed + statusCounts.failed + statusCounts.unverified)) return invalid(data);
+  }
   const total = data.degisen_sayisi;
   if (data.schema_version === 1 && (typeof total !== "number" || !Number.isSafeInteger(total) || total < data.degisen.length)) {
     return invalid(data);
@@ -98,6 +132,19 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     warnings: detail("uyarilar") ?? [], checks: detail("kontroller"), unmeasured: detail("olculmeyen"),
     advisories: detail("oneriler"), changeSummary: detail("degisiklik_ozeti", MAX_SUMMARY),
     changedTotal: typeof total === "number" ? total : null};
+  if (isCount(problemTotal)) result.problemTotal = problemTotal;
+  if (isCount(criteriaTotal)) result.criteriaTotal = criteriaTotal;
+  if (statusCounts) result.criteriaStatusCounts = statusCounts;
+  const representedCriteria = statusCounts
+    ? statusCounts.passed + statusCounts.failed + statusCounts.unverified : retainedCriteria;
+  // Kritik toplamlar, ayrıntı listeleri kesilmiş veya hiç gönderilmemiş olsa da geçerlidir.
+  if (data.sorunlar.length || (result.problemTotal ?? 0) > 0 || observedFailed || (statusCounts?.failed ?? 0) > 0) {
+    result.verified = false;
+    result.blocking = true;
+  } else if (result.verified === true && (observedUnverified || (statusCounts?.unverified ?? 0) > 0 ||
+      (result.criteriaTotal ?? 0) > representedCriteria)) {
+    result.verified = null;
+  }
   if (truncated || data.ayrintilar_kisaltildi !== undefined) result.detailsTruncated = truncated;
   if (data.sunum === "document" && result.kind === "supported" && result.verified === true &&
       !result.blocking && !result.falseClaim && !result.problems.length && result.changed.length === 1 &&

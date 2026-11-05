@@ -1,10 +1,73 @@
 import {expect, it} from "vitest";
 import {decodeDeliveryEvidence} from "./deliveryEvidence";
 import backendFixtures from "./__fixtures__/document-delivery-v6.json";
+import countFixtures from "./__fixtures__/document-delivery-critical-counts-v6.json";
 
 const payload = {schema_version: 1, dogrulandi: true, engelliyor: false,
   yanlis_iddia: false, degisen: ["a.py"], sorunlar: [], degisen_sayisi: 60};
 const documentPayload={...payload,degisen:["rapor.html"],degisen_sayisi:1,sunum:"document"};
+
+it.each(Object.entries(countFixtures))("kritik sayaçlar backend projeksiyonuyla aynı güvenli sonucu korur: %s", (_name, fixture) => {
+  const input=decodeDeliveryEvidence(fixture.input);
+  const projected=decodeDeliveryEvidence(fixture.projected);
+  expect(input?.verified).toBe(projected?.verified);
+  expect(input?.blocking).toBe(projected?.blocking);
+  expect(input?.presentation).toBe(projected?.presentation);
+});
+
+it("kısaltılmış ayrıntılar kritik toplamları ortadan kaldırmaz", () => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,sorun_sayisi:3,sorunlar:[],
+    criteria_count:3,criteria:[{status:"passed"}],criteria_status_counts:{passed:1,failed:1,unverified:1}});
+  expect(evidence).toMatchObject({verified:false,blocking:true,problemTotal:3,criteriaTotal:3,
+    criteriaStatusCounts:{passed:1,failed:1,unverified:1}});
+  expect(evidence?.presentation).toBeUndefined();
+});
+
+it.each(["failed","unverified"])("ayrıntı listesinde görülen %s durumu da kaybolmaz", status => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,criteria:[{status}],criteria_count:1});
+  expect(evidence?.verified).toBe(status === "failed" ? false : null);
+  expect(evidence?.blocking).toBe(status === "failed");
+  expect(evidence?.presentation).toBeUndefined();
+});
+
+it("tam durum toplamları yokken gösterilmeyen ölçütleri başarılı varsaymaz", () => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,criteria:[{status:"passed"}],criteria_count:3});
+  expect(evidence).toMatchObject({verified:null,blocking:false,criteriaTotal:3});
+  expect(evidence?.presentation).toBeUndefined();
+});
+
+it("tam durum toplamlarının kapsamadığı ölçütleri başarılı varsaymaz", () => {
+  expect(decodeDeliveryEvidence({...documentPayload,criteria_count:3,
+    criteria_status_counts:{passed:1,failed:0,unverified:0}}))
+    .toMatchObject({verified:null,blocking:false,criteriaTotal:3,
+      criteriaStatusCounts:{passed:1,failed:0,unverified:0}});
+});
+
+it("ölçülmeyen toplamı mevcut başarısızlığı veya engellemeyi kaldırmaz", () => {
+  expect(decodeDeliveryEvidence({...documentPayload,dogrulandi:false,engelliyor:true,
+    criteria_status_counts:{passed:0,failed:0,unverified:1}}))
+    .toMatchObject({verified:false,blocking:true});
+});
+
+it("ayrıntı bütçesi kritik toplamları silemez", () => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,sorun_sayisi:3,
+    criteria_status_counts:{passed:0,failed:1,unverified:1},
+    degisiklik_ozeti:Array(50).fill("😀".repeat(500))});
+  expect(evidence).toMatchObject({verified:false,blocking:true,problemTotal:3,
+    criteriaStatusCounts:{passed:0,failed:1,unverified:1},detailsTruncated:true});
+  expect(new TextEncoder().encode(JSON.stringify(evidence)).byteLength).toBeLessThanOrEqual(32768);
+});
+
+it.each([{sorun_sayisi:"3"},{sorun_sayisi:-1},{sorun_sayisi:true},{sorun_sayisi:0,sorunlar:["hata"]},
+  {criteria_count:1.5},{criteria_count:NaN},{criteria_count:Number.MAX_SAFE_INTEGER+1},
+  {criteria_status_counts:{passed:Number.MAX_SAFE_INTEGER,failed:1,unverified:0}},
+  {criteria_status_counts:{failed:1}},
+  {criteria_status_counts:{passed:0,failed:"1",unverified:0}},
+  {criteria:[{status:"future"}]},{criteria_count:0,criteria:[{status:"passed"}]}])(
+  "bozuk kritik sayaç/durum verisi başarıya çevrilmez: %s", change => {
+    expect(decodeDeliveryEvidence({...documentPayload,yanlis_iddia:true,...change}))
+      .toMatchObject({kind:"invalid",verified:null,blocking:true,falseClaim:true});
+  });
 
 it.each(backendFixtures)("gerçek backend projeksiyonu tutarlı çözülür: $name", fixture => {
   const decoded=decodeDeliveryEvidence(fixture.kanit);

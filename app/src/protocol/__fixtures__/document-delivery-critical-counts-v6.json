@@ -1,0 +1,160 @@
+{
+  "safe": {
+    "input": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sunum": "document"
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "sunum": "document"
+    }
+  },
+  "problems": {
+    "input": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "sorunlar": [],
+      "sorun_sayisi": 3,
+      "sunum": "document"
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": true,
+      "yanlis_iddia": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 3,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": []
+    }
+  },
+  "failed": {
+    "input": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sunum": "document",
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 1,
+        "unverified": 0
+      }
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": true,
+      "yanlis_iddia": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 1,
+        "unverified": 0
+      }
+    }
+  },
+  "unverified": {
+    "input": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sunum": "document",
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 1
+      }
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": null,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 1
+      }
+    }
+  },
+  "missing_status": {
+    "input": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sunum": "document",
+      "criteria_count": 3
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": null,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 3,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": []
+    }
+  }
+}
