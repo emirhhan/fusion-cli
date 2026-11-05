@@ -197,6 +197,7 @@ def patch_providers(monkeypatch, module, by_name):
         clock=None,
         sleeper=None,
         background=False,
+        purpose="other",
         health=None,
         key_pools=None,
         web_sessions=None,
@@ -211,6 +212,7 @@ def patch_providers(monkeypatch, module, by_name):
             role=spec.name,
             channel=channel,
             background=background,
+            purpose=purpose,
         )
 
     monkeypatch.setattr(module, "build_provider", _build)
