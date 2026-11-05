@@ -100,9 +100,9 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
                 return _invalid(value)
             result[key] = number
     for key, limit in _LISTS.items():
-        items = value.get(key, [] if key in {"degisen", "sorunlar"} else None)
-        if items is None:
+        if key not in value and key not in {"degisen", "sorunlar"}:
             continue
+        items = value.get(key, [])
         if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
             return _invalid(value)
         shortened |= len(items) > limit

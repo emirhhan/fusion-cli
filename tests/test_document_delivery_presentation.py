@@ -393,3 +393,32 @@ def test_criteria_total_without_status_details_is_unknown():
     projected = public_delivery_evidence(value)
     assert projected["criteria_count"] == 3
     assert projected["dogrulandi"] is None and projected.get("sunum") is None
+
+
+@pytest.mark.parametrize(
+    "field", ["uyarilar", "olculmeyen", "kontroller", "oneriler", "degisiklik_ozeti"]
+)
+def test_explicit_null_detail_list_cannot_become_healthy_document(field):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document", field: None}
+    projected = public_delivery_evidence(value)
+    assert projected["engelliyor"] is True
+    assert projected["dogrulandi"] is not True and projected.get("sunum") is None
+
+
+@pytest.mark.parametrize("field", ["uyarilar", "olculmeyen"])
+def test_durable_replay_rejects_explicit_null_warning_lists(tmp_path, field):
+    from fusion_cli.appserver.visible_transcript import load_visible_transcript
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document", field: None}
+    store = TranscriptStore(tmp_path / "mem", tmp_path, conversation_id="null-proof")
+    assert store.record_presented_assistant("Original answer", evidence=value)
+    proof = load_visible_transcript(store, []).rows[-1]["kanit"]
+    assert proof["engelliyor"] is True and proof["dogrulandi"] is not True
+    assert proof.get("sunum") is None
