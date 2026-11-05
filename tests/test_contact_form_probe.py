@@ -300,3 +300,47 @@ async def test_unrelated_negative_claim_does_not_excuse_positive_receipt(browser
     result = (await probe_contact_forms(browser, form(f"status.textContent={message!r};")))[0]
     assert result.status == "false_receipt"
     assert "received" in result.visible_receipt
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("No message was sent.", False),
+        ("No message was delivered.", False),
+        ("None of your messages were sent.", False),
+        ("None of the messages were received.", False),
+        ("Not a single message was delivered.", False),
+        ("Not one message was sent.", False),
+        ("Not a message was received.", False),
+        ("Neither message was sent.", False),
+        ("No message was sent. Your message was received.", True),
+        ("None of your messages were sent; your message was received.", True),
+        ("Not a single message was delivered, but your message was received.", True),
+        ("No delivery errors. Your message was received.", True),
+    ],
+)
+async def test_receipt_subject_negation_is_bound_to_its_own_claim(message, expected):
+    from fusion_cli.engines.agent.contact_form_probe import _claims_receipt
+
+    assert _claims_receipt(message) is expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "No message was sent.",
+        "No message was delivered.",
+        "None of your messages were received.",
+        "Not a single message was delivered.",
+    ],
+)
+async def test_observed_negative_subject_does_not_claim_receipt(browser, message):
+    result = (await probe_contact_forms(browser, form(f"status.textContent={message!r};")))[0]
+    assert result.status == "observed_no_false_receipt"
+    assert result.visible_receipt == ""
+
+
+async def test_observed_negative_subject_does_not_excuse_positive_receipt(browser):
+    message = "No message was sent. Your message was received."
+    result = (await probe_contact_forms(browser, form(f"status.textContent={message!r};")))[0]
+    assert result.status == "false_receipt"

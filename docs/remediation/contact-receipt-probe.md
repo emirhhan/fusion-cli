@@ -28,7 +28,9 @@ produce explicit `not_measured` evidence. Attempted transport produces
 `unverified_transport` or `not_measured`, never verified receipt. A visible demo
 or local-draft disclosure near the form (or in the new status) prevents the narrow
 false-receipt finding; hidden or unrelated demo text does not excuse it. English
-failure negation is bound to each observed receipt predicate. An unrelated negative
+failure negation is bound to each observed receipt subject/predicate, including
+negative determiners such as “No message,” “None of your messages,” and “Not a
+single message.” An unrelated negative
 sentence does not suppress a separate positive claim, and generic failure text is
 not treated as a global demo disclosure.
 

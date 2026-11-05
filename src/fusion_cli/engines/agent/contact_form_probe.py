@@ -19,12 +19,14 @@ if TYPE_CHECKING:
 _ORIGIN = "https://fusion-contact-probe.invalid/"
 _RECEIPT = re.compile(
     r"(?:mesaj\w*|ileti\w*)[^.!?;,\n]{0,45}?(?:alındı|iletildi|gönderildi)|"
+    r"\b(?:(?:no|neither)\s+|not\s+(?:a\s+(?:single\s+)?|one\s+)|"
+    r"none\s+of\s+(?:(?:the|your|our|my|their|these|those)\s+)?)?"
     r"(?:message|inquiry|enquiry)[^.!?;,\n]{0,45}?(?:received|sent|delivered)|"
     r"(?:successfully sent|successfully received)",
     re.I,
 )
 _NEGATED_RECEIPT = re.compile(
-    r"\b(?:not(?!\s+only\b)|never|cannot|unable|failed)\b|"
+    r"\b(?:not(?!\s+only\b)|no|none|neither|never|cannot|unable|failed)\b|"
     r"\b(?:ca|could|was|were|is|has|have|did|do|wo|would)n['’]t\b",
     re.I,
 )
@@ -35,7 +37,7 @@ _DISCLOSURE = re.compile(
 
 
 def _claims_receipt(text: str) -> bool:
-    """Classify observed text, binding English negation to each receipt predicate.
+    """Classify observed text, binding English subject/predicate negation to each claim.
 
     A negative clause elsewhere cannot excuse a separate affirmative claim.
     This remains a bounded language heuristic, never a delivery verifier.
