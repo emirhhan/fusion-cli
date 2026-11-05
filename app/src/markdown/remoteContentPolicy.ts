@@ -50,6 +50,24 @@ export function safeLinkHref(href: string): string | null {
   return url && SAFE_LINK_PROTOCOLS.has(url.protocol) ? trimmed : null;
 }
 
+/** Relative files open through the project preview, never through browser navigation. */
+export function projectFilePath(href: string): string | null {
+  if (!href || href !== href.trim() || /%2f|%5c/i.test(href)) return null;
+  let path: string;
+  try {
+    path = decodeURIComponent(href);
+  } catch {
+    return null;
+  }
+  // No schemes, drives, UNC paths, fragments, query strings, nested encoding or controls.
+  if (path.startsWith("/") || /[\\:#?%\u0000-\u001f\u007f-\u009f]/.test(path)) return null;
+  const parts = path.split("/");
+  if (parts[0] === ".") parts.shift();
+  if (!parts.length || parts.some((part) => !part || part === "." || part === ".."
+    || part !== part.trim() || /[. ]$/.test(part))) return null;
+  return parts.join("/");
+}
+
 /** Görsel yerel mi, uzak mı (onay ister), yoksa engellenmiş mi? */
 export function classifyImageSource(
   href: string,
