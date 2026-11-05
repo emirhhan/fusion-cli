@@ -4975,6 +4975,20 @@ _REPEATED_READ_NOTE = (
 #: verildiği sanmaması için Fusion'ın kendi sesiyle işaretlenir.
 
 
+_SELF_REVIEW_FINALIZE_RESERVE_S = 1.0
+
+
+def _self_review_timeout(deps: AgentDeps) -> float | None:
+    remaining = []
+    if deps.deadline is not None:
+        remaining.append(deps.deadline.remaining_s())
+    if deps.budget is not None and (seconds := deps.budget.remaining_s()) is not None:
+        remaining.append(seconds)
+    # Optional feedback must leave time to publish the already measured result;
+    # neither this reserve nor the reviewer renews the actual hard deadline.
+    return max(0.0, min(remaining) - _SELF_REVIEW_FINALIZE_RESERVE_S) if remaining else None
+
+
 async def _self_review(
     task: str,
     outcome: AgentOutcome,
@@ -4984,19 +4998,26 @@ async def _self_review(
 ) -> AgentOutcome:
     from .evidence_handoff import current_diff
 
-    deps.publisher.publish(SelfReviewStarted())
-    feedback = await review.review_turn(
-        task,
-        outcome.final_text,
-        outcome.messages,
-        config=deps.config,
-        publisher=deps.publisher,
-        diff=await asyncio.to_thread(current_diff, deps)
-        if deps.config.runtime.review_diff_only
-        else "",
-        criteria=verification.evidence if verification else (),
-        failures=verification.findings if verification else (),
-    )
+    timeout = _self_review_timeout(deps)
+    feedback = None
+    if timeout is None or timeout > 0:
+        deps.publisher.publish(SelfReviewStarted())
+        try:
+            async with asyncio.timeout(timeout):
+                feedback = await review.review_turn(
+                    task,
+                    outcome.final_text,
+                    outcome.messages,
+                    config=deps.config,
+                    publisher=deps.publisher,
+                    diff=await asyncio.to_thread(current_diff, deps)
+                    if deps.config.runtime.review_diff_only
+                    else "",
+                    criteria=verification.evidence if verification else (),
+                    failures=verification.findings if verification else (),
+                )
+        except TimeoutError:
+            pass
     deps.publisher.publish(
         SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
     )
