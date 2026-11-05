@@ -112,7 +112,12 @@ def test_fare_ve_klavye_araclari_kilidi_kontrol_eder(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(
         desktop_mouse, "_post_mouse", lambda loaded, plan: gonderilen.append("fare")
     )
-    monkeypatch.setattr(desktop, "_post_text", lambda loaded, value: gonderilen.append("metin"))
+
+    def post_text(loaded, value, **kwargs):
+        gonderilen.append("metin")
+        return len(value)
+
+    monkeypatch.setattr(desktop, "_post_text", post_text)
     context = ToolContext(root=tmp_path)
     context.desktop.frame = DesktopFrame(100, 100, 0.0, 0.0, 100.0, 100.0, 1)
 

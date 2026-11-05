@@ -41,7 +41,12 @@ def test_metin_sonucta_sizdirilmaz(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop, "_framework", lambda: object())
     monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
     typed: list[str] = []
-    monkeypatch.setattr(desktop, "_post_text", lambda loaded, value: typed.append(value))
+
+    def post_text(loaded, value, **kwargs):
+        typed.append(value)
+        return len(value)
+
+    monkeypatch.setattr(desktop, "_post_text", post_text)
 
     result = desktop.desktop_type({"text": "özel metin"}, ToolContext(root=tmp_path))
 

@@ -7,6 +7,7 @@ import ctypes
 import subprocess
 import sys
 import time
+from threading import Event
 from typing import Any, cast
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
@@ -175,7 +176,10 @@ def _open_windows(name: str) -> ToolResult:
     return ToolResult(f"Uygulama açıldı: {name}")
 
 
-def _post_text(framework: ctypes.CDLL, value: str) -> None:
+def _post_text(framework: ctypes.CDLL, value: str, *, cancelled: Event | None = None) -> int:
+    # Validate the complete input before dispatching a prefix. Keep an astral
+    # scalar's UTF-16 surrogate pair together in the same event.
+    value.encode("utf-16-le")
     framework.CGEventCreateKeyboardEvent.argtypes = [
         ctypes.c_void_p,
         ctypes.c_uint16,
@@ -189,17 +193,35 @@ def _post_text(framework: ctypes.CDLL, value: str) -> None:
     ]
     framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     framework.CFRelease.argtypes = [ctypes.c_void_p]
-    units = value.encode("utf-16-le")
-    characters = (ctypes.c_uint16 * (len(units) // 2)).from_buffer_copy(units)
-    for is_down in (True, False):
-        event = framework.CGEventCreateKeyboardEvent(None, 0, is_down)
-        if not event:
-            raise RuntimeError("Klavye olayı oluşturulamadı")
+    dispatched = 0
+    for char in value:
+        if cancelled is not None and cancelled.is_set():
+            break
+        units = char.encode("utf-16-le")
+        characters = (ctypes.c_uint16 * (len(units) // 2)).from_buffer_copy(units)
+        events: list[int] = []
         try:
-            framework.CGEventKeyboardSetUnicodeString(event, len(characters), characters)
-            framework.CGEventPost(0, event)
+            # Prepare both events before pressing the key, so a failed allocation
+            # or Unicode assignment cannot leave a partially prepared key down.
+            for is_down in (True, False):
+                event = framework.CGEventCreateKeyboardEvent(None, 0, is_down)
+                if not event:
+                    raise RuntimeError("Klavye olayı oluşturulamadı")
+                events.append(event)
+                framework.CGEventKeyboardSetUnicodeString(event, len(characters), characters)
+            if cancelled is not None and cancelled.is_set():
+                break
+            try:
+                framework.CGEventPost(0, events[0])
+            finally:
+                # Cancellation must stop the next scalar, never suppress the
+                # matching release of an already dispatched key press.
+                framework.CGEventPost(0, events[1])
+            dispatched += 1
         finally:
-            framework.CFRelease(event)
+            for event in events:
+                framework.CFRelease(event)
+    return dispatched
 
 
 def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -217,14 +239,27 @@ def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         if desktop_win32.active():
             desktop_win32.send_text(value)
+            dispatched = len(value)
         else:
             framework = _framework()
             if not _trusted(framework):
                 return permission_failure(ACCESSIBILITY)
-            _post_text(framework, value)
+            dispatched = _post_text(framework, value, cancelled=context.cancelled)
+    except UnicodeError:
+        return ToolResult.failure(
+            "Metin geçerli Unicode karakterleri içermeli; klavye olayı gönderilmedi."
+        )
     except (OSError, RuntimeError) as exc:
-        return ToolResult.failure(f"Metin yazılamadı: {exc}")
-    return ToolResult(f"Odaklı alana {len(value)} karakter yazıldı.")
+        return ToolResult.failure(f"Metin gönderimi tamamlanamadı: {exc}")
+    if dispatched < len(value):
+        return ToolResult.failure(
+            f"Metin gönderimi iptal edildi; {dispatched}/{len(value)} karakter için klavye "
+            "olayları gönderildi. Hedef içerik doğrulanmadı."
+        )
+    return ToolResult(
+        f"Odaklı uygulamaya {dispatched} karakter için klavye olayları gönderildi; "
+        "hedef içerik doğrulanmadı."
+    )
 
 
 def _post_key(
