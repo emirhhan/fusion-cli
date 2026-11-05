@@ -421,7 +421,7 @@ def _decision_message(
         return denial.DENIED_TOOL_RESULT
     if request is not None and request.pre_denied is not None and request.desktop_blocked:
         # Masaüstü engeli (ret listesi, engelli kategori, yetmeyen kademe; P-007).
-        return desktop_approval.DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
+        return desktop_approval.blocked_result(request)
     if request is not None and request.pre_denied is not None:
         # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
         return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
