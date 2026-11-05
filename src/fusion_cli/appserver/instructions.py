@@ -37,10 +37,11 @@ def read_instructions() -> str:
 
 
 def get_instructions(root: Path | None = None, home: Path | None = None) -> dict[str, Any]:
-    """`ayar.talimat`: kayıtlı metin, sınır ve (kök verilmişse) yüklenen talimat katmanları.
+    """`ayar.talimat`: kayıtlı metin, sınır ve (kök verilmişse) talimat envanteri.
 
-    `katmanlar`: tur başında bağlama giren dosyalar — kaynak adı, katman, karakter, kırpılan
-    karakter ve güvenilir olup olmadığı. `notlar`: atlanan import / dolan bütçe gibi uyarılar.
+    `katmanlar`: başlangıç dosyaları ve kapsamlı kuralların kaynak, karakter ve güven bilgisi.
+    `toplam_karakter` yalnız başlangıçta yüklenen içeriği sayar; ertelenen kuralları saymaz.
+    `notlar`: atlanan import, dolan bütçe veya kesin ölçülemeyen kırpma gibi uyarılar.
     """
     sonuc: dict[str, Any] = {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
     if root is None:
