@@ -418,9 +418,13 @@
   word-break: break-word;
 }
 
-.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: 0.85rem; }
+.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 10px; font: inherit; }
 .delivery-card p, .delivery-card ul { margin: 8px 0 0; }
 .delivery-card code { overflow-wrap: anywhere; }
+.delivery-card__details { margin-top: 8px; }
+.delivery-card__details summary { cursor: pointer; }
+.delivery-card__details summary:focus-visible, .delivery-card__detail-content:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.delivery-card__detail-content { max-height: min(18rem, 45vh); overflow: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
 /* `/code-review` bulgu kartları (#214). */
 .findings-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: 0.85rem; }
 .findings-card ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 10px; }

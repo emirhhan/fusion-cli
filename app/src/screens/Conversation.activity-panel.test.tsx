@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Conversation, type Mesaj } from "./Conversation";
+import { olayEkle } from "../protocol/olayAkisi";
 
 afterEach(cleanup);
 const step = (n: number, detail = true) => ({ metin: `İşlem ${n}`, arac: "run_shell", durum: "ok", ...(detail ? { komut: `komut${n}`, cikti: `Çıktı ${n}` } : {}) });
@@ -9,6 +10,24 @@ const messages = (count: number): Mesaj[] => [
   ...Array.from({ length: count }, (_, n): Mesaj => ({ id: `event-${n}`, rol: "olay", metin: "", adimlar: [step(n + 1)] })),
   { id: "answer", rol: "asistan", metin: "Yanıt hazır" },
 ];
+it("kanıt olayları mevcut iki satırlı panelde kalır ve açıldığında gerçek özeti gösterir", () => {
+  let list: Mesaj[]=[{id:"u",rol:"kullanici",metin:"Rapor hazırla"}];
+  for (const event of [
+    {olay:"ToolExecuted",name:"web_search",args:{query:"sürüm"},outcome:"ok",output:"Kaynak bulundu"},
+    {olay:"ToolExecuted",name:"write_file",args:{path:"rapor.html"},outcome:"ok",output:"Yazıldı"},
+    {olay:"VerificationPassed",checks:["Tarayıcı açıldı"],unmeasured:[]},
+    {olay:"ChangesDigested",lines:["rapor.html: 67 yeni satır"]},
+  ]) list=olayEkle(list,event);
+  list.push({id:"answer",rol:"asistan",metin:"Rapor hazır."});
+  const {container}=render(<Conversation running={false} mesajlar={list}/>);
+  expect(container.querySelectorAll(".activity__trail-item")).toHaveLength(2);
+  fireEvent.click(screen.getByText("rapor.html yazılıyor"));
+  const panel=screen.getByRole("region",{name:"İşlem ayrıntıları"});
+  expect(within(panel).getByText("kontroller doğrulandı")).toBeTruthy();
+  fireEvent.click(within(panel).getByText("değişiklik özeti"));
+  expect(within(panel).getByText("rapor.html: 67 yeni satır")).toBeTruthy();
+  expect(screen.getByText("Rapor hazır.").closest(".work-activity-panel")).toBeNull();
+});
 it.each([1, 2])("%i işlem normal bitmiş turda ayrı açılır satır olarak görünür", count => {
   const { container } = render(<Conversation running={false} mesajlar={messages(count)} />);
   expect(container.querySelectorAll(".activity__trail-item")).toHaveLength(count);

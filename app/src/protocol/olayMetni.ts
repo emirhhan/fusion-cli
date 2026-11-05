@@ -59,7 +59,10 @@ export interface OlayAdimi {
 const CIKTI_SINIRI = 4000;
 
 function sinirla(metin: string): string {
-  return metin.length <= CIKTI_SINIRI ? metin : `${metin.slice(0, CIKTI_SINIRI)}\n…`;
+  if (metin.length <= CIKTI_SINIRI) return metin;
+  const cut = metin.slice(0, CIKTI_SINIRI);
+  const last = cut.charCodeAt(cut.length - 1);
+  return `${last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut}\n…`;
 }
 
 /**
@@ -288,10 +291,29 @@ function aracSonucu(outcome: unknown): string {
   return ad === "ok" || Object.prototype.hasOwnProperty.call(ARAC_SONUCU, ad) ? ad : "unknown";
 }
 
+/** Kanıt olayları da dış veri: bilinmeyen yükten başarı ya da diff üretmeyelim. */
+function kanitSatirlari(value: unknown, cap = 10): string[] | null {
+  if (!Array.isArray(value) || !value.every(item => typeof item === "string")) return null;
+  return value.slice(0, cap).map(item => Array.from(sirlariMaskele(item)).slice(0, 500).join(""));
+}
+
 export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
   switch (olay) {
+    case "VerificationPassed": {
+      const checks = kanitSatirlari(veri.checks);
+      const unmeasured = kanitSatirlari(veri.unmeasured);
+      const complete = checks !== null && unmeasured !== null && !unmeasured.length && checks.some(item => item.trim());
+      const lines = [...(unmeasured ?? []).map(item => `Ölçülmedi: ${item}`), ...(checks ?? [])];
+      return {metin: complete ? "kontroller doğrulandı" : "doğrulama sonucu", kalici: true, durum: complete ? "ok" : "unknown",
+        cikti: lines.length ? sinirla(lines.join("\n")) : "Bu olay için okunabilir kontrol ayrıntısı yok."};
+    }
+    case "ChangesDigested": {
+      const lines = kanitSatirlari(veri.lines, 50);
+      if (!lines?.length) return null;
+      return {metin: "değişiklik özeti", kalici: true, cikti: sinirla(lines.join("\n"))};
+    }
     case "ToolStarted": {
       // Araç henüz BİTMEDİ; yalnız çalışmaya başladı (onay gerekiyorsa
       // ondan SONRA — bkz. `engines/agent/loop.py::_execute`). Cümle
