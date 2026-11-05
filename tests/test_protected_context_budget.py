@@ -204,3 +204,23 @@ async def test_impossible_prefix_finishes_desktop_request_and_releases_turn(monk
         assert session._submission_task is None
     finally:
         await session.close()
+
+
+@pytest.mark.parametrize("window", [8_000, 16_384, 32_000])
+def test_small_known_window_accepts_short_prefix_and_rejects_real_overflow(window):
+    budget = context_budget.ContextBudget(24_000, window, "small")
+    messages = [
+        Message("system", "s" * 1000),
+        Message("user", "i" * 1000, harness_note=True),
+        Message("user", "görev"),
+    ]
+    threshold = context_budget.compression_threshold(budget, messages)
+    reserved = min(
+        context_budget.OUTPUT_RESERVE_TOKENS + context_budget.SYSTEM_AND_TOOLS_RESERVE_TOKENS,
+        window // 2,
+    )
+    assert threshold <= (window - reserved) * context_budget.CHARS_PER_TOKEN_ESTIMATE - 1000
+    assert not history.needs_compression(messages, threshold)
+    oversized = [messages[0], Message("user", "i" * (window * 3), harness_note=True), messages[-1]]
+    with pytest.raises(ConfigError, match=r"korunan.*bağlam"):
+        context_budget.compression_threshold(budget, oversized)

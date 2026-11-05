@@ -12,7 +12,7 @@ Kaynakta önceki `history_chars` hesabı yalnız sistem mesajını çıkarıyord
 
 ## Katı sınırlar
 
-Bilinen model penceresinden hesaplanan sistem/çıktı/araç payı aynı kalır. Sağlayıcının gerçek bağlam taşmasından öğrenilen eşik, önceki gibi sistem dışı geçmişin tamamına uygulanır; korunan bölüm payı bu sınıra eklenmez. Katı sınır korunan bölümden küçükse mevcut `ConfigError` ile açıkça durulur. Yalnız hatayı gizlemek için 4.000 karakterlik tabana yükseltilmez ve boşuna özetleme yapılmaz. Desktop istek sınırında hata yanıtı üretilmesi, çalışan tur sahipliğinin bırakılması ve sıfır sağlayıcı çağrısı ayrıca sınanır.
+Bilinen model penceresinden sistem/çıktı/araç payı düşülür. Küçük pencerelerde rezerv, mevcut `_base_budget` ve `chars_for_window` hesabıyla aynı şekilde pencerenin yarısıyla sınırlanır; aksi halde 8K/16K modellerde geçerli küçük istemler de negatif kalan kapasite nedeniyle reddedilirdi. 8K, 16K ve 32K için hem küçük geçerli önek hem gerçekten büyük korunan önek kontrolleri bulunur. Sağlayıcının gerçek bağlam taşmasından öğrenilen eşik, önceki gibi sistem dışı geçmişin tamamına uygulanır; korunan bölüm payı bu sınıra eklenmez. Katı sınır korunan bölümden küçükse mevcut `ConfigError` ile açıkça durulur. Yalnız hatayı gizlemek için 4.000 karakterlik tabana yükseltilmez ve boşuna özetleme yapılmaz. Desktop istek sınırında hata yanıtı üretilmesi, çalışan tur sahipliğinin bırakılması ve sıfır sağlayıcı çağrısı ayrıca sınanır.
 
 Araç argümanları ve görsel tahminleri mevcut `total_chars` hesabında kalır. Bu değişiklik token sayacının veya araç şeması rezervinin kesinliğini artırdığı iddiasını taşımaz. Sağlayıcı taşma öğrenmesi, özet süre sınırı, iptal, araştırma kanıtları ve özgün iz regresyonları hedefli olarak doğrulanmıştır. Canlı sağlayıcı, tarayıcı, native uygulama veya UI çalıştırılmamıştır.
 
@@ -24,3 +24,7 @@ Araç argümanları ve görsel tahminleri mevcut `total_chars` hesabında kalır
 - Son ek testler dahil doğrulama (70 başarılı, 10,20 saniye): `python -m pytest -o addopts='' -q tests/test_protected_context_budget.py tests/test_ajan_dongusu_d2.py tests/test_d11_tur_bitis.py tests/test_original_trace_runtime.py`.
 - `python -m ruff check src/fusion_cli/engines/agent/context_budget.py src/fusion_cli/engines/agent/loop.py tests/test_protected_context_budget.py`: başarılı.
 - `MYPYPATH=src python -m mypy --follow-imports=silent src/fusion_cli/engines/agent/context_budget.py src/fusion_cli/engines/agent/loop.py`: iki kaynak dosyada hata yok.
+
+Bağımsız inceleme sonrası küçük pencere kontrolü önce 8K/16K için beklenen `ConfigError` ile kırmızı izlendi; model boyuna göre rezerv hesabı düzeltildikten sonra hedefli grup yeniden çalıştırıldı.
+
+Son rezerv düzeltmesinden sonra: `python -m pytest -o addopts='' -q tests/test_protected_context_budget.py tests/test_context_budget.py tests/test_turn_compaction.py tests/test_ajan_dongusu_d2.py tests/test_d11_tur_bitis.py tests/test_original_trace_runtime.py` — **107 başarılı, 14,45 saniye**. Aynı Ruff ve mypy komutları tekrar başarılı; `git diff --check` temiz.

@@ -136,10 +136,8 @@ def fixed_prefix_cap(threshold: int, window_tokens: int | None, system_chars: in
 
 def _window_history_room(window_tokens: int, system_chars: int) -> int:
     """Çıktı/araç payı ve gerçek sistem mesajından sonra kalan geçmiş kapasitesi."""
-    return (
-        (window_tokens - OUTPUT_RESERVE_TOKENS - SYSTEM_AND_TOOLS_RESERVE_TOKENS)
-        * CHARS_PER_TOKEN_ESTIMATE
-    ) - system_chars
+    reserved = min(OUTPUT_RESERVE_TOKENS + SYSTEM_AND_TOOLS_RESERVE_TOKENS, window_tokens // 2)
+    return (window_tokens - reserved) * CHARS_PER_TOKEN_ESTIMATE - system_chars
 
 
 def compression_threshold(
