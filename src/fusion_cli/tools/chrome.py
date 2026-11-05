@@ -79,6 +79,10 @@ def _source_read_scope(operation: str, args: Mapping[str, object], data: object)
         and type(data.get("page")) is int
         and data["page"] == 1
         and data.get("has_more") is False
+        # Already-loaded legacy readers can lose the lookahead at this boundary.
+        # Match JavaScript String.length on raw bridge text, including lone surrogates.
+        and isinstance(data.get("text"), str)
+        and len(data["text"].encode("utf-16-le", errors="surrogatepass")) < 40_000
     ):
         return "document"
     # Snapshot text has a fixed legacy limit without a text completeness receipt.

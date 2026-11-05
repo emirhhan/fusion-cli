@@ -162,8 +162,12 @@ export function pageAction(operation, args) {
       const text = node.nodeValue.replace(/\s+/g, " ").trim();
       const parent = node.parentElement;
       if (!text || !parent || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName) || !isShown(parent)) continue;
-      parts.push(BLOCK.test(getComputedStyle(parent).display) ? `\n${text}` : ` ${text}`);
-      length += text.length + 1;
+      // Count only emitted UTF-16 units: a leading separator would be trimmed,
+      // consuming the text_page lookahead before it reaches the following node.
+      const separator = parts.length ? (BLOCK.test(getComputedStyle(parent).display) ? "\n" : " ") : "";
+      const part = separator + text;
+      parts.push(part);
+      length += part.length;
     }
     return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, limit);
   };
