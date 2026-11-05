@@ -50,7 +50,8 @@ def test_nim_retry_limit_reaches_sdk_transport(tmp_path, retries, mode, attempts
     assert not any(item["max_retries_in_body"] for item in receipt["requests"])
 
 
-def test_retry_override_is_not_added_to_other_transports():
+def test_retry_override_is_not_added_to_other_transports(monkeypatch):
+    monkeypatch.setattr("fusion_cli.providers.litellm_provider.ollama_num_ctx", lambda _: 8192)
     for model in ("openai/gpt-4o", "ollama_chat/qwen3:8b", "nvidia_nim_lookalike/model"):
         kwargs = LiteLlmProvider(model, role="agent")._call_kwargs(request(), stream=True)
         assert "allowed_openai_params" not in kwargs
