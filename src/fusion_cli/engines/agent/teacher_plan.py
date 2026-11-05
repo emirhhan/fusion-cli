@@ -64,6 +64,41 @@ _EXTERNAL_OR_EXPANDED_SCOPE = re.compile(
 )
 _EXPLICIT_TEACHER = re.compile(r"\bask_teacher\b|\böğretmen\w*|\bteacher\b|\bmentor\b")
 
+# A brief static document has an output boundary without requiring users to
+# spell out implementation constraints. Features and extra operations do not.
+_BRIEF_REPORT = re.compile(
+    r"\b(?:kısa|özlü|short|brief|concise)\s+[^.;!?\n]{0,80}\b(?:rapor\w*|report)\b"
+)
+_REJECTED_BRIEF_REPORT = re.compile(
+    r"\b(?:not|never|do\s+not|don't)\b[^.;!?\n]{0,40}\b(?:short|brief|concise)\b|"
+    r"\b(?:short|brief|concise)\s+[^.;!?\n]{0,80}\b(?:is\s+not|isn't|not\s+wanted)\b|"
+    r"\b(?:kısa|özlü)\b[^.;!?\n]{0,80}\b(?:olmayan|olmasın|değil|istemiyorum|"
+    r"hazırlama|oluşturma|yazma)\b"
+)
+_REPORT_EXPANDED_SCOPE = re.compile(
+    r"\b(?:kapsamlı|ayrıntılı|detaylı|karmaşık|comprehensive|exhaustive|detailed|complex|"
+    r"modüler|modular|fetch\w*|refresh\w*|polling)\b|"
+    r"\b(?:cover\w*|across)\s+(?:all|every)\b|"
+    r"\bevery\s+(?:second|minute|hour|day)\b|\bher\s+(?:saniye|dakika|saat|gün)\b|"
+    r"\b(?:tüm|bütün|her)\b[^.;!?\n]{0,80}\b(?:kapsa|incele|analiz|karşılaştır)\w*|"
+    r"\b(?:sil|kaldır|taşı|yeniden\s+adlandır|gönder|düzelt|değiştir)(?:in|iniz|sene|sin)?\b|"
+    r"\b(?:delete|remove|rename|move|overwrite|send|upload|install|execute|fix|edit|refactor)\b"
+)
+_REPORT_FEATURE = (
+    r"(?:etkileşimli|interactive|dashboard|oyun|game|uygulama|application|simulation|"
+    r"simülasyon|grafik\w*|charts?|forms?|düğme\w*|buttons?)"
+)
+_REPORT_FEATURE_DIRECTIVE = re.compile(
+    rf"\b(?:add|build|include|implement|create|with|showing|containing)\s+"
+    rf"(?:(?!(?:about|of|on|report)\b)[\w-]+\s+){{0,6}}{_REPORT_FEATURE}\b|"
+    rf"\b{_REPORT_FEATURE}\b\s+(?:(?!rapor\w*\b)[\w-]+\s+){{0,6}}"
+    r"(?:ekle|kur|yap|oluştur|geliştir|olsun)\w*\b"
+)
+_STATIC_REPORT_FILE = re.compile(r"\.(?:html?|md|txt|rst)$")
+_NON_HTTP_REPORT_SOURCE = re.compile(
+    r"\b(?:file|ftp|sftp|data|javascript|mailto):|\b(?!https?://)[a-z][\w+.-]*://"
+)
+
 # Source domains and document paths are not workspace filenames.
 _SOURCE_URL = re.compile(r"(?:https?://|www\.)[^\s<>\"'`]+", re.IGNORECASE)
 _QUOTED_SCOPE = re.compile(
@@ -94,8 +129,62 @@ def _source_urls_are_read_only(scope: str) -> bool:
     return set(requested_web_urls(scope)) <= set(requested_web_urls(scope, source_reads_only=True))
 
 
+def _is_short_static_report(task: str, scope: str, prose: str) -> bool:
+    refs = tuple(_FILE_REF.finditer(scope))
+    files = {ref.group() for ref in refs}
+    static = {ref for ref in files if _STATIC_REPORT_FILE.search(ref)}
+    if len(static) != 1 or _NON_HTTP_REPORT_SOURCE.search(fold_tr(task)):
+        return False
+    if not any(
+        ref.group() in static and _report_output_target(scope[: ref.start()], scope[ref.end() :])
+        for ref in refs
+    ):
+        return False
+    for ref in refs:
+        if ref.group() in static:
+            continue
+        # Dotted technology names and versions can be subjects, not extra files.
+        before, after = scope[: ref.start()], scope[ref.end() :]
+        if (
+            re.fullmatch(r"\d+(?:\.\d+)+", ref.group())
+            or re.search(r"\b(?:about|of|on)\s+(?:the\s+)?$", before)
+            or re.match(
+                r"[’'](?:s|n?[ıiuü]n)\b|\s+(?:[\w-]+\s+){0,4}(?:release|version|sürüm)\w*\b",
+                after,
+            )
+        ):
+            continue
+        return False
+    return bool(
+        _BRIEF_REPORT.search(prose)
+        and not _REJECTED_BRIEF_REPORT.search(prose)
+        and not _REPORT_EXPANDED_SCOPE.search(prose)
+        and not _REPORT_FEATURE_DIRECTIVE.search(prose)
+        and required_effect_for(task) == EffectKind.WORKSPACE_MUTATION.value
+    )
+
+
+def _report_output_target(before: str, after: str) -> bool:
+    """A source filename cannot stand in for an unspecified output target."""
+    if re.match(
+        r"\s+(?:(?:olarak|adıyla|dosya\w*)\s+){0,2}"
+        r"(?:oluştur|hazırla|yaz|kaydet|aktar)(?!ma|me)\w*\b",
+        after,
+    ):
+        return True
+    destination = re.search(r"\b(?:as|to|into|in)\s+(?:the\s+)?$", before)
+    input_boundary = r"read|from|using" + ("" if destination else r"|about|of")
+    return bool(
+        re.search(
+            r"\b(?:create|write|generate|save|oluştur|hazırla|yaz|kaydet)\b"
+            rf"(?:(?!\b(?:{input_boundary})\b)[^.;!?\n]){{0,160}}$",
+            _FILE_REF.sub(" ", before),
+        )
+    )
+
+
 def is_bounded_single_file_task(task: str) -> bool:
-    """Explicit, short, self-contained one-file work can use the main model directly.
+    """Short static reports or explicitly self-contained work can run directly.
 
     This changes consultation cost only. Tool permissions, actual verification,
     and optional teacher access are separate and stay unchanged.
@@ -105,8 +194,6 @@ def is_bounded_single_file_task(task: str) -> bool:
     folded = _scope_text(task)
     single_file_scopes = tuple(_SINGLE_FILE.finditer(folded))
     dependency_scopes = tuple(_NO_EXTERNAL_DEPENDENCIES.finditer(folded))
-    if not single_file_scopes or not dependency_scopes:
-        return False
     if any(_REJECTED_DEPENDENCY_SCOPE.match(folded, scope.end()) for scope in dependency_scopes):
         return False
     if not _source_urls_are_read_only(folded):
@@ -116,11 +203,16 @@ def is_bounded_single_file_task(task: str) -> bool:
     if any(_REJECTED_SINGLE_FILE.match(folded, scope.end()) for scope in single_file_scopes):
         return False
     folded = _SOURCE_URL.sub(" ", folded)
-    if _EXTERNAL_OR_EXPANDED_SCOPE.search(folded) or _EXPLICIT_TEACHER.search(folded):
+    prose = _FILE_REF.sub(" ", folded)
+    if _EXTERNAL_OR_EXPANDED_SCOPE.search(prose) or _EXPLICIT_TEACHER.search(prose):
         return False
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
         return False
-    return len(set(_FILE_REF.findall(folded))) <= 1
+    if _is_short_static_report(task, folded, prose):
+        return True
+    return bool(
+        single_file_scopes and dependency_scopes and len(set(_FILE_REF.findall(folded))) <= 1
+    )
 
 
 def _is_small_edit(task: str) -> bool:
