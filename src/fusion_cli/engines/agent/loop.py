@@ -4788,6 +4788,26 @@ async def _execute(
     if chrome_call is not None:
         call, args, rules = chrome_call
         tool = registry.get(call.name)
+    # Görülmemiş/eski koordinat için yerel hedef önizlemesi veya onay isteme.
+    # Bu erken kapı yalnız bellek içi kanıtı denetler; dosya içeriği ve nihai
+    # odak/kuşak denetimi onaydan sonra aşağıda yeniden yapılır.
+    if (
+        state is not None
+        and state.desktop_grounding.matching_release(
+            call.name, args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        is None
+    ):
+        grounding_error = state.desktop_grounding.preflight(
+            call.name,
+            args,
+            deps.tool_context,
+            deps.conversation_id,
+            deps.attempt_id,
+            check_content=False,
+        )
+        if grounding_error is not None:
+            return ToolResult.failure(grounding_error), ToolOutcome.BLOCKED
     if tool is not None and (
         tool.mutating
         or tool.effect_resolver is not None

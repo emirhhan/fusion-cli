@@ -238,7 +238,10 @@ class DesktopGrounding:
         context: ToolContext,
         conversation_id: str,
         attempt_id: str | None,
+        *,
+        check_content: bool = True,
     ) -> str | None:
+        """Reject invalid metadata early; read captured bytes only after approval."""
         with self._lock:
             if self.closed:
                 return "Bu aktör turu kapandı; yeni fare eylemi başlatılmadı."
@@ -263,7 +266,7 @@ class DesktopGrounding:
         left, top, width, height = capture.bounds
         if any(not (left <= x <= left + width and top <= y <= top + height) for x, y in points):
             return "Koordinat gözlenen ekran bölgesinin dışında; hedef bölgeyi önce incele."
-        if not capture_file_matches(capture, context):
+        if check_content and not capture_file_matches(capture, context):
             return GROUNDING_REQUIRED
         with self._lock:
             if self.closed or context.cancelled.is_set():
