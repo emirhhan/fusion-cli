@@ -210,6 +210,7 @@ class _MainLandmarkParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.found = False
         self._ancestors: list[tuple[str, bool]] = []
+        self._open_positions: dict[str, list[int]] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
@@ -231,13 +232,22 @@ class _MainLandmarkParser(HTMLParser):
         if not excluded and (role == "main" or (tag == "main" and not role)):
             self.found = True
         if tag not in self._VOID:
+            self._open_positions.setdefault(tag, []).append(len(self._ancestors))
             self._ancestors.append((tag, excluded))
 
     def handle_endtag(self, tag: str) -> None:
-        for index in range(len(self._ancestors) - 1, -1, -1):
-            if self._ancestors[index][0] == tag:
-                del self._ancestors[index:]
-                break
+        positions = self._open_positions.get(tag)
+        if not positions:
+            return
+        # Unknown closers are O(1); matching closers pop each open ancestor once
+        # over the entire parse, including descendants closed by an ancestor tag.
+        boundary = positions[-1]
+        while len(self._ancestors) > boundary:
+            closed_tag, _ = self._ancestors.pop()
+            closed_positions = self._open_positions[closed_tag]
+            closed_positions.pop()
+            if not closed_positions:
+                del self._open_positions[closed_tag]
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)

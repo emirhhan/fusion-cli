@@ -11,3 +11,5 @@ Missing-main is a separate semantic-navigation advisory; native `<main>` and a s
 Primary references:
 - [WCAG 2.5.8 target-size minimum exceptions](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)
 - [WAI-ARIA main landmark examples](https://www.w3.org/WAI/ARIA/apg/patterns/landmarks/examples/main.html)
+
+Parser complexity regression tests count stack reads rather than elapsed time: unknown closing tags use constant-time open-tag lookup, and matched closers remove each open ancestor at most once across the parse. Per-tag position stacks are cleaned with popped descendants, preserving hidden/template context.
