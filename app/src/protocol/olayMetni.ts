@@ -27,6 +27,8 @@ export interface OlayAdimi {
   eventId?: string;
   /** Araç başladı ama henüz bitmedi (`ToolStarted`). */
   basladi?: boolean;
+  /** Tur sona erdi ama araç makbuzu gelmedi; geç gerçek sonuç bunun yerini alabilir. */
+  sonucAlinamadi?: boolean;
   /** Araç bittiyse sonucu: ok | failed | denied | blocked. */
   durum?: string;
   /** Başlığı açan tek satır: rol, model, dosya yolu. */
