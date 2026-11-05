@@ -90,3 +90,59 @@ SHA-256 fingerprints:
 No approval to integrate the blocked metadata source; no installed app, original
 checkout or package mutation occurred. Source-read evidence proves reading, not
 semantic correctness/freshness of the resulting report.
+
+## Final independent re-review: approved fixes
+
+Reviewed immutable archive: `064646fc` (`src`, `tests`, `pyproject.toml`) in the
+reviewer's task workspace `work/pinned-review/064646fc`. This avoids concurrent
+uncommitted teacher-budget and contact-form changes; neither was reviewed here.
+
+**APPROVE** the following finite scopes; no HIGH/CRITICAL findings remain:
+
+- `0e384844`: instruction omission measurement is bounded to 4 MiB plus one
+  **character**, not UTF-8 bytes, with a cooperative 50 ms diagnostic read loop.
+  This is not a hard wall-clock deadline for an individual filesystem read.
+  Exact bounded-EOF counts remain exact; cap/time-limited samples explicitly
+  expose a lower bound and `trimmed_exact=False`. RPC uses `kirpilan:null` plus
+  the lower-bound/exact fields, and audit text/notes preserve that uncertainty.
+  Only actually loaded files generate startup hook events.
+- `30884bbc`: the three reported mixed-source cases are corrected; source
+  research verbs and read-object binding are shared with bounded teacher
+  classification. Workspace mutation plus independent named-source evidence
+  remains required. Quoted/negated/link-only controls and continuations pass.
+- `ab67554d`: prompt permits reporting a passing recovery check in the same
+  scope while retaining prior failure and untested-scope honesty; program test
+  writes are isolated from real user data instead of imposing a blanket HOME
+  reset. Existing compression/constraint tests pass; prompt length is 6096
+  characters against the 6100-character budget.
+- `b27992c3`: raw teacher opinions remain internal advisory context and visibly
+  qualified activity; they are not automatically promoted into final external
+  facts or user constraints. Real blocked outcomes and an independently
+  unverified-platform warning remain intact.
+
+Independent frozen-source verification:
+
+- Ruff passed for all twelve source modules in the combined review scope.
+- Mypy passed for the same twelve source modules.
+- **214 passed in 27.22 seconds**, including all four original external
+  adversarial tests that previously failed.
+- Additional measured Unicode probe: 8 Mi characters / 16 MiB file includes
+  4 Mi characters, reports omitted lower bound 1 with exact=False, and completes
+  in 0.0083 seconds on this machine. A small Unicode/frontmatter control reports
+  the exact five omitted body characters. This comparison supports removal of
+  the previous EOF scan; it is not a universal filesystem latency guarantee.
+- Independent teacher success/failure controls preserve both outcome status and
+  genuine outcome text, disclose unverified platform state and omit imagined
+  teacher limitations.
+- Full combined test log: task workspace
+  `work/reliability-v2/python-pinned0646-review.log`.
+- Exact SHA-256 fingerprints for thirteen reviewed files, including the frozen
+  `teacher_flow.py` from b27992c3 and prompt text, are saved in task workspace
+  `work/reliability-v2/python-pinned0646-source-hashes.json`.
+- Terminal session 27040 completed exit 0; no reviewer sessions remain active.
+
+No production source, original checkout, app or package was changed by this
+review. The earlier blocked/warning assessments above remain historical evidence;
+these scoped fixes resolve them. This is not approval of concurrent contact
+verification or teacher timeout-budget work, nor proof of semantic source
+freshness or overall Fusion task quality.
