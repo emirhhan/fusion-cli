@@ -27,3 +27,26 @@ across fifteen product files and two preserved independent review files passed
 continuation admission test. Ruff check/format and detector mypy passed.
 Independent Python/general review and application integration remain pending;
 no original checkout, installed app, runtime package or user config changed.
+
+## Spaced filename terminal boundary follow-up
+
+Independent general review found that the terminal legacy filename alias still
+accepted a preposition as the filename stem: `about HTML`, `of HTML` and
+`using HTML` were interpreted as filenames. The modifier boundary alone could
+not stop this backtracking path. A real summary-only engine run consequently
+failed while demanding an unrequested file mutation.
+
+The same structural boundary now applies to the terminal English output filename,
+including direct and destination targets. Explicit dotted filenames such as
+`about.html`, `using.html` and `of.html` remain valid; deliberate legacy
+`index html` remains supported. The global filename grammar and input reader
+semantics were not changed. Explanation/topic and README input controls assert
+both absence of mutation and absence of web/source obligations.
+
+Before the fix, three owned policy regressions and all four independent general
+regressions failed (seven failures, 29 passing controls). The focused final run
+passed all 36 tests, including the independent actual summary-only engine case.
+The broader follow-up run passed 427 tests across fifteen product modules and
+three preserved independent review files in 39.12 seconds. The same upstream
+Pydantic warning remains. Ruff check/format, detector mypy and diff whitespace
+checks passed. This follow-up awaits independent final review and integration.

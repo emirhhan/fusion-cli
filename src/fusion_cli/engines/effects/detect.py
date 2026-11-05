@@ -458,21 +458,24 @@ _SOURCE_DATA_QUOTE = re.compile(
 )
 # A filename object may have arbitrary modifiers. Prepositions/complement
 # boundaries end that object: an input mentioned "using/from X" is not X's output.
-_EN_FILE_OBJECT = (
-    r"(?:(?!(?:from|using|via|about|how|to|as|into|of|with|in|on|for|without|based|"
-    r"that|which|where|whose)\s)[\w-]+\s+){0,8}"
-    rf"{_FILENAME}"
+_EN_OBJECT_BOUNDARY = (
+    r"(?:from|using|via|about|how|to|as|into|of|with|in|on|for|without|based|"
+    r"that|which|where|whose)"
 )
+# The legacy spaced alias ("index html") must respect the same boundary as
+# modifiers: "about HTML" is a topic, while "about.html" is an explicit file.
+_EN_OUTPUT_FILENAME = rf"(?!{_EN_OBJECT_BOUNDARY}\s){_FILENAME}"
+_EN_FILE_OBJECT = rf"(?:(?!{_EN_OBJECT_BOUNDARY}\s)[\w-]+\s+){{0,8}}{_EN_OUTPUT_FILENAME}"
 _DIRECT_EN_FILE_MUTATION = re.compile(rf"\b{_EN_MUTATION_VERBS}\s+{_EN_FILE_OBJECT}")
 _DESTINATION_EN_FILE_MUTATION = re.compile(
     rf"\b{_EN_MUTATION_VERBS}\b.{{0,160}}\b(?:to|as|into)\s+"
-    rf"(?:(?:a|an|the)\s+)?(?:file\s+)?{_FILENAME}"
+    rf"(?:(?:a|an|the)\s+)?(?:file\s+)?{_EN_OUTPUT_FILENAME}"
 )
 _OUTPUT_FILE_TARGET = re.compile(
     rf"{_FILENAME}(?:['’]?(?:ya|ye|a|e))?(?:\s+dosya\w*)?\s+"
     r"(?:oluştur|olustur|yaz|kaydet|aktar)\w*\b|"
     rf"\b(?:create|write|generate|save)\s+{_EN_FILE_OBJECT}|"
-    rf"\b(?:to|as|into)\s+(?:(?:a|an|the)\s+)?(?:file\s+)?{_FILENAME}(?:\s+file)?"
+    rf"\b(?:to|as|into)\s+(?:(?:a|an|the)\s+)?(?:file\s+)?{_EN_OUTPUT_FILENAME}(?:\s+file)?"
 )
 _LOCAL_RESEARCH_INPUT = re.compile(
     r"\b(?:yerel|local|workspace|readme|changelog|dosya\w*|git diff|git log)\b|"

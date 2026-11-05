@@ -5,6 +5,7 @@ import pytest
 from fusion_cli.engines.effects.detect import required_effect_for
 from tests.test_mixed_current_research import (
     assert_research_and_artifact_required,
+    policy,
 )
 from tests.test_mixed_current_research import (
     test_actual_ordinary_report_engine_rejects_one_sided_evidence as run_report_case,
@@ -47,7 +48,21 @@ async def test_actual_modified_artifact_does_not_complete_on_one_sided_evidence(
         "Read the instructions from report.html.",
         "Create an example using input.py.",
         "Create a summary based on README.md.",
+        "Create a summary about HTML.",
+        "Create a short explanation of HTML.",
+        "Create a short guide using HTML.",
     ],
 )
 def test_explanations_and_source_file_mentions_are_not_output_objects(task):
     assert required_effect_for(task) is None
+    execution = policy(task)
+    assert execution.required_effect is None
+    assert not execution.requires_web_lookup
+    assert not execution.required_web_urls
+
+
+@pytest.mark.parametrize(
+    "filename", ["about.html", "using.html", "of.html", "index html", "report.html"]
+)
+def test_explicit_boundary_word_filenames_and_legacy_alias_remain_outputs(filename):
+    assert required_effect_for(f"Create {filename}.") == "workspace_mutation"
