@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 const OUTPUT_QUEUE_CAPACITY: usize = 128;
@@ -227,15 +227,34 @@ impl TerminalManager {
             }
             terminals.drain().collect()
         };
-        for (_, terminal) in terminals {
+        // Signal every owned child before waiting for any child or UI callback.
+        let closing: Vec<_> = terminals
+            .into_iter()
+            .map(|(_, terminal)| {
+                let mut child = terminal.child.lock().unwrap().take();
+                let kill_result = child
+                    .as_mut()
+                    .map_or(Ok(()), |child| match child.try_wait() {
+                        Ok(Some(_)) => Ok(()),
+                        Ok(None) => child.kill(),
+                        Err(error) => Err(error),
+                    });
+                (terminal, child, kill_result)
+            })
+            .collect();
+        let delivery_deadline =
+            Instant::now() + KAPANIS_TESLIM_ZAMAN_ASIMI + KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI;
+        let mut delivering = Vec::new();
+        for (terminal, child, kill_result) in closing {
             #[cfg(test)]
-            let pid = terminal
-                .child
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|child| child.process_id());
-            let close_result = close_terminal(terminal);
+            let pid = child.as_ref().and_then(|child| child.process_id());
+            let wait_result = match child {
+                Some(mut child) => child.wait().map(|_| ()),
+                None => Ok(()),
+            };
+            let close_result = kill_result.and(wait_result);
+            terminal.writer.lock().unwrap().take();
+            terminal.master.lock().unwrap().take();
             #[cfg(test)]
             if close_result.is_ok() {
                 if let Some(pid) = pid {
@@ -243,6 +262,10 @@ impl TerminalManager {
                 }
             }
             let _ = close_result;
+            delivering.push(terminal);
+        }
+        for terminal in delivering {
+            wait_for_close_delivery_until(&terminal, delivery_deadline);
         }
     }
 
@@ -338,11 +361,20 @@ const KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI: Duration = Duration::from_millis(500);
 /// kilitliyordu (R2-03). Süre dolarsa olayı biz kuyruğa koyarız; ikinci bekleme
 /// de dolarsa vazgeçilir.
 fn wait_for_close_delivery(terminal: &ManagedTerminal) {
-    if bekle_teslim(terminal, KAPANIS_TESLIM_ZAMAN_ASIMI) {
+    wait_for_close_delivery_until(
+        terminal,
+        Instant::now() + KAPANIS_TESLIM_ZAMAN_ASIMI + KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI,
+    );
+}
+
+fn wait_for_close_delivery_until(terminal: &ManagedTerminal, deadline: Instant) {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if bekle_teslim(terminal, KAPANIS_TESLIM_ZAMAN_ASIMI.min(remaining)) {
         return;
     }
     queue_closed_once(terminal, None);
-    bekle_teslim(terminal, KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI);
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    bekle_teslim(terminal, KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI.min(remaining));
 }
 
 fn bekle_teslim(terminal: &ManagedTerminal, sure: Duration) -> bool {
@@ -1278,6 +1310,61 @@ mod tests {
 
         wait_for_output(&outputs, &snapshot.terminal_id, b"fusion-after-interrupt");
         manager.close_all();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn close_all_stops_every_owned_child_before_waiting_for_blocked_event_delivery() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let callback_release = release.clone();
+        let manager = Arc::new(TerminalManager::new(
+            |_| {},
+            move |_| {
+                let (lock, wake) = &*callback_release;
+                let released = lock.lock().unwrap();
+                drop(wake.wait_while(released, |released| !*released).unwrap());
+            },
+        ));
+        let pids: Vec<_> = (0..3)
+            .map(|_| {
+                manager
+                    .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
+                    .unwrap()
+                    .pid
+                    .unwrap()
+            })
+            .collect();
+        let closing_manager = manager.clone();
+        let worker = std::thread::spawn(move || closing_manager.close_all());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let all_exited = || {
+            pids.iter().all(|pid| {
+                // SAFETY: signal zero only observes the exact PTY fixture PIDs.
+                unsafe { libc::kill(*pid as i32, 0) != 0 }
+            })
+        };
+        while !all_exited() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let exited_before_delivery = all_exited();
+        let return_deadline = Instant::now() + Duration::from_secs(3);
+        while !worker.is_finished() && Instant::now() < return_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let finished_without_delivery = worker.is_finished();
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        worker.join().unwrap();
+        assert!(
+            exited_before_delivery,
+            "a blocked event callback delayed stopping another owned terminal"
+        );
+        assert!(
+            finished_without_delivery,
+            "callback waits multiplied the terminal batch deadline"
+        );
     }
 
     #[test]

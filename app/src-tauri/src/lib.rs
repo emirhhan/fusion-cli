@@ -621,11 +621,17 @@ enum CleanupStep {
 }
 
 fn cleanup_scope(scope: ShutdownScope, owners: &AppCleanupOwners<'_>) {
-    owners.stop_speech();
-    if matches!(scope, ShutdownScope::Application) {
-        owners.stop_sessions();
-        owners.close_terminals();
-        owners.stop_kits();
+    if matches!(scope, ShutdownScope::Talk) {
+        owners.stop_speech();
+    } else {
+        // Independent owners must all begin cleanup before any slow owner uses
+        // the application's global shutdown deadline.
+        std::thread::scope(|scope| {
+            scope.spawn(|| owners.stop_speech());
+            scope.spawn(|| owners.stop_sessions());
+            scope.spawn(|| owners.close_terminals());
+            scope.spawn(|| owners.stop_kits());
+        });
     }
 }
 
@@ -1385,7 +1391,7 @@ mod shutdown_tests {
     }
 
     #[test]
-    fn cleanup_route_for_every_application_event_stops_actual_managers_in_order() {
+    fn cleanup_route_for_every_application_event_stops_each_actual_manager_once() {
         #[cfg(unix)]
         let foreign_kits =
             kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
@@ -1419,21 +1425,71 @@ mod shutdown_tests {
                 assert!(foreign_kits.is_running(), "unowned Kits must be preserved");
                 assert!(foreign_kits.descendant_alive());
             }
-            assert_eq!(
-                *order.lock().expect("cleanup order kilidi"),
-                [
-                    CleanupStep::Speech,
-                    CleanupStep::Session,
-                    CleanupStep::Terminal,
-                    CleanupStep::Kits,
-                    CleanupStep::Speech,
-                    CleanupStep::Session,
-                    CleanupStep::Terminal,
-                    CleanupStep::Kits,
-                ]
-            );
+            let recorded = order.lock().expect("cleanup order kilidi");
+            assert_eq!(recorded.len(), 8);
+            for step in [
+                CleanupStep::Speech,
+                CleanupStep::Session,
+                CleanupStep::Terminal,
+                CleanupStep::Kits,
+            ] {
+                assert_eq!(recorded.iter().filter(|actual| **actual == step).count(), 2);
+            }
             fixture.cleanup_and_assert_no_children();
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn application_cleanup_stops_nine_stubborn_sessions_and_kits_with_one_grace_period() {
+        let fixture = LifecycleFixture::new();
+        for index in 0..9 {
+            fixture
+                .sessions
+                .start_test_child_stdin_okumayan(&format!("stubborn-{index}"))
+                .expect("owned stubborn session starts");
+        }
+        let foreign_kits =
+            kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
+        let speech = fixture.speech.clone();
+        let sessions = fixture.sessions.clone();
+        let terminals = fixture.terminals.clone();
+        let kits = fixture.kits.clone();
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            let owners =
+                AppCleanupOwners::from_managers(&speech, &sessions, &terminals, &kits, None);
+            cleanup_route(ShutdownRoute::NativeMainClose, &owners);
+        });
+        let kits_deadline = started + Duration::from_secs(1);
+        while fixture.kits_child.is_running() && Instant::now() < kits_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let kits_stopped_before_deadline =
+            !fixture.kits_child.is_running() && !fixture.kits_child.descendant_alive();
+        let deadline = started + Duration::from_secs(4);
+        while !worker.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let finished_before_deadline = worker.is_finished();
+        // Even the red run must finish/reap every owned fixture before asserting.
+        worker.join().expect("owned cleanup worker finishes");
+        assert!(foreign_kits.is_running(), "unowned Kits must remain alive");
+        assert!(foreign_kits.descendant_alive());
+        assert!(
+            kits_stopped_before_deadline,
+            "serial session waits starved Kits cleanup"
+        );
+        assert!(
+            finished_before_deadline,
+            "per-session waits multiplied the grace period: {:?}",
+            started.elapsed()
+        );
+        assert!(fixture
+            .sessions
+            .list()
+            .iter()
+            .all(|snapshot| snapshot.durum == "kapandi"));
     }
 
     #[test]

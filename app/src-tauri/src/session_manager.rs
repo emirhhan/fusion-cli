@@ -1,4 +1,4 @@
-use crate::core_process::{core_launch, stop_child, validate_runtime_executable};
+use crate::core_process::{core_launch, stop_child, stop_children, validate_runtime_executable};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
@@ -286,10 +286,18 @@ impl SessionManager {
     }
 
     pub(crate) fn stop_all(&self) {
-        let ids: Vec<_> = lock_tolerant(&self.sessions).keys().cloned().collect();
-        for id in ids {
-            let _ = self.stop(&id);
-        }
+        let children = {
+            let mut sessions = lock_tolerant(&self.sessions);
+            sessions
+                .values_mut()
+                .filter_map(|session| {
+                    session.stdin = None;
+                    session.snapshot.mark_closed("kullanıcı kapattı");
+                    session.child.take()
+                })
+                .collect()
+        };
+        stop_children(children);
     }
 
     #[cfg(test)]
@@ -354,21 +362,23 @@ impl SessionManager {
 
     /// Stdin'ini hiç okumayan bir çocuk başlatır (yazım borusu dolunca bloklanır).
     #[cfg(test)]
-    fn start_test_child_stdin_okumayan(&self, session_id: &str) -> Result<u32, String> {
-        let mut child = Command::new(
+    pub(crate) fn start_test_child_stdin_okumayan(&self, session_id: &str) -> Result<u32, String> {
+        let mut command = Command::new(
             std::env::current_exe().map_err(|error| format!("test ikilisi bulunamadı: {error}"))?,
-        )
-        .args([
-            "--exact",
-            "session_manager::testler::session_test_helper_uyku",
-            "--ignored",
-            "--nocapture",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
+        );
+        command
+            .args([
+                "--exact",
+                "session_manager::testler::session_test_helper_uyku",
+                "--ignored",
+                "--nocapture",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = crate::core_process::kendi_grubunda(&mut command)
+            .spawn()
+            .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
         let stdin = child.stdin.take().ok_or("test session stdin alınamadı")?;
         let pid = child.id();
         lock_tolerant(&self.sessions).insert(
