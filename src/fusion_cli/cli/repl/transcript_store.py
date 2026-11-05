@@ -618,6 +618,20 @@ class TranscriptStore:
             }
         )
 
+    def record_presented_assistant(
+        self, text: str, *, evidence: dict[str, object], message_id: str | None = None
+    ) -> bool:
+        """Write desktop text and its public proof together; model loaders ignore metadata."""
+        return self._append(
+            {
+                "event": "TurnAnswered",
+                "channel": "text",
+                "text": strip_harness_leaks(text),
+                "kanit": evidence,
+                **({"message_id": message_id} if message_id else {}),
+            }
+        )
+
     def record_name(self, name: str) -> None:
         """Sohbete ad ver (`/rename`, `--name`). Son ad geçerlidir."""
         self._append({"event": _NAME_EVENT, "name": name})
@@ -666,9 +680,9 @@ class TranscriptStore:
             payload["text"] = strip_harness_leaks(payload["text"])
         self._append(payload)
 
-    def _append(self, payload: dict[str, Any]) -> None:
+    def _append(self, payload: dict[str, Any]) -> bool:
         if _conversation_digest(self.session_id) in _deleted_conversations(self.base_dir):
-            return
+            return False
         payload = {
             "session_id": self.session_id,
             "timestamp": time.time(),
@@ -682,9 +696,13 @@ class TranscriptStore:
             # Kalıcı sohbet günlüğü eklemelidir; döndürme başka sohbetleri kaybettirir.
             with self.events_path.open("a", encoding="utf-8") as handle:
                 handle.write(line)
+        except (OSError, UnicodeError):
+            return False
+        # Permission tightening is best effort, as at directory creation. Once
+        # the complete row is written, failure here must not cause a duplicate.
+        with contextlib.suppress(OSError):
             self.events_path.chmod(0o600)
-        except OSError:
-            return
+        return True
 
 
 def current_git_branch(root: Path) -> str:

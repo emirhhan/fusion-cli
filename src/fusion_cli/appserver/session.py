@@ -28,7 +28,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import partial
 from itertools import count
 from pathlib import Path
@@ -46,6 +46,7 @@ from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.task_list import session_todos
 from ..cli.repl.transcript_store import (
     TranscriptStore,
+    _workspace_digest,
     delete_conversation,
     list_conversations,
     load_transcript_messages,
@@ -80,7 +81,7 @@ from ..core.remotion_browser import RemotionBrowser
 from ..core.session_cron import CronTask, SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
-from ..core.submission import SubmissionReceipt, SubmissionRepository
+from ..core.submission import SubmissionKey, SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
@@ -92,7 +93,6 @@ from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.skill_turn import resolve_turn_model
 from ..engines.agent.team_fork import run_forked_turn
-from ..engines.agent.turn_report import evidence_payload
 from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
@@ -158,6 +158,7 @@ from .control import (
 )
 from .conversation_title import conversation_title
 from .daemon_thread import run_in_daemon_thread
+from .delivery_presentation import present_delivery
 from .desktop_activity import DesktopActivity
 from .desktop_dock import DesktopDock
 from .desktop_permission_routes import (
@@ -475,6 +476,22 @@ class _MeteredSink:
 # Uygulamanın ön yüzü ilk sekmesini bu kimlikle açar; ikisi aynı olmazsa açılış
 # turu ile sekmenin geçmişi ayrışır.
 FALLBACK_CONVERSATION_ID = "varsayilan"
+
+
+@dataclass(frozen=True)
+class _DeliveryOwner:
+    store: TranscriptStore
+    key: SubmissionKey
+    store_id: str
+    generation: int
+
+    def valid(self) -> bool:
+        return (
+            self.store.root == Path(self.key.root)
+            and self.store.base_dir
+            == Path(self.key.profile_id) / "transcripts" / _workspace_digest(Path(self.key.root))
+            and self.store.session_id == self.store_id
+        )
 
 
 def export_payload(history: list[Message], data: dict[str, Any]) -> dict[str, Any]:
@@ -3029,6 +3046,18 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_COMMAND_UNKNOWN}
         return {"ok": True, "secici": payload}
 
+    def _capture_delivery_owner(self, key: SubmissionKey) -> _DeliveryOwner | None:
+        store = self._transcript_store
+        owner = _DeliveryOwner(store, key, store.session_id, self._visible_generation)
+        alias = (
+            self._conversation_id is None
+            and key.conversation_id == FALLBACK_CONVERSATION_ID
+            and self._state.conversation_id == store.session_id
+        )
+        return (
+            owner if owner.valid() and (store.session_id == key.conversation_id or alias) else None
+        )
+
     async def _submit_turn(self, request: Request) -> dict[str, Any]:
         """Yanıt bekleyicisinin iptali kabul edilmiş görevi iptal etmez."""
         if self._closed:
@@ -3063,6 +3092,7 @@ class AppSession:
             self._conversation_id or FALLBACK_CONVERSATION_ID,
             str(request.data["gonderim_id"]),
         )
+        delivery_owner = self._capture_delivery_owner(key)
         async with self._admission_lock:
             try:
                 existing = await self._submission_store.lookup(key)
@@ -3126,6 +3156,7 @@ class AppSession:
                         self._state.config,
                         self._state.auto_profile,
                         profile_generation,
+                        delivery_owner,
                     )
                 )
                 self._submission_task = owned
@@ -3152,6 +3183,7 @@ class AppSession:
         config_snapshot: Config | None = None,
         auto_profile_snapshot: bool | None = None,
         profile_generation_snapshot: int | None = None,
+        delivery_owner_snapshot: _DeliveryOwner | None = None,
     ) -> dict[str, Any]:
         """Sonuç metadata'sının sahibi transport handler değil yürütme görevidir."""
         import sqlite3
@@ -3178,6 +3210,7 @@ class AppSession:
                 config_snapshot=config_snapshot,
                 auto_profile_snapshot=auto_profile_snapshot,
                 profile_generation_snapshot=profile_generation_snapshot,
+                delivery_owner_snapshot=delivery_owner_snapshot,
             )
             result = self._with_steering_leftover(result)
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
@@ -3226,6 +3259,7 @@ class AppSession:
         config_snapshot: Config | None = None,
         auto_profile_snapshot: bool | None = None,
         profile_generation_snapshot: int | None = None,
+        delivery_owner_snapshot: _DeliveryOwner | None = None,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -3243,6 +3277,15 @@ class AppSession:
             task = self._state.take_persona_initial(task)
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
+        if not browser_only and receipt is None and delivery_owner_snapshot is None:
+            delivery_owner_snapshot = self._capture_delivery_owner(
+                SubmissionKey(
+                    str(self._state.config.memory_dir.resolve()),
+                    str(self._root.resolve()),
+                    self._conversation_id or FALLBACK_CONVERSATION_ID,
+                    "",
+                )
+            )
         await self._iptal_edilen_turu_bekle()
         if self._turn is not None or self._goal_judging():
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
@@ -3393,7 +3436,10 @@ class AppSession:
 
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
+        execution_binding: tuple[str, str, str, int] | None = None
+
         async def execute_turn() -> AgentOutcome:
+            nonlocal execution_binding
             nonlocal config
             if select_auto_profile:
                 from ..config.profile import auto_turn_config
@@ -3461,6 +3507,12 @@ class AppSession:
                     memory_block,
                 )
                 if part
+            )
+            execution_binding = (
+                str(config.memory_dir.resolve()),
+                str(self._state.root.resolve()),
+                self._conversation_id or FALLBACK_CONVERSATION_ID,
+                self._visible_generation,
             )
             return await run_agent_task(
                 task,
@@ -3639,15 +3691,50 @@ class AppSession:
         # `198b3a19…` sohbeti 8 soru ve 0 cevap taşıyor. Sekme yeniden açıldığında
         # model kendi ne dediğini göremiyor ve kaldığı yerden süremiyor — oysa
         # duraklama metni tam da devam etmek için gereken bilgidir.
-        if outcome.final_text.strip():
-            if receipt is None:
-                self._transcript_store.record_assistant(outcome.final_text)
-            else:
-                self._transcript_store.record_assistant(
-                    outcome.final_text, message_id=f"{receipt.key.request_id}:assistant"
+        presentation = present_delivery(task, outcome)
+        expected_binding = (
+            (
+                delivery_owner_snapshot.key.profile_id,
+                delivery_owner_snapshot.key.root,
+                delivery_owner_snapshot.key.conversation_id,
+                delivery_owner_snapshot.generation,
+            )
+            if delivery_owner_snapshot is not None
+            else None
+        )
+        if presentation.compact and (execution_binding != expected_binding or switched):
+            presentation = replace(
+                presentation,
+                text=outcome.final_text,
+                compact=False,
+                evidence={k: v for k, v in (presentation.evidence or {}).items() if k != "sunum"},
+            )
+        delivered_text = outcome.final_text
+        delivered_evidence = presentation.evidence
+        delivery_store = (
+            delivery_owner_snapshot.store
+            if delivery_owner_snapshot is not None and delivery_owner_snapshot.valid()
+            else None
+        )
+        if outcome.final_text.strip() and delivery_store is not None:
+            identifier = f"{receipt.key.request_id}:assistant" if receipt else None
+            if presentation.evidence is not None:
+                saved = delivery_store.record_presented_assistant(
+                    presentation.text, evidence=presentation.evidence, message_id=identifier
                 )
+                if saved:
+                    delivered_text = presentation.text
+                else:
+                    delivered_evidence = {
+                        k: v for k, v in presentation.evidence.items() if k != "sunum"
+                    }
+                    delivery_store.record_assistant(outcome.final_text, message_id=identifier)
+            else:
+                delivery_store.record_assistant(outcome.final_text, message_id=identifier)
+        elif presentation.compact and delivered_evidence is not None:
+            delivered_evidence = {k: v for k, v in delivered_evidence.items() if k != "sunum"}
         # Boş metinle "başarısız" dönmek kullanıcıya hiçbir şey söylemez.
-        metin = outcome.final_text
+        metin = delivered_text
         if not metin.strip() and not outcome.ok:
             metin = (
                 turn_stopped_summary(outcome.stop_reason, outcome.todos)
@@ -3656,9 +3743,10 @@ class AppSession:
             )
             # Özet de "ne oldu" kaydıdır: sekme yeniden açıldığında "devam et"
             # turunun modeli neyin kaldığını buradan görür.
-            self._transcript_store.record_assistant(
-                metin, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
-            )
+            if delivery_store is not None:
+                delivery_store.record_assistant(
+                    metin, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
+                )
         if journal is not None:
             if outcome.ok:
                 # Transcript sonucu kaydedildikten sonra tamamlanmış günlük kaldırılır.
@@ -3688,6 +3776,7 @@ class AppSession:
                 receipt=receipt,
                 event_sequence=event_sequence,
                 config_snapshot=config,
+                delivery_owner_snapshot=delivery_owner_snapshot,
             )
             if receipt is not None:
                 continued["_retry_safe"] = False
@@ -3715,9 +3804,8 @@ class AppSession:
                 and getattr(outcome, "tool_uses", None) == ()
                 and effect_sink.permits_retry(outcome_entry, retry_prefix)
             )
-        kanit = evidence_payload(getattr(outcome, "completion_report", None))
-        if kanit is not None:
-            cevap["kanit"] = kanit
+        if delivered_evidence is not None:
+            cevap["kanit"] = delivered_evidence
         # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
         for notice in self._state.approval_memory.take_notices():
             self._note_persist_warning(messages.PERMISSION_RULE_SAVED.format(summary=notice))

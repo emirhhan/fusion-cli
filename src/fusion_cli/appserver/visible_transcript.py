@@ -19,6 +19,7 @@ from ..cli.repl.transcript_store import (
 from ..core.leak_filter import is_harness_note, strip_harness_leaks
 from ..core.redaction import contains_sensitive, redact
 from ..core.types import Message
+from .delivery_presentation import public_delivery_evidence
 from .history_view import _text_row, visible_history
 
 TOOL_EVENT = "VisibleToolExecuted"
@@ -419,6 +420,8 @@ def _bounded_row(row: dict[str, object], session_id: str) -> tuple[dict[str, obj
         return None, False
     safe = redact(text)
     projected = {**row, "metin": _clip(safe, 16000)}
+    if "kanit" in row:
+        projected["kanit"] = public_delivery_evidence(row["kanit"])
     truncated = len(safe) > 16000
     # Findings are an optional structured card, never an exemption from the row budget.
     if len(json.dumps(projected, ensure_ascii=False)) > MAX_ROW_BYTES:
@@ -558,6 +561,9 @@ def load_visible_transcript(
                 ),
                 findings_turn,
             )
+            if event == "TurnAnswered" and "kanit" in record:
+                row["kanit"] = public_delivery_evidence(record["kanit"])
+                durable = True
             # Apply the common row projection below, including truncation metadata.
         else:
             continue  # No token streams, raw legacy tools, or other private events.

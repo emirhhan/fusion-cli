@@ -233,6 +233,14 @@ def is_bounded_single_file_task(task: str) -> bool:
     )
 
 
+def is_short_static_report_task(task: str) -> bool:
+    """Pure document scope, independent of teacher settings or executable app scope."""
+    if not is_bounded_single_file_task(task):
+        return False
+    scope = _SOURCE_URL.sub(" ", _scope_text(task))
+    return _is_short_static_report(task, scope, _FILE_REF.sub(" ", scope))
+
+
 def _is_small_edit(task: str) -> bool:
     """Tek belge dosyası ya da açıkça "tek satır" denen küçük düzenleme mi?
 
