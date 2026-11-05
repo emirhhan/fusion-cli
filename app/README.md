@@ -12,7 +12,7 @@ veya CLI kurulumu istemez.
 ## Geliştirici gereksinimleri
 
 - Node.js 22
-- Güncel kararlı Rust toolchain
+- Rust 1.90 veya üzeri (Tauri 2.12 gereksinimi)
 - Python 3.11 veya üzeri ve depo kökündeki `.venv`
 - Python ekstraları: `.[desktop,mcp,gateway]`
 
@@ -43,6 +43,10 @@ npm run tauri dev   # yerel uygulamayı aç
 npm run check       # React, TypeScript ve Rust kalite kapıları
 npm run bundle:mac  # Kits + paketli runtime + imzasız Fusion.app ve DMG
 ```
+
+`check` ve `check:ci`, Rust derlemesinden sonra `test:tauri-events` testini de
+çalıştırır. Bu test kilitli Tauri sürümünün gerçek olay temizleme betiğini kullanır;
+tek başına çalıştırmadan önce `src-tauri` içinde `cargo fetch --locked` gerekir.
 
 Paket her zaman Fusion Kits'i içerir; `bundle:mac` önce `kits:prepare` ile Kits'i
 son commit'ten derleyip paketler (Node 24+ için `FUSION_KITS_NODE`, ayrıntı:
