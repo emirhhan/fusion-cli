@@ -79,6 +79,7 @@ _REPORT_EXPANDED_SCOPE = re.compile(
     r"\b(?:kapsamlı|ayrıntılı|detaylı|karmaşık|comprehensive|exhaustive|detailed|complex|"
     r"modüler|modular|refresh\w*|polling)\b|"
     r"\b(?:that|which|should|must)\s+fetch\w*\b|"
+    r"\bon(?:\s+page)?\s*load\b|\b(?:uses?|using)\s+(?:the\s+)?fetch\b|"
     r"\b(?:whenever|when)\b[^.;!?\n]{0,40}\bpage\s+opens\b|"
     r"\b(?:cover\w*|across)\s+(?:all|every)\b|"
     r"\bevery\s+(?:second|minute|hour|day)\b|\bher\s+(?:saniye|dakika|saat|gün)\b|"
@@ -216,7 +217,11 @@ def is_bounded_single_file_task(task: str) -> bool:
         return False
     # "Fetch the source" is a read instruction, not a runtime dependency.
     # Actual runtime/cadence/features remain vetoes inside the report predicate.
-    report_scope = re.sub(r"\bfetch\b", " ", prose)
+    report_scope = (
+        re.sub(r"\bfetch\b", " ", prose)
+        if requested_web_urls(task, source_reads_only=True)
+        else prose
+    )
     if _is_short_static_report(task, folded, prose) and not _EXTERNAL_OR_EXPANDED_SCOPE.search(
         report_scope
     ):

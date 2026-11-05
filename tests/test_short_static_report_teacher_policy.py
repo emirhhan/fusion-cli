@@ -125,6 +125,16 @@ def test_expanded_or_external_report_work_keeps_automatic_plan(extra):
             "ayrıca bir sıralama algoritması geliştir ve test et."
         ),
         "Create a brief HTML report report.html and replace the broken sorting implementation.",
+        "Create a brief HTML report in report.html; fetch the source on page load.",
+        "Create a brief HTML report in report.html that uses fetch to update itself.",
+        (
+            "Fetch https://example.org/news and create a brief HTML report in report.html; "
+            "fetch the source on page load."
+        ),
+        (
+            "Fetch https://example.org/news and create a brief HTML report "
+            "in report.html that uses fetch to update itself."
+        ),
     ],
 )
 def test_missing_or_rejected_bounded_report_scope_stays_conservative(task):
