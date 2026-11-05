@@ -7,6 +7,37 @@ const payload = {schema_version: 1, dogrulandi: true, engelliyor: false,
   yanlis_iddia: false, degisen: ["a.py"], sorunlar: [], degisen_sayisi: 60};
 const documentPayload={...payload,degisen:["rapor.html"],degisen_sayisi:1,sunum:"document"};
 
+it("zayıflatılan test metadatası doğrulanmış teslim gibi görünmez",()=>{
+  expect(decodeDeliveryEvidence({...documentPayload,supheli_test_degisikligi:{adet:1,zayiflatan:1}}))
+    .toMatchObject({kind:"invalid",verified:null,blocking:true});
+});
+it.each([null,[],{}, {adet:"1",zayiflatan:0},{adet:1,zayiflatan:true},
+  {adet:-1,zayiflatan:0},{adet:0,zayiflatan:1},{adet:Number.MAX_SAFE_INTEGER+1,zayiflatan:0},
+  {adet:1,zayiflatan:0,turler:null},{adet:1,zayiflatan:0,yollar:[1]}])(
+  "bozuk tanınan test metadatası başarıya dönüşmez: %s",tamper=>{
+    expect(decodeDeliveryEvidence({...documentPayload,yanlis_iddia:true,supheli_test_degisikligi:tamper}))
+      .toMatchObject({kind:"invalid",verified:null,blocking:true,falseClaim:true});
+  });
+it("şüpheli değişiklik bulgusu ölçülmüş başarı sayılmaz ve ham metadata gösterilmez",()=>{
+  const evidence=decodeDeliveryEvidence({...documentPayload,
+    supheli_test_degisikligi:{adet:1,zayiflatan:0,turler:["suspicious"],yollar:["private-test.ts"],future:{secret:"raw"}}});
+  expect(evidence).toMatchObject({verified:null});
+  expect(evidence?.presentation).toBeUndefined();
+  expect(JSON.stringify(evidence)).not.toMatch(/private-test|secret|suspicious/);
+});
+it("sıfır bulgulu metadata kompakt belgeyi açmaz, bilinmeyen ek alan kritik sayılmaz",()=>{
+  const evidence=decodeDeliveryEvidence({...documentPayload,
+    supheli_test_degisikligi:{adet:0,zayiflatan:0,future:1},
+    criteria_count:1,criteria_status_counts:{passed:1,failed:0,unverified:0,future:99}});
+  expect(evidence).toMatchObject({kind:"supported",verified:true});
+  expect(evidence?.presentation).toBeUndefined();
+});
+it("tanınan durum toplamı ölçüt sayısını aşıyorsa doğrulanmış sayılmaz",()=>{
+  expect(decodeDeliveryEvidence({...documentPayload,criteria_count:1,
+    criteria_status_counts:{passed:2,failed:0,unverified:0}}))
+    .toMatchObject({kind:"invalid",verified:null,blocking:true});
+});
+
 it.each(Object.entries(countFixtures))("kritik sayaçlar backend projeksiyonuyla aynı güvenli sonucu korur: %s", (_name, fixture) => {
   const input=decodeDeliveryEvidence(fixture.input);
   const projected=decodeDeliveryEvidence(fixture.projected);

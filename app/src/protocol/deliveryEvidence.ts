@@ -78,6 +78,18 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     if (data[key] !== undefined && !isTextList(data[key])) return invalid(data);
   }
   if (data.ayrintilar_kisaltildi !== undefined && typeof data.ayrintilar_kisaltildi !== "boolean") return invalid(data);
+  const hasTamperMetadata = data.supheli_test_degisikligi !== undefined;
+  let suspiciousTests = false;
+  if (hasTamperMetadata) {
+    const value = data.supheli_test_degisikligi;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return invalid(data);
+    const tamper = value as Record<string, unknown>;
+    if (!isCount(tamper.adet) || !isCount(tamper.zayiflatan) || tamper.zayiflatan > tamper.adet ||
+        (tamper.turler !== undefined && !isTextList(tamper.turler)) ||
+        (tamper.yollar !== undefined && !isTextList(tamper.yollar))) return invalid(data);
+    if (tamper.zayiflatan > 0 && data.dogrulandi === true) return invalid(data);
+    suspiciousTests = tamper.adet > 0;
+  }
   const problemTotal = data.sorun_sayisi;
   const criteriaTotal = data.criteria_count;
   if (problemTotal !== undefined && (!isCount(problemTotal) || problemTotal < data.sorunlar.length)) return invalid(data);
@@ -104,6 +116,8 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     if (!isCount(record.passed) || !isCount(record.failed) || !isCount(record.unverified)) return invalid(data);
     statusCounts = {passed: record.passed, failed: record.failed, unverified: record.unverified};
     if (!Number.isSafeInteger(statusCounts.passed + statusCounts.failed + statusCounts.unverified)) return invalid(data);
+    if (typeof criteriaTotal === "number" &&
+        statusCounts.passed + statusCounts.failed + statusCounts.unverified > criteriaTotal) return invalid(data);
   }
   const total = data.degisen_sayisi;
   if (data.schema_version === 1 && (typeof total !== "number" || !Number.isSafeInteger(total) || total < data.degisen.length)) {
@@ -141,13 +155,13 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   if (data.sorunlar.length || (result.problemTotal ?? 0) > 0 || observedFailed || (statusCounts?.failed ?? 0) > 0) {
     result.verified = false;
     result.blocking = true;
-  } else if (result.verified === true && (observedUnverified || (statusCounts?.unverified ?? 0) > 0 ||
+  } else if (result.verified === true && (suspiciousTests || observedUnverified || (statusCounts?.unverified ?? 0) > 0 ||
       (result.criteriaTotal ?? 0) > representedCriteria)) {
     result.verified = null;
   }
   if (truncated || data.ayrintilar_kisaltildi !== undefined) result.detailsTruncated = truncated;
   if (data.sunum === "document" && result.kind === "supported" && result.verified === true &&
-      !result.blocking && !result.falseClaim && !result.problems.length && result.changed.length === 1 &&
+      !result.blocking && !result.falseClaim && !hasTamperMetadata && !result.problems.length && result.changed.length === 1 &&
       result.changedTotal === 1 && /\.(?:html?|md|txt|rst)$/i.test(result.changed[0]) &&
       !result.warnings?.length && !result.unmeasured?.length) result.presentation = "document";
   // Ek ayrıntıların bütçesi kritik sorun/uyarı/ölçüm kaybını silemez.
