@@ -94,7 +94,7 @@ def inspect_web_output_by_severity(
     blocking.extend(layout_animations(f"{css}\n{html}"))
 
     # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
-    warnings.extend(_eksik_main(html))
+    advisories.extend(_eksik_main(html))
     warnings.extend(size_animations(f"{css}\n{html}"))
 
     # Görsel/tasarım sistemi önerileri genel kapıda blocking olamaz.
@@ -181,14 +181,33 @@ def _bos_baglantilar(html: str) -> list[str]:
     ]
 
 
+class _MainLandmarkParser(HTMLParser):
+    """Recognize actual landmarks, ignoring comments and raw-text contents."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.found = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        # ARIA role fallback uses the first recognized role. Only the unambiguous
+        # single-token main form is accepted here; this is a narrow quality check.
+        if tag == "main" or (attributes.get("role") or "").strip() == "main":
+            self.found = True
+
+
 def _eksik_main(html: str) -> list[str]:
-    # Yalnızca TAM belgede anlamlı: bir şablon/bileşen parçasında <main> olmaz ve
-    # orada aramak yanlış pozitif üretir (Django/Rails şablonları, e-posta parçaları).
     if not _tam_belge(html):
         return []
-    if re.search(r"<main[\s>]", html, re.I):
+    parser = _MainLandmarkParser()
+    parser.feed(html)
+    parser.close()
+    if parser.found:
         return []
-    return ["Sayfanın ana içeriği <main> etiketiyle sarılmamış; semantic HTML eksik."]
+    return [
+        "Ana içerik için <main> veya role=main landmark'ı eklemeyi değerlendirin; "
+        "bu bir semantik gezinme önerisidir, tek başına WCAG ihlali değildir."
+    ]
 
 
 #: Sınıfları yerel CSS dışında bir yerden getiren çerçeveler: harici stylesheet

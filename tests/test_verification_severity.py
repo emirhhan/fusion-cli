@@ -14,14 +14,14 @@ from fusion_cli.engines.agent.verification import (
 from fusion_cli.engines.agent.web_verify import inspect_web_output_by_severity
 
 
-def test_main_eksikligi_warning_ama_blocking_degil():
+def test_main_eksikligi_advisory_ama_blocking_degil():
     blocking, warnings, advisories = inspect_web_output_by_severity(
         {"index.html": ("<html><body><header>x</header><section>icerik</section></body></html>")}
     )
 
     assert blocking == ()
-    assert any("<main>" in item for item in warnings)
-    assert advisories == ()
+    assert warnings == ()
+    assert any("<main>" in item for item in advisories)
 
 
 def test_spacing_advisory_ama_blocking_degil():
@@ -82,7 +82,8 @@ async def test_web_verifier_sadece_main_icin_turu_dusurmez(tmp_path):
 
     assert result.ok
     assert result.findings == ()
-    assert any("<main>" in item for item in result.warnings)
+    assert result.warnings == ()
+    assert any("<main>" in item for item in result.advisories)
 
 
 async def test_web_verifier_eylemsiz_dugmeyi_engeller(tmp_path):

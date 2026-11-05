@@ -193,7 +193,7 @@ class PageObservation:
     oversized_icons: tuple[tuple[str, int, int], ...] = ()
     #: (seçici, kapsayıcı sağ kenarı, öğe sağ kenarı) — kırpılmış, erişilemez içerik.
     clipped: tuple[tuple[str, int, int], ...] = ()
-    #: (seçici, genişlik, yükseklik) — dokunma için çok küçük tıklanabilir öğeler.
+    #: (seçici, genişlik, yükseklik) — kanıtlanan istisnalar sonrası küçük hedef adayları.
     small_targets: tuple[tuple[str, int, int], ...] = ()
     #: Başlığı olan ama içi boş bölümlerin seçicileri.
     empty_sections: tuple[str, ...] = ()
@@ -379,7 +379,7 @@ def _clipped(page: PageObservation) -> list[str]:
 
 
 def _targets(page: PageObservation) -> list[str]:
-    """WCAG 2.2 SC 2.5.8: tıklanabilir öğe en az 24x24 CSS px olmalı."""
+    """İspatlanmış istisnalar elendikten sonra olası hedef aralığı sorunları."""
     if not page.small_targets:
         return []
     ornek = ", ".join(
@@ -387,7 +387,8 @@ def _targets(page: PageObservation) -> list[str]:
     )
     return [
         f"{page.name} içinde {len(page.small_targets)} dokunma hedefi 24x24 px'ten küçük "
-        f"(WCAG 2.2 SC 2.5.8): {ornek}. Dolgu ya da min-height ekle."
+        f"ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): {ornek}. "
+        "Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
     ]
 
 
@@ -717,7 +718,7 @@ def _as_triples(rows: object) -> tuple[tuple[str, int, int], ...]:
     return tuple(triples)
 
 
-#: Sayfa içinde çalışan ölçüm. Yorum DEĞİL ölçüm döndürür; karar Python tarafında.
+#: Sayfa içi ölçüm; hedef boyutu için kanıtlanan DOM/geometri istisnaları burada elenir.
 _LAYOUT_PROBE = """() => {
     const ad = (e) => e.tagName.toLowerCase() +
         (e.className && typeof e.className === 'string'
@@ -768,14 +769,54 @@ _LAYOUT_PROBE = """() => {
         }
     }
 
-    // 3) WCAG 2.2 SC 2.5.8 — tıklanabilir öğe en az 24x24 CSS px.
-    const smallTargets = [];
-    for (const e of document.querySelectorAll('a[href], button, input, select')) {
+    // 3) Target-size candidates, with provable WCAG 2.5.8 exceptions only.
+    // Custom controls count as neighbors too. Unknown JS listeners/hit-area shapes
+    // remain outside this heuristic; the resulting message is not a compliance claim.
+    const targetSelector = 'a[href],button,input,select,textarea,summary,' +
+        '[role="button"],[role="link"],[role="checkbox"],[role="radio"],' +
+        '[role="switch"],[role="tab"],[role="menuitem"],[role="slider"],' +
+        '[role="spinbutton"],[role="combobox"],[onclick],[tabindex]';
+    const candidates = document.querySelectorAll(targetSelector);
+    const targetLimit = 1500; // bound quadratic geometry; truncation cannot prove spacing
+    const complete = candidates.length <= targetLimit;
+    const targets = Array.from(candidates).slice(0, targetLimit).flatMap(e => {
         const r = e.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) continue;
-        if (r.width < 24 || r.height < 24) {
-            smallTargets.push([ad(e), Math.round(r.width), Math.round(r.height)]);
+        const style = getComputedStyle(e);
+        if (!r.width || !r.height || style.visibility !== 'visible' ||
+            style.pointerEvents === 'none' || e.closest('[inert]')) return [];
+        return [{e, r, small: r.width < 24 || r.height < 24}];
+    });
+    const inlineException = e => {
+        // Conservative proof: a native inline link sharing a prose line with text.
+        const parent = e.parentElement;
+        if (e.tagName !== 'A' || !parent || !parent.matches('p,li,dd,dt') ||
+            getComputedStyle(e).display !== 'inline' ||
+            getComputedStyle(parent).display !== 'block') return false;
+        const prose = parent.cloneNode(true);
+        for (const control of prose.querySelectorAll(targetSelector)) control.remove();
+        return Boolean(prose.textContent.trim());
+    };
+    const spacingException = target => complete && targets.every(other => {
+        if (other === target) return true;
+        const r = target.r, o = other.r;
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        // A radius-12 circle must not overlap another target's rectangle.
+        const dx = x - Math.max(o.left, Math.min(x, o.right));
+        const dy = y - Math.max(o.top, Math.min(y, o.bottom));
+        if (dx * dx + dy * dy < 144 - 1e-7) return false;
+        // Nor the radius-12 circle around another undersized target.
+        if (other.small) {
+            const cx = x - (o.left + o.width / 2);
+            const cy = y - (o.top + o.height / 2);
+            if (cx * cx + cy * cy < 576 - 1e-7) return false;
         }
+        return true;
+    });
+    const smallTargets = [];
+    for (const target of targets) {
+        if (!target.small || inlineException(target.e) || spacingException(target)) continue;
+        smallTargets.push([ad(target.e), Math.round(target.r.width),
+                           Math.round(target.r.height)]);
     }
 
     // 4) Başlığı olan ama içi boş bölüm. İçerik JavaScript'le geliyorsa ve JS
