@@ -8,6 +8,9 @@ from ...core.text_fold import lower_tr_aware
 from .current_facts import current_fact_text, needs_current_lookup
 from .model import CONTRACTS, EffectContract, EffectKind
 
+# Positive file actions and their explicit rejections must never drift apart.
+_EN_MUTATION_VERBS = r"(?:implement|repair|fix|create|modify|update|add|write|generate|save|edit)"
+
 _EXPLICIT_NO_TOOL_MARKERS = (
     "araç kullanma",
     "arac kullanma",
@@ -53,12 +56,14 @@ _CLAUSE_FINAL_POLITE = r"(?:\s+(?:lütfen|lutfen|sakın|sakin|asla))?\s*$"
 # gerçek görev bu yoldan geçiyor.
 _ACTION_CLAUSE_SPLIT = re.compile(
     r"(?:[.!?;](?=\s|$)|[!?;,\n]+"
-    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra|but|however)\b)",
+    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra|but|however)\b"
+    rf"|\band\b(?=\s+(?:(?:then|also)\s+)?"
+    rf"(?:{_EN_MUTATION_VERBS}|research|read|fetch|consult|verify|check|explain|tell)\b))",
     re.IGNORECASE,
 )
 
 _EN_NEGATED_MUTATION = re.compile(
-    r"\b(?:do\s+not|don't|never)\s+(?:implement|repair|fix|create|modify|update|add|write)\b",
+    rf"\b(?:do\s+not|don't|never)\s+{_EN_MUTATION_VERBS}\b",
     re.IGNORECASE,
 )
 
@@ -285,7 +290,7 @@ _FILE_MUTATION_PATTERNS = (
 # koşusundaki "Implement a coherent stock import flow" hiçbir Türkçe fiile
 # uymadığı için mutasyon gereksinimi kurulmamış, ajan salt keşifte oyalanmıştı.
 _EN_FILE_MUTATION_PATTERNS = (
-    r"\b(?:implement|repair|fix|create|modify|update|add)\b.{0,80}"
+    rf"\b{_EN_MUTATION_VERBS}\b.{{0,80}}"
     r"\b(?:module|route|service|test|file|integration|feature|flow|bug|code|"
     r"website|app|import|authorization|authentication|access control|"
     r"security guard|permission check)\b",
@@ -430,9 +435,16 @@ def explicitly_disallows_tools(task: str) -> bool:
 
 
 _SOURCE_READING_ACTION = re.compile(
-    r"\b(?:(?:oku|incele|doğrula|dogrula|araştır|arastir|başvur|basvur)"
+    r"\b(?:(?:oku|incele|doğrula|dogrula|başvur|basvur)"
     r"(?:yun|yın|yin|in|ın|iniz|ınız|yabilir misin)?|kontrol et|"
-    r"read|fetch|open|browse|consult|verify|check|research|cite)\b"
+    r"read|fetch|open|browse|consult|verify|check|cite)\b"
+)
+_RESEARCH_DIRECTIVE = re.compile(
+    r"(?:^|:)\s*(?:(?:please|then|first|also)\s+)?"
+    r"(?:research|(?:do|conduct|perform)\s+(?:some\s+)?research)\b"
+    r"(?!\s+(?:works|means|is|was|refers)\b)|"
+    r"\b(?:can you|could you|would you|i want you to|you (?:must|should|need to))\s+research\b|"
+    r"\b(?:araştır|arastir)(?:ıp|ip|arak|ın|in)?\b(?!\s+(?:ne demek|kelimesi|sözcüğü)\b)"
 )
 _NEGATED_SOURCE_ACTION = re.compile(
     r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse|"
@@ -445,15 +457,19 @@ _SOURCE_DATA_QUOTE = re.compile(
     re.S | re.M,
 )
 _DIRECT_EN_FILE_MUTATION = re.compile(
-    rf"\b(?:create|write|generate|save|modify|edit|update|fix|repair)\s+"
+    rf"\b{_EN_MUTATION_VERBS}\s+"
     rf"(?:(?:a|an|the|single|one|new|html|markdown|text|json|file)\s+){{0,5}}{_FILENAME}"
+)
+_DESTINATION_EN_FILE_MUTATION = re.compile(
+    rf"\b{_EN_MUTATION_VERBS}\b.{{0,160}}\b(?:to|as|into)\s+"
+    rf"(?:(?:a|an|the)\s+)?(?:file\s+)?{_FILENAME}"
 )
 _OUTPUT_FILE_TARGET = re.compile(
     rf"{_FILENAME}(?:['’]?(?:ya|ye|a|e))?(?:\s+dosya\w*)?\s+"
     r"(?:oluştur|olustur|yaz|kaydet|aktar)\w*\b|"
     rf"\b(?:create|write|generate|save)\s+"
     rf"(?:(?:a|an|the|single|one|new|html|markdown|text|json|file)\s+){{0,5}}{_FILENAME}|"
-    rf"\bto\s+{_FILENAME}(?:\s+file)?"
+    rf"\b(?:to|as|into)\s+(?:(?:a|an|the)\s+)?(?:file\s+)?{_FILENAME}(?:\s+file)?"
 )
 _LOCAL_RESEARCH_INPUT = re.compile(
     r"\b(?:yerel|local|workspace|readme|changelog|dosya\w*|git diff|git log)\b|"
@@ -488,11 +504,7 @@ def requested_web_research(task: str) -> bool:
                 continue
             if needs_current_lookup(facts) or _matches(facts, _WEB_LOOKUP_PATTERNS):
                 return True
-            if re.search(
-                r"\b(?:research|araştır(?:ıp|arak|ın)?|arastir(?:ip|arak|in)?)\b", facts
-            ) and not re.search(
-                r"\b(?:explain|define|concept|kavram\w*|açıkla|acikla|ne demek)\b", facts
-            ):
+            if _RESEARCH_DIRECTIVE.search(facts):
                 return True
     return bool(requested_web_urls(task, source_reads_only=True))
 
@@ -510,7 +522,11 @@ def _source_read_parts(protected: str, prefix: str) -> tuple[str, ...]:
             for part in re.split(r"\band\b", part)
             if not _NEGATED_SOURCE_ACTION.search(part)
         )
-        reading = [part for part in clauses if _SOURCE_READING_ACTION.search(part)]
+        reading = [
+            part
+            for part in clauses
+            if (_SOURCE_READING_ACTION.search(part) or _RESEARCH_DIRECTIVE.search(part))
+        ]
         accepted.extend(reading)
         if reading:
             # Coordinated URL-only objects share their read verb, in either
@@ -591,7 +607,10 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         lowered,
     ) and (
         any(_matches(clause, _EN_FILE_MUTATION_PATTERNS) for clause in clauses)
-        or _DIRECT_EN_FILE_MUTATION.search(_request_prose(lowered))
+        or any(
+            _DIRECT_EN_FILE_MUTATION.search(clause) or _DESTINATION_EN_FILE_MUTATION.search(clause)
+            for clause in _positive_action_parts(_request_prose(lower_tr_aware(task)))
+        )
     ):
         return EffectKind.WORKSPACE_MUTATION.value
     if _matches(lowered, _BULK_COUNT_PATTERNS):
