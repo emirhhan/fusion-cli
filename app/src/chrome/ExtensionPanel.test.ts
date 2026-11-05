@@ -89,7 +89,10 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     await waitFor(() => expect($("messages").textContent).toContain("Görev tamamlandı"));
     expect($("messages").querySelector(".bubble")?.textContent).toBe("Özetle");
     expect($("messages").querySelector("strong")?.textContent).toBe("tamamlandı");
-    expect(calls.find((call) => call.path === "/turn")?.body).toEqual({ prompt: "Özetle", turnId: expect.stringMatching(TURN_UUID) });
+    expect(calls.find((call) => call.path === "/turn")?.body).toEqual({
+      prompt: "Özetle", turnId: expect.stringMatching(TURN_UUID),
+      target: {tabId: 7, url: "https://example.com/page", scopeVersion: 1},
+    });
     expect($("empty").hidden).toBe(true);
 
     click("disconnect");
@@ -268,6 +271,8 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
 
   it("öneri çipi görevi gönderir; izinsiz sitede izin düğmesi çıkar", async () => {
     kit = chromeKit({ granted: () => false });
+    // A supported background acknowledges task-scope enforcement before advertising version 1.
+    kit.chromeMock.runtime.sendMessage.mockImplementation(async () => ({ok:true, surum:"0.2.0", version:1}));
     autoConnected();
     await loadPanel();
     await waitFor(() => expect($("select-tab").hidden).toBe(false));
@@ -275,7 +280,14 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     click("select-tab");
     await waitFor(() => expect(kit.chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["https://example.com/*"] }));
     fireEvent.click(document.querySelector(".suggestion")!);
-    await waitFor(() => expect(calls.find((call) => call.path === "/turn")?.body).toEqual({ prompt: "Bu sayfayı kısaca özetle.", turnId: expect.stringMatching(TURN_UUID) }));
+    await waitFor(() => expect(calls.some((call) => call.path === "/turn")).toBe(true));
+    const device = (await kit.chromeMock.storage.local.get("fusionDevice")).fusionDevice;
+    expect(device).toEqual({id:expect.stringMatching(/^chrome-[0-9a-f]{18}$/), ad:"Chrome"});
+    expect(kit.chromeMock.runtime.sendMessage).toHaveBeenCalledWith({type:"fusion.taskScopeCapability"});
+    expect(calls.find((call) => call.path === "/turn")?.body).toEqual({
+      prompt: "Bu sayfayı kısaca özetle.", turnId: expect.stringMatching(TURN_UUID),
+      target: {tabId:7, url:"https://example.com/page", scopeVersion:1}, cihaz:device,
+    });
   });
 
   it("arka plan eski sürümde kaldıysa tek tıkla kendini güncelleyen düğme gösterir", async () => {

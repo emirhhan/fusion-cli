@@ -617,6 +617,7 @@ enum CleanupStep {
     Speech,
     Session,
     Terminal,
+    Kits,
 }
 
 fn cleanup_scope(scope: ShutdownScope, owners: &AppCleanupOwners<'_>) {
@@ -624,6 +625,7 @@ fn cleanup_scope(scope: ShutdownScope, owners: &AppCleanupOwners<'_>) {
     if matches!(scope, ShutdownScope::Application) {
         owners.stop_sessions();
         owners.close_terminals();
+        owners.stop_kits();
     }
 }
 
@@ -635,6 +637,7 @@ struct AppCleanupOwners<'a> {
     speech: &'a SpeechManager,
     sessions: &'a SessionManager,
     terminals: &'a TerminalManager,
+    kits: &'a KitsManager,
     order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
 }
 
@@ -643,12 +646,14 @@ impl<'a> AppCleanupOwners<'a> {
         speech: &'a SpeechManager,
         sessions: &'a SessionManager,
         terminals: &'a TerminalManager,
+        kits: &'a KitsManager,
         order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
     ) -> Self {
         Self {
             speech,
             sessions,
             terminals,
+            kits,
             order,
         }
     }
@@ -676,18 +681,26 @@ impl<'a> AppCleanupOwners<'a> {
         self.record(CleanupStep::Terminal);
         self.terminals.close_all();
     }
+
+    fn stop_kits(&self) {
+        self.record(CleanupStep::Kits);
+        self.kits.stop();
+    }
 }
 
 fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
     let speech = app.state::<SpeechManager>();
     let sessions = app.state::<SessionManager>();
     let terminals = app.state::<TerminalManager>();
-    let owners =
-        AppCleanupOwners::from_managers(speech.inner(), sessions.inner(), terminals.inner(), None);
+    let kits = app.state::<Arc<KitsManager>>();
+    let owners = AppCleanupOwners::from_managers(
+        speech.inner(),
+        sessions.inner(),
+        terminals.inner(),
+        kits.inner(),
+        None,
+    );
     cleanup_route(route, &owners);
-    if matches!(route, ShutdownRoute::ExitRequested | ShutdownRoute::Exit) {
-        app.state::<Arc<KitsManager>>().stop();
-    }
 }
 
 #[tauri::command]
@@ -1257,8 +1270,11 @@ mod shutdown_tests {
         speech: Arc<SpeechManager>,
         sessions: Arc<SessionManager>,
         terminals: Arc<TerminalManager>,
+        kits: Arc<KitsManager>,
         terminal_id: String,
         terminal_pid: u32,
+        #[cfg(unix)]
+        kits_child: kits_process::test_support::OwnedKitsFixture,
         _cwd: tempfile::TempDir,
     }
 
@@ -1271,6 +1287,9 @@ mod shutdown_tests {
                 .start_test_child("shutdown-session")
                 .expect("session child başlamalı");
             let terminals = Arc::new(TerminalManager::new(|_| {}, |_| {}));
+            let kits = Arc::new(KitsManager::new());
+            #[cfg(unix)]
+            let kits_child = kits_process::test_support::OwnedKitsFixture::new(kits.clone());
             let cwd = tempfile::tempdir().expect("terminal cwd oluşmalı");
             let terminal = terminals
                 .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
@@ -1279,8 +1298,11 @@ mod shutdown_tests {
                 speech,
                 sessions,
                 terminals,
+                kits,
                 terminal_id: terminal.terminal_id,
                 terminal_pid: terminal.pid.expect("PTY child PID sağlamalı"),
+                #[cfg(unix)]
+                kits_child,
                 _cwd: cwd,
             }
         }
@@ -1293,9 +1315,15 @@ mod shutdown_tests {
             let speech = self.speech.clone();
             let sessions = self.sessions.clone();
             let terminals = self.terminals.clone();
+            let kits = self.kits.clone();
             run_with_deadline(Duration::from_secs(2), move || {
-                let owners =
-                    AppCleanupOwners::from_managers(&speech, &sessions, &terminals, Some(&order));
+                let owners = AppCleanupOwners::from_managers(
+                    &speech,
+                    &sessions,
+                    &terminals,
+                    &kits,
+                    Some(&order),
+                );
                 cleanup_route(route, &owners);
             })
             .expect("production cleanup route iki saniye içinde dönmeli");
@@ -1306,6 +1334,11 @@ mod shutdown_tests {
             assert!(self.sessions.test_is_running("shutdown-session"));
             assert!(self.terminals.test_is_running(&self.terminal_id));
             assert!(!self.terminals.test_has_exited(self.terminal_pid));
+            #[cfg(unix)]
+            {
+                assert!(self.kits_child.is_running());
+                assert!(self.kits_child.descendant_alive());
+            }
         }
 
         fn assert_terminal_exited_within(&self, timeout: Duration) {
@@ -1353,6 +1386,9 @@ mod shutdown_tests {
 
     #[test]
     fn cleanup_route_for_every_application_event_stops_actual_managers_in_order() {
+        #[cfg(unix)]
+        let foreign_kits =
+            kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
         for route in [
             ShutdownRoute::NativeMainClose,
             ShutdownRoute::ConfirmedMainClose,
@@ -1370,15 +1406,30 @@ mod shutdown_tests {
             assert!(!fixture.sessions.test_is_running("shutdown-session"));
             assert!(!fixture.terminals.test_is_running(&fixture.terminal_id));
             fixture.assert_terminal_exited_within(Duration::from_secs(2));
+            #[cfg(unix)]
+            {
+                assert!(
+                    !fixture.kits_child.is_running(),
+                    "application cleanup left owned Kits alive"
+                );
+                assert!(
+                    !fixture.kits_child.descendant_alive(),
+                    "Kits runtime child survived cleanup"
+                );
+                assert!(foreign_kits.is_running(), "unowned Kits must be preserved");
+                assert!(foreign_kits.descendant_alive());
+            }
             assert_eq!(
                 *order.lock().expect("cleanup order kilidi"),
                 [
                     CleanupStep::Speech,
                     CleanupStep::Session,
                     CleanupStep::Terminal,
+                    CleanupStep::Kits,
                     CleanupStep::Speech,
                     CleanupStep::Session,
                     CleanupStep::Terminal,
+                    CleanupStep::Kits,
                 ]
             );
             fixture.cleanup_and_assert_no_children();
@@ -1399,6 +1450,14 @@ mod shutdown_tests {
             assert!(fixture.sessions.test_is_running("shutdown-session"));
             assert!(fixture.terminals.test_is_running(&fixture.terminal_id));
             assert!(!fixture.terminals.test_has_exited(fixture.terminal_pid));
+            #[cfg(unix)]
+            {
+                assert!(
+                    fixture.kits_child.is_running(),
+                    "talk close must preserve owned Kits"
+                );
+                assert!(fixture.kits_child.descendant_alive());
+            }
             assert_eq!(
                 *order.lock().expect("cleanup order kilidi"),
                 [CleanupStep::Speech, CleanupStep::Speech]

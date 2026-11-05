@@ -12,7 +12,7 @@ const context = vm.createContext({
     if (!elements.has(id)) elements.set(id, {textContent:'', dataset:{}, lastChild:{}, replaceChildren(){}, querySelectorAll:()=>[]});
     return elements.get(id);
   } },
-  setTimeout, console,
+  setTimeout, console, TASK_SCOPE_VERSION: 1,
 });
 vm.runInContext(source + '\nconst originalRenderThread = renderThread; renderThread = () => {};', context);
 const run = (code) => vm.runInContext(code, context);
@@ -65,6 +65,7 @@ assert.equal(run('running()'), true, 'rejected stop does not claim cancellation'
 context.crypto = {randomUUID: () => 'http:1'};
 context.expandShortcut = async (value) => value;
 context.autoGrow = () => {};
+context.deviceIdentity = async () => ({id: 'fusion-local', ad: 'Chrome'});
 run('thread={mesajlar:[],seq:0,soru:null}; request=async()=>({ok:false,turnId:"http:1",metin:"busy"});');
 await run('sendPrompt("request")');
 assert.equal(run('running()'), false, 'busy HTTP rejection leaves the composer idle');
@@ -98,6 +99,34 @@ for (const eventFirst of [true, false]) {
   assert.equal(run('running()'), false);
   assert.equal(run('thread.mesajlar.length'), 2);
 }
+
+// Submission snapshots the actual tab before any shortcut/model/transport await.
+const tabOrder=[];
+const capturedTab={id:7,url:'https://example.com/'};
+context.chrome.tabs={query:()=>{tabOrder.push('tab');return Promise.resolve([capturedTab]);}};
+context.chrome.runtime={sendMessage:async()=>({version:1})};
+context.expandShortcut=async value=>{tabOrder.push('shortcut');capturedTab.url='https://foreign.test/';return value;};
+run('thread={mesajlar:[],seq:0,soru:null};request=async(path,body)=>{globalThis.targetBody=body;return{ok:true,metin:"done"};};');
+await run('sendPrompt("Current tab only")');
+assert.equal(tabOrder[0],'tab');
+assert.equal(run('targetBody.target.url'),'https://example.com/');
+assert.equal(run('targetBody.target.tabId'),7);
+assert.equal(run('targetBody.target.scopeVersion'),1);
+// A new panel cannot claim support for an old background that ignores taskScope.
+context.chrome.runtime.sendMessage=async()=>undefined;
+run('thread={mesajlar:[],seq:0,soru:null};');
+await run('sendPrompt("Current tab only")');
+assert.equal(run('targetBody.target.scopeVersion'),undefined,'backend fails restricted old-background requests closed');
+let manualRecordCalled=false;
+context.execute=async command=>{assert.equal(command.taskScope.version,1);throw new Error('scope blocked');};
+context.handleRecord=()=>{manualRecordCalled=true;};
+await assert.rejects(run('runManual({id:"owned",islem:"record",veri:{op:"start"},taskScope:{version:1,tabId:7,origin:"https://example.com"}})'),/scope blocked/);
+assert.equal(manualRecordCalled,false,'manual record transport cannot strip the scope guard');
+run('manual={port:1,token:"fake"};thread={mesajlar:[],seq:0,soru:null};');
+await run('sendPrompt("Current tab only")');
+assert.equal(run('targetBody.target.scopeVersion'),1,'manual executor runs the guarded panel core');
+assert.equal(run('targetBody.cihaz'),undefined,'manual admission and poll/result keep the same local device');
+run('manual=null;');
 
 // The terminal event can also beat the cancel HTTP response itself.
 for (const terminalState of ['hata', 'bitti', 'foreign']) {

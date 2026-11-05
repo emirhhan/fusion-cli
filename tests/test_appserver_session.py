@@ -119,7 +119,7 @@ async def test_masaustu_turu_oturumun_kalici_bellegini_ajana_verir(tmp_path, mon
 async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path, monkeypatch):
     oturum = _session(tmp_path, [])
 
-    async def fake_run_turn(_task, *, browser_only, chrome_turn_id):
+    async def fake_run_turn(_task, *, browser_only, chrome_turn_id, scoped_chrome=None):
         assert browser_only
         return {"ok": True, "metin": "internal reasoning\n</think>\nİşlem tamamlandı."}
 

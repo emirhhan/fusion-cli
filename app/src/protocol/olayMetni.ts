@@ -17,8 +17,14 @@ export type OlaySonucu = "completed" | "partial" | "failed" | "unknown";
 export interface OlayAdimi {
   /** Kısa başlık: "düşünüyor", "dosya yazdı"… */
   metin: string;
-  /** Adım bir araç çağrısıysa aracın adı; başlayan ve biten olay bununla eşleşir. */
+  /** Adım bir araç çağrısıysa aracın kısa adı. */
   arac?: string;
+  /** Araç çağrısının ve onu kabul eden turun tel kimliği. */
+  callId?: string;
+  sessionId?: string;
+  turnId?: string;
+  attemptId?: string;
+  eventId?: string;
   /** Araç başladı ama henüz bitmedi (`ToolStarted`). */
   basladi?: boolean;
   /** Araç bittiyse sonucu: ok | failed | denied | blocked. */
@@ -297,6 +303,15 @@ function kanitSatirlari(value: unknown, cap = 10): string[] | null {
   return value.slice(0, cap).map(item => Array.from(sirlariMaskele(item)).slice(0, 500).join(""));
 }
 
+function aracKimligi(veri: Record<string, unknown>): Partial<OlayAdimi> {
+  const result: Partial<OlayAdimi> = {};
+  for (const [wire, field] of [["call_id", "callId"], ["session_id", "sessionId"], ["turn_id", "turnId"],
+    ["attempt_id", "attemptId"], ["event_id", "eventId"]] as const) {
+    if (typeof veri[wire] === "string" && veri[wire]) result[field] = veri[wire];
+  }
+  return result;
+}
+
 export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
@@ -340,7 +355,7 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       // satırın yerini alır — "Düşünüyor…" göstergesinin yaptığı gibi.
       const metin = typeof veri.metin === "string" && veri.metin ? veri.metin : `${ad} çalıştırılıyor`;
       const { kaynak } = aracAyrintisi(veri.args);
-      return { metin, kaynak, arac: ad, basladi: true };
+      return { metin, kaynak, arac: ad, basladi: true, ...aracKimligi(veri) };
     }
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
@@ -369,7 +384,7 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       const komut = hamKomut ? sirlariMaskele(hamKomut) : undefined;
       return {
         metin, ayrinti, kaynak, diff, yol: diff ? (hamYol ?? ayrinti) : undefined,
-        arac: ad, durum: durumAdi,
+        arac: ad, durum: durumAdi, ...aracKimligi(veri),
         // Diff varsa çıktı tekrar gösterilmez: yazma aracının çıktısı zaten özetidir.
         cikti: !diff && hamCikti ? sinirla(hamCikti) : undefined,
         komut,

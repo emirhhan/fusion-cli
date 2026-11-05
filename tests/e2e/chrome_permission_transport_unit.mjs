@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {execute, MONITOR_KEY, registerMonitor} from '../../chrome-extension/core.js';
 import {PROGRESS_REQUEST_TIMEOUT_MS} from '../../chrome-extension/permissionWait.js';
+import {TASK_SCOPE_VERSION} from '../../chrome-extension/taskScope.js';
 
 let store={},granted=false,acceptCompletion=true;
 const listeners=[];
@@ -21,7 +22,7 @@ const chrome={
 globalThis.chrome=chrome;
 const background=fs.readFileSync(new URL('../../chrome-extension/background.js',import.meta.url),'utf8')
  .replace(/^import .*;$/gm,'').split('chrome.runtime.onStartup.addListener')[0];
-vm.runInNewContext(background,{chrome,execute,MONITOR_KEY,registerMonitor,console});
+vm.runInNewContext(background,{chrome,execute,MONITOR_KEY,registerMonitor,TASK_SCOPE_VERSION,console});
 const offscreen=fs.readFileSync(new URL('../../chrome-extension/offscreen.js',import.meta.url),'utf8')
  .replace(/^import .*;$/gm,'').split('setInterval(')[0];
 const calls=[];
@@ -45,4 +46,9 @@ assert.equal(cancelled.ok,false);
 assert.equal(cancelled.neden_kodu,'permission_cancelled');
 assert.equal(store.fusionTab,undefined,'durmuş komut gerçek seçili sekmeyi değiştiremez');
 assert.equal(Object.keys(store).some((key)=>key.startsWith("fusionPermission:")),false);
+assert.equal((await chrome.runtime.sendMessage({type:'fusion.taskScopeCapability'})).version,1);
+// Offscreen must not strip taskScope when dispatching its special recorder path.
+const scopedRecord=await vm.runInContext('run({id:"owned",islem:"record",veri:{op:"start"},taskScope:{version:1,tabId:5,origin:"https://work.test"}})',surface);
+assert.equal(scopedRecord.ok,false);
+assert.equal(scopedRecord.neden_kodu,'task_scope');
 console.log('chrome-permission-transport ✓');

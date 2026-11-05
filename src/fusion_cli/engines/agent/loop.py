@@ -4277,9 +4277,15 @@ async def _run_tools(
         duplicate_limit = (
             1 if tool is not None and tool.mutating else execution.max_same_tool_without_change
         )
+        # Desktop observations can change independently of workspace/remote epochs
+        # (including after a rejected stale-element action). Re-read the live state;
+        # neither a cached fingerprint nor a cached screenshot is fresh evidence.
+        live_desktop_read = (
+            tool is not None and not tool.mutating and tool_family(call.name) is ToolFamily.DESKTOP
+        )
         # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
-        if seen >= duplicate_limit:
+        if seen >= duplicate_limit and not live_desktop_read:
             # Engellenen yineleme, işin ZATEN YAPILDIĞININ kanıtıdır: düşen
             # çağrılar bu noktaya gelmeden unutulur (`forget_call`).
             state.already_done_calls += 1
@@ -4430,7 +4436,7 @@ async def _run_tools(
                 state.observation_calls += 1
             # Okuma sonucu turda saklanır: aynı okuma yinelenirse engel yerine
             # bu sonuç döner (bkz. tekrar kapısı).
-            if tool is not None and not tool.mutating:
+            if tool is not None and not tool.mutating and not live_desktop_read:
                 budget.remember_read(signature, result.output)
             if call.name in _FILE_READ_TOOLS:
                 state.successful_file_reads += 1

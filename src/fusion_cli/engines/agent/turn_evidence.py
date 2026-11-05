@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ...core.followups import TurnEvidence
 from ...core.tools import ToolContext
+from .followup_recovery import unresolved_tool_failures
 
 __all__ = ["evidence_from_turn"]
 
@@ -28,13 +29,7 @@ def evidence_from_turn(
     """
     # Yollar rozete yazılacak; dosya adı son parçadan okunuyor, metin yeter.
     degisenler = tuple(sorted(str(yol) for yol in tool_context.changes.paths))
-    basarisiz = tuple(
-        dict.fromkeys(
-            kullanim.name
-            for kullanim in getattr(outcome, "tool_uses", ())
-            if not getattr(kullanim, "ok", True)
-        )
-    )
+    basarisiz = unresolved_tool_failures(getattr(outcome, "tool_uses", ()), tool_context.root)
     return TurnEvidence(
         changed_files=degisenler,
         failed_tools=basarisiz,

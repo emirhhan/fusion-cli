@@ -10,6 +10,7 @@ import { handleRecord } from "./recorder.js";
 import { deviceIdentity } from "./device.js";
 import { SHORTCUT_NAME, expandShortcut as expandShortcutText } from "./shortcuts.js";
 import { PROGRESS_REQUEST_TIMEOUT_MS } from "./permissionWait.js";
+import { TASK_SCOPE_VERSION } from "./taskScope.js";
 
 const $ = (id) => document.getElementById(id);
 const THREAD_KEY = "fusionThread";
@@ -26,6 +27,7 @@ let listening = false;
 let listenFailures = 0;
 /** Bu panelin kendi gönderdiği ve cevabını beklediği tur var mı? */
 let inflight = false;
+let preparingPrompt = false;
 let thread = { mesajlar: [], seq: null, soru: null };
 
 let errorKind = "";
@@ -348,8 +350,24 @@ async function loadSettings(change = {}) {
 
 async function sendPrompt(text) {
   const typed = (text ?? $("prompt").value).trim();
-  if (!typed || running()) return;
-  const prompt = await expandShortcut(typed);
+  if (!typed || running() || preparingPrompt) return;
+  preparingPrompt = true;
+  const manualSubmission = Boolean(manual);
+  let target, cihaz, prompt;
+  try {
+    // Start the trusted tab lookup before shortcut expansion, storage or transport awaits.
+    const initialTab = chrome.tabs?.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+    const [tab] = await (initialTab || Promise.resolve([]));
+    target = tab ? {tabId: tab.id, url: tab.url} : {};
+    const capability = manualSubmission ? {version: TASK_SCOPE_VERSION}
+      : await chrome.runtime?.sendMessage({type: "fusion.taskScopeCapability"}).catch(() => null);
+    target.scopeVersion = capability?.version;
+    // Manual poll/result/progress use the legacy local-device channel together.
+    cihaz = manualSubmission ? undefined : await deviceIdentity();
+    prompt = await expandShortcut(typed);
+  } finally {
+    preparingPrompt = false;
+  }
   error();
   $("prompt").value = "";
   autoGrow();
@@ -361,7 +379,7 @@ async function sendPrompt(text) {
   });
   void setGlow(true);
   try {
-    const result = await request("/turn", { prompt, turnId });
+    const result = await request("/turn", { prompt, turnId, target, cihaz });
     if (thread.mesajlar.at(-1)?.turnId !== turnId) return;
     const durum = result.ok ? "bitti" : thread.mesajlar.at(-1)?.durum === "iptal" ? "iptal" : "hata";
     await saveThread({ ...withLastAssistant(() => ({ metin: result.metin || "", durum })), soru: null });
@@ -420,7 +438,7 @@ async function poll() {
   polling = true;
   while (manual) {
     try {
-      const command = await request("/poll");
+      const command = await request("/poll", {taskScopeVersion: TASK_SCOPE_VERSION});
       if (!command.id) continue;
       let reply;
       try { reply = { id: command.id, ok: true, veri: await runManual(command) }; } catch (cause) {
@@ -440,7 +458,7 @@ async function poll() {
 function runManual(command) {
   const options = {onPermissionProgress: (progress) => request("/progress", progress)};
   const run = (part) => execute({id: command.id, ...part}, options);
-  if (command.islem !== "record") return run(command);
+  if (command.islem !== "record" || "taskScope" in command) return run(command);
   return handleRecord(
     command.veri || {},
     (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 65 }),

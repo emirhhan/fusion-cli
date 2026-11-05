@@ -1,5 +1,6 @@
 import { execute, MONITOR_KEY, registerMonitor } from "./core.js";
 import { deviceIdentity } from "./device.js";
+import { TASK_SCOPE_VERSION } from "./taskScope.js";
 
 const HOST = "com.fusion.browser";
 
@@ -42,6 +43,10 @@ async function ensureOffscreen() {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+  if (message?.type === "fusion.taskScopeCapability") {
+    reply({ version: TASK_SCOPE_VERSION });
+    return false;
+  }
   if (message?.type === "fusion.captureVisibleTab") {
     chrome.tabs.captureVisibleTab(message.windowId, { format: "jpeg", quality: 65 })
       .then((image) => reply({ ok: true, image }))

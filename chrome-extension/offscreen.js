@@ -2,6 +2,7 @@
 // komutları arka plan hizmetine iletir, sonucu Fusion'a geri yollar.
 import { handleRecord } from "./recorder.js";
 import { PROGRESS_REQUEST_TIMEOUT_MS } from "./permissionWait.js";
+import { TASK_SCOPE_VERSION } from "./taskScope.js";
 
 const RETRY_MS = 5000;
 let connection = null;
@@ -60,7 +61,7 @@ async function recordCheck(target) {
 }
 
 async function run(command) {
-  if (command.islem === "record") {
+  if (command.islem === "record" && !("taskScope" in command)) {
     try { return { ok: true, veri: await handleRecord(command.veri || {}, captureWindow, recordTarget, recordCheck) }; } catch (cause) {
       return { ok: false, hata: String(cause?.message || cause) };
     }
@@ -72,7 +73,8 @@ async function loop() {
   for (;;) {
     try {
       if (!connection && !await pair()) { await report({ bagli: false }); await sleep(RETRY_MS); continue; }
-      const command = await request("/poll");
+      const capability = await chrome.runtime.sendMessage({type: "fusion.taskScopeCapability"}).catch(() => null);
+      const command = await request("/poll", {taskScopeVersion: capability?.version === TASK_SCOPE_VERSION ? TASK_SCOPE_VERSION : null});
       if (!command.id) continue;
       activeCommandId = command.id;
       try {

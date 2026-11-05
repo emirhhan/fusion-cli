@@ -119,6 +119,7 @@ from .chrome_bridge import ChromeBridge
 from .chrome_group import schedule_group_close
 from .chrome_install import install_status
 from .chrome_settings import CHROME_SETTINGS_ROUTES, dispatch_chrome_settings
+from .chrome_task_scope import ChromeTaskScope, ScopedChromeBridge, restricted_task
 from .commands import (
     command_choices,
     list_commands,
@@ -768,11 +769,23 @@ class AppSession:
             )
         return self._remote
 
-    async def _chrome_turn(self, prompt: str, turn_id: str | None = None) -> dict[str, Any]:
+    async def _chrome_turn(
+        self, prompt: str, turn_id: str | None = None, *, target: object = None
+    ) -> dict[str, Any]:
         """Execute only admitted panel work; terminal events share its owner."""
         owner = turn_id or f"chrome:{uuid4().hex}"
+        # Snapshot extension metadata before any model, memory or chat-switch await.
+        scoped_chrome = None
+        if restricted_task(prompt):
+            try:
+                scope = ChromeTaskScope.from_target(target)
+            except ValueError as error:
+                return {"ok": False, "metin": str(error), "turnId": owner}
+            scoped_chrome = ScopedChromeBridge(self._chrome, scope)
         try:
-            result = await self._run_turn(prompt, browser_only=True, chrome_turn_id=owner)
+            result = await self._run_turn(
+                prompt, browser_only=True, chrome_turn_id=owner, scoped_chrome=scoped_chrome
+            )
         except (Exception, asyncio.CancelledError):
             if self._chrome_turn_id == owner:
                 self._chrome.publish(
@@ -3606,6 +3619,7 @@ class AppSession:
         voice_context: VoiceTurnContext | None = None,
         browser_only: bool = False,
         chrome_turn_id: str | None = None,
+        scoped_chrome: ScopedChromeBridge | None = None,
         auto_continues: int = 0,
         deadline: TurnDeadline | None = None,
         receipt: SubmissionReceipt | None = None,
@@ -3627,6 +3641,7 @@ class AppSession:
                 voice_context=voice_context,
                 browser_only=browser_only,
                 chrome_turn_id=chrome_turn_id,
+                scoped_chrome=scoped_chrome,
                 auto_continues=auto_continues,
                 deadline=deadline,
                 receipt=receipt,
@@ -3665,6 +3680,7 @@ class AppSession:
         voice_context: VoiceTurnContext | None = None,
         browser_only: bool = False,
         chrome_turn_id: str | None = None,
+        scoped_chrome: ScopedChromeBridge | None = None,
         auto_continues: int = 0,
         deadline: TurnDeadline | None = None,
         receipt: SubmissionReceipt | None = None,
@@ -3970,7 +3986,7 @@ class AppSession:
                 cron=None if browser_only else turn_state.cron,
                 background_events=None if browser_only else turn_state.background_events,
                 todos=None if browser_only else session_todos(turn_state),
-                chrome_bridge=self._chrome,
+                chrome_bridge=scoped_chrome or self._chrome,
                 skill_grants=pending_extras.grants,
                 allowed_tools=allowed_tools,
                 denied_tools=(
