@@ -27,6 +27,7 @@ from ..core.events import (
     TokenReceived,
 )
 from ..core.protocols import LlmProvider
+from ..core.provider_diagnostics import ProviderCallObserver, observe_phase
 from ..core.tier import tier_mismatch
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem, TextChunk
 
@@ -59,22 +60,29 @@ class EventingProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         call_id = self._call_id_factory()
-        request = self._correlate_request(request, call_id)
+        request = self._correlate_request(request, call_id, stream=False)
         self._publisher.publish(self._started(call_id))
+        observe_phase(request, "call_enter")
         try:
             result = await self._inner.complete(request)
-        except (asyncio.CancelledError, Exception):
+        except (asyncio.CancelledError, Exception) as exc:
             # Zaman aşımı, kesilen yavaş aday ya da sözleşme dışı istisna: bitiş olayı
             # hiç gelmeyecek; açık kalan "çalışıyor" durumu kapatılır (P1-11).
+            observe_phase(
+                request,
+                "call_cancelled" if isinstance(exc, asyncio.CancelledError) else "call_error",
+            )
             self._publish_abandoned(call_id)
             raise
+        observe_phase(request, "call_end")
         self._publish_finished(result, call_id)
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         call_id = self._call_id_factory()
-        request = self._correlate_request(request, call_id)
+        request = self._correlate_request(request, call_id, stream=True)
         self._publisher.publish(self._started(call_id))
+        observe_phase(request, "call_enter")
         finished = False
         # MessageDisplay kancası (#90): ana konuşmanın görünen metni satır partileriyle süzülür.
         display = display_filter.open_stream(call_id) if self._channel is Channel.MAIN else None
@@ -91,10 +99,17 @@ class EventingProvider:
                     finished = True
                     if display is not None:
                         self._publish_pieces(await display.finish())
+                    observe_phase(request, "call_end")
                     self._publish_finished(item.result, call_id)
                 yield item
-        except (asyncio.CancelledError, GeneratorExit, Exception):
+        except (asyncio.CancelledError, GeneratorExit, Exception) as exc:
             if not finished:
+                observe_phase(
+                    request,
+                    "call_cancelled"
+                    if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
+                    else "call_error",
+                )
                 self._publish_abandoned(call_id)
             raise
 
@@ -107,13 +122,28 @@ class EventingProvider:
         for text, provisional in pieces:
             self._publish_text(text, provisional)
 
-    @staticmethod
-    def _correlate_request(request: CompletionRequest, call_id: str) -> CompletionRequest:
-        """Tek lifecycle çağrı kimliğini mevcut uygulama turuna bağla."""
-        if request.web_call_context is None:
-            return request
+    def _correlate_request(
+        self, request: CompletionRequest, call_id: str, *, stream: bool
+    ) -> CompletionRequest:
+        """Bind diagnostics and optional web context to the same lifecycle identity."""
+        observer = ProviderCallObserver(
+            self._publisher.publish,
+            call_id=call_id,
+            max_tokens=request.max_tokens,
+            timeout_s=request.timeout_s,
+            requested_sdk_retries=request.max_retries,
+            stream=stream,
+            purpose=self._purpose,
+            background=self._background,
+        )
         return replace(
-            request, web_call_context=replace(request.web_call_context, model_call_id=call_id)
+            request,
+            provider_observer=observer,
+            web_call_context=(
+                replace(request.web_call_context, model_call_id=call_id)
+                if request.web_call_context is not None
+                else None
+            ),
         )
 
     def _publish_abandoned(self, call_id: str) -> None:

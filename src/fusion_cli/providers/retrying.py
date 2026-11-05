@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator, Sequence
 from ..core.clock import SystemSleeper
 from ..core.constants import RETRY_AFTER_MAX_WAIT_S
 from ..core.protocols import LlmProvider, Sleeper
+from ..core.provider_diagnostics import observe_phase
 from ..core.types import (
     CompletionRequest,
     ModelResult,
@@ -74,7 +75,10 @@ class RetryingProvider:
         for delay in self._delays_s:
             if not self._should_retry(result):
                 return result
-            await self._sleeper.sleep(_wait_s(delay, result))
+            wait_s = _wait_s(delay, result)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
             result = await self._inner.complete(request)
         return result
 
@@ -105,7 +109,10 @@ class RetryingProvider:
             if delay is None or not self._should_retry(erken):
                 yield StreamDone(erken)
                 return
-            await self._sleeper.sleep(_wait_s(delay, erken))
+            wait_s = _wait_s(delay, erken)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
 
     # ----------------------------------------------------------------------- #
 

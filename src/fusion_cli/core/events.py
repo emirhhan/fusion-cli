@@ -74,6 +74,47 @@ class ModelCallStarted(Event):
     background: bool = False
 
 
+ProviderDiagnosticPhase = Literal[
+    "call_enter",
+    "rate_admission_enter",
+    "rate_wait",
+    "rate_wait_end",
+    "rate_admitted",
+    "rate_rejected",
+    "provider_retry_wait",
+    "provider_retry_wait_end",
+    "leaf_enter",
+    "sdk_await_enter",
+    "sdk_stream_open",
+    "sdk_response_returned",
+    "sdk_first_chunk",
+    "call_end",
+    "call_cancelled",
+    "call_error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCallDiagnostic(Event):
+    """Trace-only provider boundaries; SDK chunks are not wire-byte measurements."""
+
+    call_id: str
+    phase: ProviderDiagnosticPhase
+    previous_phase: ProviderDiagnosticPhase | None
+    elapsed_ms: int
+    leaf_attempts: int
+    sdk_chunks: int
+    sdk_text_chunks: int
+    sdk_empty_text_chunks: int
+    max_tokens: int
+    timeout_s: float
+    requested_sdk_retries: int
+    stream: bool
+    purpose: ModelCallPurpose
+    background: bool
+    wait_ms: int | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ModelCallFinished(Event):
     """Bir model çağrısı bitti (başarılı ya da değil)."""
