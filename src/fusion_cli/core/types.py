@@ -10,10 +10,13 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .prompt_manifest import ContextProfile, PromptTransportMeasurement
 from .web_provenance import WebCallContext, WebResponseProvenance
+
+if TYPE_CHECKING:
+    from .provider_diagnostics import ProviderCallObserver
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,6 +377,10 @@ def is_permanent_error(detail: str | None) -> bool:
 class CompletionRequest:
     """Sağlayıcıya verilen çağrı isteği. Sağlayıcıdan bağımsızdır."""
 
+    #: Private observation only: never forwarded to SDK kwargs or serialized as an event.
+    provider_observer: ProviderCallObserver | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
     messages: tuple[Message, ...]
     temperature: float
     max_tokens: int

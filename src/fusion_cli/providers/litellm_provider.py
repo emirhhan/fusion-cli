@@ -21,6 +21,7 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock
+from ..core.provider_diagnostics import observe_phase
 from ..core.reasoning import resolve_reasoning
 from ..core.redaction import redact
 from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
@@ -102,8 +103,14 @@ class LiteLlmProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         started = self._clock.monotonic()
+        if request.provider_observer is not None:
+            request.provider_observer.leaf_enter()
         try:
-            response = await _litellm().acompletion(**self._call_kwargs(request, stream=False))
+            kwargs = self._call_kwargs(request, stream=False)
+            sdk = _litellm()
+            observe_phase(request, "sdk_await_enter")
+            response = await sdk.acompletion(**kwargs)
+            observe_phase(request, "sdk_response_returned")
         except Exception as exc:
             # Sağlayıcı hataları BEKLENEN durumdur (429, 5xx, zaman aşımı, soğuk uç):
             # akışı kesmemek için exception'a değil sonuç nesnesine çevrilir.
@@ -113,11 +120,19 @@ class LiteLlmProvider:
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         started = self._clock.monotonic()
         chunks: list[Any] = []
+        if request.provider_observer is not None:
+            request.provider_observer.leaf_enter()
         try:
-            response = await _litellm().acompletion(**self._call_kwargs(request, stream=True))
+            kwargs = self._call_kwargs(request, stream=True)
+            sdk = _litellm()
+            observe_phase(request, "sdk_await_enter")
+            response = await sdk.acompletion(**kwargs)
+            observe_phase(request, "sdk_stream_open")
             async for chunk in response:
                 chunks.append(chunk)
                 text = _chunk_text(chunk)
+                if request.provider_observer is not None:
+                    request.provider_observer.sdk_chunk(has_text=bool(text))
                 if text:
                     yield TextChunk(text)
                 else:
