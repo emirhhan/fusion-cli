@@ -2134,7 +2134,13 @@ async def _drive(
                     effect
                     for effect in claimed_effects(final_text)
                     if not _tool_evidence_satisfied(
-                        replace(execution, required_effect=effect, required_web_urls=()), budget
+                        replace(
+                            execution,
+                            required_effect=effect,
+                            required_web_urls=(),
+                            requires_web_lookup=False,
+                        ),
+                        budget,
                     )
                 ),
                 None,
@@ -2594,7 +2600,11 @@ _WORKSPACE_READ_TOOLS = frozenset(
 
 def _missing_source_evidence(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
     if not execution.required_web_urls:
-        return False
+        from .research_scope import web_lookup_observed
+
+        return execution.requires_web_lookup and not web_lookup_observed(
+            budget.successful_tool_evidence
+        )
     from .research_scope import requested_sources_read
 
     return not requested_sources_read(execution.required_web_urls, budget.successful_tool_evidence)
@@ -2642,10 +2652,9 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
             return requested_sources_read(execution.required_web_urls, evidence)
         # Araç AİLESİNDEN okunur (A2-21): sabit üç ad `site_crawl`/`site_design`
         # gibi arama araçlarını kanıt saymıyordu. İndirme arama değildir.
-        return any(
-            tool_family(name) is ToolFamily.WEB and name != "download_file"
-            for name, _, _ in evidence
-        )
+        from .research_scope import web_lookup_observed
+
+        return web_lookup_observed(evidence)
     if effect.startswith("file:"):
         # Dosya teslim eden adımın kanıtı DEĞİŞTİREN bir araçtır.
         #

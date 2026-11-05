@@ -162,7 +162,7 @@ _ANSWER_FORMAT_PATTERN = re.compile(
 _MUTATION_VERBS = (
     r"(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir|"
     r"değiştir|degistir|düzenle|duzenle|güncelle|guncelle|oluştur|olustur|ekle|yaz|"
-    r"yap|kur|hazırla|hazirla|dönüştür|donustur)"
+    r"yap|kur|hazırla|hazirla|kaydet|dönüştür|donustur)"
 )
 # A mutation-looking word immediately naming a pressed UI control is a label,
 # not a filesystem predicate. Independent mutations remain in the request.
@@ -444,6 +444,57 @@ _SOURCE_DATA_QUOTE = re.compile(
     r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
     re.S | re.M,
 )
+_DIRECT_EN_FILE_MUTATION = re.compile(
+    rf"\b(?:create|write|generate|save|modify|edit|update|fix|repair)\s+"
+    rf"(?:(?:a|an|the|single|one|new|html|markdown|text|json|file)\s+){{0,5}}{_FILENAME}"
+)
+_OUTPUT_FILE_TARGET = re.compile(
+    rf"{_FILENAME}(?:['’]?(?:ya|ye|a|e))?(?:\s+dosya\w*)?\s+"
+    r"(?:oluştur|olustur|yaz|kaydet|aktar)\w*\b|"
+    rf"\b(?:create|write|generate|save)\s+"
+    rf"(?:(?:a|an|the|single|one|new|html|markdown|text|json|file)\s+){{0,5}}{_FILENAME}|"
+    rf"\bto\s+{_FILENAME}(?:\s+file)?"
+)
+_LOCAL_RESEARCH_INPUT = re.compile(
+    r"\b(?:yerel|local|workspace|readme|changelog|dosya\w*|git diff|git log)\b|"
+    rf"\b(?:read|from|inside|in)\s+(?:the\s+)?{_FILENAME}"
+)
+
+
+def _request_prose(task: str) -> str:
+    """Keep quoted file/URL objects, but never execute quoted example instructions."""
+
+    def quoted(match: re.Match[str]) -> str:
+        inner = match.group().strip("`\"“”'")
+        if re.fullmatch(r"https?://[^\s<>]+", inner, re.I) or re.fullmatch(_FILENAME, inner, re.I):
+            return inner
+        return " "
+
+    return _SOURCE_DATA_QUOTE.sub(quoted, task)
+
+
+def requested_web_research(task: str) -> bool:
+    """Research remains an obligation even when creating a file has primary priority."""
+    prose = _request_prose(lower_tr_aware(task))
+    # URL paths/queries are data, not research verbs or temporal fact requests.
+    # Explicitly requested reads are bound against the original task below.
+    prose = re.sub(r"https?://[^\s<>\"'`]+", " ", prose)
+    for part in _positive_action_parts(prose, merge_objects=False):
+        for clause in re.split(r"\band\b", part):
+            if _NEGATED_SOURCE_ACTION.search(clause):
+                continue
+            facts = _OUTPUT_FILE_TARGET.sub(" ", clause)
+            if _LOCAL_RESEARCH_INPUT.search(facts):
+                continue
+            if needs_current_lookup(facts) or _matches(facts, _WEB_LOOKUP_PATTERNS):
+                return True
+            if re.search(
+                r"\b(?:research|araştır(?:ıp|arak|ın)?|arastir(?:ip|arak|in)?)\b", facts
+            ) and not re.search(
+                r"\b(?:explain|define|concept|kavram\w*|açıkla|acikla|ne demek)\b", facts
+            ):
+                return True
+    return bool(requested_web_urls(task, source_reads_only=True))
 
 
 def _source_read_parts(protected: str, prefix: str) -> tuple[str, ...]:
@@ -475,12 +526,7 @@ def _source_read_parts(protected: str, prefix: str) -> tuple[str, ...]:
 def requested_web_urls(task: str, *, source_reads_only: bool = False) -> tuple[str, ...]:
     """Keep the case-sensitive URLs in affirmative source requests, without fetching them."""
     if source_reads_only:
-
-        def quoted(match: re.Match[str]) -> str:
-            inner = match.group().strip("`\"“”'")
-            return inner if re.fullmatch(r"https?://[^\s<>]+", inner, re.I) else " "
-
-        task = _SOURCE_DATA_QUOTE.sub(quoted, task)
+        task = _request_prose(task)
     prefix = "fusion_source_url_"
     while prefix in lower_tr_aware(task):
         prefix = "_" + prefix
@@ -543,7 +589,10 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         r"could i\b|would i\b|is it\b|do you think\b|explain\b|describe\b|"
         r"tell me how\b)",
         lowered,
-    ) and any(_matches(clause, _EN_FILE_MUTATION_PATTERNS) for clause in clauses):
+    ) and (
+        any(_matches(clause, _EN_FILE_MUTATION_PATTERNS) for clause in clauses)
+        or _DIRECT_EN_FILE_MUTATION.search(_request_prose(lowered))
+    ):
         return EffectKind.WORKSPACE_MUTATION.value
     if _matches(lowered, _BULK_COUNT_PATTERNS):
         return _BULK_COUNT_EFFECT

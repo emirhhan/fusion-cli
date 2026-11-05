@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from urllib.parse import urlsplit
 
+from ...core.tools import ToolFamily, tool_family
+
 _SOURCE_READERS = frozenset(
     {"web_fetch", "browser_open", "browser_tab_open", "site_crawl", "site_design", "clone_site"}
 )
@@ -40,3 +42,16 @@ def requested_sources_read(
     }
     seen.discard(None)
     return all((key := _source_key(url)) is not None and key in seen for url in urls)
+
+
+def web_lookup_observed(evidence: Sequence[tuple[str, dict[str, object], bool]]) -> bool:
+    """Generic research needs lookup/page access; browser status/control is not one."""
+    return any(
+        (tool_family(name) is ToolFamily.WEB and name != "download_file")
+        or (
+            name in _SOURCE_READERS
+            and isinstance((url := args.get("url")), str)
+            and _source_key(url) is not None
+        )
+        for name, args, _ in evidence
+    )

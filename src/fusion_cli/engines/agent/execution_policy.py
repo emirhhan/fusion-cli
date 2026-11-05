@@ -22,7 +22,7 @@ from ...config.tool_policy import mutation_policy_for_model
 from ...core.text_fold import fold_tr
 from ...core.tools import ToolFamily
 from ...core.types import Message, ModelSpec
-from ..effects.detect import requested_web_urls
+from ..effects.detect import requested_web_research, requested_web_urls
 from .action_evidence import effect_request, task_effect
 from .edit_profiles import EditFormat
 from .task_availability import task_tool_mode
@@ -90,6 +90,8 @@ class ExecutionPolicy:
     required_effect: str | None = None
     #: Explicitly requested pages must actually be read; an unrelated lookup is insufficient.
     required_web_urls: tuple[str, ...] = ()
+    #: Public/current research stays required alongside an artifact mutation.
+    requires_web_lookup: bool = False
     #: Bu turun metni açık bir değişiklik etkisi istiyor mu (`_MUTATING_EFFECTS`).
     complex_task: bool = False
     max_evidence_reprompts: int = 3
@@ -147,7 +149,8 @@ def policy_for(
         if not explicit_no_tools
         else ()
     )
-    requires_evidence = required_effect is not None
+    web_lookup = not explicit_no_tools and requested_web_research(source_request)
+    requires_evidence = required_effect is not None or web_lookup or bool(source_urls)
     complex_task = required_effect in _MUTATING_EFFECTS
     # Yetenek kararı `strict` kısa devresinden BAĞIMSIZ verilir: panelden zorunlu
     # model seçmek güvenlik kapısını atlamak anlamına gelemez.
@@ -175,6 +178,7 @@ def policy_for(
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
             required_web_urls=source_urls,
+            requires_web_lookup=web_lookup,
             max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
             compact_tool_surface=compact,
@@ -212,6 +216,7 @@ def policy_for(
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
         required_web_urls=source_urls,
+        requires_web_lookup=web_lookup,
         max_evidence_reprompts=0 if explicit_no_tools else 3,
         compact_tool_surface=compact,
         max_external_tools=max_external_tools,
