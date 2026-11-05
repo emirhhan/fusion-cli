@@ -77,21 +77,32 @@ function updateSession(
  *
  * Ölçüldü (30 Ekim): kullanıcı geçmiş gelmeden mesaj yazarsa geri gelen geçmiş TAMAMEN atılıyor,
  * sohbetin önceki içeriği hiç görünmüyordu (U4-35). Çekirdek yeni mesajı geçmişe de yazmış
- * olabileceğinden, mevcut kullanıcı mesajlarının geçmişteki aynı metinli kopyası bir kez düşülür.
+ * olabileceğinden, kalıcı kimliği aynı mesajlar birleştirilir. Kimliksiz eski kullanıcı
+ * satırları için aynı metinli kopya bir kez düşülür; ayrı makbuzlar birleştirilmez.
  */
 function gecmisiOnePekle(gecmis: Mesaj[], mevcut: Mesaj[], oturumId: string): Mesaj[] {
   const kalan = [...gecmis];
-  for (const mesaj of mevcut) {
-    if (mesaj.rol !== "kullanici") continue;
-    for (let indeks = kalan.length - 1; indeks >= 0; indeks -= 1) {
-      if (kalan[indeks].rol === "kullanici" && kalan[indeks].metin === mesaj.metin) {
-        kalan.splice(indeks, 1);
-        break;
+  const eskiKimlik = (id: string | undefined) => !id || id.startsWith("legacy:") || /^history-\d+$/.test(id);
+  // Geçmiş bildirimi her yanıtta yenilenir; diğer canlı mesajların sırası korunur.
+  const retained = mevcut.filter(message => message.rol !== "bildirim" || message.id !== "history-notice").map(mesaj => {
+    let indeks = kalan.findIndex(old => old.rol === mesaj.rol && old.id && old.id === mesaj.id &&
+      (!eskiKimlik(old.id) || old.metin === mesaj.metin));
+    if (indeks < 0 && mesaj.rol === "kullanici") {
+      for (let i = kalan.length - 1; i >= 0; i -= 1) {
+        if (kalan[i].rol === "kullanici" && kalan[i].metin === mesaj.metin &&
+            (eskiKimlik(kalan[i].id) || eskiKimlik(mesaj.id))) {
+          indeks = i;
+          break;
+        }
       }
     }
-  }
-  // A history notice describes this response, so a refresh replaces the old notice.
-  const retained = mevcut.filter(message => message.rol !== "bildirim" || message.id !== "history-notice");
+    if (indeks < 0) return mesaj;
+    const [old] = kalan.splice(indeks, 1);
+    return {...old, ...mesaj,
+      metin: mesaj.metin.trim() ? mesaj.metin : old.metin,
+      ...(mesaj.delivery ?? old.delivery ? {delivery: mesaj.delivery ?? old.delivery} : {}),
+      ...(mesaj.findings ?? old.findings ? {findings: mesaj.findings ?? old.findings} : {})};
+  });
   return migrateMessageIds([...kalan, ...retained], oturumId);
 }
 
