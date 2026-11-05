@@ -276,6 +276,12 @@ from .loop_contract import (
 from .masking import MaskLedger, MaskView, mask_view
 from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
+from .native_stale_recovery import (
+    NativeRecoveryInvocation,
+    NativeStaleRecovery,
+    is_native_mutation,
+)
+from .native_stale_recovery import recovery_note as native_recovery_note
 from .nested_skills import discover_nested_skills
 from .orchestration_tools import (
     ORCHESTRATION_KINDS,
@@ -1796,6 +1802,7 @@ class _State:
     failed_tool_calls: int = 0
     model_calls_made: int = 0
     desktop_grounding: DesktopGrounding = field(default_factory=DesktopGrounding)
+    native_stale_recovery: NativeStaleRecovery = field(default_factory=NativeStaleRecovery)
     #: Çıktı bütçesi çarpanı: model bütçeyi düşünmeye harcayıp cevapsız kalırsa büyür.
     max_tokens_scale: int = 1
     #: Çıktı bütçesi düşünmeye gittiyse turun kalanında düşünme yoğunluğu düşürülür.
@@ -1859,6 +1866,8 @@ class _State:
     unresponsive_reason: str = ""
     #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
     failed_mutations_in_row: int = 0
+    #: Son başarısız değiştirici native girdiyse dosya-düzenleme kurtarması uygulanmaz.
+    last_failed_mutation_is_native: bool = False
     #: Döngü kapısı bu turda kaç kez konuştu.
     edit_loop_pushes: int = 0
     #: Modele en son kaç değişiklik kaydı bildirildi.
@@ -3583,7 +3592,11 @@ MAX_EDIT_LOOP_PUSHES = 2
 
 def _stuck_editing(state: _State, *, plan_mode: bool) -> bool:
     """Model aynı düzenlemeyi tekrar tekrar deneyip düşüyor mu?"""
-    if plan_mode or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES:
+    if (
+        plan_mode
+        or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES
+        or state.last_failed_mutation_is_native
+    ):
         return False
     return state.failed_mutations_in_row >= MAX_FAILED_MUTATIONS_IN_ROW
 
@@ -4476,8 +4489,16 @@ async def _run_tools(
         pending_diff = file_diff(call.name, args, deps.tool_context)
         todos_before = tuple(deps.tool_context.todos.items)
         recorded_uses = len(state.tool_uses)
+        native_invocations: list[NativeRecoveryInvocation] = []
         result, outcome = await _execute(
-            call, args, deps, registry, execution=execution, plan_mode=plan_mode, state=state
+            call,
+            args,
+            deps,
+            registry,
+            execution=execution,
+            plan_mode=plan_mode,
+            state=state,
+            native_invocations=native_invocations,
         )
         repair_feedback = record_failure_evidence(result, budget)
         if result.is_observation:
@@ -4560,6 +4581,7 @@ async def _run_tools(
             if mutating and not result.is_observation:
                 state.mutating_tool_calls_made += 1
                 state.failed_mutations_in_row = 0
+                state.last_failed_mutation_is_native = False
                 # Çağı yalnızca DOSYA değişikliği ilerletir. `run_shell` başarılı
                 # olduğunda da ilerletmek, aynı komutun tekrar imzasını her
                 # seferinde tazeliyor ve tekrar kapısını `run_shell` için işlevsiz
@@ -4584,6 +4606,9 @@ async def _run_tools(
                 if isinstance(istenen, str):
                     state.missing_paths.append(istenen)
             if tool is not None and tool.mutating:
+                state.last_failed_mutation_is_native = is_native_mutation(
+                    tool, remote=registry.is_remote(call.name)
+                )
                 state.failed_mutations_in_row += 1
                 # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:
                 # toparlanmanın tek yolu odur ve tekrar kapısı onu engelliyordu.
@@ -4654,17 +4679,48 @@ async def _run_tools(
         if post_hook.halt is not None:
             state.hook_halt = post_hook.halt
             budget.halt(BudgetStop.USER_DENIED)
+        native_stale_count = None
+        if native_invocations:
+            invocation = native_invocations[0]
+            native_stale_count = state.native_stale_recovery.observe(
+                invocation.tool,
+                invocation.arguments,
+                result,
+                outcome,
+                deps.tool_context,
+                remote=False,
+            )
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
-            not_ = _repeated_failure_note(
-                call.name,
-                result.output,
-                state.repeated_failures[imza],
-                teacher_available=(
-                    deps.config.teacher is not None and not deps.config.runtime.teacherless
-                ),
-            )
+            if native_stale_count is not None:
+                available = (
+                    _permitted(
+                        None,
+                        registry,
+                        execution,
+                        deps.tool_context.task_kinds,
+                        denied=surface_denied(deps, registry.names()),
+                    )
+                    or set()
+                )
+                not_ = (
+                    native_recovery_note(
+                        native_stale_count,
+                        {name for name in available if not registry.is_remote(name)},
+                    )
+                    if native_stale_count >= _YINELENEN_HATA_ESIGI
+                    else None
+                )
+            else:
+                not_ = _repeated_failure_note(
+                    call.name,
+                    result.output,
+                    state.repeated_failures[imza],
+                    teacher_available=(
+                        deps.config.teacher is not None and not deps.config.runtime.teacherless
+                    ),
+                )
             if not_ is not None:
                 govde = f"{govde}\n\n{not_}"
         gorseller = result.images
@@ -4722,6 +4778,7 @@ async def _execute(
     execution: ExecutionPolicy,
     plan_mode: bool = False,
     state: _State | None = None,
+    native_invocations: list[NativeRecoveryInvocation] | None = None,
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
@@ -4934,6 +4991,14 @@ async def _execute(
         )
         if grounding_error is not None:
             return ToolResult.failure(grounding_error), ToolOutcome.BLOCKED
+    # Hooks and approval can rewrite the target. Only dispatched, trusted native
+    # inputs enter recovery feedback; original model arguments are not evidence.
+    if (
+        native_invocations is not None
+        and tool is not None
+        and is_native_mutation(tool, remote=registry.is_remote(call.name))
+    ):
+        native_invocations.append(NativeRecoveryInvocation(tool, deepcopy(args)))
     deps.publisher.publish(ToolStarted(name=call.name, args=args, call_id=call.id))
     if state is not None and owned_release is not None:
         from ...core.owned_thread import await_cancellable_thread
