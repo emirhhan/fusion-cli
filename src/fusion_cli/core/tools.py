@@ -245,6 +245,8 @@ class ToolResult:
     output_shaped: bool = False
     #: Internal successful image-helper observation; never decoded from MCP data.
     visual_observation: DesktopCapture | None = None
+    #: Internal receipt from an authorized Chrome content read, never MCP/model data.
+    source_read_url: str = ""
 
     @property
     def images(self) -> tuple[str, ...]:

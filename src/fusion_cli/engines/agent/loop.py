@@ -2676,7 +2676,11 @@ def _missing_source_evidence(execution: ExecutionPolicy, budget: TurnBudget) -> 
         )
     from .research_scope import requested_sources_read
 
-    return not requested_sources_read(execution.required_web_urls, budget.successful_tool_evidence)
+    return not requested_sources_read(
+        execution.required_web_urls,
+        budget.successful_tool_evidence,
+        observed_sources=getattr(budget, "successful_source_reads", ()),
+    )
 
 
 def _evidence_recovery_effect(execution: ExecutionPolicy, budget: TurnBudget) -> str | None:
@@ -2718,7 +2722,11 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
         if execution.required_web_urls:
             from .research_scope import requested_sources_read
 
-            return requested_sources_read(execution.required_web_urls, evidence)
+            return requested_sources_read(
+                execution.required_web_urls,
+                evidence,
+                observed_sources=getattr(budget, "successful_source_reads", ()),
+            )
         # Araç AİLESİNDEN okunur (A2-21): sabit üç ad `site_crawl`/`site_design`
         # gibi arama araçlarını kanıt saymıyordu. İndirme arama değildir.
         from .research_scope import web_lookup_observed
@@ -4544,6 +4552,8 @@ async def _run_tools(
                     state.nested_candidates.append(okunan)
             mutating = bool(tool is not None and tool.mutating)
             budget.successful_tool_evidence.append((call.name, args, mutating))
+            if result.source_read_url:
+                budget.successful_source_reads.append(result.source_read_url)
             if mutating and _acts_on_remote_state(call.name):
                 budget.remote_epoch += 1
             if mutating and not result.is_observation:

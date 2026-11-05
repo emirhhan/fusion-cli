@@ -27,7 +27,10 @@ def _source_key(url: str) -> tuple[str, str, int | None, str, str] | None:
 
 
 def requested_sources_read(
-    urls: Sequence[str], evidence: Sequence[tuple[str, dict[str, object], bool]]
+    urls: Sequence[str],
+    evidence: Sequence[tuple[str, dict[str, object], bool]],
+    *,
+    observed_sources: Sequence[str] = (),
 ) -> bool:
     """Prove reads of named pages; this does not claim semantic correctness or freshness.
 
@@ -40,6 +43,7 @@ def requested_sources_read(
         for name, args, _ in evidence
         if name in _SOURCE_READERS and isinstance((url := args.get("url")), str)
     }
+    seen.update(_source_key(url) for url in observed_sources)
     seen.discard(None)
     return all((key := _source_key(url)) is not None and key in seen for url in urls)
 

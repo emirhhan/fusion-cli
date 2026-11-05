@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from ..core.redaction import redact
@@ -100,7 +101,7 @@ def format_tree(result: ToolResult) -> ToolResult:
             "ver ya da depth'i küçült."
         )
     lines.append(veri["tree"])
-    return ToolResult("\n".join(lines))
+    return replace(result, output="\n".join(lines))
 
 
 async def run_shortcut(value: object, context: ToolContext, call: Invoke) -> ToolResult:

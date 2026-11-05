@@ -393,7 +393,8 @@ export function pageAction(operation, args) {
     const PAGE = MAX_TEXT;
     const page = Math.max(1, Number(args.page) || 1);
     const full = visibleText(PAGE * page + 1);
-    return { page, text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
+    return { page, title: document.title, url: location.href,
+      text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
   }
   if (operation === "hover") {
     // ref ya da ekran görüntüsü koordinatı (Claude computer hover coordinate).

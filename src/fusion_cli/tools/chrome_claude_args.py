@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from ..core.tools import ToolContext, ToolResult
@@ -58,9 +59,10 @@ def limit_output(result: ToolResult, max_chars: object) -> ToolResult:
     limit = max(1, max_chars)
     if len(result.output) <= limit:
         return result
-    return ToolResult(
-        f"{result.output[:limit]}\n… (çıktı max_chars={limit} sınırında kesildi; depth "
-        "küçült, ref_id ile alt ağaca in ya da filter=interactive kullan)"
+    return replace(
+        result,
+        output=f"{result.output[:limit]}\n… (çıktı max_chars={limit} sınırında kesildi; depth "
+        "küçült, ref_id ile alt ağaca in ya da filter=interactive kullan)",
     )
 
 
