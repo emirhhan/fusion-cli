@@ -2134,7 +2134,7 @@ async def _drive(
                     effect
                     for effect in claimed_effects(final_text)
                     if not _tool_evidence_satisfied(
-                        replace(execution, required_effect=effect), budget
+                        replace(execution, required_effect=effect, required_web_urls=()), budget
                     )
                 ),
                 None,
@@ -2150,7 +2150,7 @@ async def _drive(
                     messages.pop()  # Kanıtsız iddia sonraki turda olgu olarak taşınmaz.
                     messages.append(
                         reflexion.tool_evidence_required_note(
-                            execution.required_effect, state.evidence_reprompts
+                            _evidence_recovery_effect(execution, budget), state.evidence_reprompts
                         )
                         if execution.requires_tool_evidence
                         else reflexion.unsupported_claim_note()
@@ -2198,12 +2198,14 @@ async def _drive(
                     state.evidence_reprompts += 1
                     messages.append(
                         reflexion.tool_evidence_required_note(
-                            execution.required_effect, state.evidence_reprompts
+                            _evidence_recovery_effect(execution, budget), state.evidence_reprompts
                         )
                     )
                     continue
                 return _outcome(
-                    reflexion.unverified_action_message(execution.required_effect),
+                    reflexion.unverified_action_message(
+                        _evidence_recovery_effect(execution, budget)
+                    ),
                     messages,
                     state,
                     ok=False,
@@ -2590,6 +2592,20 @@ _WORKSPACE_READ_TOOLS = frozenset(
 )
 
 
+def _missing_source_evidence(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
+    if not execution.required_web_urls:
+        return False
+    from .research_scope import requested_sources_read
+
+    return not requested_sources_read(execution.required_web_urls, budget.successful_tool_evidence)
+
+
+def _evidence_recovery_effect(execution: ExecutionPolicy, budget: TurnBudget) -> str | None:
+    return (
+        "web_lookup" if _missing_source_evidence(execution, budget) else execution.required_effect
+    )
+
+
 def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
     """Gerçek eylem isteği başarılı bir araç sonucu ile kanıtlandı mı?
 
@@ -2600,6 +2616,8 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     """
 
     effect = execution.required_effect
+    if _missing_source_evidence(execution, budget):
+        return False
     if effect is None:
         return True
     evidence = budget.successful_tool_evidence

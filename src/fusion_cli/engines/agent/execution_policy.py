@@ -141,6 +141,12 @@ def policy_for(
     # Kullanıcı “araç kullanma” dese bile gerçek bir dış etki talebi ortadan
     # kalkmaz. Araçlar kapalı tutulur ama iş yapılmış gibi raporlanamaz.
     required_effect = task_effect(task, history)
+    source_request = effect_request(task, history)
+    source_urls = (
+        requested_web_urls(source_request, source_reads_only=required_effect != "web_lookup")
+        if not explicit_no_tools
+        else ()
+    )
     requires_evidence = required_effect is not None
     complex_task = required_effect in _MUTATING_EFFECTS
     # Yetenek kararı `strict` kısa devresinden BAĞIMSIZ verilir: panelden zorunlu
@@ -168,9 +174,7 @@ def policy_for(
             offer_tools=not explicit_no_tools,
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
-            required_web_urls=requested_web_urls(effect_request(task, history))
-            if required_effect == "web_lookup"
-            else (),
+            required_web_urls=source_urls,
             max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
             compact_tool_surface=compact,
@@ -207,9 +211,7 @@ def policy_for(
         offer_tools=not explicit_no_tools and (requires_evidence or not simple_chat),
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
-        required_web_urls=requested_web_urls(effect_request(task, history))
-        if required_effect == "web_lookup"
-        else (),
+        required_web_urls=source_urls,
         max_evidence_reprompts=0 if explicit_no_tools else 3,
         compact_tool_surface=compact,
         max_external_tools=max_external_tools,

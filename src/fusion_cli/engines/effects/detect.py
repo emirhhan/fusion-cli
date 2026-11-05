@@ -429,8 +429,56 @@ def explicitly_disallows_tools(task: str) -> bool:
     return any(marker in lowered for marker in _EXPLICIT_NO_TOOL_MARKERS)
 
 
-def requested_web_urls(task: str) -> tuple[str, ...]:
+_SOURCE_READING_ACTION = re.compile(
+    r"\b(?:oku(?:yun|yabilir misin)?|incele|doğrula|kontrol et|"
+    r"read|fetch|open|browse|consult|verify|check)\b"
+)
+_NEGATED_SOURCE_ACTION = re.compile(
+    r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse)\b|"
+    r"\b(?:okuma|inceleme|doğrulama|açma|acma)\s*(?:lütfen)?$"
+)
+_SOURCE_DATA_QUOTE = re.compile(
+    r"```.*?```|`[^`]*`|\"[^\"\n]*\"|“[^”\n]*”|"
+    r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
+    re.S | re.M,
+)
+
+
+def _source_read_parts(protected: str, prefix: str) -> tuple[str, ...]:
+    """Bind read verbs to URL objects; a separate link/literal is not a read."""
+    accepted: list[str] = []
+    for sentence in re.split(r"[;!?\n]|\.(?=\s|$)", protected):
+        # Keep quoted examples and translation instructions out of the contract.
+        if re.search(r"^\s*(?:translate|çevir|tercüme et)\b", sentence):
+            continue
+        clauses = tuple(
+            part
+            for part in _positive_action_parts(sentence)
+            for part in re.split(r"\band\b", part)
+            if not _NEGATED_SOURCE_ACTION.search(part)
+        )
+        reading = [part for part in clauses if _SOURCE_READING_ACTION.search(part)]
+        accepted.extend(reading)
+        if reading:
+            # Coordinated URL-only objects share their read verb, in either
+            # language/order: "read A and B" / "A ve B sayfalarını oku".
+            for part in clauses:
+                residue = re.sub(rf"\b{re.escape(prefix)}\d+_end\b", " ", part)
+                residue = re.sub(r"\b(?:sayfa\w*|pages?|sources?|as|the|kaynak\w*)\b", " ", residue)
+                if not residue.strip(" ,:"):
+                    accepted.append(part)
+    return tuple(accepted)
+
+
+def requested_web_urls(task: str, *, source_reads_only: bool = False) -> tuple[str, ...]:
     """Keep the case-sensitive URLs in affirmative source requests, without fetching them."""
+    if source_reads_only:
+
+        def quoted(match: re.Match[str]) -> str:
+            inner = match.group().strip("`\"“”'")
+            return inner if re.fullmatch(r"https?://[^\s<>]+", inner, re.I) else " "
+
+        task = _SOURCE_DATA_QUOTE.sub(quoted, task)
     prefix = "fusion_source_url_"
     while prefix in lower_tr_aware(task):
         prefix = "_" + prefix
@@ -449,9 +497,14 @@ def requested_web_urls(task: str) -> tuple[str, ...]:
     # URL punctuation belongs to the URL. In particular '?' must not terminate a
     # request clause before its query has been associated with source evidence.
     protected = re.sub(r"https?://[^\s<>\"'`]+", protect, task, flags=re.IGNORECASE)
+    parts = (
+        _source_read_parts(lower_tr_aware(protected), prefix)
+        if source_reads_only
+        else _positive_action_parts(lower_tr_aware(protected))
+    )
     positive = " ".join(
         clause
-        for clause in _positive_action_parts(lower_tr_aware(protected))
+        for clause in parts
         if not re.search(
             r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse)\b", clause
         )
