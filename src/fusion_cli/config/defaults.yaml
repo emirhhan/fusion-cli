@@ -513,6 +513,9 @@ runtime:
   # aşımından ayrıdır; ilk başarısızlıkta bir kez yeniden denenir, iki ardışık
   # başarısızlıktan sonra öğretmen o tur için kapatılır.
   teacher_timeout_s: 300
+  # Automatic plan/review phase total, including retries and format repair.
+  # Explicit/model-initiated ask_teacher retains its existing request timeout.
+  teacher_auto_phase_timeout_s: 30
   # run_shell işletim sistemi sandbox'ı. "off" = kısıt yok (varsayılan; tırnaksız off YAML'da false okunur ve kabul edilir). write_root =
   # macOS'ta `sandbox-exec`, Linux/WSL2'de bubblewrap ile yazma yalnız proje kökü (+ --add-dir,
   # sandbox.allow_write) ve geçici dizinlerle sınırlı olur (`echo x > ../y` reddedilir);

@@ -145,8 +145,38 @@ _UNWORKABLE_CAVEAT = (
 _TEACHER_MAX_ATTEMPTS = 2
 
 
+def _automatic_phase_deadline(deps: AgentDeps) -> float:
+    seconds = deps.config.runtime.teacher_auto_phase_timeout_s
+    # Only an authoritative turn deadline permits reserving time for main work;
+    # a provider's per-request timeout is not the remaining turn duration.
+    if deps.deadline is not None:
+        seconds = min(seconds, max(0.0, deps.deadline.remaining_s()) / 4)
+    return asyncio.get_running_loop().time() + seconds
+
+
+def _phase_expired(deadline: float | None) -> bool:
+    return deadline is not None and asyncio.get_running_loop().time() >= deadline
+
+
+def _notify_phase_expired(deps: AgentDeps) -> None:
+    deps.publisher.publish(
+        StatusChanged(
+            message=(
+                "Otomatik öğretmen danışmasının süre bütçesi doldu; "
+                "mevcut kanıtlarla devam ediyorum."
+            )
+        )
+    )
+
+
 async def _ask(
-    registry: ToolRegistry, deps: AgentDeps, *, question: str, durum: str, bicim: str = ""
+    registry: ToolRegistry,
+    deps: AgentDeps,
+    *,
+    question: str,
+    durum: str,
+    bicim: str = "",
+    phase_deadline: float | None = None,
 ) -> str | None:
     """Öğretmene tek soru sor; geçici hatada BİR kez yeniden dene.
 
@@ -157,17 +187,30 @@ async def _ask(
     """
     runtime = deps.config.runtime
     timeout_s = getattr(runtime, "teacher_timeout_s", runtime.request_timeout_s)
+    task = asyncio.current_task()
+    cancellation_count = task.cancelling() if task is not None else 0
     for attempt in range(1, _TEACHER_MAX_ATTEMPTS + 1):
+        if _phase_expired(phase_deadline):
+            _notify_phase_expired(deps)
+            return None
+        remaining = (
+            max(0.0, phase_deadline - asyncio.get_running_loop().time())
+            if phase_deadline is not None
+            else timeout_s
+        )
         last = attempt == _TEACHER_MAX_ATTEMPTS
         deps.teacher_lesson_sync_deferred = True
         try:
-            async with asyncio.timeout(timeout_s):
+            async with asyncio.timeout(min(timeout_s, remaining)):
                 result = await registry.execute(
                     "ask_teacher",
                     {"question": question, "durum": durum, "bicim": bicim},
                     deps.tool_context,
                 )
         except TimeoutError:
+            if _phase_expired(phase_deadline):
+                _notify_phase_expired(deps)
+                return None
             if last:
                 _notify_unavailable(
                     deps, "Öğretmen yanıtı zaman aşımına uğradı; tek başıma ilerliyorum."
@@ -181,6 +224,13 @@ async def _ask(
             continue
         finally:
             deps.teacher_lesson_sync_deferred = False
+            # Cleanup is awaited; a provider cannot consume user cancellation,
+            # including one converted to a return value or TimeoutError.
+            if task is not None and task.cancelling() > cancellation_count:
+                raise asyncio.CancelledError
+        if _phase_expired(phase_deadline):
+            _notify_phase_expired(deps)
+            return None
         deps.publisher.publish(
             ToolExecuted(
                 name="ask_teacher",
@@ -225,6 +275,7 @@ async def prepare_teacher_plan(
     if not teacher_is_ready(deps, registry):
         _notify_unavailable(deps, "Bağlı öğretmen yok; tek başıma ilerliyorum.")
         return
+    phase_deadline = _automatic_phase_deadline(deps)
     context = await asyncio.to_thread(_project_context, deps.tool_context.root, task)
     question = (
         "İşe başlamadan uygulanabilir planı yalnız JSON olarak ver. Alanlar: "
@@ -239,6 +290,7 @@ async def prepare_teacher_plan(
         question=question,
         durum=redact(f"Görev: {task}\n\nProje: {context}\n\n{_tool_summary(registry)}"),
         bicim="plan",
+        phase_deadline=phase_deadline,
     )
     if answer is None:
         return
@@ -256,7 +308,10 @@ async def prepare_teacher_plan(
             ),
             durum=redact(answer),
             bicim="plan",
+            phase_deadline=phase_deadline,
         )
+        if _phase_expired(phase_deadline):
+            return
         try:
             plan = parse_teacher_plan(repair or "")
         except TeacherPlanError:
@@ -270,6 +325,8 @@ async def prepare_teacher_plan(
             )
             deps.publisher.publish(TeacherPlanPrepared(steps=0, structured=False))
             return
+    if _phase_expired(phase_deadline):
+        return
     deps.pending_teacher_plan = plan
     _publish_todos(plan.steps, deps)
     deps.platform_limitations.extend(plan.unworkables)
@@ -478,6 +535,7 @@ async def review_teacher_changes(
         return None
     if not teacher_is_ready(deps, registry):
         return None
+    phase_deadline = _automatic_phase_deadline(deps)
     tests = [
         redact(use.output)
         for use in outcome.tool_uses
@@ -496,8 +554,9 @@ async def review_teacher_changes(
             'uygulanan gereksinim var mı? Yalnız JSON {"bulgular": ["somut sorun"]} ver.'
         ),
         durum=durum,
+        phase_deadline=phase_deadline,
     )
-    if answer is None:
+    if answer is None or _phase_expired(phase_deadline):
         return None
     try:
         return parse_teacher_review(answer)

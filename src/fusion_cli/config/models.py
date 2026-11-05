@@ -352,6 +352,9 @@ class RuntimeConfig:
     #: zaman aşımından (`request_timeout_s`) AYRIDIR: web LLM düşünme süresi uzun
     #: olabilir ama bir tur dakikalarca öğretmeni bekleyemez (A4-31).
     teacher_timeout_s: float = 300.0
+    #: Otomatik plan/denetim fazının toplam süresi; yeniden deneme ve biçim
+    #: düzeltmesi aynı bütçeyi paylaşır. Doğrudan ask_teacher aracını değiştirmez.
+    teacher_auto_phase_timeout_s: float = 30.0
     #: `run_shell` işletim sistemi sandbox'ı: "off" (varsayılan) | "write_root" (macOS
     #: `sandbox-exec`, Linux bubblewrap; Q1-16). Neyin sınırlandığı `sandbox:` bölümünde (P-010).
     shell_sandbox: str = "off"
@@ -524,6 +527,12 @@ class RuntimeConfig:
 
     def __post_init__(self) -> None:
         """İndeks sınırı dosyadan ve programmatik kurulumda geçerli kalsın."""
+        if (
+            type(self.teacher_auto_phase_timeout_s) not in (int, float)
+            or not math.isfinite(self.teacher_auto_phase_timeout_s)
+            or self.teacher_auto_phase_timeout_s <= 0
+        ):
+            raise ConfigError("runtime.teacher_auto_phase_timeout_s: pozitif sonlu süre gerekli.")
         try:
             selection = ExternalToolSelection(self.external_tool_selection)
         except (TypeError, ValueError) as error:

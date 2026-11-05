@@ -363,6 +363,7 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "judge_timeout_s",
         "circuit_cooldown_s",
         "teacher_timeout_s",
+        "teacher_auto_phase_timeout_s",
         "auto_classifier_timeout_s",
     ):
         if getattr(runtime, name) <= 0:
