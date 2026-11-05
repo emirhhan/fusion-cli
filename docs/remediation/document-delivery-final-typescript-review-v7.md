@@ -1,5 +1,12 @@
 # Final decoder review: scoped approval, integration hold
 
+Integration update by the parent: the backend HOLD below records the earlier
+`cb870fca` finding. Its `c6e63906` fix subsequently passed the independent
+[Python review](document-delivery-final-python-review-v7.md) and
+[general review](accepted-context-final-general-review-v7.md), including durable
+replay and frontend checks. The original TypeScript findings remain unchanged
+below for provenance; they do not describe the final backend verdict.
+
 Frozen frontend: be7456d5b7adce1960919847e658af9a6604b98f.
 Backend projection inspected: cb870fca. No product files changed by this reviewer.
 
