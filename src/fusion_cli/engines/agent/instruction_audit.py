@@ -69,6 +69,7 @@ class InstructionAudit:
     notes: tuple[str, ...]
     suspicious: tuple[SuspiciousLine, ...]
     suggestions: tuple[str, ...]
+    trimmed_chars_exact: bool = True
 
 
 def audit_instructions(
@@ -117,6 +118,7 @@ def audit_instructions(
         notes=load.notes,
         suspicious=flat,
         suggestions=tuple(suggestions),
+        trimmed_chars_exact=load.trimmed_chars_exact,
     )
 
 
@@ -152,12 +154,24 @@ def render_audit(audit: InstructionAudit) -> str:
     lines = [
         f"Talimat denetimi: {len(audit.files)} dosya, {audit.rules} kural dosyası, "
         f"{audit.total_chars}/{audit.budget} karakter"
-        + (f", {audit.trimmed_chars} kırpıldı" if audit.trimmed_chars else "")
+        + (
+            f", en az {audit.trimmed_chars} kırpıldı (kesin sayı bilinmiyor)"
+            if not audit.trimmed_chars_exact
+            else f", {audit.trimmed_chars} kırpıldı"
+            if audit.trimmed_chars
+            else ""
+        )
         + "."
     ]
     for item in audit.files:
         etiket = "güvenilir" if item.trusted else "depo içeriği"
-        ek = f", {item.trimmed} kırpıldı" if item.trimmed else ""
+        ek = (
+            f", en az {item.trimmed} kırpıldı (kesin sayı bilinmiyor)"
+            if not item.trimmed_exact
+            else f", {item.trimmed} kırpıldı"
+            if item.trimmed
+            else ""
+        )
         lines.append(f"  · {item.label} [{item.layer}, {etiket}] {item.chars} karakter{ek}")
     for note in audit.notes:
         lines.append(f"  ! {note}")

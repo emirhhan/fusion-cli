@@ -68,15 +68,19 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
         loaded = loaded_rules.get(kural.label)
         if loaded is not None:
             karakter, kirpilan = loaded.chars, loaded.trimmed
+            kesin = loaded.trimmed_exact
         else:
             _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
             kirpilan = 0
+            kesin = True
         sonuc["katmanlar"].append(
             {
                 "kaynak": kural.label,
                 "katman": "kural",
                 "karakter": karakter,
-                "kirpilan": kirpilan,
+                "kirpilan": kirpilan if kesin else None,
+                "kirpilan_alt_sinir": kirpilan,
+                "kirpilan_kesin": kesin,
                 "guvenilir": kural.trusted,
                 "kapsam": list(kural.paths),
             }

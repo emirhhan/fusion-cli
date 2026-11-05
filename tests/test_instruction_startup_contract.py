@@ -232,3 +232,100 @@ def test_rule_trim_metadata_counts_body_hidden_by_partial_frontmatter(tmp_path):
     # Preserve legacy rendering of a prefix that stops inside the frontmatter.
     assert loaded.files[0].chars == 2
     assert loaded.files[0].trimmed == 10
+
+
+def test_rule_diagnostic_scan_stops_on_a_growing_source(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent import instruction_rules as rules
+
+    class GrowingSource:
+        consumed = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, size=-1):
+            assert size >= 0, "diagnostics must never read to EOF"
+            self.consumed += size
+            assert self.consumed <= rules.MAX_RULE_FILE_CHARS + 1
+            return "x" * size
+
+    source = GrowingSource()
+    path = tmp_path / "growing.md"
+    monkeypatch.setattr(type(path), "open", lambda *args, **kwargs: source)
+    loaded = rules.load_unscoped_rules((rules.RuleFile("growing.md", path, (), False),), budget=2)
+    assert loaded.files[0].chars == 2
+    assert loaded.files[0].trimmed_exact is False
+    assert loaded.files[0].trimmed >= 1
+    assert any("kesin" in note for note in loaded.notes)
+
+
+def test_oversized_rule_rpc_and_audit_expose_uncertainty(source_tree, monkeypatch):
+    from fusion_cli.engines.agent import instruction_rules as rules
+    from fusion_cli.engines.agent.instruction_audit import render_audit
+
+    root, home = source_tree
+    monkeypatch.setattr(voice, "_data_home", lambda: home / "data")
+    # A small cap makes the same production boundary cheap to exercise.
+    monkeypatch.setattr(rules, "MAX_RULE_FILE_CHARS", 8)
+    result = instructions.get_instructions(root, home)
+    row = next(item for item in result["katmanlar"] if item["kaynak"].startswith("~/"))
+    assert row["karakter"] == 8
+    assert row["kirpilan"] is None
+    assert row["kirpilan_kesin"] is False
+    assert row["kirpilan_alt_sinir"] == 1
+    assert any("kesin" in note for note in result["notlar"])
+    audit = audit_instructions(root, home)
+    assert audit.trimmed_chars_exact is False
+    assert "en az" in render_audit(audit)
+
+
+def test_within_cap_rule_trim_count_remains_exact(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent import instruction_rules as rules
+
+    monkeypatch.setattr(rules, "MAX_RULE_FILE_CHARS", 16)
+    path = tmp_path / "normal.md"
+    path.write_text("ıö😀abcdefg", encoding="utf-8")
+    loaded = rules.load_unscoped_rules((rules.RuleFile("normal.md", path, (), False),), budget=2)
+    assert loaded.files[0].trimmed == 8
+    assert loaded.files[0].trimmed_exact is True
+
+
+def test_rule_diagnostic_deadline_stops_before_more_reads(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent import instruction_rules as rules
+
+    class SlowGrowingSource:
+        reads = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, size):
+            self.reads += 1
+            return "x" * size
+
+    source = SlowGrowingSource()
+    path = tmp_path / "slow.md"
+    ticks = iter((0.0, 0.0))
+    monkeypatch.setattr(rules.time, "monotonic", lambda: next(ticks, 1.0))
+    monkeypatch.setattr(type(path), "open", lambda *args, **kwargs: source)
+    loaded = rules.load_unscoped_rules((rules.RuleFile("slow.md", path, (), False),), budget=2)
+    assert source.reads == 2  # Rendered prefix and one diagnostic chunk, then deadline.
+    assert loaded.files[0].trimmed_exact is False
+
+
+def test_unfinished_oversized_frontmatter_does_not_invent_omitted_body_count(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent import instruction_rules as rules
+
+    monkeypatch.setattr(rules, "MAX_RULE_FILE_CHARS", 16)
+    path = tmp_path / "header.md"
+    path.write_text("---\nnote: " + "x" * 100 + "\n---\nbody", encoding="utf-8")
+    loaded = rules.load_unscoped_rules((rules.RuleFile("header.md", path, (), False),), budget=2)
+    assert loaded.files[0].trimmed_exact is False
+    assert loaded.files[0].trimmed == 0
+    assert any("bilinmiyor" in note for note in loaded.notes)

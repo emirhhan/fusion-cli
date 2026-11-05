@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable
+import time
 from dataclasses import dataclass
-from itertools import chain
 from pathlib import Path
+from typing import TextIO
 
 from .instruction_layers import (
     TRIM_NOTE,
@@ -35,6 +35,9 @@ MAX_RULES_CHARS = 4 * 1024 * 1024
 
 #: Kural dosyası başına okunacak en fazla karakter (başlangıç kuralı: 4 MiB).
 MAX_RULE_FILE_CHARS = 4 * 1024 * 1024
+
+#: Diagnostic-only reads share the existing file cap and stop between bounded chunks.
+RULE_MEASUREMENT_SECONDS = 0.05
 
 #: İsteğe bağlı (`paths:`) kural dosyası başına sınır (Claude Code: 200K pencerede 40.000).
 MAX_SCOPED_RULE_CHARS = 40_000
@@ -276,55 +279,47 @@ def scoped_rules_for(rules: tuple[RuleFile, ...], relative: str) -> tuple[RuleFi
 # --- Bloklar -------------------------------------------------------------------- #
 
 
-def _rule_content_span(chunks: Iterable[str]) -> tuple[int, int]:
-    """Find the stripped body start and character count, using bounded stream memory."""
-    first = last = body_first = body_last = -1
-    position = 0
-    state = "leading"
-    prefix = marker = ""
-    for chunk in chunks:
-        for char in chunk:
-            if not char.isspace():
-                if first < 0:
-                    first = position
-                last = position
-                if state == "body":
-                    if body_first < 0:
-                        body_first = position
-                    body_last = position
-            position += 1
-            if state == "leading":
-                if char.isspace():
-                    continue
-                state = "opening"
-            if state == "opening":
-                prefix += char
-                if prefix == "---\n":
-                    state = "frontmatter"
-                elif not "---\n".startswith(prefix):
-                    state = "plain"
-            elif state == "frontmatter":
-                marker = (marker + char)[-4:]
-                if marker == "\n---":
-                    state = "body"
-    if state == "body":
-        return (body_first, body_last - body_first + 1) if body_first >= 0 else (position, 0)
-    return (first, last - first + 1) if first >= 0 else (position, 0)
+def _measure_rule_sample(handle: TextIO, prefix: str) -> tuple[str, bool]:
+    """Sample at most the existing file cap plus one character; never chase EOF."""
+    parts = [prefix]
+    consumed = len(prefix)
+    cap = MAX_RULE_FILE_CHARS + 1
+    deadline = time.monotonic() + RULE_MEASUREMENT_SECONDS
+    while consumed < cap and time.monotonic() < deadline:
+        chunk = handle.read(min(65_536, cap - consumed))
+        if not chunk:
+            return "".join(parts), True
+        parts.append(chunk)
+        consumed += len(chunk)
+    return "".join(parts), False
 
 
-def _rule_block(rule: RuleFile, limit: int, *, measure: bool = False) -> tuple[str, int, int]:
-    """Render using the existing prefix limit; optionally count all omitted body characters."""
-    content_span: tuple[int, int] | None = None
+def _rule_content_span(sample: str) -> tuple[int, int, bool]:
+    """Locate the sampled body; an unfinished header cannot give a body lower bound."""
+    text = sample.lstrip()
+    start = len(sample) - len(text)
+    frontmatter = _FRONTMATTER.match(text)
+    unfinished_header = text.startswith("---\n") and frontmatter is None
+    if frontmatter is not None:
+        start += frontmatter.end()
+        text = text[frontmatter.end() :]
+    start += len(text) - len(text.lstrip())
+    return start, len(text.strip()), unfinished_header
+
+
+def _rule_block(rule: RuleFile, limit: int, *, measure: bool = False) -> tuple[str, int, int, bool]:
+    """Preserve rendering; measure omissions within a fixed I/O and work budget."""
+    content_span: tuple[int, int, bool] | None = None
+    exact = True
     try:
         with rule.path.open(encoding="utf-8", errors="replace") as handle:
             prefix = handle.read(limit + 1)
             if measure and len(prefix) > limit:
-                content_span = _rule_content_span(
-                    chain((prefix,), iter(lambda: handle.read(65_536), ""))
-                )
+                sample, exact = _measure_rule_sample(handle, prefix)
+                content_span = _rule_content_span(sample)
         text = prefix.strip()
     except OSError:
-        return "", 0, 0
+        return "", 0, 0, True
     frontmatter = _FRONTMATTER.match(text)
     start = len(prefix) - len(prefix.lstrip())
     if frontmatter is not None:
@@ -333,7 +328,7 @@ def _rule_block(rule: RuleFile, limit: int, *, measure: bool = False) -> tuple[s
     start += len(text) - len(text.lstrip())
     text = text.strip()
     if not text:
-        return "", 0, 0
+        return "", 0, 0, True
     trimmed = len(text) > limit
     text = text[:limit]
     ek = TRIM_NOTE if trimmed else ""
@@ -345,15 +340,16 @@ def _rule_block(rule: RuleFile, limit: int, *, measure: bool = False) -> tuple[s
     block = f"Contents of {rule.path} ({desc}):\n\n{text}{ek}"
     omitted = 0
     if content_span is not None:
-        body_start, total = content_span
-        included = max(0, min(body_start + total, start + len(text)) - max(body_start, start))
-        omitted = total - included
-    return block, len(text), omitted
+        body_start, total, unfinished_header = content_span
+        if exact or not unfinished_header:
+            included = max(0, min(body_start + total, start + len(text)) - max(body_start, start))
+            omitted = total - included
+    return block, len(text), omitted, exact
 
 
 def rule_block(rule: RuleFile, limit: int = MAX_RULE_FILE_CHARS) -> tuple[str, int]:
     """Tek kuralın bağlam bloğu ve eklenen karakter; okunamıyorsa boş."""
-    block, used, _ = _rule_block(rule, limit)
+    block, used, _, _ = _rule_block(rule, limit)
     return block, used
 
 
@@ -363,6 +359,7 @@ def load_unscoped_rules(
     """Return the exact startup rule text and the files actually included."""
     blocks: list[str] = []
     files: list[InstructionFile] = []
+    notes: list[str] = []
     remaining = budget
     skipped: list[str] = []
     for rule in rules:
@@ -371,11 +368,23 @@ def load_unscoped_rules(
         if remaining <= 0:
             skipped.append(rule.label)
             continue
-        block, used, trimmed = _rule_block(rule, min(MAX_RULE_FILE_CHARS, remaining), measure=True)
+        block, used, trimmed, exact = _rule_block(
+            rule, min(MAX_RULE_FILE_CHARS, remaining), measure=True
+        )
         if not block:
             continue
         blocks.append(block)
-        files.append(InstructionFile(rule.label, rule.path, "kural", used, trimmed, rule.trusted))
+        files.append(
+            InstructionFile(
+                rule.label, rule.path, "kural", used, trimmed, rule.trusted, trimmed_exact=exact
+            )
+        )
+        if not exact:
+            count = f"en az {trimmed}" if trimmed else "bilinmiyor"
+            notes.append(
+                f"{rule.label}: kırpılan karakter sayısı {count}; kesin ölçüm okuma/süre "
+                "sınırında durdu. Talimatın yüklenen bölümü değişmedi."
+            )
         remaining -= used
     if skipped:
         blocks.append(
@@ -383,7 +392,7 @@ def load_unscoped_rules(
             + ", ".join(skipped)
             + " — tamamı için read_file kullan…]"
         )
-    return InstructionLoad("\n".join(blocks), tuple(files))
+    return InstructionLoad("\n".join(blocks), tuple(files), tuple(notes))
 
 
 def unscoped_rules_block(rules: tuple[RuleFile, ...], budget: int = MAX_RULES_CHARS) -> str:

@@ -142,6 +142,8 @@ class InstructionFile:
     trusted: bool
     #: `@import` ile gelen dosyada onu içe aktaran dosya (InstructionsLoaded `parent_file_path`).
     parent: Path | None = None
+    #: False: trimmed is only a lower bound; measurement hit its read/time limit.
+    trimmed_exact: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +159,10 @@ class InstructionLoad:
     @property
     def trimmed_chars(self) -> int:
         return sum(item.trimmed for item in self.files)
+
+    @property
+    def trimmed_chars_exact(self) -> bool:
+        return all(item.trimmed_exact for item in self.files)
 
 
 @dataclass(slots=True)
