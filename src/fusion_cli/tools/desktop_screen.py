@@ -371,6 +371,7 @@ def _fallback_refusal(settings: DesktopSettings) -> str | None:
 
 def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Ekranı (ya da bölgesini) çalışma alanına kaydet, küçült ve çerçeveyle modele aktar."""
+    observation_turn_id = context.desktop.observation_turn_id
     capture_token = context.desktop.begin_capture()
     error = desktop_win32.gate(_mac_only())
     if error:
@@ -452,8 +453,11 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     image = ToolContent.image("image/png", base64.b64encode(data).decode("ascii"))
     if region is not None:
         x, y, width, height = region
-        context.desktop.record_capture(
+        capture = context.desktop.record_capture(
             target, image.data_uri, data, (x, y, width, height), token=capture_token
+        )
+        context.desktop.record_observation_artifact(
+            capture, turn_id=observation_turn_id, implicit="path" not in args
         )
         # Ölçüldü (31 Ekim): not "büyütülmüş" diyordu; bölge ham ekran pikseliyle yakalanır,
         # `_shrink` yalnız küçültür. Bölge de ScreenCaptureKit ile dışlamalı yakalanır (P-007).
@@ -466,12 +470,15 @@ def desktop_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult(f"{note} Dosya: {target}", content=(image,))
     frame = _display_frame(display, size)
     context.desktop.frame = frame
-    context.desktop.record_capture(
+    capture = context.desktop.record_capture(
         target,
         image.data_uri,
         data,
         (0, 0, frame.image_width, frame.image_height),
         token=capture_token,
+    )
+    context.desktop.record_observation_artifact(
+        capture, turn_id=observation_turn_id, implicit="path" not in args
     )
     return ToolResult(
         f"Ekran görüntüsü: {target}. {frame.describe()} desktop_mouse/desktop_click x,y = bu "

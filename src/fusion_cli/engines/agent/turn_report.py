@@ -194,6 +194,13 @@ class TurnReport:
     #: ("değiştirmiş olabilir" varsayımı).
     last_shell_changes: tuple[str, ...] | None = None
     criteria: tuple[CriterionEvidence, ...] = ()
+    #: Presentation only: trusted implicit captures remain in changed_paths/verification.
+    internal_observation_paths: tuple[str, ...] = ()
+
+    @property
+    def presentation_paths(self) -> tuple[str, ...]:
+        internal = frozenset(self.internal_observation_paths)
+        return tuple(path for path in self.changed_paths if path not in internal)
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -295,7 +302,12 @@ class TurnReport:
 
     def render(self) -> str:
         """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
-        if not self.changed_paths and not self.job_deliveries and not self.test_tamper:
+        if (
+            not self.presentation_paths
+            and not self.job_deliveries
+            and not self.test_tamper
+            and not (self.changed_paths and (self._gate_blocks() or self.blocks_success))
+        ):
             return ""
         jobs = tuple(
             (
@@ -308,9 +320,9 @@ class TurnReport:
             for item in self.job_deliveries
         )
         blocks = [*jobs, *self._gate_blocks()]
-        if self.changed_paths:
+        if self.presentation_paths or (self.changed_paths and self.blocks_success):
             blocks.append(self._evidence_block())
-        if self.change_lines:
+        if self.change_lines and self.presentation_paths:
             blocks.append("Değişen satırlar (gerçek fark):\n" + "\n".join(self.change_lines))
         blocks.append(render_findings(self.test_tamper))
         return "\n\n".join(block for block in blocks if block) + "\n\n"
@@ -435,7 +447,7 @@ class TurnReport:
         return block
 
     def _evidence_block_text(self) -> str:
-        dosyalar = ", ".join(self.changed_paths)
+        dosyalar = ", ".join(self.presentation_paths or self.changed_paths)
         evidence = self._unresolved_evidence
         kapi_kaniti = self._gate_passed_evidence
         if not evidence and kapi_kaniti:
@@ -458,7 +470,7 @@ class TurnReport:
                 f"Diğer ölçütler: {pending or 'toplam doğrulama tamamlanmadı'}.\n"
                 f"Değişen dosyalar: {dosyalar}"
             )
-        if not evidence and artifact_only(self.changed_paths):
+        if not evidence and artifact_only(self.presentation_paths):
             return (
                 f"ⓘ Görsel / belge çıktıları: {dosyalar}\n"
                 "Dosyanın kaydedilmesi görev sonucunun doğrulandığı anlamına gelmez; "
@@ -539,6 +551,7 @@ def build_turn_report(
     current_jobs: tuple[JobCurrentSnapshot, ...] = (),
     test_tamper: tuple[TamperFinding, ...] = (),
     change_lines: tuple[str, ...] = (),
+    internal_observation_paths: tuple[str, ...] = (),
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
@@ -582,6 +595,7 @@ def build_turn_report(
         change_lines=change_lines,
         last_shell_mutation=last_shell,
         last_shell_changes=last_shell_changes,
+        internal_observation_paths=internal_observation_paths,
     )
 
 
