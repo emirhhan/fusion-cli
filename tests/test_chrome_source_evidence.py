@@ -695,3 +695,44 @@ def test_explicit_body_read_prohibition_never_grants_full_text_recovery(task):
     assert not _tool_evidence_satisfied(policy, budget)
     note = tool_evidence_required_note(_evidence_recovery_effect(policy, budget))
     assert "get_page_text" not in note.content
+
+
+@pytest.mark.parametrize(
+    "text,scope",
+    [
+        ("A" * 19_999, "document"),
+        ("A" * 20_000, "partial"),
+        ("A" * 20_001, "partial"),
+        ("😀" * 9_999 + "A", "document"),
+        ("😀" * 10_000, "partial"),
+        ("\ud800" + "A" * 19_998, "document"),
+        ("\ud800" + "A" * 19_999, "partial"),
+        ("\udc00" + "A" * 19_999, "partial"),
+    ],
+    ids=[
+        "below",
+        "boundary",
+        "above",
+        "emoji-below",
+        "emoji-boundary",
+        "surrogate-below",
+        "high-surrogate-boundary",
+        "low-surrogate-boundary",
+    ],
+)
+async def test_legacy_text_boundary_never_proves_complete_document(tmp_path, text, scope):
+    result = await chrome._call(
+        context(tmp_path, {"url": URL, "text": text, "page": 1, "has_more": False}),
+        "text_page",
+        {"page": 1},
+    )
+    assert result.ok
+    assert result.source_read_url == URL
+    assert result.source_read_scope == scope
+    policy = policy_for(make_config(), ModelSpec(name="test", model="fake/test"), TASK)
+    budget = SimpleNamespace(
+        successful_tool_evidence=[],
+        successful_source_reads=[URL],
+        successful_source_read_scopes=[(URL, result.source_read_scope)],
+    )
+    assert _tool_evidence_satisfied(policy, budget) is (scope == "document")
