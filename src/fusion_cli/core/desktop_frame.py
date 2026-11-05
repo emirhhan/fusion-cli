@@ -124,6 +124,47 @@ class DesktopView:
         self.focused_window_title = ""
         self.current_capture: DesktopCapture | None = None
         self._capture_generation = 0
+        self._observation_turn_id = ""
+        self._observation_artifacts: dict[Path, DesktopCapture] = {}
+        self._explicit_capture_exports: set[Path] = set()
+
+    def begin_observation_turn(self, turn_id: str) -> None:
+        """Reset presentation receipts only; grounding/focus authority is unchanged."""
+        self._observation_turn_id = turn_id
+        self._observation_artifacts.clear()
+        self._explicit_capture_exports.clear()
+
+    @property
+    def observation_turn_id(self) -> str:
+        return self._observation_turn_id
+
+    def record_observation_artifact(
+        self, capture: DesktopCapture, *, turn_id: str, implicit: bool
+    ) -> None:
+        """Trusted implicit captures are internal; explicit exports revoke that label."""
+        if turn_id and turn_id == self._observation_turn_id:
+            if not implicit:
+                self._explicit_capture_exports.add(capture.path)
+                self._observation_artifacts.pop(capture.path, None)
+            elif capture.path not in self._explicit_capture_exports:
+                self._observation_artifacts[capture.path] = capture
+
+    def observation_artifact_paths(self, turn_id: str) -> tuple[Path, ...]:
+        """Return this turn's unchanged captured bytes, never filename lookalikes."""
+        if not turn_id or turn_id != self._observation_turn_id:
+            return ()
+        paths: list[Path] = []
+        for path, capture in self._observation_artifacts.items():
+            try:
+                if path.is_symlink() or path.stat().st_size != capture.byte_size:
+                    continue
+                with path.open("rb") as handle:
+                    data = handle.read(capture.byte_size + 1)
+            except OSError:
+                continue
+            if hashlib.sha256(data).hexdigest() == capture.file_digest:
+                paths.append(path)
+        return tuple(paths)
 
     def focus_identity(self) -> tuple[object, ...]:
         return (
