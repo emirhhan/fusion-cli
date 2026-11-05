@@ -59,3 +59,36 @@ Reviewed SHA-256 fingerprints:
 No original checkout, installed application or package mutation occurred.
 The probe remains explicitly heuristic and time-bounded; it does not verify
 message delivery, every language, or all possible custom submission controls.
+
+## Final narrow re-review: negative-subject correction approved
+
+Reviewed immutable archive `0a6b43445962618d60ad6d376ad38e59c6e02628`.
+**APPROVE** the bounded classifier follow-up. The MEDIUM negative-subject finding
+above is resolved; no HIGH/CRITICAL findings remain in this reviewed scope.
+
+The receipt match now includes supported negative determiners before the subject,
+so its own local negation is retained. The two independent actual Chromium cases
+(`No message was sent.` / `No message was delivered.`) pass. Separate affirmative
+claims before/after a negative sentence remain blocking, as do the retained
+Turkish and English timer-only receipt cases. Explicit failure controls from the
+external general review also remain non-blocking.
+
+Verification used archived source/tests/config, excluding concurrent generic
+research policy and other uncommitted changes:
+
+- **57 passed in 70.56 seconds**: all 53 focused repository cases plus four
+  external Python/general actual-browser negative controls.
+- Ruff passed for the source module and focused repository test file.
+- Mypy passed for the source module.
+- Transport guard SHA-256 is unchanged:
+  `dc48a2ca602b08c77d0c57452481ab2fd5e3dc51fec7585bbdc3d15755d5f6ea`.
+  The unchanged transport harness was not repeated in this classifier re-review.
+- Reviewed contact_form_probe.py SHA-256:
+  `616e24e364d8a211e6610825dfe322b3073a19774f6e014c8342c2ce83f0494e`.
+- Test log: task workspace
+  `work/reliability-v2/python-contact-pinned0a6-review.log`.
+- Terminal session 84233 completed exit 0; no reviewer sessions remain active.
+
+This is finite classifier/Python behavior approval; the independent security
+review owns the transport-isolation approval. No production source, original
+checkout, installed application or package was changed by this reviewer.
