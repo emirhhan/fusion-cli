@@ -28,12 +28,16 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .checkpoint import TurnRepairCheckpoint
 from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
 from .protocols import Clock
 from .repair_ledger import RepairLedger
 from .usage_ledger import UsageLedger
+
+if TYPE_CHECKING:
+    from .tools import SourceReadScope
 
 
 class BudgetStop(Enum):
@@ -135,6 +139,8 @@ class TurnBudget:
     )
     #: Observed URLs from successful authorized Chrome content-read receipts.
     successful_source_reads: list[str] = field(default_factory=list)
+    #: Coverage is minted by authorized tools, never by model or MCP arguments.
+    successful_source_read_scopes: list[tuple[str, SourceReadScope]] = field(default_factory=list)
     #: Başarılı OKUMA çağrılarının sonucu: imza → çıktı.
     #
     # Tekrarlanan bir okumayı engellemek yerine ilk sonucu geri vermek için

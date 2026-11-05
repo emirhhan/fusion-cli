@@ -95,6 +95,14 @@ def format_tree(result: ToolResult) -> ToolResult:
         f"{veri.get('lines', 0)} satır)"
     )
     lines = [head, summary]
+    if result.source_read_url:
+        lines.append(
+            f"GÖZLEM KAPSAMI: {result.source_read_scope}. Bu sınırlı erişilebilirlik ağacında "
+            "metin görülmemesi sayfada bulunmadığını kanıtlamaz. Görev sayfa içeriğini "
+            "soruyorsa yalnız yetkilendirilmiş mevcut sayfanın metni için get_page_text "
+            "kullan; has_more veya sonraki parçalar varsa kapsamın eksik olduğunu koru. "
+            "Yalnız kontroller istenmişse bu kapsamı aşma."
+        )
     if veri.get("truncated"):
         lines.append(
             "NOT: Ağaç kırpıldı. Daha azını görmek için tree=interactive, bir bölüm için ref "

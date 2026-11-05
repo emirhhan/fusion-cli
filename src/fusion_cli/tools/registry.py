@@ -253,4 +253,9 @@ def _offload(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
     )
     if path is None:
         return result
-    return replace(result, output=output, artifact_path=str(path))
+    return replace(
+        result,
+        output=output,
+        artifact_path=str(path),
+        source_read_scope="truncated" if result.source_read_url else result.source_read_scope,
+    )

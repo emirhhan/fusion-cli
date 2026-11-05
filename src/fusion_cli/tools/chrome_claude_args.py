@@ -61,6 +61,7 @@ def limit_output(result: ToolResult, max_chars: object) -> ToolResult:
         return result
     return replace(
         result,
+        source_read_scope="truncated" if result.source_read_url else result.source_read_scope,
         output=f"{result.output[:limit]}\n… (çıktı max_chars={limit} sınırında kesildi; depth "
         "küçült, ref_id ile alt ağaca in ya da filter=interactive kullan)",
     )

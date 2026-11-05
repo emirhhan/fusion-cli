@@ -243,6 +243,24 @@ def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message
     """
 
     label = _EFFECT_LABELS.get(effect or "", "kullanıcının istediği gerçek işlem")
+    if effect == "web_scope":
+        return Message(
+            "user",
+            "FUSION_NOT: Kullanıcı okuma kapsamını sınırladı; bu sınır sayfanın "
+            "diğer içeriği hakkında kesin çıkarıma izin vermez. Tam metin okumasına veya yeni "
+            "adrese geçme. Yalnız izinli gözlemi bildir ve doğrulanamayan kısmı açıkça söyle.",
+            harness_note=True,
+        )
+    if effect == "web_content":
+        return Message(
+            "user",
+            "FUSION_NOT: Sayfa içeriği için kaynak okuması doğrulanmadı. Etkileşimli, alt ağaç, "
+            "derinlik sınırlı veya kırpılmış gözlem metnin yokluğunu kanıtlamaz. Yalnız "
+            "kullanıcının yetkilendirdiği mevcut sayfada get_page_text ile tam görünür metni "
+            "oku; page=1 ve has_more=false olmayan bir parça tüm belgeyi kanıtlamaz. "
+            "Başka adrese gitme, kapsam dışı metin veya kontroller üzerinde işlem yapma.",
+            harness_note=True,
+        )
     if effect == "web_lookup":
         last = (
             " Bu son deneme; kanıt yoksa güncelliğin doğrulanamadığını bildir."
@@ -294,6 +312,16 @@ def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message
 def unverified_action_message(effect: str | None) -> str:
     """İki araçsız denemeden sonra kullanıcıya dürüst ve kesin sonuç ver."""
 
+    if effect == "web_scope":
+        return (
+            "Sayfa içeriği için kaynak okuması doğrulanmadı: izin verilen kısmi gözlem "
+            "bu çıkarım için yeterli değil. Okuma kapsamı genişletilmedi."
+        )
+    if effect == "web_content":
+        return (
+            "İşlem tamamlanmadı: sayfa içeriği için kaynak okuması doğrulanmadı. "
+            "Eldeki gözlem kısmi; görünmeyen metnin sayfada bulunmadığını söyleyemem."
+        )
     if effect == "web_lookup":
         return (
             "İşlem tamamlanmadı: araştırma için gerekli kaynak okuması doğrulanmadı. "

@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
-from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import SourceReadScope, ToolArgs, ToolContext, ToolEffect, ToolResult
 from . import chrome_guard, chrome_images, chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_claude_args import limit_output, parse_modifiers, tabs_create_if_empty
@@ -57,6 +57,34 @@ def _source_read_url(operation: str, data: object) -> str:
     return url
 
 
+def _source_read_scope(operation: str, args: Mapping[str, object], data: object) -> SourceReadScope:
+    """A tree is scoped evidence, not a complete visible-document text receipt."""
+    if not _source_read_url(operation, data) or not isinstance(data, dict):
+        return "none"
+    if data.get("truncated") is True:
+        return "truncated"
+    if operation == "tree":
+        if args.get("ref"):
+            return "subtree"
+        if args.get("depth"):
+            return "depth_limited"
+        if args.get("filter") == "interactive" or data.get("filter") == "interactive":
+            return "interactive"
+        # Legacy all-trees can clip text nodes/depth without truncated=True.
+        return "partial"
+    if (
+        operation == "text_page"
+        and type(args.get("page", 1)) is int
+        and args.get("page", 1) == 1
+        and type(data.get("page")) is int
+        and data["page"] == 1
+        and data.get("has_more") is False
+    ):
+        return "document"
+    # Snapshot text has a fixed legacy limit without a text completeness receipt.
+    return "partial"
+
+
 async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolResult:
     if context.chrome is None:
         return ToolResult.failure(
@@ -85,6 +113,7 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
     return ToolResult(
         json.dumps(observed, ensure_ascii=False),
         source_read_url=_source_read_url(name, observed) if result.get("ok") is True else "",
+        source_read_scope=_source_read_scope(name, data, observed),
     )
 
 
