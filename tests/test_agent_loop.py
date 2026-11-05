@@ -2393,7 +2393,7 @@ def test_ogretmen_tanimliyken_esik_asilinca_onerilir():
     assert "ask_teacher" in gec
 
 
-def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
+def test_uzun_okuma_dongusu_somut_takilma_olmadan_ogretmene_yonlendirilmez():
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
     from fusion_cli.engines.agent.loop import _exploration_note, _State
 
@@ -2403,6 +2403,9 @@ def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
 
     assert note is not None
     assert "ilk somut değişikliği" in note
+    assert "ask_teacher" not in note
+    state.repeat_blocked = True
+    note = _exploration_note(state, policy, plan_mode=False, teacher_available=True)
     assert "ask_teacher" in note
     state.exploration_pushes = 1
     assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None

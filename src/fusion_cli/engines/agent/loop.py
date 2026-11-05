@@ -302,6 +302,9 @@ from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .task_availability import hidden_task_tools
 from .teacher_flow import (
+    _automatic_phase_deadline,
+    _notify_phase_expired,
+    _phase_expired,
     prepare_teacher_plan,
     review_teacher_changes,
     settle_teacher_plan,
@@ -3667,10 +3670,11 @@ def _exploration_note(
         return None
     note = (
         "FUSION_NOT: Bu görevde en az 5 araç çağrısı yaptın ama henüz "
-        "hiç dosya değiştirmedin. Daha fazla genel dizin taraması yapma. "
-        "İncelediğin dosyalardan ilk somut değişikliği seç ve uygula."
+        "hiç dosya değiştirmedin. Gerekli bağlamı topladıysan incelediğin "
+        "dosyalardan ilk somut değişikliği seç ve uygula. Bağlam eksikse "
+        "yalnız gerekli hedefli okumayı tamamla."
     )
-    if teacher_available:
+    if teacher_available and _teacher_stall_reason(state) is not None:
         note += (
             " Mimari karar veya doğrulama konusunda bir belirsizlik kaldıysa "
             "`ask_teacher` ile tek somut soru sor, cevabı değerlendir, ardından uygula."
@@ -3741,16 +3745,10 @@ def _has_teacher_plan(deps: AgentDeps) -> bool:
 def _plateau_reason(state: _State, deps: AgentDeps, *, exploration_note: str | None) -> str | None:
     """Otomatik öğretmen danışması için somut takılma nedeni; yoksa None.
 
-    Plan varken "okuma uzun sürdü" tek başına neden değildir: plan zaten ilk
-    adımı söyledi. Ölçüldü (29 Eylül, canlı): plan alındıktan 30 sn sonra bu
-    yüzden ikinci, genel bir öğretmen sorusu gidiyordu.
+    Başarılı yeni okumalar ilerlemedir. Çağrı sayısı ve henüz değişiklik
+    yapılmaması, plan olup olmamasından bağımsız olarak takılma kanıtı değildir.
     """
-    reason = _teacher_stall_reason(state)
-    if reason is not None:
-        return reason
-    if exploration_note and not _has_teacher_plan(deps):
-        return "okuma ve arama adımlarında ilerleme yok"
-    return None
+    return _teacher_stall_reason(state)
 
 
 def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None) -> str:
@@ -3773,8 +3771,8 @@ def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None)
             "şimdi hangi somut adımı atmalıyım? Kısa, uygulanabilir cevap ver."
         )
     return (
-        "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
-        "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
+        f"Bu görevde takıldım: {reason}. Görevi sürdürmek için şimdi hangi somut "
+        "adımı atmalı ve sonucu nasıl doğrulamalıyım? Kısa, uygulanabilir cevap ver."
     )
 
 
@@ -3799,6 +3797,14 @@ async def _consult_teacher_on_plateau(
     The task excerpt is bounded and redacted; source file contents are not copied
     into the brief. The existing ``teacherless`` setting disables the tool.
     """
+    phase_deadline = _automatic_phase_deadline(deps)
+    if deps.budget is not None and (remaining := deps.budget.remaining_s()) is not None:
+        phase_deadline = min(
+            phase_deadline, asyncio.get_running_loop().time() + max(0.0, remaining) / 4
+        )
+    if _phase_expired(phase_deadline):
+        _notify_phase_expired(deps)
+        return
     original_task = next(
         (
             message.content
@@ -3820,11 +3826,19 @@ async def _consult_teacher_on_plateau(
         arguments=json.dumps(args, ensure_ascii=False),
     )
     messages.append(Message("assistant", "", tool_calls=(call,)))
+    task = asyncio.current_task()
+    cancellation_count = task.cancelling() if task is not None else 0
     try:
-        async with asyncio.timeout(max(1.0, deps.config.runtime.request_timeout_s)):
+        async with asyncio.timeout_at(phase_deadline):
             result = await registry.execute("ask_teacher", args, deps.tool_context)
     except TimeoutError:
         result = ToolResult.failure("Öğretmen yanıtı süre sınırında tamamlanmadı.")
+    finally:
+        if task is not None and task.cancelling() > cancellation_count:
+            raise asyncio.CancelledError
+    if _phase_expired(phase_deadline):
+        _notify_phase_expired(deps)
+        result = ToolResult.failure("Otomatik öğretmen danışmasının süre bütçesi doldu.")
     state.tool_calls_made += 1
     state.tool_rounds += 1
     if not result.ok:
