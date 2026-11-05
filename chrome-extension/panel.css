@@ -1,5 +1,5 @@
 /* Fusion yan paneli — masaüstü uygulamasının aynı yerel Inter ailesi,
-   14 px arayüz ve 16 px asistan metni,
+   14 px arayüz ve ortak 13 px normal kullanıcı/asistan metni,
    nötr mürekkep vurgusu. Parlak renk yok; yalnız anlam taşıyan durum renkleri
    (başarı, tehlike) ayrıdır. Yüzey değerleri uygulamanın açık/koyu temasıyla aynıdır. */
 @font-face {
@@ -159,6 +159,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 
 .messages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin: 0; padding: 0; list-style: none; }
 .message--kullanici { display: flex; justify-content: flex-end; }
+.bubble, .prose { font: 400 13px/1.5 var(--font); }
 .bubble {
   max-width: 88%; padding: 8px 12px; border-radius: 16px 16px 4px 16px; background: var(--user-bubble);
   white-space: pre-wrap; overflow-wrap: anywhere;
@@ -194,7 +195,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .step[data-state="failed"] svg, .step[data-state="denied"] svg, .step[data-state="blocked"] svg { stroke: var(--danger); }
 
 /* Model cevabı */
-.prose { overflow-wrap: anywhere; font-size: 16px; line-height: 1.6; }
+.prose { overflow-wrap: anywhere; }
 .prose > * { margin: 0 0 8px; }
 .prose > *:last-child { margin-bottom: 0; }
 .prose h4 { font-size: 13.5px; margin-top: 12px; }
