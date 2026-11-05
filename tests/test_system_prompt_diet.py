@@ -86,7 +86,9 @@ def test_system_prompt_kimlik_sinirlarini_korur():
     assert text.endswith("</kimlik>\n")
 
 
-def test_system_prompt_proje_disina_yazan_komutu_gecici_home_ile_denetir():
-    """Ölçüldü (30 Ekim): ajan kendi yazdığı CLI'yi gerçek ev klasörüne yazdırdı
-    (`~/.gorevler.json`). Tek cümlelik kural; tavan aşılmadan iki satır kısaltılarak açıldı."""
-    assert "HOME=$(mktemp -d)" in prompt()
+def test_system_prompt_proje_disi_yazimlari_kullanici_verisinden_ayirir():
+    """CLI testleri gerçek eve yazmamalı; tüm araçların HOME'unu sıfırlamak şart değil."""
+    text = prompt()
+    assert "proje dışı yazımlarını izole test ortamında dene" in text
+    assert "kullanıcı verisine dokunma" in text
+    assert "HOME ve ayarları kalıcı değiştirme" in text
