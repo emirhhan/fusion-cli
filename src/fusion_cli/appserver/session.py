@@ -813,8 +813,8 @@ class AppSession:
         if data.get("izinler") is True or "izin_sil" in data:
             from .site_permissions import site_permission_settings
 
-            accepted = self._active_accepted
-            owns_visible = accepted is not None and self._same_accepted_chat(accepted)
+            accepted = self._accepted_permission_owner()
+            owns_visible = accepted is not None
             memory = (
                 accepted.state.approval_memory
                 if accepted is not None and owns_visible
@@ -3223,8 +3223,12 @@ class AppSession:
                 self._bind_hook_owner(accepted.state, accepted.hook_source)
             self._hook_lease = accepted
 
-    def _sync_active_approval(self, *, explicit_mode: ApprovalMode | None = None) -> None:
+    def _accepted_permission_owner(self) -> _AcceptedTurn | None:
         accepted = self._active_accepted or self._hook_lease
+        return accepted if accepted is not None and self._same_accepted_chat(accepted) else None
+
+    def _sync_active_approval(self, *, explicit_mode: ApprovalMode | None = None) -> None:
+        accepted = self._accepted_permission_owner()
         if accepted is None:
             return
         memory = accepted.state.approval_memory
@@ -3232,7 +3236,7 @@ class AppSession:
         # Explicit user permission changes belong to chat identity even after
         # old -> new -> old. Incidental mutable deltas still require the exact
         # generation, so another chat cannot revoke or regrant this turn's scopes.
-        if explicit_mode is not None and self._same_accepted_chat(accepted):
+        if explicit_mode is not None:
             if accepted.state.approval is not explicit_mode or memory.revision != visible.revision:
                 memory.revoke()
             memory.revision = visible.revision

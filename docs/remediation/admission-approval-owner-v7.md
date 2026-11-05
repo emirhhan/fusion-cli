@@ -1,0 +1,5 @@
+# Admission and execution permission owner
+
+The site-permission handler and mode synchronization share one identity-bound owner selector: active accepted turn, otherwise pending admission lease. This closes the lookup-await gap where site revocation updated the visible memory while the captured admission retained the revoked scope. Forgetting a site updates both owned memories without removing an unrelated grant. Inferred state differences and history/config adoption retain their generation guards.
+
+A finite 22-case matrix covers lookup versus execution, same generation versus old → other → old versus unrelated chat, unchanged consent, explicit security mode, site revocation and newly earned consent through the next job. Two lookup-forget cases first failed: same-generation forget dropped an unrelated grant, and roundtrip forget retained the revoked grant. Both pass after the shared selector fix. All 50 accepted-context tests passed; Ruff, formatting, mypy and diff checks passed. No providers, native UI, network, packages or ORIGINAL files changed.

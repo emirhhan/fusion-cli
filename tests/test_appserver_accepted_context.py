@@ -767,3 +767,88 @@ async def test_consent_earned_after_roundtrip_survives_next_same_chat_job(
     finally:
         release.set()
         await session.close()
+
+
+@pytest.mark.parametrize(
+    "boundary,binding,action",
+    [
+        (boundary, binding, action)
+        for boundary in ("lookup", "execution")
+        for binding in ("same", "roundtrip", "other")
+        for action in ("unchanged", "security", "forget", "grant")
+        if action != "grant" or binding != "other"
+    ],
+)
+async def test_permission_owner_lifecycle_matrix(tmp_path, monkeypatch, boundary, binding, action):
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    session = _session(tmp_path, [])
+    await session._dispatch(Request("s", "oturum.baslat", {"sohbet_id": "accepted"}))
+    session._state.approval = ApprovalMode.AUTO
+    primary, unrelated, granted = (
+        "chrome-site:example.com",
+        "chrome-site:example.net",
+        "chrome-site:example.org",
+    )
+    session._state.approval_memory._scopes.update((primary, unrelated))
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_lookup = session._submission_store.lookup
+    seen = []
+
+    async def lookup(key):
+        if boundary == "lookup" and key.request_id == "job":
+            entered.set()
+            await release.wait()
+        return await original_lookup(key)
+
+    async def run(task, config, **kwargs):
+        if boundary == "execution" and not seen:
+            entered.set()
+            await release.wait()
+        memory = kwargs["approval_memory"]
+        if action == "grant" and not seen:
+            memory._scopes.add(granted)
+        seen.append((kwargs["current_approval"](), memory.scopes_with_prefix("chrome-site:")))
+        return AgentOutcome("done", [])
+
+    monkeypatch.setattr(session._submission_store, "lookup", lookup)
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    monkeypatch.setattr("fusion_cli.config.browser_sites.load_allowed", lambda: frozenset())
+    pending = asyncio.create_task(
+        session._dispatch(
+            Request("r", "tur.calistir", {"gorev": "İşi bitir", "gonderim_id": "job"})
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        assert session._hook_lease is not None
+        assert (session._active_accepted is None) == (boundary == "lookup")
+        if binding != "same":
+            await session._dispatch(Request("other", "oturum.baslat", {"sohbet_id": "other"}))
+        if binding == "roundtrip":
+            await session._dispatch(Request("owner", "oturum.baslat", {"sohbet_id": "accepted"}))
+        if action == "security":
+            assert session._apply_mode("security", persist=False) is None
+        elif action == "forget":
+            assert (await session._chrome_settings({"izin_sil": primary}))["ok"]
+        release.set()
+        await asyncio.wait_for(pending, 5)
+        expected = (ApprovalMode.AUTO, [primary, unrelated])
+        if binding != "other":
+            if action == "security":
+                expected = (ApprovalMode.SECURITY, [])
+            elif action == "forget":
+                expected = (ApprovalMode.AUTO, [unrelated])
+            elif action == "grant":
+                expected = (ApprovalMode.AUTO, [primary, unrelated, granted])
+        assert seen == [expected]
+        if action == "grant":
+            await session._dispatch(
+                Request("next", "tur.calistir", {"gorev": "Sonraki iş", "gonderim_id": "next"})
+            )
+            assert seen == [expected, expected]
+        if binding == "other":
+            assert session._state.history == []
+    finally:
+        release.set()
+        await session.close()
