@@ -3,7 +3,7 @@ import { routeLinkToBrowser } from "../browser/openLinks";
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { marked, type Token, type Tokens } from "marked";
 import { CodeCard } from "./CodeCard";
-import { classifyImageSource, safeLinkHref } from "./remoteContentPolicy";
+import { classifyImageSource, projectFilePath, safeLinkHref } from "./remoteContentPolicy";
 import "./markdown.css";
 
 /**
@@ -21,7 +21,7 @@ import "./markdown.css";
 
 export interface MarkdownProps {
   text: string;
-  /** Kod kartındaki dosya adına tıklanınca çağrılır. */
+  /** Kod kartı veya proje içi dosya bağlantısı açılınca çağrılır. */
   onOpenFile?: (path: string) => void;
 }
 
@@ -34,25 +34,25 @@ function splitInfo(info: string): { language?: string; filename?: string } {
   return { language: language.trim() || undefined, filename: filename || undefined };
 }
 
-function InlineTokens({ tokens, onOpenFile }: { tokens?: Token[]; onOpenFile?: (path: string) => void }) {
+function InlineTokens({ tokens, onOpenFile, passive = false }: { tokens?: Token[]; onOpenFile?: (path: string) => void; passive?: boolean }) {
   if (!tokens) return null;
   return (
     <>
       {tokens.map((token, index) => (
-        <Fragment key={index}>{renderInline(token, onOpenFile)}</Fragment>
+        <Fragment key={index}>{renderInline(token, onOpenFile, passive)}</Fragment>
       ))}
     </>
   );
 }
 
-function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactNode {
+function renderInline(token: Token, onOpenFile?: (path: string) => void, passive = false): ReactNode {
   switch (token.type) {
     case "strong":
-      return <strong><InlineTokens onOpenFile={onOpenFile} tokens={(token as Tokens.Strong).tokens} /></strong>;
+      return <strong><InlineTokens onOpenFile={onOpenFile} passive={passive} tokens={(token as Tokens.Strong).tokens} /></strong>;
     case "em":
-      return <em><InlineTokens onOpenFile={onOpenFile} tokens={(token as Tokens.Em).tokens} /></em>;
+      return <em><InlineTokens onOpenFile={onOpenFile} passive={passive} tokens={(token as Tokens.Em).tokens} /></em>;
     case "del":
-      return <del><InlineTokens onOpenFile={onOpenFile} tokens={(token as Tokens.Del).tokens} /></del>;
+      return <del><InlineTokens onOpenFile={onOpenFile} passive={passive} tokens={(token as Tokens.Del).tokens} /></del>;
     case "codespan":
       return <code className="markdown__inline-code">{(token as Tokens.Codespan).text}</code>;
     case "br":
@@ -62,10 +62,17 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
       return /^<br\s*\/?\s*>$/i.test(token.raw.trim()) ? <br /> : token.raw;
     case "link": {
       const link = token as Tokens.Link;
+      if (passive) return <InlineTokens passive tokens={link.tokens} />;
       const href = safeLinkHref(link.href);
       const label = <InlineTokens onOpenFile={onOpenFile} tokens={link.tokens} />;
-      // İzin listesi dışındaki şema (javascript:, data:, file:) bağlantı olmaz, metin kalır.
-      if (href === null) return <span className="markdown__link-blocked">{label}</span>;
+      if (href === null) {
+        const path = projectFilePath(link.href);
+        if (path && onOpenFile) {
+          return <button className="markdown__file-link" onClick={() => onOpenFile(path)} title={path} type="button"><InlineTokens passive tokens={link.tokens} /></button>;
+        }
+        // Disallowed schemes and ambiguous paths stay inert.
+        return <span className="markdown__link-blocked">{label}</span>;
+      }
       return (
         <a
           href={href}
@@ -80,7 +87,8 @@ function renderInline(token: Token, onOpenFile?: (path: string) => void): ReactN
     }
     case "image": {
       const image = token as Tokens.Image;
-      return <MarkdownImage alt={image.text} href={image.href} />;
+      // A file button's label cannot contain image consent or lightbox buttons.
+      return passive ? image.text : <MarkdownImage alt={image.text} href={image.href} />;
     }
     // Ham HTML ve kaçış dizileri DÜZ METİNDİR: render edilmez, gösterilir.
     default:

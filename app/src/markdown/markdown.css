@@ -55,7 +55,8 @@
   margin: var(--space-6) 0;
 }
 
-.markdown a { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.markdown a, .markdown__file-link { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.markdown__file-link { background: none; border: 0; padding: 0; font: inherit; text-align: inherit; text-decoration-line: underline; cursor: pointer; }
 
 .markdown__image-button {
   background: var(--surface-raised);
