@@ -12,7 +12,7 @@ from ..core.redaction import redact
 from ..core.text_fold import fold_tr
 from ..engines.agent.completion_evidence import evidence_payload
 from ..engines.agent.response_format import requested_response_format
-from ..engines.agent.teacher_plan import is_short_static_report_task
+from ..engines.agent.teacher_plan import short_static_report_output
 from ..engines.agent.turn_report import summarize_evidence
 
 if TYPE_CHECKING:
@@ -32,6 +32,11 @@ _BOOLS = (
 _COUNTS = ("degisen_sayisi", "sorun_sayisi", "criteria_count")
 _EXPLICIT_DETAILS = re.compile(
     r"\b(?:diff|audit|evidence|proof|verification|kanıt\w*|denetim\w*|satır\s+fark\w*)\b"
+)
+_EXPLICIT_CODE = re.compile(
+    r"\b(?:show|include|display|return|give)\b[^.!?\n]{0,100}\b(?:source\s+code|code\s+changes|code)\b"
+    r"|\b(?:reply|answer|response|cevab\w*|yanıt\w*)\b[^.!?\n]{0,100}\b(?:code|kod\w*)\b"
+    r"|\b(?:html\s+)?kod(?:u|unu|ları|larını|lar|daki)?\b[^.!?\n]{0,60}\b(?:göster|ekle|ver|yaz)\w*"
 )
 
 
@@ -137,11 +142,13 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
         if result.get("dogrulandi") is True and any(
             item["status"] != "passed" for item in criteria
         ):
-            return _invalid(value)
+            result["dogrulandi"] = (
+                False if any(item["status"] == "failed" for item in criteria) else None
+            )
         if result.get("engelliyor") is False and any(
             item["status"] == "failed" for item in criteria
         ):
-            return _invalid(value)
+            result["engelliyor"] = True
         shortened |= len(criteria) > 50
         if len(criteria) > 50:
             result["criteria_truncated"] = True
@@ -159,18 +166,36 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
             )
             projected.append(safe)
         result["criteria"] = projected
-        counts = value.get("criteria_status_counts")
-        if isinstance(counts, dict) and all(
-            type(counts.get(key)) is int and counts[key] >= 0
+    counts = value.get("criteria_status_counts")
+    if counts is not None:
+        if not isinstance(counts, dict) or not all(
+            type(counts.get(key)) is int and 0 <= counts[key] <= 2**53 - 1
             for key in ("passed", "failed", "unverified")
         ):
-            result["criteria_status_counts"] = {
-                key: counts[key] for key in ("passed", "failed", "unverified")
-            }
-            if result.get("dogrulandi") is True and (counts["failed"] or counts["unverified"]):
-                return _invalid(value)
-        elif counts is not None:
             return _invalid(value)
+        result["criteria_status_counts"] = {
+            key: counts[key] for key in ("passed", "failed", "unverified")
+        }
+        # Summary counts remain authoritative even if their detail list is
+        # missing/truncated. Never turn missing details into verified success.
+        if counts["failed"]:
+            result.update(dogrulandi=False, engelliyor=True)
+        elif counts["unverified"] and result.get("dogrulandi") is True:
+            result["dogrulandi"] = None
+    if result.get("sorun_sayisi", 0):
+        result.update(dogrulandi=False, engelliyor=True)
+    represented = (
+        sum(counts[key] for key in ("passed", "failed", "unverified"))
+        if isinstance(counts, dict)
+        else len(criteria or [])
+    )
+    criteria_total = result.get("criteria_count", 0)
+    if (
+        isinstance(criteria_total, int)
+        and criteria_total > represented
+        and result.get("dogrulandi") is True
+    ):
+        result["dogrulandi"] = None
     tamper = value.get("supheli_test_degisikligi")
     if tamper is not None:
         if not isinstance(tamper, dict) or any(
@@ -249,9 +274,9 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
         outcome.ok
         and not outcome.budget_stopped
         and not outcome.hit_step_limit
-        and is_short_static_report_task(task)
         and requested_response_format(task) is None
         and not _EXPLICIT_DETAILS.search(fold_tr(task))
+        and not _EXPLICIT_CODE.search(fold_tr(task))
         and report.is_verified is True
         and not report.blocks_success
         and not report.false_claim
@@ -261,12 +286,7 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
         and report.gate is not None
         and not report.gate.warnings
         and len(report.changed_paths) == 1
-        and bool(
-            re.search(
-                r"(?<![\w./-])(?:\./)?" + re.escape(report.changed_paths[0]) + r"(?![\w./-])",
-                task,
-            )
-        )
+        and short_static_report_output(task) == report.changed_paths[0].removeprefix("./")
         and payload is not None
     )
     prefix = report.render()

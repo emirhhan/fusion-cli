@@ -116,7 +116,7 @@ _QUOTED_SCOPE = re.compile(
 _REJECTED_DEPENDENCY_SCOPE = re.compile(r"\s+(?:demiyorum|demedim|istemi(?:yorum|yoruz)|değil)\b")
 
 
-def _scope_text(task: str) -> str:
+def _scope_text(task: str, *, folded: bool = True) -> str:
     """Quoted examples cannot supply affirmative scope; quoted paths still count."""
 
     def quoted(match: re.Match[str]) -> str:
@@ -125,7 +125,7 @@ def _scope_text(task: str) -> str:
             return inner
         return " "
 
-    return _QUOTED_SCOPE.sub(quoted, fold_tr(task))
+    return _QUOTED_SCOPE.sub(quoted, fold_tr(task) if folded else task)
 
 
 def _source_urls_are_read_only(scope: str) -> bool:
@@ -239,6 +239,20 @@ def is_short_static_report_task(task: str) -> bool:
         return False
     scope = _SOURCE_URL.sub(" ", _scope_text(task))
     return _is_short_static_report(task, scope, _FILE_REF.sub(" ", scope))
+
+
+def short_static_report_output(task: str) -> str | None:
+    """Return the explicit output's original spelling, excluding URLs/examples."""
+    if not is_short_static_report_task(task):
+        return None
+    scope = _SOURCE_URL.sub(" ", _scope_text(task, folded=False))
+    targets = {
+        ref.group().removeprefix("./")
+        for ref in _FILE_REF.finditer(scope)
+        if _STATIC_REPORT_FILE.search(fold_tr(ref.group()))
+        and _report_output_target(fold_tr(scope[: ref.start()]), fold_tr(scope[ref.end() :]))
+    }
+    return next(iter(targets)) if len(targets) == 1 else None
 
 
 def _is_small_edit(task: str) -> bool:

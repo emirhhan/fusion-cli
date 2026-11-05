@@ -329,3 +329,67 @@ async def test_completion_proof_stays_with_accepted_owner(tmp_path, monkeypatch,
         assert not any("kanit" in row for row in load_visible_transcript(other, []).rows)
     assert result["metin"] == answers[0]["metin"]
     await session.close()
+
+
+@pytest.mark.parametrize("critical", ["problems", "failed", "unverified"])
+def test_critical_totals_survive_missing_detail_lists(critical):
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document"}
+    if critical == "problems":
+        value.update(sorun_sayisi=3, sorunlar=[])
+    else:
+        value.pop("criteria", None)
+        value["criteria_status_counts"] = {"passed": 0, "failed": 0, "unverified": 0}
+        value["criteria_status_counts"][critical] = 1
+    projected = public_delivery_evidence(value)
+    assert projected.get("sunum") is None and projected["dogrulandi"] is not True
+    if critical == "problems":
+        assert projected["sorun_sayisi"] == 3
+    else:
+        assert projected["criteria_status_counts"][critical] == 1
+
+
+def test_url_query_or_quoted_example_cannot_supply_output_identity():
+    from fusion_cli.appserver.delivery_presentation import present_delivery
+
+    outcome, _ = report_outcome()
+    task = (
+        "Read 'https://example.org/?file=rapor.html' and write a brief HTML report as other.html."
+    )
+    assert not present_delivery(task, outcome).compact
+    assert not present_delivery(
+        'Write a brief HTML report as Other.HTML. Example: "rapor.html is a sample".', outcome
+    ).compact
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        " Show the source code in your reply.",
+        " Cevabında HTML kodunu göster.",
+        " Include the code changes in your answer.",
+    ],
+)
+def test_explicit_code_output_keeps_full_presentation(instruction):
+    from fusion_cli.appserver.delivery_presentation import present_delivery
+
+    outcome, _ = report_outcome()
+    assert not present_delivery(TASK + instruction, outcome).compact
+
+
+def test_criteria_total_without_status_details_is_unknown():
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+
+    outcome, _ = report_outcome()
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    value = {**evidence_payload(outcome.completion_report), "sunum": "document"}
+    value.pop("criteria", None)
+    value.pop("criteria_status_counts", None)
+    value["criteria_count"] = 3
+    projected = public_delivery_evidence(value)
+    assert projected["criteria_count"] == 3
+    assert projected["dogrulandi"] is None and projected.get("sunum") is None
