@@ -133,6 +133,8 @@ class TurnBudget:
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
     )
+    #: Observed URLs from successful authorized Chrome content-read receipts.
+    successful_source_reads: list[str] = field(default_factory=list)
     #: Başarılı OKUMA çağrılarının sonucu: imza → çıktı.
     #
     # Tekrarlanan bir okumayı engellemek yerine ilk sonucu geri vermek için

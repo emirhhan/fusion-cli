@@ -11,6 +11,7 @@ import re
 import weakref
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
@@ -38,6 +39,24 @@ _READ_ONLY_OPERATIONS = frozenset(
 UNKNOWN_OUTCOME_PREFIX = "SONUÇ BİLİNMİYOR:"
 
 
+def _source_read_url(operation: str, data: object) -> str:
+    """Bind a nonempty content read to its actual document URL, not caller arguments."""
+    field = {"snapshot": "text", "tree": "tree", "text_page": "text"}.get(operation)
+    if field is None or not isinstance(data, dict):
+        return ""
+    content, url = data.get(field), data.get("url")
+    if not isinstance(content, str) or not content.strip() or not isinstance(url, str):
+        return ""
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return ""
+        _ = parsed.port
+    except ValueError:
+        return ""
+    return url
+
+
 async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolResult:
     if context.chrome is None:
         return ToolResult.failure(
@@ -62,7 +81,11 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         return ToolResult.failure(f"Chrome köprüsü hatası: {type(exc).__name__}: {exc}")
     if not result.get("ok"):
         return ToolResult.failure(str(result.get("hata") or "Chrome komutu başarısız."))
-    return ToolResult(json.dumps(result.get("veri", {}), ensure_ascii=False))
+    observed = result.get("veri", {})
+    return ToolResult(
+        json.dumps(observed, ensure_ascii=False),
+        source_read_url=_source_read_url(name, observed) if result.get("ok") is True else "",
+    )
 
 
 async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:
