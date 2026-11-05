@@ -28,6 +28,7 @@ from .background_events import BackgroundEvents
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
+from .delivery_contract import DeliveryContractState
 from .desktop_frame import (
     DESKTOP_SCREENSHOT_MAX_WIDTH,
     DesktopCapture,
@@ -354,6 +355,10 @@ class ToolContext:
 
     #: Göreli yolların çözümleneceği kök dizin.
     root: Path
+    #: Yalnız kabul edilen kök istek bu sözleşmeyi değiştirebilir.
+    delivery_contract: DeliveryContractState = field(
+        default_factory=DeliveryContractState, kw_only=True
+    )
     localization: LocalizationState = field(default_factory=LocalizationState, kw_only=True)
     tool_phase: str = field(default="", kw_only=True)
     localization_step_id: str = field(default="", kw_only=True)

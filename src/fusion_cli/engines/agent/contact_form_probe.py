@@ -36,6 +36,15 @@ _DISCLOSURE = re.compile(
 )
 
 
+_NO_SEND_OUTCOME = re.compile(
+    r"(?:mesaj\w*|ileti\w*)[^.!?;,\n]{0,50}(?:gönderilmedi|gönderilmez|iletilmedi)"
+    r"|\bno messages? (?:(?:was|were|is|are) )?sent\b"
+    r"|\bnothing (?:(?:was|is) )?sent\b|\bmessage\w*[^.!?;,\n]{0,40}\bnot sent\b",
+    re.I,
+)
+_DEMO_DISCLOSURE = re.compile(r"\bdemo\b|demonstration", re.I)
+
+
 def _claims_receipt(text: str) -> bool:
     """Classify observed text, binding English subject/predicate negation to each claim.
 
@@ -52,6 +61,10 @@ class ContactObservation:
     visible_receipt: str = ""
     transport_attempts: int = 0
     reason: str = ""
+    #: Formun yanında hem önce hem sonra görülen açık demo/no-send açıklaması.
+    visible_demo_disclosure: bool = False
+    #: Gönderme denemesi sonrası yeni görünen açık no-send sonucu.
+    visible_no_send_outcome: bool = False
 
 
 class _Preflight(HTMLParser):
@@ -276,6 +289,7 @@ async def probe_contact_forms(
                 )
             for index in indices:
                 before = await page.evaluate(_SNAPSHOT, None)
+                nearby_before = await page.evaluate(_SNAPSHOT, index)
                 active = True
                 await page.evaluate(_SUBMIT, index)
                 await page.wait_for_timeout(1300)
@@ -302,8 +316,27 @@ async def probe_contact_forms(
                         "observed_no_false_receipt",
                         "No undisclosed receipt claim within the bounded observation",
                     )
+                disclosure_before = any(
+                    _DEMO_DISCLOSURE.search(text) and _NO_SEND_OUTCOME.search(text)
+                    for text in nearby_before
+                )
+                disclosure_after = any(
+                    _DEMO_DISCLOSURE.search(text) and _NO_SEND_OUTCOME.search(text)
+                    for text in nearby
+                )
+                no_send_result = any(
+                    _NO_SEND_OUTCOME.search(text) for text in nearby if text not in nearby_before
+                )
                 results.append(
-                    ContactObservation(status, index, " ".join(receipts)[:500], attempts, reason)
+                    ContactObservation(
+                        status,
+                        index,
+                        " ".join(receipts)[:500],
+                        attempts,
+                        reason,
+                        visible_demo_disclosure=bool(disclosure_before and disclosure_after),
+                        visible_no_send_outcome=bool(no_send_result and not receipts),
+                    )
                 )
     except Exception as exc:
         results.append(

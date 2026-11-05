@@ -323,7 +323,6 @@ from .turn_hints import date_hint, design_hint, identity_hint, preview_hint, sco
 from .turn_report import (
     TurnReport,
     build_turn_report,
-    claims_command_success,
     summarize_evidence,
 )
 from .verifier_repair import observe_verifier_failures, should_repair_verifier
@@ -484,6 +483,8 @@ class AgentOutcome:
     #: Nihai cevap akış sırasında ekrana ulaştı mı? Ulaştıysa `TurnAnswered`
     #: yayınlanmaz; aynı metin iki kez basılmaz.
     answer_streamed: bool = False
+    #: İç doğrulama onarımı yapıldı; son teslimat kök isteğe göre hazırlanır.
+    verification_repaired: bool = False
     #: Görevdeki dosyaların hiçbiri bulunamadı — muhtemelen yanlış çalışma dizini.
     wrong_workspace: bool = False
     #: Tur bir BÜTÇE sınırına çarparak bitti mi? Sebep ayrıca yayınlanmıştır;
@@ -927,6 +928,8 @@ async def _run_agent(
     from .response_format import effective_response_task
 
     response_task = effective_response_task(task, history or ())
+    if depth == 0 and not internal:
+        deps.tool_context.delivery_contract.accepted = None
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
     # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
@@ -947,6 +950,9 @@ async def _run_agent(
                 deps,
             )
     if depth == 0 and not internal:
+        from .delivery_contract import accept_delivery_contract
+
+        accept_delivery_contract(deps.tool_context, response_task)
         deps.active_model_override = None
         deps.turn_effort_override = None
         # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
@@ -1660,10 +1666,20 @@ def _apply_turn_report(
         test_tamper=tamper,
         change_lines=change_lines,
     )
-    if report.is_verified is False and claims_command_success(outcome.final_text):
+    if report.unsupported_command_claim(
+        outcome.final_text
+    ) or report.unsupported_contact_delivery_claim(outcome.final_text):
         # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
         # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
         report = replace(report, false_claim=True)
+    if outcome.verification_repaired:
+        from .delivery_contract import repaired_document_text
+
+        delivery_text = repaired_document_text(
+            deps.tool_context, report, task, successful=outcome.ok and not report.blocks_success
+        )
+        if delivery_text is not None:
+            outcome.final_text = delivery_text
     outcome.completion_report = report
     if report.blocks_success:
         outcome.ok = False
@@ -5179,6 +5195,7 @@ async def _self_review(
     correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
+    correction.verification_repaired = True
     return correction
 
 
@@ -5260,6 +5277,7 @@ async def _fix_findings(
     correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
+    correction.verification_repaired = True
     return correction
 
 
