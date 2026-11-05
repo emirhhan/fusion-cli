@@ -7,16 +7,17 @@ parça göndermeden bağlantı hatasıyla bitti. 600 sn sınırı bilerek seçil
 bir dosyayı araç argümanı olarak yazarken de akışta parça göndermeyebiliyor, yani
 "sessiz çalışan" ile "ölü" çağrı yalnız süreye bakarak ayırt edilemiyor.
 
-Ayırt eden şey sunucunun kendisi: sessizlik uzayınca aynı modele (yedeksiz) çok küçük
-bir istek gönderilir. Hata verirse ya da süresinde cevap gelmezse sunucu sağlıksızdır ve
-beklemenin anlamı yoktur; hızlı cevap verirse model gerçekten çalışıyordur, beklenir.
+Sessizlik uzayınca aynı modele (yedeksiz) küçük bir istek gönderilir. Ancak bu
+bağımsız istek de ortak kuyrukta bekleyebilir: yoklamanın zaman aşımı, asıl çağrının
+öldüğünü göstermez. Sağlık belirsizse asıl çağrı kendi çağrı/tur/boşta sınırları içinde
+beklenir; yalnız somut hata yanıtı ya da bağlantı hatası erken kesmeye izin verir.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from ...core.types import (
     CompletionRequest,
@@ -37,8 +38,17 @@ PING_TIMEOUT_S = 30.0
 RECHECK_S = 120.0
 _PING_TEXT = "Yalnızca 'tamam' yaz."
 
-#: Yoklama: sağlıklıysa None, değilse kısa neden.
-Ping = Callable[[], Awaitable[str | None]]
+
+@dataclass(frozen=True, slots=True)
+class UnknownHealth:
+    """Yoklama asıl çağrının sağlığına dair bağımsız teşhis sağlayamadı."""
+
+    reason: str
+
+
+#: Üç durum: None → canlı; str → somut hata; UnknownHealth → teşhis yok.
+#: Belirsizlikte asıl isteğin mevcut süre sınırları otoritesini korur.
+Ping = Callable[[], Awaitable[str | UnknownHealth | None]]
 #: Akıştan gelen parça sayısını okuyan fonksiyon (0 → hiç veri gelmedi).
 ChunkCount = Callable[[], int]
 
@@ -67,8 +77,7 @@ def ping_for(spec: ModelSpec) -> Ping:
     """Aynı modele, yedek zinciri OLMADAN küçük bir istek gönderen yoklama."""
     yalniz = replace(spec, fallback=())
 
-    async def _ping() -> str | None:
-        provider = build_provider(yalniz, publisher=None, retry_delays_s=())
+    async def _ping() -> str | UnknownHealth | None:
         istek = CompletionRequest(
             messages=(Message("user", _PING_TEXT),),
             temperature=0.0,
@@ -77,6 +86,7 @@ def ping_for(spec: ModelSpec) -> Ping:
         )
         try:
             async with asyncio.timeout(PING_TIMEOUT_S):
+                provider = build_provider(yalniz, publisher=None, retry_delays_s=())
                 async for item in provider.stream(istek):
                     if isinstance(item, StreamDone):
                         sonuc = item.result
@@ -86,12 +96,22 @@ def ping_for(spec: ModelSpec) -> Ping:
                         # sayıp çalışan çağrıyı iptal etmek yanlıştı (A2-16).
                         if is_rate_limit_error(sonuc.error):
                             return None
-                        return (sonuc.error or "yoklama başarısız")[:160]
+                        if not sonuc.error:
+                            return UnknownHealth("yoklama başarısız; neden belirtilmedi")
+                        if any(
+                            marker in sonuc.error.lower()
+                            for marker in ("timeout", "timed out", "zaman aş", "süre sınır")
+                        ):
+                            return UnknownHealth("yoklama süre sınırında yanıt üretmedi")
+                        return sonuc.error[:160]
         except TimeoutError:
-            return f"yoklamaya {PING_TIMEOUT_S:.0f} sn içinde cevap yok"
-        except Exception as exc:  # sınır: sağlayıcı istisnası sağlıksızlık sayılır
-            return f"yoklama hatası: {type(exc).__name__}"
-        return "yoklama sonuç üretmeden bitti"
+            return UnknownHealth(f"yoklamaya {PING_TIMEOUT_S:.0f} sn içinde cevap yok")
+        except ConnectionError as exc:
+            return f"yoklama bağlantı hatası: {type(exc).__name__}"
+        except Exception as exc:
+            # Yerel kurulum/ayrıştırma hatası sunucunun öldüğüne kanıt değildir.
+            return UnknownHealth(f"yoklama teşhis üretemedi: {type(exc).__name__}")
+        return UnknownHealth("yoklama sonuç üretmeden bitti")
 
     return _ping
 
@@ -101,12 +121,16 @@ async def watch(chunks: ChunkCount, ping: Ping) -> str:
 
     Akıştan herhangi bir parça (düşünme ya da araç argümanı dahil) gelirse sunucu
     canlıdır ve izleme kendiliğinden biter: sonraki boşlukları parça başı sınır keser.
-    Sağlıklı sunucuda bu korutin hiç dönmez; çağıran tarafından iptal edilir.
+    Sağlıklı veya belirsiz yoklamada bu korutin dönmez; çağıran, asıl isteğin
+    mevcut süre sınırında veya kullanıcı iptalinde bunu da iptal eder.
     """
     await asyncio.sleep(CHECK_AFTER_S)
     while chunks() == 0:
         neden = await ping()
-        if neden is not None:
+        # Yoklama beklerken gelen asıl parça daha doğrudan canlılık kanıtıdır.
+        if chunks() != 0:
+            break
+        if isinstance(neden, str):
             return neden
         await asyncio.sleep(RECHECK_S)
     await asyncio.Event().wait()  # canlı akış: kapanana kadar bekle (iptal edilir)
