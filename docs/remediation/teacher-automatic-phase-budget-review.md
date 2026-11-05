@@ -35,3 +35,9 @@ teacher-flow mypy passed. Tests cover shared retry/repair deadlines, slow cleanu
 real cancellation and converted cancellation, final review, authoritative deadline,
 manual request-timeout isolation, defaults and invalid values. Independent
 Python/general review and any application build remain pending.
+
+Independent review exposed test-only cold-start variance: real project discovery
+could consume the 70ms synthetic retry/repair budget before its second request.
+That timing test now stubs only project-context discovery, leaving real advisory
+waits, shared deadlines and cancellation intact. Production budgets are unchanged.
+Five isolated process runs of the two retry/repair cases passed (10/10 cases).

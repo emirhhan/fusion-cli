@@ -54,6 +54,8 @@ def deps_for_phase(monkeypatch, tmp_path, *, phase=0.07, request=600):
         )
     )
     monkeypatch.setattr(teacher_flow, "teacher_is_ready", lambda *_args: True)
+    # Retry/repair timing excludes unrelated cold git/filesystem discovery.
+    monkeypatch.setattr(teacher_flow, "_project_context", lambda *_args: "Test project context")
     return deps, sink
 
 
