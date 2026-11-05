@@ -143,3 +143,34 @@ Independent verification against archived source/tests:
 No production source, original checkout, installed application or package was
 changed by this reviewer. Existing non-detect backend fingerprints and their
 separate scoped approvals remain unchanged by this follow-up.
+
+## Legacy spaced-filename terminal boundary: approved
+
+Reviewed immutable archive: `628c06dfb65a0e49b8b7c3aab67339816e2fb98a`.
+**APPROVE** the narrow terminal-boundary follow-up; no HIGH/CRITICAL findings.
+
+The same preposition/complement boundary now applies to both modifier words and
+the terminal legacy spaced filename, so topic/input phrases such as `about HTML`,
+`of HTML` and `using HTML` do not invent output files. Explicit dotted filenames
+including about.html/using.html/of.html remain valid, as does supported legacy
+`index html`. The shared boundary is also retained in destination and output
+normalization patterns. This is a bounded grammar correction, not universal NLU.
+
+Independent frozen-source evidence:
+
+- **338 passed in 33.27 seconds**, including all six preserved external filename
+  boundary controls (with actual engine explanation), both static-current
+  regressions, prior Save/static-concept/negated-action controls, actual Save
+  controls and repository one-sided/both current/named-source engine coverage.
+- Ruff passed for detect.py and the updated filename-object test module.
+- Mypy passed for detect.py.
+- Ten additional independent pure controls passed: four topic/input negatives
+  assert no mutation and no research; five explicit preposition-named dotted
+  files preserve mutation; legacy index html preserves mutation.
+- Test log: task workspace `work/reliability-v2/python-628-final-review.log`.
+- Reviewed detect.py SHA-256:
+  `98c6ddb01c9e1ca235ed14b07922a9383dec381002080189cb2d0e4cb1fb28c3`.
+- Terminal 71949 completed exit 0; no reviewer terminal handles remain active.
+
+No production source, original checkout, installed app or runtime package was
+changed by this reviewer. All approvals retain their separate finite scopes.
