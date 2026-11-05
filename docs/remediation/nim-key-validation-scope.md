@@ -19,6 +19,8 @@ Mevcut NIM testinin yanıltıcı adı ve açıklaması düzeltilmiştir; yalnız
 
 ## Doğrulama
 
-`PYTHONPATH=src` ve mevcut Python ortamıyla API doğrulama, appserver kontrol ve sağlayıcı kayıt modüllerindeki 37 test çalıştırıldı: 36 başarılı, bir bağımsız eski istem metni beklentisi başarısız. `test_sohbet_kipi_proje_taramasini_zorunlu_kilmaz`, artık bulunmayan “çalışma dizininde gerçek iş yaparsın” ifadesini bekliyor. Onaylanan `f9b6489f` istemiyle mevcut istemin baytları aynıdır; söz konusu ifade başlangıç sürümünde de yoktur. Bu değişiklik o isteme veya teste dokunmaz. İlk başarısız koşunun XML'i saklanmıştır.
+`PYTHONPATH=src` ve mevcut Python ortamıyla API doğrulama, appserver kontrol ve sağlayıcı kayıt modüllerindeki 37 test çalıştırıldı: 36 başarılı, bir bağımsız eski istem metni beklentisi başarısız. `test_sohbet_kipi_proje_taramasini_zorunlu_kilmaz`, artık bulunmayan “çalışma dizininde gerçek iş yaparsın” ifadesini bekliyordu. Onaylanan `f9b6489f` istemiyle mevcut istemin baytları aynıdır; söz konusu ifade başlangıç sürümünde de yoktur. İlk NIM düzeltmesi o isteme veya teste dokunmadı. İlk başarısız koşunun XML'i saklanmıştır.
 
 Yalnız bu bilinen test dışlanarak ilgili 36 test tekrar başarılı çalıştı; bir test dışlandı. Ruff kontrolü ve biçim denetimi iki dosyada, mypy değiştirilmiş kaynak dosyada başarılıdır. `git diff --check` temizdir. Tüm test süreçleri terminaldir; başarısız test gizlenerek tam paket başarılı iddiası yapılmaz.
+
+Ana ajanın açık kapsam genişletmesiyle bu eski testin iki metin beklentisi, çalışma ve sohbet kimliklerinin ayrı olması sözleşmesine dönüştürüldü. Sohbetin kendiliğinden proje taramaması ve aynı onay sözleşmesine tabi olması kontrolleri aynen korundu; ürün istemi değiştirilmedi. Tarihsel test açıklaması güncellendi. Son üç modül koşusu **37 başarılı, sıfır başarısız/hata/atlanan** olarak tamamlandı; Ruff ve biçim kontrolü üç dosyada temizdir. Önceki başarısızlık ve dışlanmış koşu kayıtları korunmuştur.
