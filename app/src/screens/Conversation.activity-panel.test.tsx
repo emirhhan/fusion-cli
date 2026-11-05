@@ -17,6 +17,7 @@ it("kanıt olayları mevcut iki satırlı panelde kalır ve açıldığında ger
     {olay:"ToolExecuted",name:"write_file",args:{path:"rapor.html"},outcome:"ok",output:"Yazıldı"},
     {olay:"VerificationPassed",checks:["Tarayıcı açıldı"],unmeasured:[]},
     {olay:"ChangesDigested",lines:["rapor.html: 67 yeni satır"]},
+    {olay:"SelfReviewFinished",completed:false,issue_found:false},
   ]) list=olayEkle(list,event);
   list.push({id:"answer",rol:"asistan",metin:"Rapor hazır."});
   const {container}=render(<Conversation running={false} mesajlar={list}/>);
@@ -24,6 +25,7 @@ it("kanıt olayları mevcut iki satırlı panelde kalır ve açıldığında ger
   fireEvent.click(screen.getByText("rapor.html yazılıyor"));
   const panel=screen.getByRole("region",{name:"İşlem ayrıntıları"});
   expect(within(panel).getByText("kontroller doğrulandı")).toBeTruthy();
+  expect(within(panel).getByText("özdenetim tamamlanamadı")).toBeTruthy();
   fireEvent.click(within(panel).getByText("değişiklik özeti"));
   expect(within(panel).getByText("rapor.html: 67 yeni satır")).toBeTruthy();
   expect(screen.getByText("Rapor hazır.").closest(".work-activity-panel")).toBeNull();

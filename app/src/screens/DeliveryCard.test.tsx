@@ -22,6 +22,7 @@ it('belge kanıtı kapalı yerel ayrıntıda durur; dosya bağlantısı çalış
   if (!evidence) throw new Error('Kanıt çözülmedi');
   const open = vi.fn();
   render(<DeliveryCard evidence={evidence} onOpenFile={open}/>);
+  expect(screen.getByText('Dosya denetlendi')).toBeTruthy();
   const summary=screen.getByText('Doğrulama ayrıntıları');
   const details=summary.closest('details')!;
   expect(details.open).toBe(false);
@@ -45,6 +46,15 @@ it('öneri metnini HTML olarak çalıştırmaz ve şüpheli belge işaretini kar
   rerender(<DeliveryCard evidence={{...evidence, blocking:true}}/>);
   expect(screen.queryByText('Doğrulama ayrıntıları')).toBeNull();
   expect(screen.getByText('Doğrulama geçmedi')).toBeTruthy();
+});
+
+it('belge dışı doğrulama etiketini değiştirmez', () => {
+  const evidence=decodeDeliveryEvidence({schema_version:1,dogrulandi:true,engelliyor:false,yanlis_iddia:false,
+    degisen:['a.py'],degisen_sayisi:1,sorunlar:[]});
+  if (!evidence) throw new Error('Kanıt çözülmedi');
+  render(<DeliveryCard evidence={evidence}/>);
+  expect(screen.getByText('Bildirilen kontroller geçti')).toBeTruthy();
+  expect(screen.queryByText('Dosya denetlendi')).toBeNull();
 });
 
 it('uyarı ve ölçülemeyen kontroller kapalı ayrıntının arkasında saklanmaz', () => {

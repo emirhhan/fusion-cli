@@ -3,9 +3,10 @@ import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
 
 /** Gözlenen özet; dosya varlığı veya modelin bitti metni kalite kanıtı değildir. */
 export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence; onOpenFile?: (path: string) => void}) {
-  const documentDetails = evidence.presentation === "document" && evidence.kind === "supported" &&
+  const documentPresentation = evidence.presentation === "document" && evidence.kind === "supported" &&
     evidence.verified === true && !evidence.blocking && !evidence.falseClaim && !evidence.problems.length &&
-    !evidence.warnings?.length && !evidence.unmeasured?.length &&
+    !evidence.warnings?.length && !evidence.unmeasured?.length;
+  const documentDetails = documentPresentation &&
     (!!evidence.checks?.length || !!evidence.advisories?.length || !!evidence.changeSummary?.length || evidence.detailsTruncated);
   const title = evidence.kind === "unsupported" ? "Kanıt sürümü desteklenmiyor" :
     evidence.kind === "invalid" ? "Kanıt kaydı okunamadı" :
@@ -14,7 +15,7 @@ export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence
     evidence.kind === "legacy" ? "Eski ve sınırlı kanıt kaydı" :
     evidence.unmeasured?.length ? "Bazı kontroller ölçülemedi" :
     evidence.deliveryKind === "artifact" && evidence.verified !== true ? "Görsel / belge sonucu ölçülmedi" :
-    evidence.verified === true ? "Bildirilen kontroller geçti" : "Teslim doğrulanmadı";
+    evidence.verified === true ? (documentPresentation ? "Dosya denetlendi" : "Bildirilen kontroller geçti") : "Teslim doğrulanmadı";
   return <section aria-label="Kanıt özeti" className="delivery-card">
     <strong>{title}</strong>
     {evidence.problems.length > 0 && <ul>{evidence.problems.map((problem, index) => <li key={index}>{problem}</li>)}</ul>}

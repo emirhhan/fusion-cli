@@ -8,6 +8,27 @@ it("desteklenen yoğunluk nedeni boş olsa da gerçek çağrı makbuzunda korunu
 });
 
 describe("olayAdimi", () => {
+  it.each([
+    {completed:false,issue_found:false},
+    {completed:false,issue_found:true},
+  ])('tamamlanmayan özdenetimi kalıcı ama görev hatası üretmeyen adım olarak gösterir: %s', result=>{
+    const step=olayAdimi({olay:'SelfReviewFinished',...result,reasoning:'Gizli düşünme'});
+    expect(step).toMatchObject({metin:'özdenetim tamamlanamadı',kalici:true,durum:'unknown'});
+    expect(step?.cikti).toContain('değerlendirmesi doğrulanmadı');
+    expect(step?.cikti).not.toContain('Gizli düşünme');
+    expect(step?.sonuc).toBeUndefined();
+  });
+  it.each([{issue_found:false},{completed:'false',issue_found:false},{completed:true,issue_found:'false'}])(
+    'eksik veya bozuk özdenetim sonucunu geçmiş gibi göstermez: %s', result=>{
+      expect(olayAdimi({olay:'SelfReviewFinished',...result})).toMatchObject({
+        metin:'özdenetim sonucu bilinmiyor',kalici:true,durum:'unknown'});
+    });
+  it('tamamlanmış özdenetim sadece tamamlanmayı ve bildirilmiş bulguyu anlatır',()=>{
+    const empty=olayAdimi({olay:'SelfReviewFinished',completed:true,issue_found:false});
+    expect(empty?.metin).toBe('özdenetim tamamlandı');
+    expect(empty?.cikti).not.toMatch(/tüm.*doğrulandı|geçti/);
+    expect(olayAdimi({olay:'SelfReviewFinished',completed:true,issue_found:true})?.metin).toContain('bulgu bildirildi');
+  });
   it('doğrulama ve gerçek değişiklik özetini kalıcı ve sınırlı adım olarak taşır', () => {
     const measured=olayAdimi({olay:'VerificationPassed',checks:['Tarayıcıda açıldı'],unmeasured:[]});
     expect(measured).toMatchObject({kalici:true,cikti:expect.stringContaining('Tarayıcıda açıldı')});

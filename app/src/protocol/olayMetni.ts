@@ -301,6 +301,23 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
   switch (olay) {
+    case "SelfReviewFinished": {
+      if (veri.completed === false) return {
+        metin: "özdenetim tamamlanamadı", durum: "unknown", kalici: true,
+        cikti: "Özdenetim tamamlanamadı; model değerlendirmesi doğrulanmadı.",
+      };
+      if (veri.completed !== true || typeof veri.issue_found !== "boolean") return {
+        metin: "özdenetim sonucu bilinmiyor", durum: "unknown", kalici: true,
+        cikti: "Bu olay özdenetimin sonucunu doğrulamıyor.",
+      };
+      return veri.issue_found ? {
+        metin: "özdenetim tamamlandı: bulgu bildirildi", kalici: true,
+        cikti: "Model özdenetimi tamamlandı ve bulgu bildirdi. Bulgunun giderildiği bu olayla doğrulanmaz.",
+      } : {
+        metin: "özdenetim tamamlandı", kalici: true,
+        cikti: "Model özdenetimi tamamlandı; bulgu bildirilmedi. Bu, bağımsız doğrulama kanıtı değildir.",
+      };
+    }
     case "VerificationPassed": {
       const checks = kanitSatirlari(veri.checks);
       const unmeasured = kanitSatirlari(veri.unmeasured);
