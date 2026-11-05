@@ -77,7 +77,9 @@ _REJECTED_BRIEF_REPORT = re.compile(
 )
 _REPORT_EXPANDED_SCOPE = re.compile(
     r"\b(?:kapsamlı|ayrıntılı|detaylı|karmaşık|comprehensive|exhaustive|detailed|complex|"
-    r"modüler|modular|fetch\w*|refresh\w*|polling)\b|"
+    r"modüler|modular|refresh\w*|polling)\b|"
+    r"\b(?:that|which|should|must)\s+fetch\w*\b|"
+    r"\b(?:whenever|when)\b[^.;!?\n]{0,40}\bpage\s+opens\b|"
     r"\b(?:cover\w*|across)\s+(?:all|every)\b|"
     r"\bevery\s+(?:second|minute|hour|day)\b|\bher\s+(?:saniye|dakika|saat|gün)\b|"
     r"\b(?:tüm|bütün|her)\b[^.;!?\n]{0,80}\b(?:kapsa|incele|analiz|karşılaştır)\w*|"
@@ -89,10 +91,14 @@ _REPORT_FEATURE = (
     r"simülasyon|grafik\w*|charts?|forms?|düğme\w*|buttons?)"
 )
 _REPORT_FEATURE_DIRECTIVE = re.compile(
+    r"\b(?:etkileşimli|interactive)\s+(?:[\w-]+\s+){0,3}(?:rapor\w*|report)\b|"
     rf"\b(?:add|build|include|implement|create|with|showing|containing)\s+"
     rf"(?:(?!(?:about|of|on|report)\b)[\w-]+\s+){{0,6}}{_REPORT_FEATURE}\b|"
     rf"\b{_REPORT_FEATURE}\b\s+(?:(?!rapor\w*\b)[\w-]+\s+){{0,6}}"
-    r"(?:ekle|kur|yap|oluştur|geliştir|olsun)\w*\b"
+    r"(?:ekle|kur|yap|oluştur|geliştir|olsun|içer)\w*\b|"
+    r"(?:^|[.;!?]|\b(?:and|also|then)\b)\s*(?:please\s+)?"
+    r"(?:implement|develop|replace|refactor)\b|"
+    r"\b(?:ayrıca|ek\s+olarak)\b[^.;!?\n]{0,100}\b(?:geliştir|uygula|kodla|değiştir)\w*\b"
 )
 _STATIC_REPORT_FILE = re.compile(r"\.(?:html?|md|txt|rst)$")
 _NON_HTTP_REPORT_SOURCE = re.compile(
@@ -204,12 +210,19 @@ def is_bounded_single_file_task(task: str) -> bool:
         return False
     folded = _SOURCE_URL.sub(" ", folded)
     prose = _FILE_REF.sub(" ", folded)
-    if _EXTERNAL_OR_EXPANDED_SCOPE.search(prose) or _EXPLICIT_TEACHER.search(prose):
+    if _EXPLICIT_TEACHER.search(prose):
         return False
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
         return False
-    if _is_short_static_report(task, folded, prose):
+    # "Fetch the source" is a read instruction, not a runtime dependency.
+    # Actual runtime/cadence/features remain vetoes inside the report predicate.
+    report_scope = re.sub(r"\bfetch\b", " ", prose)
+    if _is_short_static_report(task, folded, prose) and not _EXTERNAL_OR_EXPANDED_SCOPE.search(
+        report_scope
+    ):
         return True
+    if _EXTERNAL_OR_EXPANDED_SCOPE.search(prose):
+        return False
     return bool(
         single_file_scopes and dependency_scopes and len(set(_FILE_REF.findall(folded))) <= 1
     )

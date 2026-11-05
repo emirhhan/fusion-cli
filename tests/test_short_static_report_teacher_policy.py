@@ -51,6 +51,11 @@ ORDINARY_REPORT = (
         "Create a brief HTML report about Node.js as release.html.",
         "Create a brief report about the latest game release as game-report.html.",
         "HTML formatında kısa bir raporu sonuc.html olarak oluştur.",
+        (
+            "Fetch the current Node.js release from "
+            "https://nodejs.org/en/about/previous-releases "
+            "and create a brief HTML report as release.html."
+        ),
     ],
 )
 def test_ordinary_short_static_report_runs_without_automatic_plan(task):
@@ -112,6 +117,14 @@ def test_expanded_or_external_report_work_keeps_automatic_plan(extra):
             "Create a brief HTML report report.html covering every technology sector, "
             "economic history, and all geopolitical risks."
         ),
+        "Kısa etkileşimli HTML raporunu rapor.html olarak hazırla.",
+        "Kısa HTML raporunu rapor.html olarak hazırla; etkileşimli grafikler içersin.",
+        "Create a brief HTML report in report.html and implement a Python command-line tool.",
+        (
+            "Kısa raporu rapor.html olarak oluştur; "
+            "ayrıca bir sıralama algoritması geliştir ve test et."
+        ),
+        "Create a brief HTML report report.html and replace the broken sorting implementation.",
     ],
 )
 def test_missing_or_rejected_bounded_report_scope_stays_conservative(task):
