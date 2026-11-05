@@ -240,6 +240,7 @@ async def test_loop_hands_latest_gate_to_initial_and_post_repair_teacher(monkeyp
         )
     )
     packets = []
+    deliveries = []
 
     async def no_plan(*_args, **_kwargs):
         return None
@@ -248,12 +249,18 @@ async def test_loop_hands_latest_gate_to_initial_and_post_repair_teacher(monkeyp
         return next(gates)
 
     async def fix(_finding, outcome, _deps):
-        return replace(outcome, mutating_tool_calls_made=outcome.mutating_tool_calls_made + 1)
+        return replace(
+            outcome,
+            final_text="Corrected [index.html](index.html)",
+            mutating_tool_calls_made=outcome.mutating_tool_calls_made + 1,
+        )
 
     async def ask(_registry, _deps, **kwargs):
         brief = kwargs["durum"]
         start = brief.index('{"verification":')
         packets.append(json.JSONDecoder().raw_decode(brief[start:])[0])
+        start = brief.index('{"candidate_delivery":')
+        deliveries.append(json.JSONDecoder().raw_decode(brief[start:])[0]["candidate_delivery"])
         return '{"bulgular": ["check touch"]}' if len(packets) == 1 else '{"bulgular": []}'
 
     monkeypatch.setattr(loop, "prepare_teacher_plan", no_plan)
@@ -268,3 +275,8 @@ async def test_loop_hands_latest_gate_to_initial_and_post_repair_teacher(monkeyp
     assert packets[0]["records"][0]["output"] == "before-repair-scope"
     assert packets[1]["records"][0]["output"] == "after-repair-scope"
     assert packets[1]["records"][0]["status"] == "unverified"
+    assert deliveries[0]["text"] == "index.html oluşturuldu; doğrulama durumu aşağıdadır."
+    assert deliveries[1]["text"] == "Corrected [index.html](index.html)"
+    assert deliveries[0]["turn_id"] == deliveries[1]["turn_id"]
+    assert deliveries[0]["state"] == deliveries[1]["state"] == "candidate"
+    assert deliveries[0]["verified"] is deliveries[1]["verified"] is False

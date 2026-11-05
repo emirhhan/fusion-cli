@@ -50,6 +50,7 @@ def deps_for_phase(monkeypatch, tmp_path, *, phase=0.07, request=600):
         runtime=SimpleNamespace(
             teacher_timeout_s=0.3,
             teacher_auto_phase_timeout_s=phase,
+            teacher_max_brief_chars=25_000,
             request_timeout_s=request,
         )
     )
