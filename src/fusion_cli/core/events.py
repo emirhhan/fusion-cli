@@ -394,7 +394,7 @@ class PlatformChecked(Event):
 
 @dataclass(frozen=True, slots=True)
 class TeacherLimitationFound(Event):
-    """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
+    """Doğrulanmamış öğretmen değerlendirmesi ve önerilen alternatif bildirildi."""
 
     topic: str
     reason: str

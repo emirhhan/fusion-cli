@@ -282,7 +282,8 @@ async def prepare_teacher_plan(
         deps.publisher.publish(
             StatusChanged(
                 message=(
-                    f"{part.topic} yapılamıyor: {part.reason}. Alternatif: {part.alternative}."
+                    f"Öğretmen değerlendirmesi (doğrulanmadı): {part.topic} — {part.reason}. "
+                    f"Önerilen alternatif: {part.alternative}."
                 )
             )
         )

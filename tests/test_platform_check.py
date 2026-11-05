@@ -68,8 +68,10 @@ async def test_kaynak_bulunamazsa_dogrulanmadigi_cevaba_yazilir(monkeypatch, tmp
     assert checked[0].method == "dogrulanamadi"
 
 
-async def test_ogretmen_kisiti_cevapta_yoksa_eklenir(monkeypatch, tmp_path) -> None:
-    """Model kısıtı anmadan 'tamam' dese bile yapılamayan iş cevapta görünür."""
+async def test_ogretmen_gorusu_dis_platform_gercegi_olarak_sonuca_eklenmez(
+    monkeypatch, tmp_path
+) -> None:
+    """A raw teacher claim stays in plan context, independent of platform search success."""
     monkeypatch.setattr(web, "SEARCH_ENDPOINTS", (lambda _query: ["resmi sayfa"],))
     plan = model_result(
         '{"adimlar":["Taslağı hazırla"],"dosyalar":[],"riskler":[],'
@@ -85,8 +87,9 @@ async def test_ogretmen_kisiti_cevapta_yoksa_eklenir(monkeypatch, tmp_path) -> N
 
     result = await _run("Instagram API ile story çıkartması yayımlama akışını kur", deps)
 
-    assert "Yapılamayan: Story çıkartması" in result.final_text
-    assert "Bildirimle yayınla" in result.final_text
+    assert "Yapılamayan: Story çıkartması" not in result.final_text
+    assert deps.platform_limitations[0].topic == "Story çıkartması"
+    assert deps.platform_limitations[0].alternative == "Bildirimle yayınla"
 
 
 async def test_platformsuz_istekte_arama_yapilmaz(monkeypatch, tmp_path) -> None:

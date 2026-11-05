@@ -8,8 +8,8 @@ eklenemez) bunu işin sonunda değil başında bilmek gerekir. Bu modül:
 2. `web_search` aracıyla YALNIZ o platformun resmi geliştirici sitesinde arar ve
    sonuçları çırağa "önce yapılabilirliği söyle" notuyla verir.
 3. Arama yapılamazsa bunu gizlemez: kısıtların doğrulanmadığı nota ve cevaba yazılır.
-4. Öğretmenin bildirdiği bir kısıt cevapta anılmadıysa tur sonunda cevaba eklenir;
-   yapılamayan iş yapılmış gibi görünemez.
+4. Doğrulanamayan platform bilgisini sonuçta açıklar. Öğretmen görüşleri
+   iç notlarda kalır; tek başına doğrulanmış dış platform kısıtı sayılmaz.
 """
 
 from __future__ import annotations
@@ -144,14 +144,12 @@ async def run_platform_check(
 
 
 def ensure_limitations_disclosed(outcome: AgentOutcome, deps: AgentDeps) -> None:
-    """Bildirilen kısıt cevapta yoksa cevaba ekle; doğrulanamayan platformu belirt."""
+    """Disclose missing platform verification without promoting teacher opinions."""
     lines: list[str] = []
     text = outcome.final_text.lower()
-    for part in deps.platform_limitations:
-        if part.topic.lower() not in text:
-            lines.append(
-                f"- Yapılamayan: {part.topic} — {part.reason}. Alternatif: {part.alternative}."
-            )
+    # platform_limitations contains raw teacher assessments, not source-backed
+    # platform facts. Keep them in plan/activity context; actual tool failures
+    # and verification evidence remain responsible for the final task outcome.
     unverified = " kısıtları resmi kaynaktan doğrulanamadı."
     if deps.platform_names and not deps.platform_check_verified and unverified not in text:
         lines.append("- " + ", ".join(deps.platform_names) + unverified)
