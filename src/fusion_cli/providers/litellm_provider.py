@@ -223,6 +223,22 @@ class LiteLlmProvider:
 
     def _with_effort(self, result: ModelResult, request: CompletionRequest) -> ModelResult:
         resolution = resolve_reasoning(request.reasoning_effort, self._capability)
+        if resolution.applied is not None and self._model.startswith("nvidia_nim/"):
+            # Capability intent can survive our kwargs yet be dropped by the SDK's
+            # NIM mapper. The receipt must describe that transport, not the intent.
+            supported = _litellm().get_supported_openai_params(
+                model=self._model.removeprefix("nvidia_nim/"), custom_llm_provider="nvidia_nim"
+            )
+            if supported is None or "reasoning_effort" not in supported:
+                resolution = replace(
+                    resolution,
+                    applied=None,
+                    reason=(
+                        "NVIDIA NIM taşımasında düşünme yoğunluğunun iletildiği doğrulanmadı."
+                        if supported is None
+                        else "NVIDIA NIM taşıma adaptörü düşünme yoğunluğu parametresini iletmiyor."
+                    ),
+                )
         return replace(
             result,
             requested_effort=resolution.requested,
