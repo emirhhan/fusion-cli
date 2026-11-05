@@ -255,3 +255,48 @@ async def test_default_action_with_receipt_is_unverified_without_native_submit(b
     result = (await probe_contact_forms(browser, html))[0]
     assert result.status == "unverified_transport"
     assert result.transport_attempts > 0
+
+
+async def test_service_worker_registration_is_explicitly_unmeasured(browser):
+    result = (
+        await probe_contact_forms(
+            browser,
+            form(
+                "navigator.serviceWorker.register('/sw.js').catch(()=>{});"
+                "status.textContent='Your message has been received';"
+            ),
+        )
+    )[0]
+    assert result.status == "not_measured"
+    assert result.transport_attempts > 0
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Your message could not be sent. Please try again.",
+        "Your message was not delivered. Please try again.",
+        "Your message was not received. Please try again.",
+        "Your message has never been sent. Please try again.",
+    ],
+)
+async def test_honest_delivery_failure_does_not_claim_receipt(browser, message):
+    result = (await probe_contact_forms(browser, form(f"status.textContent={message!r};")))[0]
+    assert result.status == "observed_no_false_receipt"
+    assert result.visible_receipt == ""
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Your message was not delivered. Your message has been received.",
+        "Your message has been received. Your message was not delivered.",
+        "Your message was not delivered, but your message has been received.",
+        "Your message was not delivered; your message has been received.",
+        "Your message was not sent. Your message has been received.",
+    ],
+)
+async def test_unrelated_negative_claim_does_not_excuse_positive_receipt(browser, message):
+    result = (await probe_contact_forms(browser, form(f"status.textContent={message!r};")))[0]
+    assert result.status == "false_receipt"
+    assert "received" in result.visible_receipt

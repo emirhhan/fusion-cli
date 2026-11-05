@@ -18,17 +18,29 @@ if TYPE_CHECKING:
 
 _ORIGIN = "https://fusion-contact-probe.invalid/"
 _RECEIPT = re.compile(
-    r"(?:mesaj\w*|ileti\w*).{0,45}(?:alındı|iletildi|gönderildi)|"
-    r"(?:message|inquiry|enquiry).{0,45}(?:received|sent|delivered)|"
+    r"(?:mesaj\w*|ileti\w*)[^.!?;,\n]{0,45}?(?:alındı|iletildi|gönderildi)|"
+    r"(?:message|inquiry|enquiry)[^.!?;,\n]{0,45}?(?:received|sent|delivered)|"
     r"(?:successfully sent|successfully received)",
     re.I,
 )
-_DISCLOSURE = re.compile(
-    r"\bdemo\b|demonstration|nothing (?:was )?sent|no message (?:is |was )?sent|"
-    r"not (?:actually )?sent|gönderilme[dz]|iletilme[dz]|taslak|draft|"
-    r"yerel(?:de)? kay|saved locally",
+_NEGATED_RECEIPT = re.compile(
+    r"\b(?:not(?!\s+only\b)|never|cannot|unable|failed)\b|"
+    r"\b(?:ca|could|was|were|is|has|have|did|do|wo|would)n['’]t\b",
     re.I,
 )
+_DISCLOSURE = re.compile(
+    r"\bdemo\b|demonstration|taslak|draft|yerel(?:de)? kay|saved locally",
+    re.I,
+)
+
+
+def _claims_receipt(text: str) -> bool:
+    """Classify observed text, binding English negation to each receipt predicate.
+
+    A negative clause elsewhere cannot excuse a separate affirmative claim.
+    This remains a bounded language heuristic, never a delivery verifier.
+    """
+    return any(not _NEGATED_RECEIPT.search(match.group()) for match in _RECEIPT.finditer(text))
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +80,15 @@ _GUARD = r"""() => {
     XMLHttpRequest.prototype.open = function() {};
     XMLHttpRequest.prototype.send = function() { attempt(); throw new Error('Offline QA'); };
     navigator.sendBeacon = () => {attempt(); return false;};
+    if (window.ServiceWorkerContainer) {
+        const blockRegistration = function() {
+            attempt(); state.unsupported = true;
+            return Promise.reject(new Error('Offline QA: service workers unsupported'));
+        };
+        ServiceWorkerContainer.prototype.register = blockRegistration;
+        // Playwright installs an own register method when service_workers='block'.
+        navigator.serviceWorker.register = blockRegistration;
+    }
     const blockedAPIs = ['WebSocket', 'EventSource', 'RTCPeerConnection', 'Worker', 'SharedWorker'];
     for (const name of blockedAPIs) {
         window[name] = function() {
@@ -261,7 +282,7 @@ async def probe_contact_forms(
                 state = await page.evaluate("window.__fusionContactProbe")
                 attempts = routed_attempts + state["attempts"] + navigation_attempts
                 new = [text for text in [*after, *state["dialogs"]] if text not in before]
-                receipts = [text for text in new if _RECEIPT.search(text)]
+                receipts = [text for text in new if _claims_receipt(text)]
                 if errors or state["unsupported"] or navigation_attempts or unsupported_transport:
                     status, reason = "not_measured", "Script errors or unsupported browser behavior"
                 elif attempts:

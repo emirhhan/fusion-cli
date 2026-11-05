@@ -16,7 +16,9 @@ JavaScript transport guards, CSP violations, request routes and Chromium navigat
 events count attempted transport, including GET image/navigation delivery. An
 author handler that does not cancel the form default is conservatively recorded
 as an unverified suppressed submission path; the probe never runs that default.
-WebSockets are closed without connecting to their server. Dialogs are intercepted.
+WebSockets are closed without connecting to their server. Service-worker registration
+is explicitly instrumented as unsupported, including the instance method installed
+by Playwright; worker blocking remains enabled. Dialogs are intercepted.
 
 Contact candidates require a visible contact-like form or an email plus textarea.
 The probe observes one candidate for 1.3 seconds, inside a six-second execution
@@ -25,7 +27,10 @@ scripts/styles, embedded content, unsupported behavior, script errors and timeou
 produce explicit `not_measured` evidence. Attempted transport produces
 `unverified_transport` or `not_measured`, never verified receipt. A visible demo
 or local-draft disclosure near the form (or in the new status) prevents the narrow
-false-receipt finding; hidden or unrelated demo text does not excuse it.
+false-receipt finding; hidden or unrelated demo text does not excuse it. English
+failure negation is bound to each observed receipt predicate. An unrelated negative
+sentence does not suppress a separate positive claim, and generic failure text is
+not treated as a global demo disclosure.
 
 `contact_receipt_truth` evidence is separate from layout evidence and requested
 final text. Only an observed false receipt is failed; all other contact evidence
