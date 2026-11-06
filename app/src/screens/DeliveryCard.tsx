@@ -5,7 +5,7 @@ import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
 export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence; onOpenFile?: (path: string) => void}) {
   const documentPresentation = evidence.presentation === "document" && evidence.kind === "supported" &&
     evidence.verified === true && !evidence.blocking && !evidence.falseClaim && !evidence.problems.length &&
-    !evidence.warnings?.length && !evidence.unmeasured?.length;
+    !evidence.unmeasured?.length;
   const documentDetails = documentPresentation &&
     (!!evidence.checks?.length || !!evidence.advisories?.length || !!evidence.changeSummary?.length || evidence.detailsTruncated);
   const title = evidence.kind === "unsupported" ? "Kanıt sürümü desteklenmiyor" :
@@ -16,7 +16,7 @@ export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence
     evidence.unmeasured?.length ? "Bazı kontroller ölçülemedi" :
     evidence.deliveryKind === "observation" ? "İşlem kaydı" :
     evidence.deliveryKind === "artifact" && evidence.verified !== true ? "Görsel / belge sonucu ölçülmedi" :
-    evidence.verified === true ? (documentPresentation ? "Dosya denetlendi" : "Bildirilen kontroller geçti") : "Teslim doğrulanmadı";
+    evidence.verified === true ? (documentPresentation ? `Dosya / önizleme kontrolleri${evidence.warnings?.length ? " · kontrol notu var" : ""}` : "Bildirilen kontroller geçti") : "Teslim doğrulanmadı";
   return <section aria-label="Kanıt özeti" className="delivery-card">
     <strong>{title}</strong>
     {evidence.problems.length > 0 && <ul>{evidence.problems.map((problem, index) => <li key={index}>{problem}</li>)}</ul>}
@@ -27,8 +27,8 @@ export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence
       {evidence.unmeasured?.map((item, index) => <li key={index}>{item}</li>)}
     </ul>}
     {documentDetails && <details className="delivery-card__details">
-      <summary>Doğrulama ayrıntıları</summary>
-      <div className="delivery-card__detail-content" role="region" aria-label="Doğrulama ayrıntıları içeriği" tabIndex={0}>
+      <summary>Dosya / önizleme kontrol ayrıntıları</summary>
+      <div className="delivery-card__detail-content" role="region" aria-label="Dosya / önizleme kontrol ayrıntıları" tabIndex={0}>
         {!!evidence.checks?.length && <ul aria-label="Geçen kontroller">{evidence.checks.map((item, index) => <li key={index}>{item}</li>)}</ul>}
         {!!evidence.advisories?.length && <ul aria-label="Öneriler">{evidence.advisories.map((item, index) => <li key={index}>{item}</li>)}</ul>}
         {!!evidence.changeSummary?.length && <ul aria-label="Gerçek değişiklik özeti">{evidence.changeSummary.map((item, index) => <li key={index}>{item}</li>)}</ul>}
