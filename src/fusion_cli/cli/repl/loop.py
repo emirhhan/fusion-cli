@@ -23,7 +23,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar
 
 from rich.console import Console
 from rich.markup import escape
@@ -36,7 +36,6 @@ from .. import launch_prompts as launch_prompts_mod
 if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
     from ...engines.agent.remotion_bridge import FrameTransport
-    from ...tools.registry import ToolRegistry
     from ...ui.picker import Choice
 
 from ...config import model_select, profile
@@ -78,7 +77,6 @@ from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
 from ..desktop_never import AppDenials, config_persist
-from ..mcp_notice import new_failure_lines
 from ..prompter import ConsolePrompter
 from ..rule_notices import print_rule_notices
 from . import (
@@ -1056,66 +1054,26 @@ async def _drive_agent(
     }
     if images:
         kwargs["images"] = images
-    if not state.config.mcp_servers and not state.config.hosted_connectors:
-        return await run_agent(line, deps, **kwargs)
-    try:
-        from ...mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
-    except ImportError:
-        console.print(f"[{theme.WARN}]{messages.MCP_MISSING_DEP}[/{theme.WARN}]")
-        return await run_agent(line, deps, **kwargs)
-    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
-    registry = cast("ToolRegistry", deps.base_registry)
-    added: tuple[str, ...] = ()
-    if state.config.mcp_servers:
-        try:
-            # Havuz açık bağlantıyı yeniden kullanır; her tur stdio sunucusunu
-            # yeniden başlatmak ölçülmüş bir maliyetti (bkz. `mcp_bridge/pool.py`).
-            added += await ensure_mcp_tools(
-                state.config.mcp_servers,
-                registry,
-                retry_delays_s=state.config.runtime.retry_delays_s,
-                root=getattr(deps.tool_context, "root", None),
-            )
-        except Exception as error:
-            console.print(
-                f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
-            )
-        # Döngü değişkeni görev satırını (`line`) EZMEZ: ilk bağlantı hatasında ajan uyarı
-        # metniyle koşuyordu (ölçüldü 31 Ekim).
-        for notice in new_failure_lines(state.config.mcp_servers):
-            console.print(f"[{theme.WARN}]{notice}[/{theme.WARN}]")
-    if state.config.hosted_connectors:
-        # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
-        # devralmaz.
-        try:
-            added += await ensure_hosted_tools(
-                state.config, registry, root=getattr(deps.tool_context, "root", None)
-            )
-        except Exception as error:
-            console.print(
-                f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
-            )
-    if added:
-        console.print(
-            f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"
-        )
-    if state.config.mcp_servers:
-        # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantıdan sonra çözülür (P-049).
-        from ...engines.agent.loop import AgentOutcome as _Outcome
-        from ...mcp_bridge.reference_service import expand_mcp_references
+    from ...mcp_bridge.discovery import prepare_mcp_turn
 
-        expansion = await expand_mcp_references(line, state.config.mcp_servers)
+    owner, expansion = await prepare_mcp_turn(
+        line, deps, allowed=allowed_tools, denied=denied_tools
+    )
+    try:
         for note in (*expansion.notes, *expansion.warnings):
             console.print(f"[{theme.DIM}]{escape(note)}[/{theme.DIM}]")
         if expansion.error:
+            from ...engines.agent.loop import AgentOutcome
+
             console.print(f"[{theme.WARN}]{escape(expansion.error)}[/{theme.WARN}]")
-            return _Outcome(final_text="", messages=list(state.history), ok=False)
-        line = expansion.task
+            return AgentOutcome(final_text="", messages=list(state.history), ok=False)
         if expansion.context:
             kwargs["extra_system"] = "\n\n".join(
                 part for part in (extra_system, expansion.context) if part
             )
-    return await run_agent(line, deps, **kwargs)
+        return await run_agent(expansion.task, deps, **kwargs)
+    finally:
+        owner.close()
 
 
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:

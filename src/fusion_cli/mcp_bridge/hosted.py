@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..config.models import HostedConnectorConfig
@@ -328,7 +328,9 @@ class HostedConnectorClient:
         repaired = await self._ask(connector, _repair_reminder())
         return parse_result(repaired)
 
-    async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
+    async def register_into(
+        self, registry: ToolRegistry, *, selected_names: Iterable[str] | None = None
+    ) -> tuple[str, ...]:
         """Doğrulanmış connector'ların araçlarını kayıt defterine ekle.
 
         Doğrulanmamış connector için oturuma HİÇ gidilmez: ölçülmemiş bir
@@ -336,8 +338,9 @@ class HostedConnectorClient:
         güvenmesine yol açar (`WebSessionConfig.tool_eval_passed` ile aynı gerekçe).
         """
         added: list[str] = []
+        selected = None if selected_names is None else set(selected_names)
         for name, connector in self._connectors.items():
-            if not connector.verified:
+            if not connector.verified or (selected is not None and name not in selected):
                 continue
             try:
                 tools = self._discovered.get(name)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 from fusion_cli.cli import session as cli_session
@@ -86,7 +87,7 @@ async def test_satir_sunucu_adini_ve_nedeni_tasir(monkeypatch):
     assert "Adı kontrol et" not in satirlar[0]
 
 
-async def test_tur_baslangicinda_ham_uyari_degil_tek_satir_yayinlanir(monkeypatch):
+async def test_siradan_tur_kullanilmayan_sunucu_uyarisi_yayinlamaz(monkeypatch):
     olaylar: list[object] = []
     bus = SimpleNamespace(publish=olaylar.append)
 
@@ -107,10 +108,16 @@ async def test_tur_baslangicinda_ham_uyari_degil_tek_satir_yayinlanir(monkeypatc
     )
     config = make_config(mcp_servers=_configs("notion", "godot"))
 
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.registry import ToolRegistry
+
     await cli_session._run_agent_with_mcp(
         "merhaba",
         deps=SimpleNamespace(
-            base_registry=None, tool_context=SimpleNamespace(available_tools=set())
+            config=config,
+            base_registry=ToolRegistry(),
+            tool_context=ToolContext(root=Path.cwd()),
+            publisher=bus,
         ),
         config=config,
         bus=bus,
@@ -120,9 +127,7 @@ async def test_tur_baslangicinda_ham_uyari_degil_tek_satir_yayinlanir(monkeypatc
     )
 
     satirlar = [olay.message for olay in olaylar if isinstance(olay, ErrorOccurred)]
-    assert len(satirlar) == 2
-    assert "notion" in satirlar[0]
-    assert "godot" in satirlar[1]
+    assert satirlar == []
 
 
 def test_mcp_paketi_uyarilari_son_care_isleyicisine_dusmez():

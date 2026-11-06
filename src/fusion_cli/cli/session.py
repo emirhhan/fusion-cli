@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 from ..config.browser_profiles import browser_session_from
 from ..config.models import Config, mcp_secret_env_names
@@ -96,12 +96,12 @@ from ..tools.capabilities import CapabilityRegistry
 from ..tools.capability_overrides import registry_from_config
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
-from .mcp_notice import new_failure_lines
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from ..engines.agent.approval import Prompter
     from ..engines.agent.engine_tools import UserAsker
     from ..engines.agent.team import Persona
+    from ..mcp_bridge.pool import McpToolPool
     from ..tools.registry import ToolRegistry
 
     class AgentPrompter(Prompter, UserAsker, Protocol):
@@ -584,13 +584,6 @@ async def _run_agent_with_mcp(
     runner = turn_runner or run_agent
 
     async def _run() -> AgentOutcome:
-        nonlocal allowed_tools
-        if allowed_tools is not None and any(name.endswith("__*") for name in allowed_tools):
-            # `fusion -p --tools` MCP araçlarını daraltmaz: `sunucu__*` bağlanınca açılır.
-            from ..tools.capabilities import expand_tool_patterns
-
-            known = cast("ToolRegistry", deps.base_registry).names()
-            allowed_tools = expand_tool_patterns(set(allowed_tools), tuple(known))
         if strict_tool_names:
             # MCP araçları bağlandıktan SONRA denetlenir: `<sunucu>__<araç>` adları ancak
             # o zaman defterdedir.
@@ -612,50 +605,12 @@ async def _run_agent_with_mcp(
             workflow=workflow,
         )
 
-    # Startup admission is separate from config: credential/environment caps
-    # must still see every configured server even when its tools are unused.
-    if (not bootstrap_mcp or not config.mcp_servers) and not config.hosted_connectors:
-        return await _run()
-    try:
-        from ..mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
-    except ImportError:
-        bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
-        return await _run()
-    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
-    registry = cast("ToolRegistry", deps.base_registry)
-    eklenen: tuple[str, ...] = ()
-    if bootstrap_mcp and config.mcp_servers:
-        try:
-            # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
-            # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
-            # kapanışında yapılır, tur içinde değil.
-            eklenen += await ensure_mcp_tools(
-                config.mcp_servers,
-                registry,
-                retry_delays_s=config.runtime.retry_delays_s,
-                root=getattr(deps.tool_context, "root", None),
-            )
-        except Exception as error:
-            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-        for line in new_failure_lines(config.mcp_servers):
-            bus.publish(ErrorOccurred(line, fatal=False))
-    if config.hosted_connectors:
-        # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
-        # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
-        try:
-            eklenen += await ensure_hosted_tools(
-                config, registry, root=getattr(deps.tool_context, "root", None)
-            )
-        except Exception as error:
-            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-    # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
-    # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
-    deps.tool_context.available_tools.update(eklenen)
-    if bootstrap_mcp and config.mcp_servers:
-        # `/mcp__sunucu__istem` ve `@sunucu:kaynak` bağlantı kurulduktan sonra çözülür (P-049).
-        from ..mcp_bridge.reference_service import expand_mcp_references
+    from ..mcp_bridge.discovery import prepare_mcp_turn
 
-        expansion = await expand_mcp_references(task, config.mcp_servers)
+    owner, expansion = await prepare_mcp_turn(
+        task, deps, allowed=allowed_tools, denied=denied_tools, enabled=bootstrap_mcp
+    )
+    try:
         for note in expansion.notes:
             bus.publish(StatusChanged(note))
         for warning in expansion.warnings:
@@ -666,7 +621,9 @@ async def _run_agent_with_mcp(
         task = expansion.task
         if expansion.context:
             extra_system = "\n\n".join(part for part in (extra_system, expansion.context) if part)
-    return await _run()
+        return await _run()
+    finally:
+        owner.close()
 
 
 def _with_session_rules(
@@ -689,8 +646,24 @@ def _reject_unknown_tools(
         return None
     known = set(build_agent_registry(deps, depth=0, run_agent=run_agent).names())
     # `runtime.disabled_tools` ile kapatılmış araç geçerli bir addır; "bilinmeyen" denmez.
-    known |= ALWAYS_ALLOWED | set(getattr(deps.config.runtime, "disabled_tools", ()))
-    unknown = requested - known
+    from ..mcp_bridge.discovery import DISCOVER_MCP_TOOLS
+
+    known |= (
+        ALWAYS_ALLOWED
+        | {DISCOVER_MCP_TOOLS}
+        | set(getattr(deps.config.runtime, "disabled_tools", ()))
+    )
+    from ..tools.capabilities import expand_tool_patterns
+
+    # Validate a projection without discarding the caller's original wildcard
+    # restrictions, which are needed when selected discovery updates the runtime.
+    requested = expand_tool_patterns(requested, tuple(known))
+    from ..core.mcp_tool_names import canonical_mcp_name
+
+    canonical_known = {canonical_mcp_name(name) for name in known}
+    unknown = {
+        name for name in requested - known if canonical_mcp_name(name) not in canonical_known
+    }
     if not unknown:
         return None
     text = unknown_tool_message(unknown, known)
@@ -787,22 +760,28 @@ def _artifact_id() -> str:
 
 
 @asynccontextmanager
-async def agent_mcp_scope(config: Config, registry: ToolRegistry) -> AsyncIterator[None]:
+async def agent_mcp_scope(
+    config: Config, registry: ToolRegistry, *, lazy: bool = False
+) -> AsyncIterator[McpToolPool]:
     """Alt ajanın inline MCP bağlantılarını kendi mevcut havuz örneğinde sahiplen."""
     from ..mcp_bridge.pool import McpToolPool
 
     pool = McpToolPool()
     try:
-        clients = await pool.clients_for(
-            config.mcp_servers, retry_delays_s=config.runtime.retry_delays_s
-        )
-        if len(clients) != len(config.mcp_servers):
-            raise ConfigError("Alt ajanın MCP bağlantısı kurulamadı.")
-        for client in clients:
-            await client.register_into(registry)
-        yield
+        if not lazy:
+            clients = await pool.clients_for(
+                config.mcp_servers, retry_delays_s=config.runtime.retry_delays_s
+            )
+            if len(clients) != len(config.mcp_servers):
+                raise ConfigError("Alt ajanın MCP bağlantısı kurulamadı.")
+            for client in clients:
+                await client.register_into(registry)
+        yield pool
     finally:
         await pool.aclose()
+
+
+agent_mcp_scope.supports_lazy_discovery = True  # type: ignore[attr-defined]
 
 
 def _register_elicitation(asker: object) -> None:

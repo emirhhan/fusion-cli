@@ -37,7 +37,7 @@ from ...config.models import Config
 from ...core.types import ModelSpec
 from ...tools.capability_search import relevance_score
 from ...tools.registry import ToolRegistry
-from ...tools.tool_search import TOOL_SEARCH, tool_search_state
+from ...tools.tool_search import TOOL_SEARCH, prioritized_tool_names, tool_search_state
 from .tool_profiles import WIDENED_KIND, hidden_tools
 
 #: `ModelSpec.tags` içinde sıkı yüzeyi zorlayan etiket.
@@ -132,7 +132,7 @@ def narrow_to_compact_surface(
     state = tool_search_state(registry)
     if state is not None:
         state.result_limit = max(1, min(max_external_tools, 12))
-    recent = {name: index for index, name in enumerate(state.recent)} if state is not None else {}
+    recent = {name: index for index, name in enumerate(prioritized_tool_names(registry))}
     # Explicit tools bypass the exploration cap. Recent discoveries take the remaining
     # slots; stable sorting preserves relevance/registration order for the defaults.
     external.sort(key=lambda name: recent.get(name, len(recent)))

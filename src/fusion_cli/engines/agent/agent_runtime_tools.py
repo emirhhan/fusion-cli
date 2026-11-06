@@ -328,6 +328,8 @@ async def _list_agents(args: ToolArgs, context: ToolContext, *, deps: AgentDeps)
                 ),
                 "",
             )
+            if content:
+                deps.mcp_external_content = True
             return _receipt(
                 state.status, state.agent_id, content, complete=state.complete_history, deps=deps
             )

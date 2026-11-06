@@ -21,6 +21,7 @@ from ..core.constants import APPROVAL_UNANSWERED_TIMEOUT_S, QUESTION_RECEIPT_HIS
 from ..core.events import (
     AutomaticRecallDiagnostic,
     Event,
+    McpDiscoveryDiagnostic,
     ProviderCallDiagnostic,
     ToolCallRepaired,
     ToolExecuted,
@@ -96,7 +97,9 @@ class ProtocolSink:
         Burada yakalanıp `ProtocolError` olayına çevrilir: uygulama en azından
         BİR olayın iletilemediğini görür.
         """
-        if isinstance(event, (ProviderCallDiagnostic, AutomaticRecallDiagnostic)):
+        if isinstance(
+            event, (ProviderCallDiagnostic, AutomaticRecallDiagnostic, McpDiscoveryDiagnostic)
+        ):
             return
         try:
             correlated = self.correlate(event)

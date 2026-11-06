@@ -26,6 +26,7 @@ __all__ = [
     "MCP_TOOL_PREFIX",
     "canonical_mcp_name",
     "claude_mcp_tool_name",
+    "cold_mcp_alias_matches_server",
     "is_legacy_mcp_name",
     "legacy_mcp_name",
     "mcp_server_of",
@@ -104,3 +105,18 @@ def legacy_mcp_name(name: str) -> str:
     if name.startswith(MCP_TOOL_PREFIX) and split_mcp_tool_name(name) is not None:
         return name[len(MCP_TOOL_PREFIX) :]
     return name
+
+
+def cold_mcp_alias_matches_server(name: str, server: str) -> bool:
+    """Match a cold shortened alias's retained prefix to a configured server.
+
+    This only identifies candidates. Callers must reject ambiguity rather than
+    contacting multiple servers; a registered builtin must take precedence.
+    """
+    if name in _SHORT_TO_FULL or len(name) != MAX_PROVIDER_TOOL_NAME_CHARS:
+        return False
+    if not name.startswith(MCP_TOOL_PREFIX) or re.fullmatch(r"[0-9a-f]{8}", name[-8:]) is None:
+        return False
+    keep = MAX_PROVIDER_TOOL_NAME_CHARS - _HASH_CHARS - 1
+    prefix = claude_mcp_tool_name(server, "")
+    return len(prefix) >= keep and name[keep] == "_" and name[:keep] == prefix[:keep]

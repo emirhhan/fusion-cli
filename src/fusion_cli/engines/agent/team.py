@@ -524,12 +524,21 @@ async def _run_child(
         permission_rules=deps.permission_rules,
         steering=deps.child_runs.message_queue(sub_id) if subtask.agent_id else None,
         mcp_connector=deps.mcp_connector,
+        mcp_discovery=deps.mcp_discovery,
+        mcp_external_content=deps.mcp_external_content,
         attempt_id=deps.trace_id_factory(),
         trace_id_factory=deps.trace_id_factory,
     )
     from .agent_runtime_hooks import child_mcp_scope
 
     async with AsyncExitStack() as lifetime:
+
+        def retain_external_content() -> None:
+            # Child results can carry server-authored data even when the parent's
+            # only recorded tool is Agent. Keep provenance across every exit.
+            deps.mcp_external_content = deps.mcp_external_content or sub_deps.mcp_external_content
+
+        lifetime.callback(retain_external_content)
         try:
             await lifetime.enter_async_context(child_mcp_scope(sub_deps, persona, subtask))
         except ConfigError:
@@ -579,6 +588,37 @@ async def _run_child(
             from .agent_runtime_context import background_tools
 
             effective_tools = background_tools(sub_deps, effective_tools, available)
+        if sub_deps.mcp_discovery is not None:
+            from .runtime_surface import RuntimeToolSurface
+
+            parent_surface = deps.runtime_surface
+            discovery = sub_deps.mcp_discovery
+            surface_subtask = subtask
+
+            # Keep the persona/subtask inputs; effective_tools is only today's
+            # projection and must not exclude tools discovered later in this turn.
+            def child_surface(_incoming_cap: frozenset[str] | None) -> RuntimeToolSurface:
+                return RuntimeToolSurface(
+                    task=surface_subtask.task,
+                    allowed=surface_subtask.tool_cap,
+                    denied=surface_subtask.tool_deny | sub_deps.denied_tools,
+                    parent=parent_surface,
+                    validate=discovery.permitted_names,
+                    fixed_names=frozenset(effective_tools)
+                    if subtask.background and not is_fork and effective_tools is not None
+                    else None,
+                    project=lambda current: _allowed_tools(
+                        sub_deps,
+                        persona,
+                        surface_subtask,
+                        available=current.names(),
+                        registry=current,
+                    ),
+                    server_filter=frozenset(persona.mcp_servers),
+                    admission_caps=(frozenset(persona.tools),) if persona.tools is not None else (),
+                )
+
+            sub_deps.mcp_surface_factory = child_surface
         if not is_fork:
             from .agent_runtime_context import sibling_roster
 
@@ -613,6 +653,8 @@ async def _run_child(
                 else not subtask.inherit_context,
             )
         if subtask.resume:
+            # Legacy saved summaries/history have opaque source provenance.
+            sub_deps.mcp_external_content = True
             inherited = resumed_history(deps, sub_id)
             if saved is not None and not saved.complete_history:
                 from ...core.types import Message
@@ -661,7 +703,7 @@ async def _run_child(
                 self_review=False,
                 extra_system=handoff,
                 system_prompt=parent_prompt if inherited is not None else persona.prompt.strip(),
-                allowed_tools=effective_tools,
+                allowed_tools=None if sub_deps.mcp_surface_factory is not None else effective_tools,
                 step_limit=child_step_limit(
                     deps, depth, requested=_min_limit(persona.max_turns or None, subtask.step_limit)
                 ),

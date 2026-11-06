@@ -304,6 +304,14 @@ from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import RepoMapFocus, map_budget_for, repo_map_with_stats, task_focus
 from .risk_classifier import review_auto_request
+from .runtime_surface import (
+    McpDiscovery,
+    RuntimeToolSurface,
+    bind_surface,
+    surface_for,
+    surface_task,
+    update_surface_task,
+)
 from .self_knowledge import GUIDE, knowledge_block
 from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
@@ -585,10 +593,16 @@ class AgentDeps:
     runtime_agent_id: str = ""
     omit_git_snapshot: bool = False
     runtime_tool_cap: frozenset[str] | None = None
+    mcp_discovery: McpDiscovery | None = None
+    mcp_external_content: bool = False
+    runtime_surface: RuntimeToolSurface | None = None
+    mcp_surface_factory: Callable[[frozenset[str] | None], RuntimeToolSurface] | None = None
     agent_transcript: AgentTranscriptCapture | None = None
     interactive: bool = False
     main_config_applied: bool = False
-    mcp_connector: Callable[[Config, ToolRegistry], AbstractAsyncContextManager[None]] | None = None
+    mcp_connector: Callable[[Config, ToolRegistry], AbstractAsyncContextManager[object]] | None = (
+        None
+    )
     #: Alt ajanın türü (tanım adı); `SubagentStop` eşleştiricisi buna bakar.
     agent_type: str = ""
     #: Keşif/plan ilk bağlamında proje talimatı yok; dosya erişimindeki kurallar sürer.
@@ -1009,8 +1023,12 @@ async def _run_agent(
             return played
 
     deps.tool_context.localization.enabled = deps.config.runtime.localization_cards
+    original_allowed_tools = frozenset(allowed_tools) if allowed_tools is not None else None
+    incoming_execution_cap = (
+        deps.execution.allowed_tool_names if deps.execution is not None else None
+    )
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    if depth == 0 and deps.session_persona is not None:
+    if depth == 0 and deps.session_persona is not None and deps.mcp_discovery is None:
         from .team import SubTask
         from .team_policy import allowed_tools as persona_tools
 
@@ -1213,6 +1231,11 @@ async def _run_agent(
         ),
         images=images,
     )
+    from .learning import has_unverified_agent_context
+
+    deps.mcp_external_content = deps.mcp_external_content or has_unverified_agent_context(
+        (*messages, *(history or ()))
+    )
     if deps.agent_transcript is not None:
         await deps.agent_transcript.begin(messages)
     if not internal:
@@ -1256,7 +1279,10 @@ async def _run_agent(
     if chat_mode:
         # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
         execution = chat_execution(execution)
-        allowed_tools = set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
+        if deps.mcp_discovery is None:
+            allowed_tools = (
+                set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
+            )
     elif (
         not plan_mode and execution.allow_mutation and execution.required_effect == "workspace_read"
     ):
@@ -1267,12 +1293,148 @@ async def _run_agent(
         # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
     deps.execution = execution
-    if denied_tools:
+    if deps.mcp_discovery is not None:
+        if deps.mcp_surface_factory is not None:
+            surface = deps.mcp_surface_factory(incoming_execution_cap)
+        else:
+            persona = deps.session_persona if depth == 0 else None
+
+            def project(current: ToolRegistry) -> set[str] | None:
+                names = set(chat_tool_names(current)) if chat_mode else None
+                if persona is None:
+                    return names
+                from .team import SubTask
+                from .team_policy import allowed_tools as persona_tools
+
+                persona_names = persona_tools(
+                    deps, persona, SubTask(task), available=current.names(), registry=current
+                )
+                if names is None:
+                    return persona_names
+                return names if persona_names is None else names & persona_names
+
+            surface = RuntimeToolSurface(
+                task=task,
+                allowed=original_allowed_tools,
+                validate=deps.mcp_discovery.permitted_names,
+                denied=frozenset(denied_tools) | deps.denied_tools,
+                fixed_names=incoming_execution_cap,
+                project=project,
+                server_filter=frozenset(persona.mcp_servers) if persona else frozenset(),
+                admission_caps=(frozenset(persona.tools),)
+                if persona and persona.tools is not None
+                else (),
+            )
+        deps.runtime_surface = surface
+        bind_surface(registry, surface)
+        deps.runtime_tool_cap = original_allowed_tools
+        from .runtime_surface import DISCOVER_MCP_TOOLS
+
+        def permitted() -> set[str]:
+            return (
+                _permitted(
+                    None,
+                    registry,
+                    deps.execution or execution,
+                    deps.tool_context.task_kinds,
+                    denied=surface_denied(deps, registry.names()),
+                    task=task,
+                    phase=deps.tool_context.tool_phase,
+                )
+                or set()
+            )
+
+        def preflight_admit(server: str) -> bool:
+            from ...core.mcp_tool_names import claude_mcp_tool_name
+            from .bare_deny import bare_denied_tools
+
+            probe = claude_mcp_tool_name(server, "discovery_metadata")
+            return surface.admit(server, registry) and not bare_denied_tools(
+                deps.permission_rules, (probe,)
+            )
+
+        def admit(server: str) -> bool:
+            return DISCOVER_MCP_TOOLS in permitted() and preflight_admit(server)
+
+        def selected_wait_admit(server: str) -> bool:
+            return "WaitForMcpServers" in permitted() and preflight_admit(server)
+
+        # Binding also rehomes selected pending waits into this runtime. It must
+        # run even when initiating new discovery is explicitly unavailable.
+        tool = deps.mcp_discovery.bind(
+            registry,
+            permitted=permitted,
+            admit=admit,
+            selected_admit=selected_wait_admit,
+            deps=deps,
+        )
+        if DISCOVER_MCP_TOOLS not in deps.config.runtime.disabled_tools:
+            registry.register(tool)
+        if depth > 0:
+            expansion = await deps.mcp_discovery.preflight_selected(
+                registry,
+                surface.preflight_patterns(),
+                task=task,
+                permitted=permitted,
+                admit=preflight_admit,
+                deps=deps,
+            )
+            for note in expansion.notes:
+                deps.publisher.publish(StatusChanged(note))
+            for warning in expansion.warnings:
+                deps.publisher.publish(ErrorOccurred(warning, fatal=False))
+            if expansion.error:
+                return AgentOutcome(final_text=expansion.error, messages=messages, ok=False)
+            if expansion.context or expansion.task != task:
+                deps.mcp_external_content = True
+            if expansion.task != task:
+                tightened = policy_for(deps.config, _active_spec(deps, execution), expansion.task)
+                if tightened.allow_mutation and tightened.required_effect == "workspace_read":
+                    tightened = observe_execution(tightened, WORKSPACE_READ_REASON)
+                cap = execution.allowed_tool_names
+                if tightened.allowed_tool_names is not None:
+                    cap = (
+                        tightened.allowed_tool_names
+                        if cap is None
+                        else cap & tightened.allowed_tool_names
+                    )
+                execution = replace(
+                    execution,
+                    allow_mutation=execution.allow_mutation and tightened.allow_mutation,
+                    offer_tools=execution.offer_tools and tightened.offer_tools,
+                    forbidden_tool_families=execution.forbidden_tool_families
+                    | tightened.forbidden_tool_families,
+                    allowed_tool_names=cap,
+                    observe_only=execution.observe_only or tightened.observe_only,
+                    requires_tool_evidence=execution.requires_tool_evidence
+                    or tightened.requires_tool_evidence,
+                    required_effect=execution.required_effect or tightened.required_effect,
+                    requires_web_lookup=execution.requires_web_lookup
+                    or tightened.requires_web_lookup,
+                    required_web_urls=tuple(
+                        dict.fromkeys((*execution.required_web_urls, *tightened.required_web_urls))
+                    ),
+                )
+                deps.turn_forbidden_families |= tightened.forbidden_tool_families
+                deps.execution = execution
+                for index in range(len(messages) - 1, -1, -1):
+                    if messages[index].role == "user" and messages[index].content == task:
+                        messages[index] = replace(messages[index], content=expansion.task)
+                        break
+                task = expansion.task
+                surface = replace(surface, task=task)
+                deps.runtime_surface = surface
+                bind_surface(registry, surface)
+            if expansion.context:
+                messages = with_system_note(messages, expansion.context)
+    if denied_tools and deps.mcp_discovery is None:
         # Oturum kişiliğinin `disallowedTools`u (P-053): izin kümesi verilmemişse defterin
         # tamamından, verilmişse ondan düşer; `sunucu__*` deseni defter adlarına açılır.
         base = set(registry.names()) if allowed_tools is None else set(allowed_tools)
         allowed_tools = base - expand_tool_patterns(set(denied_tools), registry.names())
-    if allowed_tools is not None or execution.forbidden_tool_families:
+    if deps.mcp_discovery is None and (
+        allowed_tools is not None or execution.forbidden_tool_families
+    ):
         names = frozenset(
             _permitted(
                 allowed_tools,
@@ -1992,6 +2154,7 @@ async def _drive_loop(
         # Arka plana taşınmış MCP çağrılarının sonuçları (#233); ana sohbet dışında boştur.
         messages.extend(take_mcp_background_notices(deps.tool_context))
         if notices:
+            deps.mcp_external_content = True
             messages.append(
                 Message(
                     "user",
@@ -2191,6 +2354,8 @@ async def _drive_loop(
                 wait=not deps.child_runs.persistent,
             )
             if completions:
+                # Actual owned completion delivery, not a marker in user text.
+                deps.mcp_external_content = True
                 messages.append(
                     Message(
                         "user",
@@ -3223,6 +3388,7 @@ async def _call_model(
             error="Model çağrı bütçesi tükendi veya sabit model sözleşmesi değişti.",
         )
     _refresh_model_identity(messages, spec)
+    update_surface_task(registry, _surface_task(messages))
     offered_tools = (
         tuple(
             registry.schemas(
@@ -3474,6 +3640,16 @@ def _permitted(
     Düzenleme sözleşmesi tüm sağlayıcılarda aynıdır (`edit_file` / `multi_edit` /
     `write_file`); sağlayıcıya göre şema daraltılmaz.
     """
+    dynamic = surface_for(registry)
+    if dynamic is not None:
+        task = surface_task(registry)
+        if allowed_tools is not None:
+            allowed_tools = expand_tool_patterns(set(allowed_tools), registry.names())
+    explicit_tools = (
+        dynamic.explicit_names(registry)
+        if dynamic is not None and allowed_tools is None
+        else allowed_tools
+    )
     if allowed_tools is not None and not allowed_tools:
         return set()
     names = (
@@ -3481,6 +3657,8 @@ def _permitted(
         if allowed_tools is None
         else ((allowed_tools | ALWAYS_ALLOWED) & set(registry.names()))
     )
+    if dynamic is not None:
+        names &= dynamic.names(registry)
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
     names = {name for name in names if not prohibited_tool(name, execution.forbidden_tool_families)}
@@ -3494,7 +3672,7 @@ def _permitted(
         for name in names
         if name not in SCOPED_TOOLS
         or SCOPED_TOOLS[name] in task_kinds
-        or (allowed_tools is not None and name in allowed_tools)
+        or (explicit_tools is not None and name in explicit_tools)
     }
     if execution.compact_tool_surface:
         names = narrow_to_compact_surface(
@@ -3502,7 +3680,7 @@ def _permitted(
             registry,
             max_external_tools=execution.max_external_tools,
             task_kinds=task_kinds,
-            explicit=allowed_tools,
+            explicit=explicit_tools,
             profiles=execution.tool_profiles,
             external_tool_selection=execution.external_tool_selection,
             task=task,
@@ -3513,7 +3691,7 @@ def _permitted(
     names = {
         name
         for name in names
-        if name not in hidden_tasks or (allowed_tools is not None and name in allowed_tools)
+        if name not in hidden_tasks or (explicit_tools is not None and name in explicit_tools)
     }
     if not execution.allow_mutation:
         names = {
@@ -4614,7 +4792,10 @@ async def _run_tools(
                 if okunan:
                     state.nested_candidates.append(okunan)
             mutating = bool(tool is not None and tool.mutating)
-            budget.successful_tool_evidence.append((call.name, args, mutating))
+            # Connection metadata and server-authored instructions are not
+            # evidence that the user's requested service operation happened.
+            if call.name not in {"DiscoverMcpTools", "WaitForMcpServers"}:
+                budget.successful_tool_evidence.append((call.name, args, mutating))
             if result.source_read_url:
                 budget.successful_source_reads.append(result.source_read_url)
                 budget.successful_source_read_scopes.append(
@@ -4832,10 +5013,23 @@ async def _execute(
             "İzin verilen gözlemlerle yanıtla; mümkün değilse sınırlamayı açıkla."
         ), ToolOutcome.BLOCKED
     tool = registry.get(call.name)
-    if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
+    dynamic = surface_for(registry)
+    execution_names = (
+        _permitted(
+            None,
+            registry,
+            execution,
+            deps.tool_context.task_kinds,
+            denied=surface_denied(deps, registry.names()),
+            phase=deps.tool_context.tool_phase,
+        )
+        if dynamic is not None
+        else execution.allowed_tool_names
+    )
+    if execution_names is not None and call.name not in execution_names:
         # Serbest araçlar SÖYLENMELİ: gözlem turunda model yalnız "kapsamda değil"
         # cevabını görünce aynı yazma aracını başka argümanla yeniden deniyordu.
-        allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
+        allowed = ", ".join(sorted(execution_names)) or "yok"
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
         ), ToolOutcome.BLOCKED

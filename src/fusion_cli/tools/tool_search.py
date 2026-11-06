@@ -32,6 +32,7 @@ import os
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from weakref import WeakKeyDictionary
 
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from .registry import ToolRegistry
@@ -40,6 +41,8 @@ __all__ = [
     "TOOL_SEARCH",
     "ToolSearchMode",
     "ToolSearchState",
+    "prioritize_tools",
+    "prioritized_tool_names",
     "refresh_tool_search",
     "tool_search_mode",
     "tool_search_state",
@@ -180,6 +183,30 @@ def _definition_chars(tool: Tool | None) -> int:
     return len(json.dumps(tool.schema(), ensure_ascii=False))
 
 
+_SELECTION_ORDER: WeakKeyDictionary[ToolRegistry, list[str]] = WeakKeyDictionary()
+
+
+def prioritize_tools(registry: ToolRegistry, names: Iterable[str]) -> None:
+    """Prioritize real selected definitions, independently of schema deferral.
+
+    This only orders names that are already registered. Permission and count
+    projections still run before schemas or executors are exposed.
+    """
+    selected = [name for name in dict.fromkeys(names) if registry.get(name) is not None]
+    prior = _SELECTION_ORDER.get(registry, [])
+    recent = (selected + [name for name in prior if name not in selected])[:12]
+    _SELECTION_ORDER[registry] = recent
+    state = tool_search_state(registry)
+    if state is not None:
+        state.recent = list(recent)
+
+
+def prioritized_tool_names(registry: ToolRegistry) -> tuple[str, ...]:
+    state = tool_search_state(registry)
+    names = _SELECTION_ORDER.get(registry, state.recent if state is not None else [])
+    return tuple(name for name in names if registry.get(name) is not None)
+
+
 def tool_search_state(registry: ToolRegistry) -> ToolSearchState | None:
     """Defterdeki `ToolSearch` aracının paylaşılan durumu; araç yoksa None."""
     tool = registry.get(TOOL_SEARCH)
@@ -229,7 +256,7 @@ def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
             return ToolResult(output="Eşleşen ertelenmiş araç yok.")
         state.loaded.update(tool.name for tool in found)
         selected = [tool.name for tool in found]
-        state.recent = (selected + [name for name in state.recent if name not in selected])[:12]
+        prioritize_tools(registry, selected)
         return ToolResult(output=_functions_block(found))
 
     _run.tool_search_state = state  # type: ignore[attr-defined]
