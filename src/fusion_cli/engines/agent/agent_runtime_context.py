@@ -53,9 +53,14 @@ def child_tool_names(names: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def launch_denial(deps: AgentDeps, persona: Persona, requested: str) -> str:
-    targets = {persona.name, requested}
-    if persona.source == "fusion" and persona.name in {"explore", "plan"}:
-        targets.add(persona.name.title())
+    return launch_type_denial(deps, name=persona.name, source=persona.source, requested=requested)
+
+
+def launch_type_denial(deps: AgentDeps, *, name: str, source: str, requested: str) -> str:
+    """Check launch metadata without resolving or reading a persona body."""
+    targets = {name, requested}
+    if source == "fusion" and name in {"explore", "plan"}:
+        targets.add(name.title())
     scope = deps.allowed_agent_types
     if scope is not None and not targets.intersection(scope):
         return "Ana ajanın Agent(tip) kapsamı bu alt ajanı başlatmaya izin vermiyor."
@@ -103,37 +108,8 @@ def _git_snapshot(deps: AgentDeps) -> str:
 
 async def startup_context(deps: AgentDeps, *, depth: int, available: tuple[str, ...]) -> str:
     parts: list[str] = []
-    if depth == 0:
-        from ...tools.agent_catalog_index import agent_catalog_index
-        from .context_budget import CHARS_PER_TOKEN_ESTIMATE
-
-        parts.append(
-            agent_catalog_index(
-                deps.capabilities,
-                count_tokens=lambda text: (
-                    (len(text) + CHARS_PER_TOKEN_ESTIMATE - 1) // CHARS_PER_TOKEN_ESTIMATE
-                ),
-            )
-        )
-    elif not deps.omit_git_snapshot:
+    if depth > 0 and not deps.omit_git_snapshot:
         parts.append(await asyncio.to_thread(_git_snapshot, deps))
-    if "SendMessage" in available:
-        siblings = [
-            state
-            for state in deps.child_runs.records()
-            if state.name
-            and state.agent_id != deps.runtime_agent_id
-            and state.root == str(deps.tool_context.root.resolve())
-            and state.parent_session == deps.runtime_parent_session
-        ]
-        if siblings:
-            parts.append(
-                "Mesaj gönderilebilen adlandırılmış ajanlar:\n"
-                + "\n".join(
-                    _sibling_description(deps, state.name, state.agent_type, state.agent_id)
-                    for state in siblings
-                )
-            )
     return "\n\n".join(part for part in parts if part)
 
 

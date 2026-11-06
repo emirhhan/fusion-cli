@@ -139,7 +139,7 @@ from ...providers.fallback_plan import live_fallbacks
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.auto_policy import is_read_only_command
-from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
+from ...tools.capabilities import Capability, CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.mcp_background import (
@@ -312,7 +312,7 @@ from .runtime_surface import (
     surface_task,
     update_surface_task,
 )
-from .self_knowledge import GUIDE, knowledge_block
+from .self_knowledge import GUIDE
 from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .task_availability import hidden_task_tools
@@ -1475,12 +1475,7 @@ async def _run_agent(
         and messages[0].role == "system"
         and GUIDE not in messages[0].content
     ):
-        teacher = deps.config.teacher.model if deps.config.teacher is not None else ""
-        messages[0] = Message(
-            "system",
-            f"{messages[0].content}\n\n"
-            f"{knowledge_block([tool.name for tool in registry], teacher)}",
-        )
+        messages[0] = Message("system", f"{messages[0].content}\n\n{GUIDE}")
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
@@ -1577,6 +1572,7 @@ async def _run_agent(
         internal=internal,
         auto_teacher=depth == 0 and not internal and execution.complex_task,
         require_local_mutation=require_local_mutation,
+        depth=depth,
     )
 
     verification = None
@@ -1968,6 +1964,8 @@ class _State:
     üretir ve çağıran tarafından toplanır.
     """
 
+    depth: int = 0
+    catalog_agents: tuple[Capability, ...] = ()
     observation_calls: int = 0
     tool_calls_made: int = 0
     mutating_tool_calls_made: int = 0
@@ -2079,10 +2077,13 @@ async def _drive(
     internal: bool = False,
     auto_teacher: bool = False,
     require_local_mutation: bool = False,
+    depth: int = 0,
 ) -> AgentOutcome:
     state = _State(
         internal=internal,
         require_local_mutation=require_local_mutation,
+        depth=depth,
+        catalog_agents=deps.capabilities.agents() if depth == 0 and deps.capabilities else (),
     )
     event_loop = asyncio.get_running_loop()
 
@@ -3426,7 +3427,17 @@ async def _call_model(
     if offered_tools:
         _publish_surface(deps, registry, execution, offered_tools)
     await localization.refresh_prompt(messages, deps.tool_context)
-    gorunum = _masked_view(messages, deps, spec)
+    from .capability_context import request_capability_messages
+
+    request_messages = request_capability_messages(
+        messages,
+        deps,
+        permitted(),
+        offer_tools=offer_tools,
+        depth=state.depth,
+        agents=state.catalog_agents,
+    )
+    gorunum = _masked_view(request_messages, deps, spec)
     if gorunum.masked:
         deps.publisher.publish(
             ToolOutputsMasked(
