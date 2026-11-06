@@ -77,7 +77,9 @@ _PROMPT = (
     "For issues, reviewed may be a nonempty subset of target IDs. Claim targets must be\n"
     "within reviewed and at least one claim must identify a concrete actionable issue.\n"
     "For supported, review every target ID and classify all spans with claims (group related\n"
-    "IDs). Supported claims\n"
+    "IDs). claims.sources must use ONLY exact keys from a source's spans (e.g. s1:13),\n"
+    "never source-level labels. Use [] for an unsupported claim without an evidence span;\n"
+    "never invent or shorten IDs. Supported claims\n"
     "must cite exact supplied source span IDs. uncertain means explicitly source-honest\n"
     "uncertainty\n"
     "already stated in target, nonfactual means formatting/navigation only. Identify\n"
@@ -97,7 +99,6 @@ class TargetSpanPayload(TypedDict):
 
 
 class SourcePayload(TypedDict):
-    id: str
     url: str
     requested_url: str
     fetched_at: str
@@ -233,7 +234,6 @@ def request_payload(
         },
         "sources": [
             {
-                "id": f"s{index + 1}",
                 "url": source.receipt.final_url,
                 "requested_url": source.receipt.requested_url,
                 "fetched_at": source.receipt.fetched_at,
