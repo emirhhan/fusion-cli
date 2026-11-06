@@ -124,6 +124,9 @@ interface ComposerProps {
   /** Etkin ajan modeli. Boşsa seçici çizilmez. */
   activeModel?: string;
   activeModelLabel?: string;
+  activeModelPending?: boolean;
+  activeModelError?: string;
+  onActiveModelRetry?: () => void;
   /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
   modelOptions?: ModelOption[];
   modelsError?: string;
@@ -196,6 +199,9 @@ export function Composer({
   running = false,
   activeModel = "",
   activeModelLabel,
+  activeModelPending,
+  activeModelError,
+  onActiveModelRetry,
   modelOptions = [],
   modelsError = "",
   modelSelectionPending = false,
@@ -553,7 +559,7 @@ export function Composer({
           </div>
           {running ? (
             <span className="composer__actions">
-              {onModelSelect && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
+              {onModelSelect && <ModelPicker activePending={activeModelPending} activeError={activeModelError} onActiveRetry={onActiveModelRetry} active={activeModel} activeLabel={activeModelLabel || activeModel ? `${activeModelLabel || shortModelName(activeModel)} · sonraki tur` : undefined} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
               {/* Çalışırken "Bağlamı sıkıştır" sunulmaz: onSend çalışan tura talimat/sıra olarak gider
                   ve /compact komut yerine modele metin olarak iletilebilirdi (U1-11). */}
               <ContextGauge olcu={context} />
@@ -599,6 +605,9 @@ export function Composer({
               {onModelSelect && <EffortMenu onSelect={(level) => void onSend(`/effort ${level}`)} />}
               {onModelSelect && (
                 <ModelPicker
+                  activePending={activeModelPending}
+                  activeError={activeModelError}
+                  onActiveRetry={onActiveModelRetry}
                   active={activeModel}
                   activeLabel={activeModelLabel}
                   busy={modelsBusy}

@@ -34,6 +34,9 @@ export interface ModelPickerProps {
   /** Etkin ajan modeli; liste açılmadan da görünür. */
   active: string;
   activeLabel?: string;
+  activePending?: boolean;
+  activeError?: string;
+  onActiveRetry?: () => void;
   options: ModelOption[];
   /** Liste açılırken çağrılır; seçenekler tembel yüklenir. */
   onOpen?: () => void;
@@ -55,7 +58,10 @@ export function shortModelName(model: string): string {
   return ad.replace(/:free$/, "").replace(/-\d+(?:\.\d+)?b-a\d+(?:\.\d+)?b(?=-|$)/gi, "") || ad;
 }
 
-export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options, error, onRetry, onConnect, pending = false }: ModelPickerProps) {
+export function ModelPicker({ active, activeLabel, activePending = false, activeError = "", onActiveRetry, busy = false, onOpen, onSelect, options, error, onRetry, onConnect, pending = false }: ModelPickerProps) {
+  const modelName = activeLabel || (active ? shortModelName(active) : "");
+  const activeName = activePending ? `${modelName ? `${modelName} · ` : ""}Etkin model okunuyor…`
+    : activeError ? (modelName ? `${modelName} · yenilenemedi` : "Etkin model okunamadı") : modelName;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const listId = useId();
@@ -165,13 +171,14 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
         ref={trigger}
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label={`Model: ${activeLabel || active || "seçilmedi"}. Değiştirmek için tıkla.`}
+        aria-label={`Model: ${(activePending || activeError ? activeName : activeLabel || active) || "seçilmedi"}. Değiştirmek için tıkla.`}
+        aria-busy={activePending || undefined}
         className="model-picker__trigger"
         onClick={ac}
-        title={activeLabel || active}
+        title={activeError || activeLabel || active}
         type="button"
       >
-        <span className="model-picker__name">{activeLabel || shortModelName(active)}</span>
+        <span className="model-picker__name">{activeName || shortModelName(active)}</span>
         <Icon name="chevron" size={14} />
       </button>
       {open && (
@@ -191,6 +198,7 @@ export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelec
             type="search"
             value={query}
           />
+          {activeError && <p role="alert">{activeError}{onActiveRetry && <button type="button" onClick={onActiveRetry}>Etkin modeli yeniden oku</button>}</p>}
           {error && <p role="alert">{error}{onRetry && <button type="button" onClick={onRetry}>Yeniden dene</button>}</p>}
           {busy && <p className="model-picker__state">Modeller okunuyor…</p>}
           {!busy && !error && options.length === 0 && (

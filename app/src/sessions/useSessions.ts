@@ -43,6 +43,7 @@ interface SessionConnection {
   id: string;
   client: ProtocolClient;
   snapshot: BackendSessionSnapshot | null;
+  bootstrap?: Promise<boolean>;
 }
 
 export function storedWorkspaceMode(id: string): WorkspaceMode | null {
@@ -243,8 +244,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         .then((sonuc) => {
           if (sonuc.ok === false) throw new Error(String(sonuc.hata ?? sonuc.metin ?? "çekirdek reddetti"));
         })
-        .then(() => true, (reason: unknown) => {
-          if (publish && !requestedClose.current.has(id) && mounted.current) {
+        .then(() => mounted.current && clients.current.get(id) === client && !requestedClose.current.has(id), (reason: unknown) => {
+          if (publish && clients.current.get(id) === client && !requestedClose.current.has(id) && mounted.current) {
             dispatch({ type: "crashed", id,
               reason: `Sekme çekirdeğe tanıtılamadı (oturum.baslat): ${reason instanceof Error ? reason.message : String(reason)}` });
           }
@@ -262,6 +263,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             root: snapshot.kok,
             pid: snapshot.pid,
             client,
+            bootstrap: baslatildi,
           },
         });
         // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
@@ -281,7 +283,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           // Geri açılan sohbet dolu olabilir: gösterge ilk mesajı beklemesin.
           .finally(() => olcuyuTazele(id, client, dispatch));
       }
-      return { id, client, snapshot };
+      return { id, client, snapshot, bootstrap: baslatildi };
     },
     [transport],
   );
@@ -342,6 +344,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             root: connection.snapshot.kok,
             pid: connection.snapshot.pid,
             client: connection.client,
+            bootstrap: connection.bootstrap,
           },
         });
         const historyVersion = historyVersions.current.get(connection.id) ?? 0;

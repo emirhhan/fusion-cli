@@ -659,3 +659,31 @@ it("iş sürerken bağlam kartında /compact düğmesi sunulmaz, boştayken sunu
   fireEvent.click(screen.getByRole("meter"));
   expect(screen.getByRole("button", { name: /Bağlamı sıkıştır/ })).toBeTruthy();
 });
+
+it("active-model loading and failure are visible while catalog retry remains separate", () => {
+  const retry = vi.fn();
+  const catalog = vi.fn();
+  const props = { onSend: vi.fn(), onModelSelect: vi.fn(), onModelMenuOpen: catalog, onActiveModelRetry: retry };
+  const { rerender } = render(<Composer {...props} activeModelPending />);
+  expect(screen.getByRole("button", { name: /Model: Etkin model okunuyor/ }).textContent).toContain("Etkin model okunuyor");
+  rerender(<Composer {...props} activeModelError="Etkin model okunamadı." />);
+  fireEvent.click(screen.getByRole("button", { name: /Model: Etkin model okunamadı/ }));
+  expect(screen.getByRole("alert").textContent).toContain("Etkin model okunamadı.");
+  fireEvent.click(screen.getByRole("button", { name: "Etkin modeli yeniden oku" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(catalog).toHaveBeenCalledTimes(1);
+});
+
+it("failed refresh marks the retained model while the picker is closed", () => {
+  render(<Composer onSend={vi.fn()} onModelSelect={vi.fn()} activeModel="pinned-model" activeModelError="Etkin model yenilenemedi; son okunan model gösteriliyor." />);
+  const trigger = screen.getByRole("button", { name: /pinned-model · yenilenemedi/ });
+  expect(trigger.textContent).toContain("pinned-model · yenilenemedi");
+  expect(trigger.getAttribute("title")).toContain("son okunan");
+});
+
+it("running composer shows an unread active model as failure without a selected-model placeholder", () => {
+  render(<Composer onSend={vi.fn()} onModelSelect={vi.fn()} running activeModelError="Etkin model okunamadı." />);
+  const trigger = screen.getByRole("button", { name: /Model: Etkin model okunamadı/ });
+  expect(trigger.textContent).toContain("Etkin model okunamadı");
+  expect(trigger.textContent).not.toContain("Model seç");
+});

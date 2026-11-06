@@ -73,6 +73,8 @@ export interface SessionModel {
   /** Kök bir proje DEPOSUYSA (Masaüstü gibi) içindeki projeler, köke göreli;
    *  tek projede açıksa boş. Aynı `oturum.durum` yanıtından gelir. */
   depoProjeleri: string[];
+  /** Exact identity bootstrap for this client; ready status can precede completion. */
+  bootstrap?: Promise<boolean>;
   client: ProtocolClient;
 }
 
