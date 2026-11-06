@@ -59,6 +59,7 @@ export function shortModelName(model: string): string {
 }
 
 export function ModelPicker({ active, activeLabel, activePending = false, activeError = "", onActiveRetry, busy = false, onOpen, onSelect, options, error, onRetry, onConnect, pending = false }: ModelPickerProps) {
+  const activeIdentity = activeLabel || active;
   const modelName = activeLabel || (active ? shortModelName(active) : "");
   const activeName = activePending ? `${modelName ? `${modelName} · ` : ""}Etkin model okunuyor…`
     : activeError ? (modelName ? `${modelName} · yenilenemedi` : "Etkin model okunamadı") : modelName;
@@ -171,7 +172,7 @@ export function ModelPicker({ active, activeLabel, activePending = false, active
         ref={trigger}
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label={`Model: ${(activePending || activeError ? activeName : activeLabel || active) || "seçilmedi"}. Değiştirmek için tıkla.`}
+        aria-label={`Model: ${activeIdentity || activeName || "seçilmedi"}${activeIdentity ? activePending ? " · Etkin model okunuyor…" : activeError ? " · yenilenemedi" : "" : ""}. Değiştirmek için tıkla.`}
         aria-busy={activePending || undefined}
         className="model-picker__trigger"
         onClick={ac}
