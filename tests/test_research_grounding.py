@@ -947,3 +947,103 @@ async def test_rendered_grounding_schema_uses_exact_validator_enum_tokens(tmp_pa
     enum = re.search(r'"kind"\s*:\s*(.*?)\s*,\s*"sources"', schema, re.S)
     assert enum is not None
     assert set(re.findall(r'"([^"]*)"', enum.group(1))) == KINDS
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ["artifact", "answer", "owner", "accepted_id", "root", "sources", "authority", "stable"],
+)
+async def test_judge_await_drift_invalidates_snapshot_without_extra_review(
+    monkeypatch, tmp_path, drift
+):
+    import asyncio
+    from dataclasses import replace
+
+    from fusion_cli.core.evidence import CriterionEvidence
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.research_grounding import finalize_grounding
+
+    context, _, sources = target_sources(tmp_path)
+    deps = _deps(tmp_path, RecordingSink())
+    deps.tool_context = context
+    deps.budget = loop._new_budget(deps.config)
+    budget = deps.budget
+    budget.research_required = True
+    budget.research_contract = context.delivery_contract.accepted
+    budget.research_sources.extend(sources)
+    path = tmp_path / "report.html"
+    path.write_text(GOOD)
+    context.requested_outputs.add("report.html")
+    outcome = AgentOutcome(f"Rapor: `{path}`.", [])
+    mechanical = VerificationResult(
+        True,
+        evidence=(
+            CriterionEvidence(
+                "file_exists",
+                VerificationCheckKind.FILE_EXISTS,
+                EvidenceStatus.PASSED,
+                "Report file exists",
+                artifact=str(path),
+            ),
+        ),
+    )
+    calls = []
+
+    async def judge(prompt, config, publisher):
+        calls.append(prompt)
+        await asyncio.sleep(0)
+        if drift == "artifact":
+            path.write_text(BAD)
+        elif drift == "answer":
+            outcome.final_text += " A newly added factual claim."
+        elif drift == "owner":
+            context.job_scope = "other-owner"
+        elif drift == "accepted_id":
+            context.delivery_contract.accepted = replace(
+                context.delivery_contract.accepted, accepted_id="other-task"
+            )
+        elif drift == "root":
+            context.root = tmp_path / "other-root"
+            context.root.mkdir()
+        elif drift == "sources":
+            budget.research_sources.append(replace(sources[0], call_id="later-read"))
+        elif drift == "authority":
+            budget.research_contract = replace(budget.research_contract, accepted_id="revoked")
+        return model_result(typed_clean(prompt))
+
+    monkeypatch.setattr(loop.review, "_ask", judge)
+    gate = await finalize_grounding(outcome, deps, mechanical)
+    assert len(calls) == 1
+    assert gate.evidence[0] == mechanical.evidence[0]
+    assert str(path) in outcome.final_text
+    if drift == "stable":
+        assert gate.ok
+        assert gate.evidence[-1].status is EvidenceStatus.PASSED
+    else:
+        assert not gate.ok
+        assert gate.evidence[-1].status is EvidenceStatus.UNVERIFIED
+        assert budget.research_verdict is None or budget.research_verdict.status != "supported"
+    repeated = await finalize_grounding(outcome, deps, gate)
+    assert repeated == gate
+    assert len(calls) == 1
+    assert budget.verify_rounds == 0
+
+
+async def test_real_report_changed_during_judge_await_keeps_link_and_unverified_status(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def judge(prompt):
+        calls.append(prompt)
+        (tmp_path / "report.html").write_text(BAD)
+        return typed_clean(prompt)
+
+    result, deps, _ = await run_report(monkeypatch, tmp_path, supported=True, typed_judge=judge)
+    assert not result.ok
+    assert len(calls) == 1
+    assert "report.html" in result.final_text
+    assert result.final_text.count("Olgusal kaynak denetimi tamamlanamadı.") == 1
+    assert result.completion_report.gate.evidence[-1].status is EvidenceStatus.UNVERIFIED
+    assert deps.require_budget().verify_rounds == 0
