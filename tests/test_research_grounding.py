@@ -83,7 +83,7 @@ async def run_report(monkeypatch, tmp_path, *, supported, typed_judge=None, repa
         lambda url: ("text/html", PAGES[url.rsplit("/", 1)[-1]], url),
     )
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         return model_result(typed_judge(prompt) if typed_judge else "TAMAM")
 
     monkeypatch.setattr(loop.review, "_ask", judge)
@@ -312,7 +312,7 @@ async def test_text_only_research_corrects_without_forced_workspace_write(
         web, "fetch_following_redirects", lambda url: ("text/html", PAGES["release"], url)
     )
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         data = json.loads(prompt.split("\nDATA\n")[1])
         text = " ".join(row["text"] for row in data["target"].values())
         return model_result(typed_issues(prompt) if "October 26" in text else typed_clean(prompt))
@@ -380,7 +380,7 @@ async def test_final_snapshot_changes_invalidate_cached_review(monkeypatch, tmp_
     budget.research_sources.extend(sources)
     calls = []
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         calls.append(prompt)
         return model_result(typed_clean(prompt))
 
@@ -463,7 +463,7 @@ async def test_workflow_finalization_requires_same_grounding_even_without_self_r
     deps.budget.research_sources.extend(sources)
     deps.budget.max_verify_rounds = 0
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         return model_result(typed_clean(prompt) if supported else typed_issues(prompt))
 
     monkeypatch.setattr(loop.review, "_ask", judge)
@@ -663,7 +663,7 @@ async def test_refresh_replaces_only_factual_failure_and_retains_mechanical_fail
     deps.budget.research_sources.extend(sources)
     count = 0
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         nonlocal count
         count += 1
         return model_result(typed_issues(prompt) if count == 1 else typed_clean(prompt))
@@ -784,7 +784,7 @@ async def test_real_workflow_reader_requires_inherited_accepted_contract(
         web, "fetch_following_redirects", lambda url: ("text/html", PAGES["release"], url)
     )
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         return model_result(typed_clean(prompt))
 
     monkeypatch.setattr(loop.review, "_ask", judge)
@@ -897,7 +897,7 @@ async def test_real_reader_receipt_requires_final_actor_visible_body(
 
     payloads = []
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         payloads.append(json.loads(prompt.split("\nDATA\n", 1)[1]))
         return model_result(typed_clean(prompt) if replacement is None else "TAMAM")
 
@@ -990,7 +990,7 @@ async def test_judge_await_drift_invalidates_snapshot_without_extra_review(
     )
     calls = []
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         calls.append(prompt)
         await asyncio.sleep(0)
         if drift == "artifact":
@@ -1145,7 +1145,7 @@ async def test_exhausted_shared_review_time_is_unverified_without_judge_or_retry
     clock.value = 1
     calls = []
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         calls.append(prompt)
         return model_result(typed_clean(prompt))
 
@@ -1174,7 +1174,7 @@ async def test_required_review_timeout_cancels_transport_within_shared_hard_time
     calls = []
     cancelled = asyncio.Event()
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         calls.append(config.runtime.judge_timeout_s)
         try:
             await asyncio.Event().wait()
@@ -1200,7 +1200,7 @@ async def test_external_cancellation_of_required_review_propagates(monkeypatch, 
     started = asyncio.Event()
     cancelled = asyncio.Event()
 
-    async def judge(prompt, config, publisher):
+    async def judge(prompt, config, publisher, *, disable_thinking=False):
         started.set()
         try:
             await asyncio.Event().wait()
@@ -1250,6 +1250,8 @@ async def test_required_review_uses_configured_normal_output_cap_only(
     assert len(requests) == 2
     assert requests[0].max_tokens == normal_cap
     assert requests[0].timeout_s == 600
+    assert requests[0].disable_thinking is True
+    assert requests[1].disable_thinking is False
     assert requests[1].max_tokens == 3072
     assert requests[1].timeout_s == 20
     assert all(request.max_retries == 0 for request in requests)
@@ -1420,3 +1422,74 @@ def test_source_group_label_stays_invalid_even_with_other_valid_span_references(
     assert parse_verdict(json.dumps(raw), target, sources).status == "incomplete"
     raw["claims"][0]["sources"] = []
     assert parse_verdict(json.dumps(raw), target, sources).status == "issues"
+
+
+async def test_required_review_disables_utility_thinking_without_actor_override(
+    monkeypatch, tmp_path
+):
+    from fusion_cli.providers.litellm_provider import LiteLlmProvider
+
+    actor_requests = []
+    utility_requests = []
+
+    class Actor(ScriptedProvider):
+        def _next(self, request):
+            actor_requests.append(request)
+            return super()._next(request)
+
+    _kur(
+        monkeypatch,
+        Actor(
+            [
+                model_result(
+                    tool_calls=[tool_call("web_fetch", url="https://orion.example/release")]
+                ),
+                model_result("Orion released October 25."),
+            ]
+        ),
+    )
+    monkeypatch.setattr(web, "url_block_reason", lambda value: None)
+    monkeypatch.setattr(
+        web, "fetch_following_redirects", lambda value: ("text/html", PAGES["release"], value)
+    )
+
+    class Utility:
+        async def complete(self, request):
+            utility_requests.append(request)
+            return model_result(typed_clean(request.messages[0].content))
+
+    monkeypatch.setattr(loop.review, "build_provider", lambda *args, **kwargs: Utility())
+    deps = _deps(
+        tmp_path,
+        RecordingSink(),
+        runtime={
+            "request_timeout_s": 600,
+            "max_tokens": 8192,
+            "max_retries": 0,
+            "judge_timeout_s": 20,
+            "judge_max_tokens": 3072,
+        },
+    )
+    original_config = deps.config
+    deps.execution = ExecutionPolicy(
+        is_web=False, requires_web_lookup=True, heuristic_auto_continue=False
+    )
+    result = await loop.run_agent("Research Orion release date", deps, self_review=False)
+    assert result.ok
+    assert len(actor_requests) == 2 and len(utility_requests) == 1
+    assert all(not request.disable_thinking for request in actor_requests)
+    assert all(request.max_tokens == 8192 for request in actor_requests)
+    assert all(request.timeout_s == 600 for request in actor_requests)
+    assert all(request.max_retries == 0 for request in actor_requests)
+    required = utility_requests[0]
+    assert required.disable_thinking is True
+    assert required.max_tokens == 8192 and required.timeout_s == 600
+    assert required.max_retries == 0
+    nim = LiteLlmProvider("nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b", role="judge")
+    assert nim._call_kwargs(required, stream=False)["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+    assert "extra_body" not in nim._call_kwargs(actor_requests[0], stream=False)
+    assert deps.config is original_config
+    assert deps.config.runtime.judge_timeout_s == 20
+    assert deps.config.runtime.judge_max_tokens == 3072
