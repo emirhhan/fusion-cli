@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from weakref import WeakKeyDictionary
 
@@ -41,6 +41,7 @@ __all__ = [
     "TOOL_SEARCH",
     "ToolSearchMode",
     "ToolSearchState",
+    "bind_tool_search",
     "prioritize_tools",
     "prioritized_tool_names",
     "refresh_tool_search",
@@ -144,16 +145,27 @@ class ToolSearchState:
         if not pending:
             return set()
         if self.mode.threshold_pct is not None and not self.latched:
-            size = sum(_definition_chars(registry.get(name)) for name in self.deferrable)
+            size = sum(_definition_chars(registry.get(name)) for name in pending)
             budget = (context_tokens() or DEFAULT_CONTEXT_TOKENS) * self.mode.threshold_pct / 100
             if size / _CHARS_PER_TOKEN < budget:
                 return set()
             self.latched = True
         return pending - self.loaded
 
-    def search(self, query: str, registry: ToolRegistry, limit: int) -> list[Tool]:
+    def search(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        limit: int,
+        *,
+        permitted: Collection[str] | None = None,
+    ) -> list[Tool]:
         """`select:A,B` birebir seçer; aksi halde ad ve açıklamada sözcük arar (`+x` şart)."""
-        tools = [tool for name in self.deferrable if (tool := registry.get(name)) is not None]
+        tools = [
+            tool
+            for name in self.deferrable
+            if (permitted is None or name in permitted) and (tool := registry.get(name)) is not None
+        ]
         text = query.strip()
         if text.lower().startswith("select:"):
             wanted = [part.strip() for part in text[len("select:") :].split(",") if part.strip()]
@@ -244,6 +256,26 @@ def refresh_tool_search(registry: ToolRegistry, state: ToolSearchState) -> None:
     _register(registry, state)
 
 
+def bind_tool_search(registry: ToolRegistry, permitted: Callable[[], set[str]]) -> None:
+    """Bind metadata to this active registry, including later MCP publication."""
+    registry._tool_search_permitted = permitted
+    state = tool_search_state(registry)
+    if state is not None:
+        refresh_tool_search(registry, state)
+
+
+def _admitted(registry: ToolRegistry) -> set[str] | None:
+    callback = registry._tool_search_permitted
+    if callback is None:
+        return None  # Standalone library use has no engine authority projection.
+    try:
+        names = callback()
+    except Exception:
+        # Metadata must fail closed without disclosing exception/configuration data.
+        return set()
+    return names if TOOL_SEARCH in names else set()
+
+
 def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         del context
@@ -251,7 +283,10 @@ def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
         if not query:
             return ToolResult.failure("'query' gerekli: `select:Ad1,Ad2` ya da anahtar sözcükler.")
         limit = min(_max_results(args.get("max_results")), state.result_limit)
-        found = state.search(query, registry, limit)
+        found = state.search(query, registry, limit, permitted=_admitted(registry))
+        # The callback is fresh; never publish or activate a just-revoked candidate.
+        admitted = _admitted(registry)
+        found = [tool for tool in found if admitted is None or tool.name in admitted]
         if not found:
             return ToolResult(output="Eşleşen ertelenmiş araç yok.")
         state.loaded.update(tool.name for tool in found)
@@ -263,7 +298,7 @@ def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
     registry.register_or_replace(
         Tool(
             name=TOOL_SEARCH,
-            description=_description(state),
+            description=_description(state, _admitted(registry)),
             parameters={
                 "type": "object",
                 "properties": {
@@ -293,8 +328,10 @@ def _max_results(value: object) -> int:
     return min(int(value), 12)
 
 
-def _description(state: ToolSearchState) -> str:
-    names = ", ".join(sorted(state.deferrable))
+def _description(state: ToolSearchState, permitted: Collection[str] | None = None) -> str:
+    names = ", ".join(
+        sorted(name for name in state.deferrable if permitted is None or name in permitted)
+    )
     return (
         "Ertelenmiş MCP araçlarının tam şemasını yükler. Aşağıdaki araçların yalnız adı "
         "biliniyor; çağırmadan önce bu araçla yükle (`select:<ad>` ya da anahtar sözcük). "
