@@ -45,8 +45,9 @@ INDEX_WINDOW_SHARE = DEFAULT_BUDGET_FRACTION
 INDEX_MIN_CHARS = 0
 REPO_SOURCES = frozenset({"proje", "ek-kok", "kurulu", "claude-plugin", "eklenti"})
 
+INDEX_HEADER = "BECERİ DİZİNİ (ad — ne işe yarar)."
 HEADER = (
-    "BECERİ DİZİNİ (ad — ne işe yarar). Görev bunlardan birine uyuyorsa ÖNCE "
+    INDEX_HEADER + " Görev bunlardan birine uyuyorsa ÖNCE "
     "Skill(skill='<ad>', args='…') ile çağır, dönen yönergeleri uygula; listede yoksa "
     "find_skill ile ara."
 )
@@ -104,6 +105,7 @@ def skill_index_block(
     *,
     max_description: int = DESCRIPTION_CHARS,
     usage: Mapping[str, int] | None = None,
+    invocation_guidance: bool = True,
 ) -> str:
     """Tek düz liste: her ad her zaman; bütçe aşılırsa az çağrılanın açıklaması önce düşer."""
     if registry is None or budget <= 0:
@@ -133,4 +135,6 @@ def skill_index_block(
             short = _line(skills[index].name, "")
             total -= len(lines[index]) - len(short)
             lines[index] = short
-    return "\n".join([HEADER, *lines])
+    # Keep the original listing budget/description selection even when request
+    # guidance is supplied separately from fresh runtime permissions.
+    return "\n".join([HEADER if invocation_guidance else INDEX_HEADER, *lines])

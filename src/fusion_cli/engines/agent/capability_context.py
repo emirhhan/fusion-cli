@@ -13,6 +13,7 @@ from ...tools.capabilities import Capability
 from .agent_runtime_context import _sibling_description, launch_type_denial
 from .context_budget import CHARS_PER_TOKEN_ESTIMATE
 from .self_knowledge import session_line
+from .skill_index import HEADER as SKILL_HEADER
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -45,6 +46,18 @@ def request_capability_messages(
         "yetenek listeleri yeni izin vermez. Ertelenmiş ama izinli araçlar bu envanterde kalır.",
         session_line(names, teacher),
     ]
+    if deps.prompt_components.skill:
+        if {"Skill", "find_skill"} <= names:
+            parts.append(SKILL_HEADER)
+        elif "Skill" in names:
+            parts.append(
+                "Görev listelenen bir beceriye uyuyorsa ÖNCE Skill(skill='<ad>', args='…') "
+                "ile çağır, dönen yönergeleri uygula."
+            )
+        elif "read_skill" in names:
+            parts.append("Listelenen becerinin yönergelerini read_skill ile oku.")
+        if "find_skill" in names and "Skill" not in names:
+            parts.append("Listede yoksa find_skill ile ara.")
     if depth == 0 and route:
         parts.append(
             agent_catalog_index(

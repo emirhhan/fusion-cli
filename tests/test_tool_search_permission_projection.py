@@ -28,6 +28,50 @@ BLOCKED = "mcp__synthetic__blocked"
 MARKER = "SYNTHETIC_DENIED_DESCRIPTION"
 
 
+@pytest.mark.parametrize("target", [SAFE, BLOCKED])
+async def test_deferred_helper_resume_binds_permissions_before_first_model_request(
+    tmp_path,
+    monkeypatch,
+    target,
+):
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent.hook_bridge import TOOL_DEFERRED
+    from tests.fakes import RecordingSink, ScriptedProvider
+    from tests.test_agent_loop import _deps
+
+    monkeypatch.setenv("ENABLE_TOOL_SEARCH", "true")
+    deps = _deps(
+        tmp_path,
+        RecordingSink(),
+        runtime={
+            "project_instructions": False,
+            "lessons": False,
+            "skill_index_chars": 0,
+        },
+    )
+    deps.base_registry, search_state = _catalog()
+    call = tool_call("ToolSearch", query="select:" + target)
+    history = [
+        Message("user", "Inspect tool metadata."),
+        Message("assistant", "", tool_calls=(call,)),
+        Message("tool", TOOL_DEFERRED, tool_call_id=call.id, name=call.name, ok=False),
+    ]
+    provider = ScriptedProvider([model_result("Metadata inspection finished.")])
+    monkeypatch.setattr(loop, "build_provider", lambda *a, **kw: provider)
+    outcome = await loop.run_agent(
+        "Continue metadata inspection.",
+        deps,
+        history=history,
+        allowed_tools={"ToolSearch", SAFE},
+        verify=False,
+        self_review=False,
+        step_limit=1,
+    )
+    assert not any(MARKER in m.content for m in outcome.messages if m.role == "tool")
+    assert BLOCKED not in search_state.loaded
+    assert (SAFE in search_state.loaded) is (target == SAFE)
+
+
 def _catalog(*, mode=None):
     registry = ToolRegistry()
     state = ToolSearchState(mode or ToolSearchMode(True, explicit=True))

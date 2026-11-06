@@ -1128,6 +1128,7 @@ async def _run_agent(
             index_budget_for(deps.config, root=deps.tool_context.root, home=deps.home),
             max_description=description_limit(deps.tool_context.root, deps.home),
             usage=skill_usage.load_counts(getattr(deps.config, "memory_dir", None)),
+            invocation_guidance=False,
         )
         if depth == 0 and not internal
         else ""
@@ -2144,6 +2145,7 @@ async def _drive_loop(
     if execution.max_model_calls is not None:
         local_limit = min(local_limit or execution.max_model_calls, execution.max_model_calls)
     local_calls = 0
+    _bind_tool_search_permissions(registry, messages, deps, execution, allowed_tools)
     if not internal and deps.channel is not Channel.SUBAGENT:
         await _resume_deferred(
             messages, deps, registry, state, execution=execution, plan_mode=plan_mode
@@ -3392,25 +3394,7 @@ async def _call_model(
             error="Model çağrı bütçesi tükendi veya sabit model sözleşmesi değişti.",
         )
     _refresh_model_identity(messages, spec)
-    update_surface_task(registry, _surface_task(messages))
-
-    def permitted() -> set[str]:
-        return (
-            _permitted(
-                allowed_tools,
-                registry,
-                execution,
-                deps.tool_context.task_kinds,
-                denied=surface_denied(deps, registry.names()),
-                task=_surface_task(messages),
-                phase=deps.tool_context.tool_phase,
-            )
-            or set()
-        )
-
-    # Bind even before a selected service publishes its first search helper.
-    # The callback uses names/policy only and never refreshes descriptions.
-    bind_tool_search(registry, permitted)
+    permitted = _bind_tool_search_permissions(registry, messages, deps, execution, allowed_tools)
     offered_tools = (
         tuple(
             registry.schemas(
@@ -3605,6 +3589,36 @@ def _observe_stream_item(item: object, state: _State) -> None:
 #: ya da belirsizliği gideremez.
 #: Denetlenecek dosya bırakmayan, uzak sayfada çalışan araçların ad önekleri.
 _BROWSER_TOOL_PREFIXES = ("chrome_", "claude-in-chrome__", "browser_")
+
+
+def _bind_tool_search_permissions(
+    registry: ToolRegistry,
+    messages: Sequence[Message],
+    deps: AgentDeps,
+    execution: ExecutionPolicy,
+    allowed_tools: set[str] | None,
+) -> Callable[[], set[str]]:
+    """Bind before resumed dispatch as well as requests, using original active policy."""
+    update_surface_task(registry, _surface_task(messages))
+
+    def permitted() -> set[str]:
+        return (
+            _permitted(
+                allowed_tools,
+                registry,
+                execution,
+                deps.tool_context.task_kinds,
+                denied=surface_denied(deps, registry.names()),
+                task=_surface_task(messages),
+                phase=deps.tool_context.tool_phase,
+            )
+            or set()
+        )
+
+    bind_tool_search(registry, permitted)
+    return permitted
+
+
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
 
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
