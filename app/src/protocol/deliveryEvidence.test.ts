@@ -261,3 +261,13 @@ it('retains observed criterion outcomes when authoritative totals omit the faile
     criteria_status_counts:{passed:0,failed:0,unverified:0},sorunlar:[]});
   expect(evidence).toMatchObject({verified:false,retainedCriteriaStatusCounts:{passed:0,failed:1,unverified:0}});
 });
+
+it('criterion text truncation is retained as incomplete visible detail',()=>{
+  expect(decodeDeliveryEvidence({...payload,criteria_count:1,
+    criteria:[{status:'passed',text_truncated:true}]})).toMatchObject({detailsTruncated:true});
+});
+
+it.each(['true',1,null,{}])('malformed criterion text_truncated fails closed: %j',text_truncated=>{
+  expect(decodeDeliveryEvidence({...payload,criteria:[{status:'passed',text_truncated}]}))
+    .toMatchObject({kind:'invalid',blocking:true,verified:null});
+});

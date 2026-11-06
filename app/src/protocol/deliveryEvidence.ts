@@ -103,6 +103,7 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   let observedFailed = false;
   let observedUnverified = false;
   let retainedCriteria = 0;
+  let criterionTextTruncated = false;
   let onlySourceChecks = true;
   const retainedCounts = {passed: 0, failed: 0, unverified: 0};
   if (data.criteria !== undefined) {
@@ -111,6 +112,8 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     for (const criterion of data.criteria) {
       if (!criterion || typeof criterion !== "object" || Array.isArray(criterion) ||
           !["passed", "failed", "unverified"].includes(criterion.status)) return invalid(data);
+      if (criterion.text_truncated !== undefined && typeof criterion.text_truncated !== "boolean") return invalid(data);
+      criterionTextTruncated ||= criterion.text_truncated === true;
       retainedCounts[criterion.status as keyof typeof retainedCounts] += 1;
       onlySourceChecks &&= criterion.criterion_id === "research_grounding" && criterion.status === "passed";
       observedFailed ||= criterion.status === "failed";
@@ -134,7 +137,7 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     return invalid(data);
   }
   let truncated = data.ayrintilar_kisaltildi === true || data.criteria_truncated === true ||
-    data.degisen_kisaltildi === true || data.sorunlar_kisaltildi === true;
+    data.degisen_kisaltildi === true || data.sorunlar_kisaltildi === true || criterionTextTruncated;
   const textList = (value: string[], cap: number): string[] => {
     truncated ||= value.length > cap;
     return value.slice(0, cap).map(text => {
@@ -193,13 +196,13 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     if (byteLength(result) > MAX_BYTES) return invalid(data);
   }
   if (result.changed.length !== 1) result.presentation = undefined;
-  const noCriteria = retainedCriteria === 0 && (criteriaTotal ?? 0) === 0 &&
-    !Object.values(statusCounts ?? {}).some(count => count > 0);
+  const noCriteria = retainedCriteria === 0 && criteriaTotal === 0 &&
+    statusCounts?.passed === 0 && statusCounts.failed === 0 && statusCounts.unverified === 0;
   const completeSourceChecks = onlySourceChecks && retainedCriteria > 0 && criteriaTotal === retainedCriteria &&
     statusCounts?.passed === retainedCriteria && statusCounts.failed === 0 && statusCounts.unverified === 0;
   if (result.kind === "supported" && result.verified === null && !result.blocking && !result.falseClaim &&
       !hasTamperMetadata && !result.detailsTruncated && !result.changed.length && result.changedTotal === 0 &&
-      !result.problems.length && !result.problemTotal && !result.checks?.length && !result.warnings?.length &&
+      !result.problems.length && result.problemTotal === 0 && !result.checks?.length && !result.warnings?.length &&
       !result.unmeasured?.length && !result.advisories?.length && !result.changeSummary?.length &&
       (noCriteria || completeSourceChecks)) result.routineResult = true;
   return result;
