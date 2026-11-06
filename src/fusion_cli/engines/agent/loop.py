@@ -1666,21 +1666,14 @@ def _apply_turn_report(
     changed_paths = tuple(
         display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
     )
-    # Explicit or ambiguous visual/output requests retain the ordinary artifact
-    # caveat. Only implicit, unchanged, turn-owned captures are presentation-only.
-    observations: tuple[str, ...] = ()
-    if not requested_outputs_in(task) and not re.search(
-        r"screenshot|screen[\s-]*(?:shot|capture)|ekran\s*g[öo]r[üu]nt|ekran\s*resm|"
-        r"capture|snapshot|g[öo]rsel|resim|image|picture|photo|foto[ğg]raf|\bpng\b",
-        task,
-        re.IGNORECASE,
-    ):
-        observations = tuple(
-            display_path(deps.tool_context, path)
-            for path in deps.tool_context.desktop.observation_artifact_paths(
-                getattr(deps, "attempt_id", None) or ""
-            )
+    from .observation_delivery import internal_observation_paths
+
+    observations = tuple(
+        display_path(deps.tool_context, path)
+        for path in internal_observation_paths(
+            deps.tool_context, task=task, turn_id=deps.attempt_id or ""
         )
+    )
     tamper = collect_test_tampering(deps, outcome.tool_uses, task)
     report = build_turn_report(
         changed_paths,

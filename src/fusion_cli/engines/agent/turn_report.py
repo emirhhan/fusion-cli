@@ -787,7 +787,12 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
                 unmeasured.append(reason)
         if not runs and report._static_only_evidence is not None:
             unmeasured.append("yalnız sözdizimi denetlendi; sayfa çalıştırılıp görülmedi")
-    if not verified and not unmeasured and report.is_verified is False:
+    if (
+        not verified
+        and not unmeasured
+        and report.presentation_paths
+        and report.is_verified is False
+    ):
         unmeasured.append("son değişiklikten sonra doğrulama komutu çalıştırılmadı")
     return EvidenceSummary(tuple(dict.fromkeys(verified)), tuple(dict.fromkeys(unmeasured)))
 
