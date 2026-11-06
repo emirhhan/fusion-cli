@@ -1323,3 +1323,62 @@ def test_builtin_fetch_preserves_actual_html_rendering_truncation(
         assert "__TAIL_TARGET__" not in result.source_receipt.text
     elif case == "html_link_count_clipped":
         assert "/discarded-extra" not in result.source_receipt.text
+
+
+@pytest.mark.parametrize("coverage", ["affected_only", "reviewed_all"])
+def test_concrete_issue_can_fail_full_report_before_exhaustive_classification(tmp_path, coverage):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import (
+        as_verification,
+        parse_verdict,
+        request_payload,
+    )
+
+    _, target, sources = target_sources(
+        tmp_path,
+        "Orion released October 26. " * 8 + "\n" + ("Report context. " * 20 + "\n") * 44,
+    )
+    assert len(target.spans) > 40
+    payload = request_payload(target, sources)
+    raw = json.loads(typed_issues("\nDATA\n" + json.dumps(payload)))
+    first = target.spans[0].id
+    raw["claims"][0]["targets"] = [first]
+    raw["claims"][0]["basis"] = "The target gives October 26; read source s1:1 gives October 25."
+    if coverage == "affected_only":
+        raw["reviewed"] = [first]
+    verdict = parse_verdict(json.dumps(raw), target, sources)
+    assert verdict.status == "issues"
+    gate = as_verification(verdict, target)
+    assert not gate.ok
+    assert gate.evidence[0].status is EvidenceStatus.FAILED
+    assert first in gate.findings[0]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["partial_supported", "empty_reviewed", "unreviewed_claim", "unknown_source", "no_issue"],
+)
+def test_early_issue_protocol_does_not_weaken_supported_or_bound_evidence(tmp_path, mutation):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import parse_verdict, request_payload
+
+    _, target, sources = target_sources(tmp_path, ("Orion release context. " * 10 + "\n") * 4)
+    payload = request_payload(target, sources)
+    raw = json.loads(typed_issues("\nDATA\n" + json.dumps(payload)))
+    first, second = target.spans[:2]
+    raw["reviewed"] = [first.id]
+    raw["claims"][0]["targets"] = [first.id]
+    if mutation == "partial_supported":
+        raw["status"] = "supported"
+        raw["claims"][0]["kind"] = "supported"
+    elif mutation == "empty_reviewed":
+        raw["reviewed"] = []
+    elif mutation == "unreviewed_claim":
+        raw["claims"][0]["targets"] = [second.id]
+    elif mutation == "unknown_source":
+        raw["claims"][0]["sources"] = ["forged:1"]
+    elif mutation == "no_issue":
+        raw["claims"][0]["kind"] = "nonfactual"
+    assert parse_verdict(json.dumps(raw), target, sources).status == "incomplete"
