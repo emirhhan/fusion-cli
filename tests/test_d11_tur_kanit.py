@@ -377,3 +377,34 @@ def test_ekranda_degisen_satirlar_basilir():
     cikti = buffer.getvalue()
     assert "depo.py (+1 -1)" in cikti
     assert "  - a" in cikti
+
+
+def test_partial_factual_gate_preserves_independent_passes():
+    from fusion_cli.engines.agent.turn_report import TurnReport
+
+    criteria = (
+        CriterionEvidence(
+            "cikti:rapor.html", VerificationCheckKind.TOOL, EvidenceStatus.PASSED, "Dosya açıldı"
+        ),
+        CriterionEvidence(
+            "tarayici_sayfalari",
+            VerificationCheckKind.TOOL,
+            EvidenceStatus.PASSED,
+            "1 sayfa tarayıcıda açılıp denetlendi",
+        ),
+        CriterionEvidence(
+            "research_grounding",
+            VerificationCheckKind.TOOL,
+            EvidenceStatus.UNVERIFIED,
+            "Kaynak denetimi zaman aşımına uğradı",
+        ),
+    )
+    report = TurnReport(
+        changed_paths=("rapor.html",),
+        criteria=criteria,
+        gate=VerificationResult(False, evidence=criteria),
+    )
+    summary = summarize_evidence(report)
+    assert len(summary.verified) == 2
+    assert summary.unmeasured == ("Olgusal kaynak denetimi tamamlanamadı.",)
+    assert report.is_verified is False

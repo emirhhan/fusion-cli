@@ -9,7 +9,9 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import TYPE_CHECKING
 
+from ..core.evidence import EvidenceStatus
 from ..core.redaction import redact
+from ..core.repair_ledger import FailureOrigin
 from ..core.text_fold import fold_tr
 from ..engines.agent.completion_evidence import evidence_payload
 from ..engines.agent.response_format import requested_response_format
@@ -18,6 +20,7 @@ from ..engines.agent.turn_report import summarize_evidence
 
 if TYPE_CHECKING:
     from ..engines.agent.loop import AgentOutcome
+    from ..engines.agent.turn_report import TurnReport
 
 MAX_BYTES = 32 * 1024
 MAX_TEXT = 500
@@ -281,6 +284,74 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
     )
 
 
+def _factual_partial(
+    task: str,
+    outcome: AgentOutcome,
+    report: TurnReport,
+    projected: dict[str, object] | None,
+) -> bool:
+    """Recognize only the existing trusted repair delivery, never arbitrary model prose.
+
+    Accepted owner/root identity is enforced upstream by repaired_document_text and
+    the session publication guards; this seam checks its exact generated result.
+    """
+    output = short_static_report_output(task)
+    gate = report.gate
+    if (
+        not outcome.verification_repaired
+        or outcome.budget_stopped
+        or outcome.hit_step_limit
+        or requested_response_format(task) is not None
+        or _EXPLICIT_DETAILS.search(fold_tr(task))
+        or _EXPLICIT_CODE.search(fold_tr(task))
+        or report.is_verified is not False
+        or report.false_claim
+        or report.job_deliveries
+        or report.test_tamper
+        or not output
+        or report.changed_paths != (output,)
+        or gate is None
+        or gate.ok
+        or gate.summary != "Olgusal kaynak denetimi tamamlanamadı."
+        or gate.findings
+        or any(
+            item.check_id != "research_grounding"
+            or item.family != "measurement_incomplete"
+            or item.origin is not FailureOrigin.INFRASTRUCTURE
+            for item in gate.failure_evidence
+        )
+        or projected is None
+        or projected.get("ayrintilar_kisaltildi")
+        or not _warnings_preserved(gate.warnings, projected)
+        or any(run.exit_code != 0 for run in report._unresolved_evidence)
+    ):
+        return False
+    # Both raw evidence sets must retain the output and browser checks, with
+    # exactly the factual check unresolved. Missing checks cannot qualify.
+    for criteria in (report.criteria, gate.evidence):
+        factual = [item for item in criteria if item.criterion_id == "research_grounding"]
+        mechanical = [item for item in criteria if item.criterion_id != "research_grounding"]
+        if (
+            len(factual) != 1
+            or factual[0].status is not EvidenceStatus.UNVERIFIED
+            or not factual[0].applicable
+            or not any(item.criterion_id == f"cikti:{output}" for item in mechanical)
+            or not any(item.criterion_id == "tarayici_sayfalari" for item in mechanical)
+            or any(
+                item.status is not EvidenceStatus.PASSED or not item.applicable
+                for item in mechanical
+            )
+        ):
+            return False
+    # All other unmeasured reasons remain visible in the normal fallback.
+    if summarize_evidence(report).unmeasured != ("Olgusal kaynak denetimi tamamlanamadı.",):
+        return False
+    repaired = (
+        f"Rapor dosyası: `{output}`. Son hali bütünüyle doğrulanamadı; kontrol sonuçları yukarıda."
+    )
+    return outcome.final_text == report.render_with_model_text(repaired)
+
+
 def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
     """Only separate an exact generated prefix from a fully measured document delivery."""
     report = getattr(outcome, "completion_report", None)
@@ -296,6 +367,13 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
             degisiklik_ozeti=list(report.change_lines),
         )
     projected = public_delivery_evidence(payload)
+    if _factual_partial(task, outcome, report, projected):
+        output = report.changed_paths[0]
+        return DeliveryPresentation(
+            f"Olgusal kaynak denetimi tamamlanamadı.\n\nRapor dosyası: `{output}`.",
+            projected,
+            True,
+        )
     safe = (
         outcome.ok
         and not outcome.budget_stopped
