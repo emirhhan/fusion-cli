@@ -2,6 +2,7 @@ import {cleanup, fireEvent, render, screen, within} from '@testing-library/react
 import {afterEach, expect, it, vi} from 'vitest';
 import {decodeDeliveryEvidence} from '../protocol/deliveryEvidence';
 import {DeliveryCard} from './DeliveryCard';
+import observationFixtures from '../protocol/__fixtures__/observation-delivery-v26.json';
 
 afterEach(cleanup);
 
@@ -66,4 +67,20 @@ it('uyarı ve ölçülemeyen kontroller kapalı ayrıntının arkasında saklanm
   expect(screen.getByText('Teslim doğrulanmadı').closest('details')).toBeNull();
   expect(screen.getByText('Gerçek gönderim ölçülmedi').closest('details')).toBeNull();
   expect(screen.queryByText('Bildirilen kontroller geçti')).toBeNull();
+});
+
+it.each(observationFixtures)("backend gözlem/teslim sınıflaması korunur: $name", fixture => {
+  const evidence = decodeDeliveryEvidence(fixture.native_payload);
+  if (!evidence) throw new Error('Kanıt çözülmedi');
+  expect(evidence.deliveryKind).toBe(fixture.kind);
+  render(<DeliveryCard evidence={evidence}/>);
+  expect(screen.getByText(fixture.title)).toBeTruthy();
+  expect(screen.getByText(`Değişen dosyalar (${fixture.payload.degisen.length})`)).toBeTruthy();
+  expect(evidence.changed).toEqual(fixture.payload.degisen);
+  expect(evidence.verified).toBe(false);
+  expect(screen.queryByText('Bildirilen kontroller geçti')).toBeNull();
+  if(fixture.kind === 'observation') {
+    expect(screen.queryByText('Görsel / belge sonucu ölçülmedi')).toBeNull();
+    if(fixture.payload.engelliyor) expect(screen.getAllByText('Actual check failed')[0]).toBeTruthy();
+  }
 });

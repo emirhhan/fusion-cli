@@ -1671,7 +1671,7 @@ def _apply_turn_report(
     observations = tuple(
         display_path(deps.tool_context, path)
         for path in internal_observation_paths(
-            deps.tool_context, task=task, turn_id=deps.attempt_id or ""
+            deps.tool_context, task=task, turn_id=getattr(deps, "attempt_id", None) or ""
         )
     )
     tamper = collect_test_tampering(deps, outcome.tool_uses, task)

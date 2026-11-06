@@ -187,7 +187,7 @@ def test_internal_capture_presentation_cannot_hide_false_claim_warning():
 
 
 async def _verified_capture_chain(
-    monkeypatch, tmp_path, task=CALCULATOR, *, export=False, last_region=False
+    monkeypatch, tmp_path, task=CALCULATOR, *, export=False, last_region=False, extra_artifact=False
 ):
     import io
 
@@ -228,6 +228,12 @@ async def _verified_capture_chain(
             uses.append(
                 ToolUse("desktop_screenshot", output=result.output, arguments=args, mutating=True)
             )
+        if extra_artifact:
+            path = tmp_path / "user.png"
+            current.tool_context.changes.record(path)
+            path.write_bytes((tmp_path / desktop_screen.DEFAULT_SCREENSHOT_PATH).read_bytes())
+            current.tool_context.changes.record_applied(path)
+            current.tool_context.touched.add(path)
         return loop.AgentOutcome(
             "83 + 29 = 112; sonuç ekranda doğrulandı.",
             [],
@@ -309,3 +315,100 @@ async def test_delivery_projection_keeps_real_artifact_failure_and_changed_captu
         assert tmp_path / desktop_screen.DEFAULT_SCREENSHOT_PATH not in delivery_change_paths(
             context
         )
+
+
+async def test_real_observation_completion_payload_preserves_raw_changes_and_formal_status(
+    monkeypatch,
+    tmp_path,
+):
+    import json
+    from pathlib import Path
+
+    from fusion_cli.appserver.delivery_presentation import present_delivery
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = await _verified_capture_chain(monkeypatch, tmp_path)
+    payload = evidence_payload(outcome.completion_report)
+    fixtures = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "app/src/protocol/__fixtures__/observation-delivery-v26.json"
+        ).read_text()
+    )
+    assert payload == fixtures[0]["payload"]
+    assert payload["dogrulandi"] is False
+    assert payload["degisen"] == [desktop_screen.DEFAULT_SCREENSHOT_PATH]
+    native = present_delivery(CALCULATOR, outcome).evidence
+    assert native["teslim_turu"] == "observation"
+    assert native["degisen"] == payload["degisen"]
+    assert not native["engelliyor"]
+
+
+@pytest.mark.parametrize("mode", ["requested", "export", "mixed"])
+async def test_real_completion_payload_keeps_genuine_artifact_delivery(monkeypatch, tmp_path, mode):
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    task = "Ekran görüntüsünü al ve bana ver." if mode == "requested" else CALCULATOR
+    outcome, _ = await _verified_capture_chain(
+        monkeypatch, tmp_path, task, export=mode == "export", extra_artifact=mode == "mixed"
+    )
+    report = outcome.completion_report
+    payload = evidence_payload(report)
+    assert payload["teslim_turu"] == "artifact"
+    assert payload["dogrulandi"] is False
+    assert payload["criteria_status_counts"]["unverified"] == 1
+    assert desktop_screen.DEFAULT_SCREENSHOT_PATH in payload["degisen"]
+    if mode == "mixed":
+        assert "user.png" in payload["degisen"]
+        assert report.presentation_paths == ("user.png",)
+
+
+def _observation_payload_reports():
+    from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+    from fusion_cli.engines.agent.turn_report import TurnReport
+
+    path = desktop_screen.DEFAULT_SCREENSHOT_PATH
+    failed = CriterionEvidence(
+        "actual_check", VerificationCheckKind.TOOL, EvidenceStatus.FAILED, "Actual check failed"
+    )
+    reports = [
+        TurnReport(changed_paths=(path,), internal_observation_paths=(path,)),
+        TurnReport(changed_paths=("requested.png",)),
+        TurnReport(changed_paths=(path,)),
+        TurnReport(changed_paths=(path, "report.png"), internal_observation_paths=(path,)),
+        TurnReport(
+            changed_paths=(path,),
+            internal_observation_paths=(path,),
+            gate=VerificationResult(False, findings=("Actual check failed",)),
+            criteria=(failed,),
+        ),
+        TurnReport(changed_paths=(path,)),  # existing schema1 payload, no observation metadata
+    ]
+    return reports
+
+
+def test_all_shared_observation_payload_fixtures_match_backend_projection():
+    import json
+    from pathlib import Path
+
+    from fusion_cli.appserver.delivery_presentation import (
+        present_delivery,
+        public_delivery_evidence,
+    )
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    reports = _observation_payload_reports()
+    fixtures = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "app/src/protocol/__fixtures__/observation-delivery-v26.json"
+        ).read_text()
+    )
+    assert len(fixtures) == len(reports)
+    for report, fixture in zip(reports, fixtures, strict=True):
+        assert evidence_payload(report) == fixture["payload"], fixture["name"]
+        outcome = loop.AgentOutcome("Observed result.", [], completion_report=report)
+        native = present_delivery(CALCULATOR, outcome).evidence
+        assert native == fixture["native_payload"], fixture["name"]
+        assert public_delivery_evidence(native) == native  # stored replay uses same public boundary

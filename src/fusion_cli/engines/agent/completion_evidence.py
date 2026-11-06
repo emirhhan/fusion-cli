@@ -68,7 +68,15 @@ def evidence_payload(report: TurnReport | None) -> dict[str, object] | None:
         problems.extend(report.gate.findings)
     payload: dict[str, object] = {
         "schema_version": 1,
-        "teslim_turu": "artifact" if artifact_only(report.changed_paths) else "code",
+        "teslim_turu": (
+            "observation"
+            if report.internal_observation_paths
+            and report.changed_paths
+            and not report.presentation_paths
+            else "artifact"
+            if artifact_only(report.presentation_paths)
+            else "code"
+        ),
         "criteria": [_client_criterion(item) for item in criteria[:EVIDENCE_MAX_CRITERIA]],
         "criteria_count": len(criteria),
         "criteria_truncated": len(criteria) > EVIDENCE_MAX_CRITERIA,

@@ -127,7 +127,7 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
         if not isinstance(count_value, int) or count_value < len(original):
             return _invalid(value)
     kind = value.get("teslim_turu")
-    if isinstance(kind, str) and kind in {"code", "artifact"}:
+    if isinstance(kind, str) and kind in {"code", "artifact", "observation"}:
         result["teslim_turu"] = kind
     elif "teslim_turu" in value:
         return _invalid(value)

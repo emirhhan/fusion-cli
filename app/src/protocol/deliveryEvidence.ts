@@ -9,7 +9,7 @@ export interface DeliveryEvidence {
   changed: string[];
   problems: string[];
   warnings?: string[];
-  deliveryKind?: "code" | "artifact";
+  deliveryKind?: "code" | "artifact" | "observation";
   changedTotal: number | null;
   presentation?: "document";
   checks?: string[];
@@ -142,7 +142,8 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   const result: DeliveryEvidence = {kind: data.schema_version === 1 ? "supported" : "legacy",
     verified: data.dogrulandi, blocking: data.engelliyor, falseClaim: data.yanlis_iddia,
     changed: paths, problems: textList(data.sorunlar, MAX_PROBLEMS),
-    deliveryKind: data.teslim_turu === "artifact" ? "artifact" : "code",
+    deliveryKind: data.teslim_turu === "observation" ? "observation" :
+      data.teslim_turu === "artifact" ? "artifact" : "code",
     warnings: detail("uyarilar") ?? [], checks: detail("kontroller"), unmeasured: detail("olculmeyen"),
     advisories: detail("oneriler"), changeSummary: detail("degisiklik_ozeti", MAX_SUMMARY),
     changedTotal: typeof total === "number" ? total : null};
