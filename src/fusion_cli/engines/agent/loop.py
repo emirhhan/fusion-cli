@@ -41,7 +41,7 @@ from ...config.tool_policy import mutation_policy_for_model
 from ...core import display_filter
 from ...core.active_context import ActiveContext
 from ...core.agent_runtime_state import AgentTranscriptCapture
-from ...core.budget import BudgetStop, TurnBudget
+from ...core.budget import BudgetStop, DataObservation, TurnBudget
 from ...core.checkpoint import CheckpointStore
 from ...core.claude_chrome_names import CLAUDE_CHROME_SCOPED
 from ...core.clock import SystemClock
@@ -216,7 +216,7 @@ from .expertise import (
     is_remotion_task,
     is_worktree_task,
 )
-from .harness_metadata import DISCOVERY_METADATA_NAMES, data_count_witness
+from .harness_metadata import DISCOVERY_METADATA_NAMES
 from .history import history_chars, needs_compression, total_chars
 from .hook_batch import batch_hook
 from .hook_bridge import (
@@ -2918,7 +2918,7 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
         return True
     evidence = budget.successful_tool_evidence
     if effect == "bulk_count":
-        return any(data_count_witness(name) for name, _, _ in evidence)
+        return bool(budget.data_observations)
     if effect == "git_push":
         return any(
             tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "push")
@@ -5281,7 +5281,17 @@ async def _execute(
             call_id=call.id,
         )
     else:
+        observation_args = deepcopy(args)
         result = await _execute_registered_tool(call, args, deps, registry, tool, state)
+        from ...core.tools import ToolEvidenceRole, resolved_evidence_role
+
+        if (
+            result.ok
+            and tool is not None
+            and resolved_evidence_role(tool, observation_args, result)
+            is ToolEvidenceRole.DATA_OBSERVATION
+        ):
+            budget.data_observations.append(DataObservation(tool.name, call.id))
     if recorder is not None and external:
         await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
@@ -5314,7 +5324,11 @@ async def _execute_registered_tool(
         context = state.desktop_grounding.mouse_context(
             context, deps.conversation_id, deps.attempt_id
         )
-    result = await registry.execute(call.name, args, context)
+    result = (
+        await registry.execute_registered(tool, args, context)
+        if tool is not None
+        else await registry.execute(call.name, args, context)
+    )
     await localization.record_result(call, result, deps.tool_context)
     if state is not None:
         after = await asyncio.to_thread(source_digest, deps.tool_context.root) if is_shell else ""

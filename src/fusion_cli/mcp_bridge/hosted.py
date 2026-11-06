@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 
 from ..config.models import HostedConnectorConfig
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolEvidenceRole, ToolResult
 from ..tools import ToolRegistry
 from ..tools.emulation import MESSAGE_REQUIRED_MISSING, coerce_arguments, validate_arguments
 from .call_errors import describe_call_error
@@ -374,6 +374,7 @@ class HostedConnectorClient:
                         # Bu yüzden stdio/HTTP araçlarının açıklamasız varsayılanı
                         # uygulanır: auto kip ilk çağrıda sorar.
                         effect=ToolEffect.REMOTE_WRITE,
+                        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
                     )
                 )
                 added.append(fusion_name)

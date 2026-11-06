@@ -124,6 +124,8 @@ class ToolRegistry:
                 run=tool.run,
                 mutating=tool.mutating,
                 advertised=False,
+                evidence_role=tool.evidence_role,
+                evidence_role_resolver=tool.evidence_role_resolver,
             )
         )
 
@@ -191,6 +193,13 @@ class ToolRegistry:
                 f"Bilinmeyen araç: {name}. Kullanılabilir araçlar: "
                 f"{', '.join(self.advertised_names())}"
             )
+        return await self.execute_registered(tool, args, context)
+
+    async def execute_registered(
+        self, tool: Tool, args: ToolArgs, context: ToolContext
+    ) -> ToolResult:
+        """Dispatch the exact already-admitted immutable tool, without another lookup."""
+        name = tool.name
         args = adapt_arguments(tool, args)
         try:
             if _is_async(tool.run):

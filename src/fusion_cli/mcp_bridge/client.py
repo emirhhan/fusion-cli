@@ -24,7 +24,7 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import Any, Literal, TextIO, cast
 
 from mcp import ClientSession
@@ -35,7 +35,15 @@ from ..config.models import McpServerConfig, McpTransport
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
 from ..core.mcp_tool_names import claude_mcp_tool_name
 from ..core.tool_schema_variants import forget_raw_schema, remember_raw_schema
-from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import (
+    EffectResolver,
+    Tool,
+    ToolArgs,
+    ToolContext,
+    ToolEffect,
+    ToolEvidenceRole,
+    ToolResult,
+)
 from ..tools import ToolRegistry
 from ..tools.mcp_background import run_mcp_call
 from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
@@ -75,6 +83,27 @@ _LOG = logging.getLogger(__name__)
 
 #: Uzak aracı Fusion'a bağlayan çalıştırıcı (async ToolExecutor).
 _ToolRun = Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]
+
+
+class _ObservedMcpResponse(ToolResult):
+    """Adapter-owned tools/call response; an auto-background launch is not one."""
+
+    __slots__ = ()
+
+
+def _response_evidence_role(_args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    return (
+        ToolEvidenceRole.DATA_OBSERVATION
+        if isinstance(result, _ObservedMcpResponse)
+        else ToolEvidenceRole.UNCLASSIFIED
+    )
+
+
+def _observed_response(result: ToolResult) -> ToolResult:
+    return _ObservedMcpResponse(
+        **{item.name: getattr(result, item.name) for item in fields(ToolResult)}
+    )
+
 
 #: Stdio sunucusunun stderr'inden sınıflandırma için okunan en fazla bayt.
 #: npm'in E404 bloğu ~600 bayttır; kuyruğun birkaç katı yeter, tüm dosya okunmaz.
@@ -562,6 +591,7 @@ class McpClient:
                         mutating=True,
                         effect=remote.effect,
                         effect_resolver=resolver if remote.name == EXECUTE_ABILITY else None,
+                        evidence_role_resolver=_response_evidence_role,
                     )
                 )
                 # Anthropic modellerine sunucunun ham şeması gider (#262).
@@ -639,7 +669,7 @@ class McpClient:
                 )
                 retried = await owner._retry_after_auth(server, tool, dict(args))
                 if retried is not None:
-                    return retried
+                    return _observed_response(retried) if retried.ok else retried
                 return ToolResult.failure(
                     f"MCP aracı hatası ({server}.{tool}): {describe_call_error(error)}"
                 )
@@ -651,7 +681,7 @@ class McpClient:
                     content=result.content,
                     structured=result.structured,
                 )
-            return result
+            return _observed_response(result) if result.ok else result
 
         return _run
 
