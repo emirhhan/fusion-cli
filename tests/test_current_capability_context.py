@@ -13,6 +13,95 @@ from tests.fakes import RecordingSink, model_result
 from tests.test_agent_loop import _deps
 
 
+@pytest.mark.parametrize("allowed", [set(), {"read_skill", "find_skill"}, {"Skill", "find_skill"}])
+async def test_actual_nonempty_skill_index_guidance_uses_current_allowed_routes(
+    tmp_path,
+    monkeypatch,
+    allowed,
+):
+    from tests.fakes import ScriptedProvider
+
+    folder = tmp_path / ".claude" / "skills" / "synthetic"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: synthetic\ndescription: Synthetic fixture skill\n---\nFixture body."
+    )
+    deps = _deps(
+        tmp_path,
+        RecordingSink(),
+        runtime={
+            "project_instructions": False,
+            "lessons": False,
+            "skill_index_chars": 4000,
+        },
+    )
+    deps.home = tmp_path / "home"
+    deps.capabilities = CapabilityRegistry(
+        deps.home,
+        tmp_path,
+        disabled_builtin_agents=frozenset({"*"}),
+        extra_agent_sources=False,
+    )
+    provider = ScriptedProvider([model_result("Available capabilities described.")])
+    monkeypatch.setattr(loop, "build_provider", lambda *a, **kw: provider)
+    outcome = await loop.run_agent(
+        "Describe current available capabilities briefly.",
+        deps,
+        allowed_tools=allowed,
+        verify=False,
+        self_review=False,
+        step_limit=1,
+    )
+    text = provider.seen_messages[0][0].content
+    assert "synthetic — Synthetic fixture skill" in text
+    assert ("Skill(skill='<ad>'" in text) is ("Skill" in allowed)
+    assert ("find_skill ile ara" in text) is ("find_skill" in allowed)
+    if not allowed:
+        assert "read_skill ile" not in text
+    assert not any("<fusion-current-capabilities>" in m.content for m in outcome.messages)
+
+
+def test_skill_guidance_refresh_preserves_listing_budget_and_custom_history(tmp_path):
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent.capability_context import request_capability_messages
+    from fusion_cli.engines.agent.prompt_manifest import PromptComponents
+    from fusion_cli.engines.agent.skill_index import skill_index_block
+
+    folder = tmp_path / ".claude" / "skills" / "fixture"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: fixture\ndescription: Fixture skill description\n---\nBody."
+    )
+    library = CapabilityRegistry(
+        tmp_path / "home",
+        tmp_path,
+        extra_agent_sources=False,
+    )
+    default = skill_index_block(library, budget=300)
+    neutral = skill_index_block(library, budget=300, invocation_guidance=False)
+    assert default.splitlines()[1:] == neutral.splitlines()[1:]
+    deps = _deps(tmp_path, RecordingSink(), runtime={"lessons": False})
+    deps.prompt_components = PromptComponents(skill=neutral)
+    original = [
+        Message("system", "CUSTOM Skill(skill='private')\n" + neutral),
+        Message("user", "Keep find_skill ile ara as literal user text."),
+    ]
+    before = [m.content for m in original]
+    allowed = request_capability_messages(
+        original, deps, {"Skill", "find_skill"}, offer_tools=True, depth=0, agents=()
+    )
+    assert "Skill(skill='<ad>'" in allowed[0].content
+    for names, offer in ((set(), True), ({"Skill", "find_skill"}, False)):
+        current = request_capability_messages(
+            original, deps, names, offer_tools=offer, depth=0, agents=()
+        )
+        assert "Skill(skill='<ad>'" not in current[0].content
+        assert "CUSTOM Skill(skill='private')" in current[0].content
+        assert current[1].content == original[1].content
+        assert neutral in current[0].content
+    assert [m.content for m in original] == before
+
+
 def _library(tmp_path):
     return CapabilityRegistry(
         tmp_path / "home",
