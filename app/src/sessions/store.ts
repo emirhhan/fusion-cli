@@ -25,6 +25,7 @@ interface SessionSeed {
   title: string;
   source: SessionSource;
   root: string;
+  bootstrap?: Promise<boolean>;
   client: ProtocolClient;
   pid?: number;
 }

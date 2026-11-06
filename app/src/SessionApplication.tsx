@@ -1087,7 +1087,7 @@ export function SessionUygulama({
   // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
   // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
   // composer'daki ad da tazelenmeli, yoksa eski model yazılı kalırdı.
-  const { model: activeModel, label: activeModelLabel } = useActiveModel(activeClient, activeSessionId, controlRevision);
+  const { model: activeModel, label: activeModelLabel, pending: activeModelPending, error: activeModelError, retry: retryActiveModel } = useActiveModel(activeClient, activeSessionId, controlRevision, active?.bootstrap);
 
   const modelCatalog = useModelCatalog(activeClient, activeSessionId, workspaceMode);
   const modelOptions = modelCatalog.options;
@@ -1940,6 +1940,9 @@ export function SessionUygulama({
           onWorkspaceModeChange={(mode) => void changeWorkspace(mode)}
           activeModel={activeModel}
           activeModelLabel={activeModelLabel}
+          activeModelPending={activeModelPending}
+          activeModelError={activeModelError}
+          onActiveModelRetry={retryActiveModel}
           modelOptions={modelOptions}
           modelsError={modelsError}
           modelSelectionPending={commandBusy}

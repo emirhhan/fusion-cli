@@ -3,6 +3,7 @@ import { saveSubmission } from "./submissionPersistence";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
+import { useActiveModel } from "../screens/useActiveModel";
 import { GOAL_WAITING_USER } from "../goal/goalResult";
 import { initialSessionState, sessionReducer } from "./store";
 import { DEFAULT_TITLE } from "./title";
@@ -1208,4 +1209,76 @@ it("temizlemeden sonra geç dönen geçmiş bildirimi ve eski satırları dirilt
   }));
   await act(async () => { await Promise.resolve(); });
   expect(result.current.activeSession?.messages).toEqual([]);
+});
+
+// The session is published before oturum.baslat settles; ready alone is not bootstrap proof.
+it.each([true, false])("active model waits for owned bootstrap completion (success=%s)", async (success) => {
+  const fake = fakeTransport();
+  const original = fake.transport.send;
+  let bootstrapRequest: { id: string; requestId: string } | undefined;
+  const reads: string[] = [];
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line) as { id: string; ad: string };
+    if (request.ad === "oturum.baslat") {
+      bootstrapRequest = { id, requestId: request.id };
+      return;
+    }
+    if (request.ad === "kontrol.durum") {
+      reads.push(id);
+      queueMicrotask(() => fake.emitResult(id, request.id, { ok: true, model: { agent: "configured-model" } }));
+      return;
+    }
+    return original(id, line);
+  });
+  const { result } = renderHook(() => {
+    const sessions = useSessions(fake.transport);
+    const active = sessions.activeSession;
+    return { sessions, model: useActiveModel(active?.client, active?.id, 0, active?.bootstrap) };
+  });
+  await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("ready"));
+  expect(result.current.model.pending).toBe(true);
+  expect(reads).toEqual([]);
+  await act(async () => fake.emitResult(bootstrapRequest!.id, bootstrapRequest!.requestId, { ok: success }));
+  if (success) {
+    await waitFor(() => expect(result.current.model.model).toBe("configured-model"));
+    expect(reads).toEqual(["varsayilan"]);
+  } else {
+    await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("crashed"));
+    expect(reads).toEqual([]);
+    expect(result.current.model.error).toMatch(/okunamadı/);
+  }
+});
+
+it.each(["close", "unmount"])("delayed bootstrap after %s cannot publish a model or survive as ready", async (action) => {
+  const fake = fakeTransport();
+  const original = fake.transport.send;
+  let bootstrapRequest: { id: string; requestId: string } | undefined;
+  const reads: string[] = [];
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line) as { id: string; ad: string };
+    if (request.ad === "oturum.baslat") {
+      bootstrapRequest = { id, requestId: request.id };
+      return;
+    }
+    if (request.ad === "kontrol.durum") { reads.push(id); return; }
+    return original(id, line);
+  });
+  const { result, unmount } = renderHook(() => {
+    const sessions = useSessions(fake.transport);
+    const active = sessions.activeSession;
+    return { sessions, model: useActiveModel(active?.client, active?.id, 0, active?.bootstrap) };
+  });
+  await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("ready"));
+  const promise = result.current.sessions.activeSession!.bootstrap!;
+  // Ephemeral bootstrap is never serialized with stored session metadata.
+  expect(localStorage.getItem(SESSION_VIEW_KEY)).not.toContain("bootstrap");
+  if (action === "close") await act(async () => result.current.sessions.close("varsayilan"));
+  else unmount();
+  await act(async () => fake.emitResult(bootstrapRequest!.id, bootstrapRequest!.requestId, { ok: true }));
+  expect(await promise).toBe(false);
+  expect(reads).toEqual([]);
+  if (action === "close") {
+    expect(result.current.sessions.activeSession?.status).toBe("closed");
+    expect(result.current.model.error).toMatch(/okunamadı/);
+  }
 });
