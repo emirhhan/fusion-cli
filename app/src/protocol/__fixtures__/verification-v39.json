@@ -1,0 +1,115 @@
+{
+  "chromeReadOnly": {
+    "sessionId": "de4d8859-1a87-4b34-b0ab-0253885172d3",
+    "text": "**Sayfa Başlığı:** Arkiteka Mimarlık Stüdyosu\n\n**Menü Başlıkları:** Ana Sayfa, Hakkımızda, Hizmetler, Projeler, İletişim\n\n**İletişim Bölümündeki Demo Uyarısı:** \"Bu bir demo formdur. Mesajlarınız gerçekten gönderilmez; yalnızca arayüzün çalışması gösterilmektedir. Gerçek iletişim için yukarıdaki bilgileri kullanın.\"",
+    "evidence": {
+      "schema_version": 1,
+      "dogrulandi": null,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 0,
+      "sorun_sayisi": 0,
+      "criteria_count": 1,
+      "degisen": [],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "code",
+      "criteria": [
+        {
+          "criterion_id": "research_grounding",
+          "step_id": "",
+          "summary": "Kaynak tutarlılığı incelendi.",
+          "source_digest": "3893d8b8a0309d3ff934cfe87f5002eb4506c09e19174f856c3b9c73c7cdd28b",
+          "call_id": "",
+          "status": "passed",
+          "applicable": true,
+          "text_truncated": false
+        }
+      ],
+      "criteria_status_counts": {
+        "passed": 1,
+        "failed": 0,
+        "unverified": 0
+      }
+    }
+  },
+  "reportIncomplete": {
+    "sessionId": "0b4031df-06db-4fa5-a565-1cf3007105d6",
+    "text": "Olgusal kaynak denetimi tamamlanamadı.\n\nRapor dosyası: `guncellik-kontrolu-v38/python-raporu.html`.",
+    "evidence": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": true,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 3,
+      "degisen": [
+        "guncellik-kontrolu-v38/python-raporu.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [
+        "guncellik-kontrolu-v38/python-raporu.html açıldı",
+        "tarayıcı (1 sayfa, konsol temiz)"
+      ],
+      "olculmeyen": [
+        "Olgusal kaynak denetimi tamamlanamadı."
+      ],
+      "oneriler": [
+        "Ana içerik için <main> veya role=main landmark'ı eklemeyi değerlendirin; bu bir semantik gezinme önerisidir, tek başına WCAG ihlali değildir."
+      ],
+      "degisiklik_ozeti": [
+        "guncellik-kontrolu-v38/python-raporu.html (yeni dosya, 46 satır)"
+      ],
+      "teslim_turu": "code",
+      "criteria": [
+        {
+          "criterion_id": "cikti:guncellik-kontrolu-v38/python-raporu.html",
+          "step_id": "",
+          "summary": "guncellik-kontrolu-v38/python-raporu.html açıldı",
+          "source_digest": "",
+          "call_id": "",
+          "status": "passed",
+          "applicable": true,
+          "text_truncated": false
+        },
+        {
+          "criterion_id": "tarayici_sayfalari",
+          "step_id": "",
+          "summary": "1 sayfa tarayıcıda açılıp denetlendi",
+          "source_digest": "",
+          "call_id": "",
+          "status": "passed",
+          "applicable": true,
+          "text_truncated": false
+        },
+        {
+          "criterion_id": "research_grounding",
+          "step_id": "",
+          "summary": "Olgusal kaynak denetimi tamamlanamadı.",
+          "source_digest": "6aec674f9a11f36e317069e6f89d716ecf67826d76ec98c022266721133a72a6",
+          "call_id": "",
+          "status": "unverified",
+          "applicable": true,
+          "text_truncated": false
+        }
+      ],
+      "criteria_status_counts": {
+        "passed": 2,
+        "failed": 0,
+        "unverified": 1
+      }
+    }
+  }
+}

@@ -255,3 +255,9 @@ it.each(noteFixtures)("tam notlar backend ile tutarlı korunur: $name", fixture 
   expect(projected?.verified).toBe(raw?.verified);
   expect(projected?.blocking).toBe(raw?.blocking);
 });
+
+it('retains observed criterion outcomes when authoritative totals omit the failed detail',()=>{
+  const evidence=decodeDeliveryEvidence({...payload,criteria_count:1,criteria:[{status:'failed'}],
+    criteria_status_counts:{passed:0,failed:0,unverified:0},sorunlar:[]});
+  expect(evidence).toMatchObject({verified:false,retainedCriteriaStatusCounts:{passed:0,failed:1,unverified:0}});
+});

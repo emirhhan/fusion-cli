@@ -20,6 +20,10 @@ export interface DeliveryEvidence {
   problemTotal?: number;
   criteriaTotal?: number;
   criteriaStatusCounts?: {passed: number; failed: number; unverified: number};
+  /** Internal lower bounds from retained criterion rows; totals cannot erase an observed failure. */
+  retainedCriteriaStatusCounts?: {passed: number; failed: number; unverified: number};
+  /** Complete routine read-only evidence with nothing requiring a delivery notice. */
+  routineResult?: boolean;
 }
 
 /** Çekirdeğin `completion_evidence.py` tavanları; aşan liste GEÇERSİZLİK değil, kesilir. */
@@ -77,7 +81,9 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   for (const key of ["uyarilar", "kontroller", "olculmeyen", "oneriler", "degisiklik_ozeti"]) {
     if (data[key] !== undefined && !isTextList(data[key])) return invalid(data);
   }
-  if (data.ayrintilar_kisaltildi !== undefined && typeof data.ayrintilar_kisaltildi !== "boolean") return invalid(data);
+  for (const key of ["ayrintilar_kisaltildi", "criteria_truncated", "degisen_kisaltildi", "sorunlar_kisaltildi"]) {
+    if (data[key] !== undefined && typeof data[key] !== "boolean") return invalid(data);
+  }
   const hasTamperMetadata = data.supheli_test_degisikligi !== undefined;
   let suspiciousTests = false;
   if (hasTamperMetadata) {
@@ -97,12 +103,16 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   let observedFailed = false;
   let observedUnverified = false;
   let retainedCriteria = 0;
+  let onlySourceChecks = true;
+  const retainedCounts = {passed: 0, failed: 0, unverified: 0};
   if (data.criteria !== undefined) {
     if (!Array.isArray(data.criteria)) return invalid(data);
     retainedCriteria = data.criteria.length;
     for (const criterion of data.criteria) {
       if (!criterion || typeof criterion !== "object" || Array.isArray(criterion) ||
           !["passed", "failed", "unverified"].includes(criterion.status)) return invalid(data);
+      retainedCounts[criterion.status as keyof typeof retainedCounts] += 1;
+      onlySourceChecks &&= criterion.criterion_id === "research_grounding" && criterion.status === "passed";
       observedFailed ||= criterion.status === "failed";
       observedUnverified ||= criterion.status === "unverified";
     }
@@ -123,7 +133,8 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   if (data.schema_version === 1 && (typeof total !== "number" || !Number.isSafeInteger(total) || total < data.degisen.length)) {
     return invalid(data);
   }
-  let truncated = data.ayrintilar_kisaltildi === true;
+  let truncated = data.ayrintilar_kisaltildi === true || data.criteria_truncated === true ||
+    data.degisen_kisaltildi === true || data.sorunlar_kisaltildi === true;
   const textList = (value: string[], cap: number): string[] => {
     truncated ||= value.length > cap;
     return value.slice(0, cap).map(text => {
@@ -150,6 +161,8 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
   if (isCount(problemTotal)) result.problemTotal = problemTotal;
   if (isCount(criteriaTotal)) result.criteriaTotal = criteriaTotal;
   if (statusCounts) result.criteriaStatusCounts = statusCounts;
+  if (retainedCriteria > 0) result.retainedCriteriaStatusCounts = retainedCounts;
+
   const representedCriteria = statusCounts
     ? statusCounts.passed + statusCounts.failed + statusCounts.unverified : retainedCriteria;
   // Kritik toplamlar, ayrıntı listeleri kesilmiş veya hiç gönderilmemiş olsa da geçerlidir.
@@ -180,5 +193,27 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
     if (byteLength(result) > MAX_BYTES) return invalid(data);
   }
   if (result.changed.length !== 1) result.presentation = undefined;
+  const noCriteria = retainedCriteria === 0 && (criteriaTotal ?? 0) === 0 &&
+    !Object.values(statusCounts ?? {}).some(count => count > 0);
+  const completeSourceChecks = onlySourceChecks && retainedCriteria > 0 && criteriaTotal === retainedCriteria &&
+    statusCounts?.passed === retainedCriteria && statusCounts.failed === 0 && statusCounts.unverified === 0;
+  if (result.kind === "supported" && result.verified === null && !result.blocking && !result.falseClaim &&
+      !hasTamperMetadata && !result.detailsTruncated && !result.changed.length && result.changedTotal === 0 &&
+      !result.problems.length && !result.problemTotal && !result.checks?.length && !result.warnings?.length &&
+      !result.unmeasured?.length && !result.advisories?.length && !result.changeSummary?.length &&
+      (noCriteria || completeSourceChecks)) result.routineResult = true;
   return result;
+}
+
+/** Presentation only: an unfinished measurement is not an observed failed check. */
+export function deliveryVerificationState(evidence: DeliveryEvidence): "empty" | "failed" | "incomplete" | "passed" | "observation" | "unknown" {
+  if (evidence.falseClaim || evidence.problems.length || (evidence.problemTotal ?? 0) > 0 ||
+      (evidence.criteriaStatusCounts?.failed ?? 0) > 0 || (evidence.retainedCriteriaStatusCounts?.failed ?? 0) > 0) return "failed";
+  if (evidence.kind !== "supported") return "unknown";
+  if (evidence.routineResult && !evidence.blocking && evidence.verified === null) return "empty";
+  const unmeasured = !!evidence.unmeasured?.length || (evidence.criteriaStatusCounts?.unverified ?? 0) > 0 ||
+    (evidence.retainedCriteriaStatusCounts?.unverified ?? 0) > 0;
+  if (evidence.verified === true && !evidence.blocking && !unmeasured) return "passed";
+  if (evidence.deliveryKind === "observation" && !evidence.blocking && !unmeasured) return "observation";
+  return "incomplete";
 }

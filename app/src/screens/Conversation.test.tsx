@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import {decodeDeliveryEvidence} from "../protocol/deliveryEvidence";
+import verificationFixtures from "../protocol/__fixtures__/verification-v39.json";
 import { Conversation } from "./Conversation";
 
 afterEach(cleanup);
@@ -244,4 +246,20 @@ it("gönderilmiş eki mevcut dosya açma yoluyla açar", () => {
 it("alt ajan kartlarını ana sohbetin üzerinde çizmez", () => {
  const { container } = render(<Conversation mesajlar={[{ rol: "ekip", metin: "Ekip", ajanlar: [{ id: "a", persona: "yardimci", unvan: "Araştırmacı", avatar: "yardimci", renk: "mavi", gorev: "İncele", durum: "calisiyor", adimlar: [], baslangic: 1 }] }]} />);
  expect(container.querySelector(".team-cards")).toBeNull();
+});
+
+
+it("actual read-only Chrome answer remains visible without a routine delivery card", () => {
+  const fixture=verificationFixtures.chromeReadOnly;
+  render(<Conversation mesajlar={[{rol:"asistan",metin:fixture.text,delivery:decodeDeliveryEvidence(fixture.evidence)}]}/>);
+  expect(screen.getByText(/Arkiteka Mimarlık Stüdyosu/)).toBeTruthy();
+  expect(screen.queryByRole("region",{name:"Kanıt özeti"})).toBeNull();
+});
+
+it("actual incomplete report keeps its answer and neutral evidence", () => {
+  const fixture=verificationFixtures.reportIncomplete;
+  render(<Conversation mesajlar={[{rol:"asistan",metin:fixture.text,delivery:decodeDeliveryEvidence(fixture.evidence)}]}/>);
+  expect(screen.getByText("Doğrulama tamamlanamadı")).toBeTruthy();
+  expect(screen.queryByText("Doğrulama geçmedi")).toBeNull();
+  expect(screen.getByText(/Rapor dosyası/)).toBeTruthy();
 });
