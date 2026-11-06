@@ -45,7 +45,6 @@ from ..core.types import (
     is_unavailable_error,
 )
 from .circuit import CIRCUIT_OPEN_ERROR
-from .stream_cleanup import close_stream as _close
 from .stream_cleanup import closing_stream
 from .stream_opening import is_liveness_chunk, is_provisional
 
@@ -128,14 +127,12 @@ class FallbackProvider:
                 except TimeoutError:
                     # Takılan model yedeğin süresini yemesin: sıradakine geç.
                     failures.append(self._timed_out(provider, request))
-                    await _close(stream)
                     continue
                 if first is None:
                     continue
                 if isinstance(first, StreamDone) and not first.result.is_usable:
                     # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
                     failures.append(first.result)
-                    await _close(stream)
                     if self._only_when_unavailable and not _no_answer_available(first.result):
                         break
                     continue
