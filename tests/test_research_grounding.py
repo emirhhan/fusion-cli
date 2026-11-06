@@ -1382,3 +1382,41 @@ def test_early_issue_protocol_does_not_weaken_supported_or_bound_evidence(tmp_pa
     elif mutation == "no_issue":
         raw["claims"][0]["kind"] = "nonfactual"
     assert parse_verdict(json.dumps(raw), target, sources).status == "incomplete"
+
+
+async def test_grounding_request_exposes_only_citable_source_span_identifiers(tmp_path):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import review_grounding
+
+    _, target, sources = target_sources(tmp_path)
+    deps = _deps(tmp_path, RecordingSink())
+    prompts = []
+
+    async def judge(prompt):
+        prompts.append(prompt)
+        return model_result(typed_clean(prompt))
+
+    verdict = await review_grounding(target, sources, deps, judge=judge)
+    assert verdict.status == "supported"
+    schema, data = prompts[0].split("\nDATA\n", 1)
+    payload = json.loads(data)
+    assert all("id" not in source for source in payload["sources"])
+    assert all(source["spans"] for source in payload["sources"])
+    assert "s1:13" in schema and "[]" in schema and "spans" in schema
+
+
+def test_source_group_label_stays_invalid_even_with_other_valid_span_references(tmp_path):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import parse_verdict, request_payload
+
+    _, target, sources = target_sources(tmp_path)
+    prompt = "\nDATA\n" + json.dumps(request_payload(target, sources))
+    raw = json.loads(typed_issues(prompt))
+    valid = json.loads(typed_clean(prompt))["claims"][0]
+    raw["claims"][0]["sources"] = ["s1"]
+    raw["claims"].append(valid)
+    assert parse_verdict(json.dumps(raw), target, sources).status == "incomplete"
+    raw["claims"][0]["sources"] = []
+    assert parse_verdict(json.dumps(raw), target, sources).status == "issues"
