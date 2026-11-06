@@ -32,6 +32,7 @@ from ..core.constants import (
 )
 from ..core.network_address import is_public_ip
 from ..core.protocols import Clock
+from ..core.research_grounding import SourceReceipt
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .pinned_http import PinnedTransport
@@ -117,7 +118,20 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
     if duvar:
         # Kısıt öneki başarı kararının protokolüdür; provenance bunun önüne geçemez.
         output = f"{duvar}\n\n{output}"
-    return ToolResult(output, structured={"source": source})
+    receipt = SourceReceipt(
+        url,
+        final_url,
+        fetched_at,
+        govde,
+        completeness="blocked"
+        if duvar
+        else "truncated"
+        if len(text) > MAX_OUTPUT_CHARS or len(body.encode("utf-8")) >= MAX_FETCH_BYTES
+        else "complete",
+        published_at=dates.published_at or "",
+        updated_at=dates.updated_at or "",
+    )
+    return ToolResult(output, structured={"source": source}, source_receipt=receipt)
 
 
 #: Erişim duvarı işaretleri. Sayfa 200 döner ve METİN gelir; ama gelen metin istenen

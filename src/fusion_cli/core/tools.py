@@ -43,6 +43,7 @@ from .plan_switch import PlanModeSwitch
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
+from .research_grounding import SourceReceipt
 from .sandbox_policy import SandboxHostGate, SandboxPolicy
 from .session_cron import SessionCron
 from .shell_cwd import ShellCwd
@@ -261,6 +262,8 @@ class ToolResult:
     source_read_url: str = ""
     #: Trusted coverage; never decoded from page text, MCP or model arguments.
     source_read_scope: SourceReadScope = "none"
+    #: Private typed reader payload, never included in public output/structured data.
+    source_receipt: SourceReceipt | None = field(default=None, repr=False)
 
     @property
     def images(self) -> tuple[str, ...]:

@@ -419,6 +419,26 @@ class TurnReport:
         gate = self.gate
         if gate is None:
             return ()
+        if (
+            not gate.ok
+            and gate.summary
+            in {
+                "Olgusal kaynak denetimi tamamlanamadı.",
+                "Kaynaklarla uyuşmayan olgusal iddialar var.",
+            }
+            and any(
+                e.criterion_id == "research_grounding" and e.status is not EvidenceStatus.PASSED
+                for e in gate.evidence
+            )
+            and not any(
+                e.criterion_id != "research_grounding" and e.status is not EvidenceStatus.PASSED
+                for e in gate.evidence
+            )
+        ):
+            factual = next(e for e in gate.evidence if e.criterion_id == "research_grounding")
+            if factual.status is EvidenceStatus.UNVERIFIED:
+                return ("Olgusal kaynak denetimi tamamlanamadı.",)
+            return ("Kaynaklarla uyuşmayan olgusal iddialar giderilemedi.",)
         if not gate.ok:
             findings = "\n".join(f"- {finding}" for finding in gate.findings[:5])
             return (

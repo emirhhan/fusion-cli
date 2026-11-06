@@ -13,7 +13,9 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
+from ..core.clock import SystemClock
 from ..core.constants import MAX_UPLOAD_BYTES
+from ..core.research_grounding import SourceReceipt
 from ..core.tool_content import ToolContent
 from ..core.tools import (
     SourceReadScope,
@@ -32,6 +34,7 @@ from .key_spec import key_base
 from .preview_origins import allowed_local
 from .risk_words import LOGOUT_PATTERN, RISKY_ACTION_PATTERN
 from .web import browser_block_reason
+from .web_evidence import timestamp
 
 __all__ = ["MONITOR_LIMIT", "NETWORK_IDLE_VALUES"]
 
@@ -121,8 +124,21 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
     if not result.get("ok"):
         return ToolResult.failure(str(result.get("hata") or "Chrome komutu başarısız."))
     observed = result.get("veri", {})
+    output = json.dumps(observed, ensure_ascii=False)
+    source_url = _source_read_url(name, observed) if result.get("ok") is True else ""
+    scope = _source_read_scope(name, data, observed)
+    receipt = None
+    if source_url and scope in {"document", "partial", "truncated"}:
+        receipt = SourceReceipt(
+            source_url,
+            source_url,
+            timestamp(SystemClock()),
+            output,
+            completeness="complete" if scope == "document" else "truncated",
+        )
     return ToolResult(
-        json.dumps(observed, ensure_ascii=False),
+        output,
+        source_receipt=receipt,
         source_read_url=_source_read_url(name, observed) if result.get("ok") is True else "",
         source_read_scope=_source_read_scope(name, data, observed),
     )

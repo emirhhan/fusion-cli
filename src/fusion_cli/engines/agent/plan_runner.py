@@ -488,6 +488,12 @@ class _PlanRun:
                             step_id=step.step_id,
                         )
                     )
+        if self.final_gate is not None:
+            criteria.extend(
+                item
+                for item in self.final_gate.evidence
+                if item.criterion_id == "research_grounding"
+            )
         return replace(report, criteria=summarize_criteria(criteria))
 
     def outcome(
@@ -1455,6 +1461,20 @@ class _PlanRun:
         text = self.outcomes[-1].final_text if self.outcomes else "Bekleyen kalite düzeltmesi."
         candidate = self.outcome(text, ok=True)
         feedback: str | None = self.quality_feedback
+        research = bool(getattr(self.deps.budget, "research_required", False))
+        if research:
+            from .loop_contract import _verification_correction_task
+            from .research_grounding import finalize_grounding
+            from .verifier_repair import should_repair_verifier
+
+            factual = await finalize_grounding(candidate, self.deps, self.final_gate)
+            assert factual is not None
+            self.final_gate = factual
+            if factual.ok or not should_repair_verifier(factual):
+                return factual
+            if not self.deps.require_budget().take_verify_round():
+                return factual
+            feedback = _verification_correction_task(factual)
         if not feedback:
             if not self.self_review or not self.outcomes or not self.outcomes[-1].ok:
                 return None
@@ -1535,6 +1555,15 @@ class _PlanRun:
         self.deps.tool_context.changes.absorb(correction_deps.tool_context.changes)
         self.deps.tool_context.touched.update(correction_deps.tool_context.touched)
         self.quality_feedback = ""
+        if research:
+            from .research_grounding import finalize_grounding
+
+            measured = await finalize_grounding(
+                self.outcome(correction.final_text, ok=correction.ok), self.deps, acceptance
+            )
+            assert measured is not None
+            acceptance = measured
+            self.final_gate = measured
         return acceptance
 
     async def _current_final_evidence(self) -> tuple[CriterionEvidence, ...]:
@@ -1565,6 +1594,11 @@ class _PlanRun:
             acceptance = quality
         elif quality is not None:
             return quality
+        self.final_gate = acceptance
+        if not acceptance.ok:
+            report = await self._current_delivery_report()
+            text = self.outcomes[-1].final_text if self.outcomes else ""
+            return self.outcome(report.render() + text, ok=False, report=report)
         warnings = list(acceptance.warnings)
         warnings.extend(
             f"Kullanıcının istediği '{ad}' için plan adımı üretilemedi; teslim edilmedi."
