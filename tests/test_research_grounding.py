@@ -1106,7 +1106,7 @@ async def test_required_review_uses_existing_request_and_shared_remaining_time(
     assert result.status == "supported"
     assert len(requests) == len(waits) == 1
     assert requests[0].timeout_s == waits[0] == expected
-    assert requests[0].max_tokens == 3072
+    assert requests[0].max_tokens == 8192
     assert requests[0].max_retries == 0
     assert deps.config is original_config
     assert deps.config.runtime.judge_timeout_s == 20
@@ -1214,3 +1214,46 @@ async def test_external_cancellation_of_required_review_propagates(monkeypatch, 
     with pytest.raises(asyncio.CancelledError):
         await task
     assert cancelled.is_set()
+
+
+@pytest.mark.parametrize("normal_cap", [8192, 4096, 1024])
+async def test_required_review_uses_configured_normal_output_cap_only(
+    monkeypatch, tmp_path, normal_cap
+):
+    from fusion_cli.engines.agent import research_grounding as grounding
+
+    _, target, sources = target_sources(tmp_path)
+    deps = _deps(
+        tmp_path,
+        RecordingSink(),
+        runtime={
+            "request_timeout_s": 600,
+            "judge_timeout_s": 20,
+            "judge_max_tokens": 3072,
+            "max_tokens": normal_cap,
+            "max_retries": 0,
+        },
+    )
+    original_config = deps.config
+    requests = []
+
+    class Provider:
+        async def complete(self, request):
+            requests.append(request)
+            text = request.messages[0].content
+            return model_result(typed_clean(text) if "\nDATA\n" in text else "TAMAM")
+
+    monkeypatch.setattr(grounding.review, "build_provider", lambda *args, **kwargs: Provider())
+    verdict = await grounding.review_grounding(target, sources, deps)
+    optional = await grounding.review._ask("Optional generic review.", deps.config, deps.publisher)
+    assert verdict.status == "supported" and optional.ok
+    assert len(requests) == 2
+    assert requests[0].max_tokens == normal_cap
+    assert requests[0].timeout_s == 600
+    assert requests[1].max_tokens == 3072
+    assert requests[1].timeout_s == 20
+    assert all(request.max_retries == 0 for request in requests)
+    assert deps.config is original_config
+    assert deps.config.runtime.max_tokens == normal_cap
+    assert deps.config.runtime.judge_max_tokens == 3072
+    assert deps.config.runtime.judge_timeout_s == 20
