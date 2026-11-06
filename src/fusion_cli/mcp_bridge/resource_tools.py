@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolEvidenceRole, ToolResult
 from ..tools import ToolRegistry
 from .references import visible_resources
 
@@ -82,6 +82,7 @@ def register_resource_tools(client: _ResourceClient, registry: ToolRegistry) -> 
             },
             run=_read,
             effect=ToolEffect.REMOTE_READ,
+            evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         )
     )
     return (LIST_TOOL, READ_TOOL)

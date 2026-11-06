@@ -218,6 +218,13 @@ class ToolEffect(Enum):
     REMOTE_SESSION = "remote_session"
 
 
+class ToolEvidenceRole(Enum):
+    """Trusted adapter metadata; independent of permissions and untrusted output."""
+
+    UNCLASSIFIED = "unclassified"
+    DATA_OBSERVATION = "data_observation"
+
+
 def tool_family(name: str) -> ToolFamily:
     """Araç adını iş ailesine çevir.
 
@@ -550,6 +557,7 @@ class AuthorizationScope:
 
 
 ScopeResolver = Callable[[ToolArgs], AuthorizationScope | None]
+EvidenceRoleResolver = Callable[[ToolArgs, ToolResult], ToolEvidenceRole]
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,6 +595,8 @@ class Tool:
     effect_resolver: EffectResolver | None = None
     #: Yalnız adaptörün bildiği hesap/eylem/hedef sınırını çözer.
     scope_resolver: ScopeResolver | None = None
+    evidence_role: ToolEvidenceRole = field(default=ToolEvidenceRole.UNCLASSIFIED, kw_only=True)
+    evidence_role_resolver: EvidenceRoleResolver | None = field(default=None, kw_only=True)
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""
@@ -598,6 +608,19 @@ class Tool:
                 "parameters": dict(self.parameters),
             },
         }
+
+
+def resolved_evidence_role(tool: Tool, args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    """Resolvers fail closed; strings and remote/model role claims grant nothing."""
+    try:
+        role = (
+            tool.evidence_role_resolver(args, result)
+            if tool.evidence_role_resolver
+            else tool.evidence_role
+        )
+    except Exception:
+        return ToolEvidenceRole.UNCLASSIFIED
+    return role if isinstance(role, ToolEvidenceRole) else ToolEvidenceRole.UNCLASSIFIED
 
 
 class ToolPreviewer(Protocol):

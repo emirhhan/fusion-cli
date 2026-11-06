@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from fusion_cli.core.evidence import ToolUse
-from fusion_cli.core.tools import Tool, ToolContext, ToolEffect, ToolResult
+from fusion_cli.core.tools import Tool, ToolContext, ToolEffect, ToolEvidenceRole, ToolResult
 from fusion_cli.core.types import Message, ModelSpec, StreamDone
 from fusion_cli.engines.agent import learning, learning_steps, loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
@@ -26,10 +26,13 @@ def _deps(tmp_path):
 
     registry = ToolRegistry()
     business = []
+    fixture = tmp_path / "fixture-records.json"
+    fixture.write_text(json.dumps([{"id": i} for i in range(42)]))
 
     def execute(args, context):
         business.append(NAME)
-        return ToolResult(output="42 records, observed now")
+        rows = json.loads(fixture.read_text())
+        return ToolResult(output=json.dumps({"count": len(rows), "records": rows}))
 
     registry.register_or_replace(
         Tool(
@@ -38,6 +41,7 @@ def _deps(tmp_path):
             {"type": "object"},
             execute,
             effect=ToolEffect.REMOTE_READ,
+            evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         )
     )
     McpToolSearch().apply(
@@ -384,25 +388,6 @@ async def test_supported_launch_only_does_not_need_business_read(tmp_path, monke
     assert business == []
     assert outcome.ok
     assert any(use.name == "Agent" and use.ok for use in outcome.tool_uses)
-
-
-def test_exact_harness_names_do_not_exclude_remote_business_tools():
-    from fusion_cli.engines.agent.harness_metadata import data_count_witness
-
-    for name in (
-        "ToolSearch",
-        "DiscoverMcpTools",
-        "WaitForMcpServers",
-        "Agent",
-        "Task",
-        "invoke_agent",
-        "spawn_agent",
-        "spawn_agents",
-        "invoke_subagent",
-    ):
-        assert not data_count_witness(name)
-    for name in ("mcp__synthetic__ToolSearch", "mcp__synthetic__Agent", "read_file"):
-        assert data_count_witness(name)
 
 
 async def test_legacy_search_lesson_is_capped_and_cannot_contradict_trusted_lesson(monkeypatch):

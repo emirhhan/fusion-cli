@@ -15,7 +15,14 @@ from urllib.parse import urlsplit
 
 from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
-from ..core.tools import SourceReadScope, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import (
+    SourceReadScope,
+    ToolArgs,
+    ToolContext,
+    ToolEffect,
+    ToolEvidenceRole,
+    ToolResult,
+)
 from . import chrome_guard, chrome_images, chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_claude_args import limit_output, parse_modifiers, tabs_create_if_empty
@@ -118,6 +125,15 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         json.dumps(observed, ensure_ascii=False),
         source_read_url=_source_read_url(name, observed) if result.get("ok") is True else "",
         source_read_scope=_source_read_scope(name, data, observed),
+    )
+
+
+def action_evidence_role(args: ToolArgs, _result: ToolResult) -> ToolEvidenceRole:
+    """Only locally parsed content/state reads, never wait or action acknowledgements."""
+    return (
+        ToolEvidenceRole.DATA_OBSERVATION
+        if args.get("action") in {"text", "screenshot", "tabs", "assets", "console", "network"}
+        else ToolEvidenceRole.UNCLASSIFIED
     )
 
 

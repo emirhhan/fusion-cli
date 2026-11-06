@@ -24,7 +24,7 @@ from ..core.errors import ProcessCancelledError
 from ..core.foreground_handoff import handoff_slot
 from ..core.process_control import MovedToBackgroundError, run_foreground
 from ..core.shell_cwd import new_marker, settle, split_marker, wrap
-from ..core.tools import ToolArgs, ToolContext, ToolResult
+from ..core.tools import ToolArgs, ToolContext, ToolEvidenceRole, ToolResult
 from ..core.workspace_fingerprint import (
     Fingerprint,
     WorkspaceEffect,
@@ -87,6 +87,20 @@ def _sandbox_notes(run: SandboxRun, process: subprocess.CompletedProcess[str]) -
     """Sandbox uyarısı (bir kez) ve engellenen yazma/okuma/ağ için eyleme dönük ipuçları."""
     notes = sandbox_notes(run, process.returncode, process.stderr)
     return _once_notice(run) + "".join(f"\nFUSION_NOT: {note}" for note in notes)
+
+
+class _ProcessObservation(ToolResult):
+    """Produced only after an actual foreground process completes."""
+
+    __slots__ = ()
+
+
+def process_evidence_role(_args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    return (
+        ToolEvidenceRole.DATA_OBSERVATION
+        if isinstance(result, _ProcessObservation)
+        else ToolEvidenceRole.UNCLASSIFIED
+    )
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -234,7 +248,7 @@ def _run_foreground(
             text += _UNPROVEN_WRITE_NOTE
     return check_shell_result(
         context,
-        ToolResult(
+        _ProcessObservation(
             text,
             ok=process.returncode == 0,
             workspace_effect=effect,

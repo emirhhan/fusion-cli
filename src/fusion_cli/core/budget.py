@@ -77,6 +77,14 @@ class BudgetStop(Enum):
 CallSignature = tuple[str, str, int]
 
 
+@dataclass(frozen=True, slots=True)
+class DataObservation:
+    """Current-dispatch receipt; never hydrated from messages or checkpoints."""
+
+    tool_name: str
+    call_id: str
+
+
 @dataclass(slots=True)
 class TurnBudget:
     """Tur boyunca paylaşılan sayaçlar, sınırlar ve tekrar/ilerleme takibi."""
@@ -137,6 +145,7 @@ class TurnBudget:
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
     )
+    data_observations: list[DataObservation] = field(default_factory=list)
     #: Observed URLs from successful authorized Chrome content-read receipts.
     successful_source_reads: list[str] = field(default_factory=list)
     #: Coverage is minted by authorized tools, never by model or MCP arguments.
