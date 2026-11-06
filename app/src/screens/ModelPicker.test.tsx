@@ -170,3 +170,18 @@ describe("ModelPicker — araç desteği doğrulanmamış model (U1-45)", () => 
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ deger: "/model agent nim/bilinen" }));
   });
 });
+
+test.each([
+  { state: "ready", activePending: false, activeError: "", suffix: "" },
+  { state: "pending", activePending: true, activeError: "", suffix: " · Etkin model okunuyor…" },
+  { state: "error", activePending: false, activeError: "Etkin model okunamadı.", suffix: " · yenilenemedi" },
+  { state: "stale", activePending: false, activeError: "Etkin model yenilenemedi; son okunan model gösteriliyor.", suffix: " · yenilenemedi" },
+])("$state keeps the full configured identity accessible and the visual name compact", ({ activePending, activeError, suffix }) => {
+  const active = "provider/model-550b-a55b:free";
+  const { rerender } = render(<ModelPicker active={active} activePending={activePending} activeError={activeError} onSelect={vi.fn()} options={[]} />);
+  const trigger = screen.getByRole("button", { name: `Model: ${active}${suffix}. Değiştirmek için tıkla.` });
+  expect(trigger.textContent).toBe(`model${suffix}`);
+  rerender(<ModelPicker active={active} activeLabel="Custom model label" activePending={activePending} activeError={activeError} onSelect={vi.fn()} options={[]} />);
+  const labeled = screen.getByRole("button", { name: `Model: Custom model label${suffix}. Değiştirmek için tıkla.` });
+  expect(labeled.textContent).toBe(`Custom model label${suffix}`);
+});
