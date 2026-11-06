@@ -952,6 +952,12 @@ async def _run_agent(
     response_task = effective_response_task(task, history or ())
     if depth == 0 and not internal:
         deps.tool_context.delivery_contract.accepted = None
+        if deps.budget is not None:
+            deps.budget.research_required = False
+            deps.budget.research_sources.clear()
+            deps.budget.research_verdict = None
+            deps.budget.research_mechanical = None
+            deps.budget.research_contract = None
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
     # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
@@ -1481,6 +1487,14 @@ async def _run_agent(
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
+    if depth == 0 and not internal and not plan_mode:
+        budget.research_contract = deps.tool_context.delivery_contract.for_owner(
+            deps.tool_context.root, deps.tool_context.job_scope
+        )
+        budget.research_required = execution.source_read_requirement == "document" and (
+            execution.requires_web_lookup or bool(execution.required_web_urls)
+        )
+
     if execution.total_timeout_s is not None:
         budget.constrain_remaining_s(execution.total_timeout_s - budget.elapsed_s)
     if budget.idle_timeout_s is None and execution.idle_timeout_s is not None:
@@ -1649,7 +1663,8 @@ async def _run_agent(
             deps,
             registry,
             verification=verification,
-            ordinary_self_review_enabled=ordinary_self_review_enabled(
+            ordinary_self_review_enabled=(not budget.research_required)
+            and ordinary_self_review_enabled(
                 outcome,
                 budget,
                 configured=deps.config.runtime.self_review,
@@ -1699,7 +1714,7 @@ async def _run_agent(
         measurement_failure=is_measurement_failure,
         browser_prefixes=_BROWSER_TOOL_PREFIXES,
     )
-    if should_review:
+    if should_review and not budget.research_required:
         before_review = await asyncio.to_thread(take_fingerprint, deps.tool_context.root)
         before_versions = await asyncio.to_thread(changed_file_versions, deps.tool_context)
         previous_mutations = outcome.mutating_tool_calls_made
@@ -1718,6 +1733,13 @@ async def _run_agent(
             if verification is not None and not verification.ok:
                 outcome.ok = False
 
+    if verify and depth == 0 and not internal and budget.research_required:
+        from .research_grounding import finalize_grounding
+
+        verification = await finalize_grounding(outcome, deps, verification)
+        if verification is not None and not verification.ok:
+            outcome.ok = False
+
     # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
     # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
     # turunda yazma tamamen kapalı olmalı").
@@ -1734,7 +1756,7 @@ async def _run_agent(
     # (`_turn_report_text`) tüm adımların `tool_uses`'ından ayrıca kurduğu için
     # buradaki iç turların atlanması onu bozmaz, aksine aynı çiftlenmeyi orada
     # da önler.
-    if not chat_mode and not internal and depth == 0:
+    if (not chat_mode or budget.research_required) and not internal and depth == 0:
         from ...tools.job_current import snapshot_current_jobs
 
         current_jobs = await asyncio.to_thread(
@@ -4835,6 +4857,18 @@ async def _run_tools(
             identity = tool.name if tool is not None else call.name
             if identity not in DISCOVERY_METADATA_NAMES:
                 budget.successful_tool_evidence.append((identity, args, mutating))
+            if result.source_receipt is not None and budget.research_required:
+                from .research_grounding import capture_source
+
+                contract = budget.research_contract
+                if contract is not None and (
+                    contract.owner == deps.tool_context.job_scope
+                    and deps.tool_context.delivery_contract.accepted == contract
+                ):
+                    receipt = result.source_receipt
+                    if receipt.text not in result.output:
+                        receipt = replace(receipt, text=result.output, completeness="truncated")
+                    budget.research_sources.append(capture_source(receipt, contract, call.id))
             if result.source_read_url:
                 budget.successful_source_reads.append(result.source_read_url)
                 budget.successful_source_read_scopes.append(
@@ -5606,13 +5640,17 @@ async def _verify(
     eklendi — kullanıcının kodunda hiçbir şey değişmemişken. Kapının sorusu
     "bozdum mu"dur; hiçbir şeyi değiştirmeyen turda sorulacak bir soru yoktur.
     """
-    if deps.verifier is None or plan_mode or depth > 0:
+    if plan_mode or depth > 0:
         return None
+    mechanical = None
     if outcome.mutating_tool_calls_made == 0:
         if deps.tool_context.requested_outputs:
-            return await OutputPathVerifier(deps.tool_context).verify()
-        return None
-    return await deps.verifier.verify()
+            mechanical = await OutputPathVerifier(deps.tool_context).verify()
+    elif deps.verifier is not None:
+        mechanical = await deps.verifier.verify()
+    from .research_grounding import finalize_grounding
+
+    return await finalize_grounding(outcome, deps, mechanical)
 
 
 async def _fix_findings(
@@ -5750,7 +5788,7 @@ async def _run_verification_correction_attempt(
         history=history,
         self_review=False,
         internal=True,
-        require_local_mutation=True,
+        require_local_mutation=not task.startswith(CORRECTION_NOTE_PREFIX + " Kaynak"),
         # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
         verify=False,
     )

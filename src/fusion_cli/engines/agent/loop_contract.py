@@ -267,6 +267,27 @@ def _correction_task(feedback: str) -> str:
 
 
 def _verification_correction_task(verification: VerificationResult) -> str:
+    factual = [e for e in verification.evidence if e.criterion_id == "research_grounding"]
+    other_failed = any(
+        e.criterion_id != "research_grounding" and e.status.value != "passed"
+        for e in verification.evidence
+    )
+    if (
+        factual
+        and factual[0].status.value == "failed"
+        and verification.summary == factual[0].summary
+        and not other_failed
+    ):
+        return (
+            f"{CORRECTION_NOTE_PREFIX} Kaynak tutarlılığı denetimi somut iddia sorunları buldu. "
+            "Asıl kullanıcı görevi ve kabul edilen rapor yolu geçerlidir. Eksik resmi kaynakları "
+            "oku; iddiaları düzelt, isteğe bağlı kanıtsız ekleri kaldır veya "
+            "belirsizliği açıkça belirt. "
+            "İstenen bilgileri (önsürüm ayrımı dahil) sessizce silme. "
+            "Metin yanıtını düzeltmek için "
+            "dosya yazmak gerekmez; rapor varsa aynı kabul edilen dosyayı düzelt. "
+            "Salt CSS değişikliği olgusal bulguyu gidermez.\n\n" + "\n".join(verification.findings)
+        )
     # Bulgu yoksa özet tek başına talimat olur: elde bundan fazlası yok, ama
     # "doğrulama düştü" bilgisi bile modele hiçbir şey söylememekten iyidir.
     details = verification.findings or ((verification.summary,) if verification.summary else ())

@@ -32,9 +32,12 @@ from typing import TYPE_CHECKING
 
 from .checkpoint import TurnRepairCheckpoint
 from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
+from .delivery_contract import AcceptedDeliveryContract
 from .protocols import Clock
 from .repair_ledger import RepairLedger
+from .research_grounding import GroundingVerdict, SourceSnapshot
 from .usage_ledger import UsageLedger
+from .verification import VerificationResult
 
 if TYPE_CHECKING:
     from .tools import SourceReadScope
@@ -148,6 +151,11 @@ class TurnBudget:
     data_observations: list[DataObservation] = field(default_factory=list)
     #: Observed URLs from successful authorized Chrome content-read receipts.
     successful_source_reads: list[str] = field(default_factory=list)
+    research_required: bool = False
+    research_contract: AcceptedDeliveryContract | None = None
+    research_sources: list[SourceSnapshot] = field(default_factory=list, repr=False)
+    research_verdict: GroundingVerdict | None = field(default=None, repr=False)
+    research_mechanical: VerificationResult | None = field(default=None, repr=False)
     #: Coverage is minted by authorized tools, never by model or MCP arguments.
     successful_source_read_scopes: list[tuple[str, SourceReadScope]] = field(default_factory=list)
     #: Başarılı OKUMA çağrılarının sonucu: imza → çıktı.
