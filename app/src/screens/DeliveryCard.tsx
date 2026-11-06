@@ -14,6 +14,7 @@ export function DeliveryCard({evidence, onOpenFile}: {evidence: DeliveryEvidence
     evidence.blocking ? "Doğrulama geçmedi" :
     evidence.kind === "legacy" ? "Eski ve sınırlı kanıt kaydı" :
     evidence.unmeasured?.length ? "Bazı kontroller ölçülemedi" :
+    evidence.deliveryKind === "observation" ? "İşlem kaydı" :
     evidence.deliveryKind === "artifact" && evidence.verified !== true ? "Görsel / belge sonucu ölçülmedi" :
     evidence.verified === true ? (documentPresentation ? "Dosya denetlendi" : "Bildirilen kontroller geçti") : "Teslim doğrulanmadı";
   return <section aria-label="Kanıt özeti" className="delivery-card">

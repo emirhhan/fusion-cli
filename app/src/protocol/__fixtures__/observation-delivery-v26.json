@@ -1,0 +1,380 @@
+[
+  {
+    "name": "observation_only",
+    "payload": {
+      "schema_version": 1,
+      "teslim_turu": "observation",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false
+    },
+    "kind": "observation",
+    "title": "İşlem kaydı",
+    "native_payload": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "observation",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    }
+  },
+  {
+    "name": "requested_png",
+    "payload": {
+      "schema_version": 1,
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "requested.png"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false
+    },
+    "kind": "artifact",
+    "title": "Bazı kontroller ölçülemedi",
+    "native_payload": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "requested.png"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [
+        "son değişiklikten sonra doğrulama komutu çalıştırılmadı"
+      ],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    }
+  },
+  {
+    "name": "explicit_samepath_export",
+    "payload": {
+      "schema_version": 1,
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false
+    },
+    "kind": "artifact",
+    "title": "Bazı kontroller ölçülemedi",
+    "native_payload": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [
+        "son değişiklikten sonra doğrulama komutu çalıştırılmadı"
+      ],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    }
+  },
+  {
+    "name": "mixed_real_artifact",
+    "payload": {
+      "schema_version": 1,
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png",
+        "report.png"
+      ],
+      "degisen_sayisi": 2,
+      "degisen_kisaltildi": false,
+      "uyarilar": [],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false
+    },
+    "kind": "artifact",
+    "title": "Bazı kontroller ölçülemedi",
+    "native_payload": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 2,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png",
+        "report.png"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [
+        "son değişiklikten sonra doğrulama komutu çalıştırılmadı"
+      ],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    }
+  },
+  {
+    "name": "failed_observation",
+    "payload": {
+      "schema_version": 1,
+      "teslim_turu": "observation",
+      "criteria": [
+        {
+          "criterion_id": "actual_check",
+          "step_id": "",
+          "text_truncated": false,
+          "status": "failed",
+          "summary": "Actual check failed",
+          "applicable": true,
+          "source_digest": "",
+          "call_id": ""
+        }
+      ],
+      "criteria_count": 1,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 1,
+        "unverified": 0
+      },
+      "dogrulandi": false,
+      "engelliyor": true,
+      "yanlis_iddia": false,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [],
+      "sorunlar": [
+        "Actual check failed"
+      ],
+      "sorun_sayisi": 1,
+      "sorunlar_kisaltildi": false
+    },
+    "kind": "observation",
+    "title": "Doğrulama geçmedi",
+    "native_payload": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": true,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 1,
+      "criteria_count": 1,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "sorunlar": [
+        "Actual check failed"
+      ],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "observation",
+      "criteria": [
+        {
+          "criterion_id": "actual_check",
+          "step_id": "",
+          "summary": "Actual check failed",
+          "source_digest": "",
+          "call_id": "",
+          "status": "failed",
+          "applicable": true,
+          "text_truncated": false
+        }
+      ],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 1,
+        "unverified": 0
+      }
+    }
+  },
+  {
+    "name": "existing_artifact_payload",
+    "payload": {
+      "schema_version": 1,
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false
+    },
+    "kind": "artifact",
+    "title": "Bazı kontroller ölçülemedi",
+    "native_payload": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        ".fusion/tmp/masaustu-ekrani.png"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [
+        "son değişiklikten sonra doğrulama komutu çalıştırılmadı"
+      ],
+      "oneriler": [],
+      "degisiklik_ozeti": [],
+      "teslim_turu": "artifact",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    }
+  }
+]
