@@ -318,6 +318,14 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
   switch (olay) {
+    case "StatusChanged": {
+      if (typeof veri.message !== "string") return null;
+      const message = sirlariMaskele(veri.message).replace(/[\p{Cc}\s]+/gu, " ").trim();
+      if (!message) return null;
+      const characters = Array.from(message);
+      // Public progress is transient; the next step replaces it, without a tool receipt.
+      return { metin: characters.length > 240 ? `${characters.slice(0, 239).join("")}…` : message };
+    }
     case "SelfReviewFinished": {
       if (veri.completed === false) return {
         metin: "özdenetim tamamlanamadı", durum: "unknown", kalici: true,
