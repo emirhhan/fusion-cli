@@ -45,6 +45,8 @@ from ..core.types import (
     is_unavailable_error,
 )
 from .circuit import CIRCUIT_OPEN_ERROR
+from .stream_cleanup import close_stream as _close
+from .stream_cleanup import closing_stream
 from .stream_opening import is_liveness_chunk, is_provisional
 
 T = TypeVar("T")
@@ -111,38 +113,38 @@ class FallbackProvider:
         for index, provider in enumerate(self._providers):
             if index and failures:
                 self._publish_fallback(provider.label, failures[-1])
-            stream = provider.stream(request)
-            first: StreamItem | None = None
-            try:
-                async with self._opening_deadline(index, request):
-                    first = await anext(stream, None)
-                    while is_provisional(first):
-                        # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını
-                        # görmeli (P1-05). Süre sınırı bu parçalarla UZAMAZ.
-                        if is_liveness_chunk(first):
-                            assert first is not None
-                            yield first
+            async with closing_stream(provider.stream(request)) as stream:
+                first: StreamItem | None = None
+                try:
+                    async with self._opening_deadline(index, request):
                         first = await anext(stream, None)
-            except TimeoutError:
-                # Takılan model yedeğin süresini yemesin: sıradakine geç.
-                failures.append(self._timed_out(provider, request))
-                await _close(stream)
-                continue
-            if first is None:
-                continue
-            if isinstance(first, StreamDone) and not first.result.is_usable:
-                # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
-                failures.append(first.result)
-                await _close(stream)
-                if self._only_when_unavailable and not _no_answer_available(first.result):
-                    break
-                continue
-            yield first
-            if isinstance(first, StreamDone):
+                        while is_provisional(first):
+                            # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını
+                            # görmeli (P1-05). Süre sınırı bu parçalarla UZAMAZ.
+                            if is_liveness_chunk(first):
+                                assert first is not None
+                                yield first
+                            first = await anext(stream, None)
+                except TimeoutError:
+                    # Takılan model yedeğin süresini yemesin: sıradakine geç.
+                    failures.append(self._timed_out(provider, request))
+                    await _close(stream)
+                    continue
+                if first is None:
+                    continue
+                if isinstance(first, StreamDone) and not first.result.is_usable:
+                    # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
+                    failures.append(first.result)
+                    await _close(stream)
+                    if self._only_when_unavailable and not _no_answer_available(first.result):
+                        break
+                    continue
+                yield first
+                if isinstance(first, StreamDone):
+                    return
+                async for item in stream:
+                    yield item
                 return
-            async for item in stream:
-                yield item
-            return
         yield StreamDone(self._all_failed(failures))
 
     async def _bounded(self, index: int, work: Awaitable[T], request: CompletionRequest) -> T:
@@ -210,18 +212,6 @@ class FallbackProvider:
             # devre kesici modeli "sağlıksız" sayıp tur takıldı.
             truncated=any(failure.truncated for failure in failures),
         )
-
-
-async def _close(stream: AsyncIterator[StreamItem]) -> None:
-    """Vazgeçilen akışı kapat; arkada açık bağlantı bırakma."""
-    closer = getattr(stream, "aclose", None)
-    if closer is None:
-        return
-    # Kapanış hatası turu etkilemez; bilinçli olarak yutulur.
-    try:
-        await closer()
-    except Exception:
-        return
 
 
 def _no_answer_available(result: ModelResult) -> bool:

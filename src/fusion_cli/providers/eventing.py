@@ -30,6 +30,7 @@ from ..core.protocols import LlmProvider
 from ..core.provider_diagnostics import ProviderCallObserver, observe_phase
 from ..core.tier import tier_mismatch
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem, TextChunk
+from .stream_cleanup import closing_stream
 
 
 class EventingProvider:
@@ -87,21 +88,22 @@ class EventingProvider:
         # MessageDisplay kancası (#90): ana konuşmanın görünen metni satır partileriyle süzülür.
         display = display_filter.open_stream(call_id) if self._channel is Channel.MAIN else None
         try:
-            async for item in self._inner.stream(request):
-                if isinstance(item, TextChunk) and item.text:
-                    # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
-                    # arayüze olay olarak gitmez.
-                    if display is None:
-                        self._publish_text(item.text, item.provisional)
-                    else:
-                        self._publish_pieces(await display.feed(item.text, item.provisional))
-                elif isinstance(item, StreamDone):
-                    finished = True
-                    if display is not None:
-                        self._publish_pieces(await display.finish())
-                    observe_phase(request, "call_end")
-                    self._publish_finished(item.result, call_id)
-                yield item
+            async with closing_stream(self._inner.stream(request)) as stream:
+                async for item in stream:
+                    if isinstance(item, TextChunk) and item.text:
+                        # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
+                        # arayüze olay olarak gitmez.
+                        if display is None:
+                            self._publish_text(item.text, item.provisional)
+                        else:
+                            self._publish_pieces(await display.feed(item.text, item.provisional))
+                    elif isinstance(item, StreamDone):
+                        if display is not None:
+                            self._publish_pieces(await display.finish())
+                        observe_phase(request, "call_end")
+                        finished = True
+                        self._publish_finished(item.result, call_id)
+                    yield item
         except (asyncio.CancelledError, GeneratorExit, Exception) as exc:
             if not finished:
                 observe_phase(
