@@ -134,8 +134,6 @@ def typed_clean(prompt):
         {
             "target_digest": payload["target_digest"],
             "source_digest": payload["source_digest"],
-            "status": "supported",
-            "reviewed": list(payload["target"]),
             "claims": [
                 {
                     "targets": list(payload["target"]),
@@ -248,7 +246,6 @@ def typed_issues(prompt):
     import json
 
     raw = json.loads(typed_clean(prompt))
-    raw["status"] = "issues"
     raw["claims"][0]["kind"] = "date_role"
     raw["claims"][0]["basis"] = (
         "Announcement publication is not release date; table branch/EOL, unread next-series "
@@ -1348,6 +1345,7 @@ def test_concrete_issue_can_fail_full_report_before_exhaustive_classification(tm
     raw["claims"][0]["targets"] = [first]
     raw["claims"][0]["basis"] = "The target gives October 26; read source s1:1 gives October 25."
     if coverage == "affected_only":
+        raw["status"] = "issues"
         raw["reviewed"] = [first]
     verdict = parse_verdict(json.dumps(raw), target, sources)
     assert verdict.status == "issues"
@@ -1370,6 +1368,7 @@ def test_early_issue_protocol_does_not_weaken_supported_or_bound_evidence(tmp_pa
     payload = request_payload(target, sources)
     raw = json.loads(typed_issues("\nDATA\n" + json.dumps(payload)))
     first, second = target.spans[:2]
+    raw["status"] = "issues"
     raw["reviewed"] = [first.id]
     raw["claims"][0]["targets"] = [first.id]
     if mutation == "partial_supported":
@@ -1406,6 +1405,7 @@ async def test_grounding_request_exposes_only_citable_source_span_identifiers(tm
     assert all("id" not in source for source in payload["sources"])
     assert all(source["spans"] for source in payload["sources"])
     assert "s1:13" in schema and "[]" in schema and "spans" in schema
+    assert '"status"' not in schema and '"reviewed"' not in schema
 
 
 def test_source_group_label_stays_invalid_even_with_other_valid_span_references(tmp_path):
@@ -1493,3 +1493,96 @@ async def test_required_review_disables_utility_thinking_without_actor_override(
     assert deps.config is original_config
     assert deps.config.runtime.judge_timeout_s == 20
     assert deps.config.runtime.judge_max_tokens == 3072
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("clean", "supported"),
+        ("first_issue", "issues"),
+        ("missing_id", "incomplete"),
+        ("unknown_target", "incomplete"),
+        ("unknown_source", "incomplete"),
+        ("wrong_digest", "incomplete"),
+        ("unclear_kind", "incomplete"),
+        ("legacy_status_only", "incomplete"),
+        ("legacy_reviewed_only", "incomplete"),
+        ("legacy_conflict", "incomplete"),
+    ],
+)
+def test_claims_only_protocol_derives_verdict_from_bound_coverage(tmp_path, case, expected):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import parse_verdict, request_payload
+
+    _, target, sources = target_sources(tmp_path, ("Orion report context. " * 15 + "\n") * 5)
+    assert len(target.spans) > 2
+    raw = json.loads(typed_clean("\nDATA\n" + json.dumps(request_payload(target, sources))))
+    raw.pop("status", None)
+    raw.pop("reviewed", None)
+    if case in {"first_issue", "missing_id"}:
+        raw["claims"][0]["targets"] = [target.spans[0].id]
+        if case == "first_issue":
+            raw["claims"][0]["kind"] = "contradicted"
+    elif case == "unknown_target":
+        raw["claims"][0]["targets"] = ["unknown"]
+    elif case == "unknown_source":
+        raw["claims"][0]["sources"] = ["s1"]
+    elif case == "wrong_digest":
+        raw["source_digest"] = "wrong"
+    elif case == "unclear_kind":
+        raw["claims"][0]["kind"] = "unclear"
+    elif case == "legacy_status_only":
+        raw["status"] = "supported"
+    elif case == "legacy_reviewed_only":
+        raw["reviewed"] = list(request_payload(target, sources)["target"])
+    elif case == "legacy_conflict":
+        raw["status"] = "issues"
+        raw["reviewed"] = list(request_payload(target, sources)["target"])
+    verdict = parse_verdict(json.dumps(raw), target, sources)
+    assert verdict.status == expected
+    if expected != "incomplete":
+        covered = {item for claim in raw["claims"] for item in claim["targets"]}
+        assert verdict.reviewed == tuple(span.id for span in target.spans if span.id in covered)
+
+
+@pytest.mark.parametrize("include_style", [False, True])
+def test_claims_only_clean_result_requires_nonfactual_style_coverage(tmp_path, include_style):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import parse_verdict, request_payload
+
+    _, target, sources = target_sources(
+        tmp_path, "Orion released October 25.\n" + "body { color: blue; }\n" * 30
+    )
+    assert len(target.spans) > 1
+    raw = json.loads(typed_clean("\nDATA\n" + json.dumps(request_payload(target, sources))))
+    raw["claims"][0]["targets"] = [target.spans[0].id]
+    if include_style:
+        raw["claims"].append(
+            {
+                "targets": [span.id for span in target.spans[1:]],
+                "kind": "nonfactual",
+                "sources": [],
+                "basis": "CSS presentation rules contain no factual assertions.",
+            }
+        )
+    verdict = parse_verdict(json.dumps(raw), target, sources)
+    assert verdict.status == ("supported" if include_style else "incomplete")
+
+
+@pytest.mark.parametrize("kind", ["supported", "uncertain", "contradicted"])
+def test_legacy_headers_must_agree_with_claims_and_coverage(tmp_path, kind):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import parse_verdict, request_payload
+
+    _, target, sources = target_sources(tmp_path)
+    raw = json.loads(typed_clean("\nDATA\n" + json.dumps(request_payload(target, sources))))
+    raw["claims"][0]["kind"] = kind
+    raw["reviewed"] = [span.id for span in target.spans]
+    expected = "issues" if kind == "contradicted" else "supported"
+    raw["status"] = expected
+    assert parse_verdict(json.dumps(raw), target, sources).status == expected
+    raw["status"] = "supported" if expected == "issues" else "issues"
+    assert parse_verdict(json.dumps(raw), target, sources).status == "incomplete"
