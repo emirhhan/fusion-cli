@@ -74,6 +74,9 @@ _PROMPT = (
     '"basis":<concise reasoning or actionable\n'
     "correction>}]}.\n"
     "Return only these fields; verdict and reviewed coverage are derived from claims.\n"
+    "For a clean result, include EVERY supplied target ID in claims.targets, including\n"
+    "IDs containing only HTML/CSS, formatting, or navigation; classify those as nonfactual.\n"
+    "Omitting any target ID leaves coverage incomplete even when all factual claims agree.\n"
     "One concrete actionable issue may cover a nonempty subset of target IDs. Otherwise,\n"
     "review every target ID and classify all spans with claims (group related\n"
     "IDs). claims.sources must use ONLY exact keys from a source's spans (e.g. s1:13),\n"
