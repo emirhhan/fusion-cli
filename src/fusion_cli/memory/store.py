@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
@@ -62,17 +63,70 @@ _logger = logging.getLogger(__name__)
 _clients: dict[Path, Any] = {}
 _lock = threading.Lock()
 
+
+def _diagnostic_error_class(error: BaseException) -> str:
+    # Category only: even custom exception class names can carry caller data.
+    for cls in (
+        ModuleNotFoundError,
+        ImportError,
+        AttributeError,
+        TypeError,
+        TimeoutError,
+        PermissionError,
+        OSError,
+        ValueError,
+        RuntimeError,
+    ):
+        if isinstance(error, cls):
+            return cls.__name__
+    return "OtherError"
+
+
+@dataclass
+class _AutomaticReadDiagnostic:
+    """Worker-local progress; snapshots never retain a request, backend or publisher."""
+
+    _values: dict[str, str | int | None] = field(default_factory=lambda: {"phase": "admission"})
+    _lock: Any = field(default_factory=threading.Lock)
+
+    def note(self, **values: str | int | None) -> None:
+        with self._lock:
+            self._values.update(values)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._values)
+
+
+_automatic_diagnostic: ContextVar[_AutomaticReadDiagnostic | None] = ContextVar(
+    "automatic_lesson_diagnostic", default=None
+)
+
+
+def _note_automatic_read(**values: str | int | None) -> None:
+    try:
+        if (diagnostic := _automatic_diagnostic.get()) is not None:
+            diagnostic.note(**values)
+    except Exception:
+        pass  # Diagnostics never change optional read semantics.
+
+
 _automatic_read: ContextVar[bool] = ContextVar("automatic_lesson_read", default=False)
 
 
 @contextmanager
-def _automatic_read_scope() -> Iterator[None]:
+def _automatic_read_scope(
+    diagnostic: _AutomaticReadDiagnostic | None = None,
+) -> Iterator[None]:
     """Only automatic hints already own a daemon worker; do not spawn nested pools."""
     token = _automatic_read.set(True)
+    diagnostic_token = _automatic_diagnostic.set(diagnostic) if diagnostic is not None else None
     try:
         yield
     finally:
         _automatic_read.reset(token)
+        if diagnostic_token is not None:
+            _automatic_diagnostic.reset(diagnostic_token)
 
 
 class MemoryUnavailableError(FusionError):
@@ -210,21 +264,51 @@ class GuardedCollection:
         def _kilitli(*args: Any, **kwargs: Any) -> Any:
             bos = _EMPTY_RESULTS.get(name)
             basarisiz: Any = False if yazma else (bos() if bos is not None else None)
+            automatic = _automatic_read.get() and name in _EMPTY_RESULTS
+            if automatic:
+                _note_automatic_read(
+                    backend_operation=name, backend_status="checking", phase="backend_check"
+                )
             if self._is_disabled():
+                if automatic:
+                    _note_automatic_read(backend_status="cooldown", phase="backend_cooldown")
                 return basarisiz
 
             def _calistir() -> tuple[bool, Any]:
+                if automatic:
+                    _note_automatic_read(phase="backend_lock", backend_status="lock_wait")
                 with process_lock(self._directory, PROCESS_LOCK_TIMEOUT_S) as alindi:
-                    return (True, hedef(*args, **kwargs)) if alindi else (False, None)
+                    if not alindi:
+                        if automatic:
+                            _note_automatic_read(
+                                phase="backend_lock", backend_status="lock_unavailable"
+                            )
+                        return False, None
+                    if automatic:
+                        _note_automatic_read(phase="backend_call", backend_status="running")
+                    return True, hedef(*args, **kwargs)
 
-            if _automatic_read.get() and name in _EMPTY_RESULTS:
+            if automatic:
                 # Actual backend lifetime stays inside the single admitted hint worker.
                 # Keep the same process lock/disabled/error contract; manual paths unchanged.
                 try:
                     tamam, sonuc = _calistir()
                 except Exception as exc:
+                    _note_automatic_read(
+                        phase="backend_call",
+                        backend_status="error",
+                        error_class=_diagnostic_error_class(exc),
+                    )
                     _logger.debug("Otomatik bellek okuması atlandı (%s).", type(exc).__name__)
                     return basarisiz
+                if tamam:
+                    values: dict[str, str | int | None] = {
+                        "backend_status": "ok",
+                        "phase": "backend_returned",
+                    }
+                    if name == "count" and isinstance(sonuc, int):
+                        values["count_result"] = max(0, min(1_000_000, sonuc))
+                    _note_automatic_read(**values)
                 return sonuc if tamam else basarisiz
 
             havuz = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-memory-call")

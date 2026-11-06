@@ -116,6 +116,74 @@ class ProviderCallDiagnostic(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class AutomaticRecallDiagnostic(Event):
+    """Private automatic-hint outcome; never serialized onto the native protocol."""
+
+    status: Literal[
+        "disabled_lessons",
+        "disabled_hints",
+        "no_memory",
+        "exhausted_budget",
+        "busy",
+        "timeout",
+        "cancelled",
+        "worker_start_error",
+        "error",
+        "cooldown",
+        "lock_unavailable",
+        "empty",
+        "rejected_format",
+        "ready",
+        "stale_owner",
+        "offer_error",
+        "offered",
+    ]
+    phase: Literal[
+        "gate",
+        "admission",
+        "scope_resolution",
+        "recall",
+        "format",
+        "backend_check",
+        "backend_cooldown",
+        "backend_lock",
+        "backend_call",
+        "backend_returned",
+        "unknown",
+    ]
+    elapsed_ms: int
+    backend_operation: Literal["", "count", "query", "get", "peek"] = ""
+    backend_status: Literal[
+        "",
+        "checking",
+        "cooldown",
+        "lock_wait",
+        "lock_unavailable",
+        "running",
+        "error",
+        "ok",
+    ] = ""
+    error_class: Literal[
+        "",
+        "ModuleNotFoundError",
+        "ImportError",
+        "AttributeError",
+        "TypeError",
+        "TimeoutError",
+        "PermissionError",
+        "OSError",
+        "ValueError",
+        "RuntimeError",
+        "OtherError",
+    ] = ""
+    count_result: int | None = None
+    returned_count: int = 0
+    formatted_count: int = 0
+    memory_kind: Literal["none", "null", "chroma", "other"] = "other"
+    source_version: str = "auto_recall_diag_v1"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelCallFinished(Event):
     """Bir model çağrısı bitti (başarılı ya da değil)."""
 

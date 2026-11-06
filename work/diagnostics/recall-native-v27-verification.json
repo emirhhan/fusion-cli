@@ -1,0 +1,68 @@
+{
+  "base": "7dd21a1e",
+  "source_version": "auto_recall_diag_v1",
+  "scope": "private diagnostics only; native cause remains unmeasured",
+  "worktree": "/Users/motogate/.codex/worktrees/recall-native-diagnostics-v27",
+  "branch": "fix/recall-native-diagnostics-v27",
+  "checks": [
+    {
+      "command": "PYTHONPATH=src LITELLM_MODE=PRODUCTION PYTHON_DOTENV_DISABLED=1 LITELLM_LOCAL_MODEL_COST_MAP=True HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python -m pytest tests/test_automatic_recall_diagnostics.py tests/test_automatic_recall.py tests/test_memory_store.py tests/test_agent_lessons.py tests/test_lesson_runtime_attribution.py tests/test_provider_phase_diagnostics.py tests/test_appserver_bridges.py -q -o addopts=''",
+      "exit_code": 0,
+      "result": "164 passed in 54.73s"
+    },
+    {
+      "command": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/ruff check src/fusion_cli/core/events.py src/fusion_cli/appserver/bridges.py src/fusion_cli/memory/store.py src/fusion_cli/engines/agent/automatic_recall.py src/fusion_cli/engines/agent/learning_steps.py tests/test_automatic_recall.py tests/test_automatic_recall_diagnostics.py",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    },
+    {
+      "command": "/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/ruff format --check src/fusion_cli/core/events.py src/fusion_cli/appserver/bridges.py src/fusion_cli/memory/store.py src/fusion_cli/engines/agent/automatic_recall.py src/fusion_cli/engines/agent/learning_steps.py tests/test_automatic_recall.py tests/test_automatic_recall_diagnostics.py",
+      "exit_code": 0,
+      "result": "7 files already formatted"
+    },
+    {
+      "command": "PYTHONPATH=src LITELLM_MODE=PRODUCTION PYTHON_DOTENV_DISABLED=1 LITELLM_LOCAL_MODEL_COST_MAP=True HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python -m mypy src/fusion_cli/core/events.py src/fusion_cli/appserver/bridges.py src/fusion_cli/memory/store.py src/fusion_cli/engines/agent/automatic_recall.py src/fusion_cli/engines/agent/learning_steps.py --follow-imports=silent",
+      "exit_code": 0,
+      "result": "Success: no issues found in 5 source files"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "clean"
+    }
+  ],
+  "test_first": {
+    "initial_terminal_tests": "2 failed as expected: no private event",
+    "memory_kind_and_categories": "2 failed as expected: absent memory_kind and categories"
+  },
+  "reviews": [
+    {
+      "role": "code-reviewer",
+      "verdict": "APPROVE",
+      "actionable_findings": 0,
+      "final_refresh": "includes memory_kind/error categories and 11 diagnostic tests"
+    },
+    {
+      "role": "python-reviewer",
+      "verdict": "APPROVE",
+      "actionable_findings": 0,
+      "final_refresh": "includes memory_kind/error categories and 11 diagnostic tests"
+    }
+  ],
+  "preserved": [
+    "1 second existing timeout/deadlines",
+    "single admitted daemon worker",
+    "two lessons / 4096 characters",
+    "manual guarded backend behavior",
+    "ownership and offer rollback",
+    "no extra backend calls",
+    "no worker publisher/deps or late owner effects"
+  ],
+  "projection": "Actual EventBus correlation -> TraceWriter persists/replays event; ProtocolSink excludes using exact ProviderCallDiagnostic pattern",
+  "not_performed": [
+    "native build/install/run",
+    "network/API calls",
+    "configuration writes",
+    "action logic fixes"
+  ]
+}
