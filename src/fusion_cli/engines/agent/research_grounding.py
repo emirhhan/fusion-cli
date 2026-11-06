@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
@@ -340,9 +340,25 @@ async def review_grounding(
     prompt = _PROMPT + json.dumps(payload, ensure_ascii=False)
     if not target.complete or len(prompt) > LIMIT:
         return incomplete
+    limits = [deps.config.runtime.request_timeout_s]
+    if deps.deadline is not None:
+        limits.append(deps.deadline.remaining_s())
+    if deps.budget is not None:
+        limits.extend(
+            remaining
+            for remaining in (deps.budget.remaining_s(), deps.budget.idle_remaining_s())
+            if remaining is not None
+        )
+    timeout = min(limits)
+    if timeout <= 0:
+        return incomplete
+    # This required criterion uses time still available to the accepted request;
+    # optional generic reviews retain their configured utility timeout. The
+    # private transport override neither persists nor renews any shared budget.
+    config = replace(deps.config, runtime=replace(deps.config.runtime, judge_timeout_s=timeout))
     try:
-        call = judge(prompt) if judge else review._ask(prompt, deps.config, deps.publisher)
-        result = await asyncio.wait_for(call, timeout=deps.config.runtime.judge_timeout_s + 2.0)
+        call = judge(prompt) if judge else review._ask(prompt, config, deps.publisher)
+        result = await asyncio.wait_for(call, timeout=timeout)
     except Exception:  # Transport/schema failure cannot become a clean factual verdict.
         return incomplete
     if not result.ok or result.truncated:

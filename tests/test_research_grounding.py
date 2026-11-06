@@ -1047,3 +1047,170 @@ async def test_real_report_changed_during_judge_await_keeps_link_and_unverified_
     assert result.final_text.count("Olgusal kaynak denetimi tamamlanamadı.") == 1
     assert result.completion_report.gate.evidence[-1].status is EvidenceStatus.UNVERIFIED
     assert deps.require_budget().verify_rounds == 0
+
+
+@pytest.mark.parametrize(
+    "request_limit,external,hard,idle,expected",
+    [
+        (600, None, None, None, 600),
+        (600, 90, 120, 100, 90),
+        (600, 120, 70, 100, 70),
+        (600, 120, 100, 65, 65),
+        (45, 120, 100, 90, 45),
+    ],
+)
+async def test_required_review_uses_existing_request_and_shared_remaining_time(
+    monkeypatch, tmp_path, request_limit, external, hard, idle, expected
+):
+    from fusion_cli.core.turn_deadline import TurnDeadline
+    from fusion_cli.engines.agent import research_grounding as grounding
+    from tests.test_turn_deadline import FakeClock
+
+    _, target, sources = target_sources(tmp_path)
+    deps = _deps(
+        tmp_path,
+        RecordingSink(),
+        runtime={
+            "request_timeout_s": request_limit,
+            "judge_timeout_s": 20,
+            "judge_max_tokens": 3072,
+            "max_tokens": 8192,
+            "max_retries": 0,
+        },
+    )
+    clock = FakeClock()
+    deps.deadline = TurnDeadline.from_duration(external, clock)
+    if hard is not None or idle is not None:
+        deps.budget = loop._new_budget(deps.config, TurnDeadline.from_duration(hard or 120, clock))
+        deps.budget.total_timeout_s = hard
+        deps.budget.idle_timeout_s = idle
+    original_config = deps.config
+    requests = []
+    waits = []
+
+    class Provider:
+        async def complete(self, request):
+            requests.append(request)
+            # Logical provider duration avoids waiting 56 real seconds offline.
+            if expected > 56:
+                clock.value += 56
+            return model_result(typed_clean(request.messages[0].content))
+
+    async def measured_wait(call, **kwargs):
+        waits.append(kwargs["timeout"])
+        return await call
+
+    monkeypatch.setattr(grounding.review, "build_provider", lambda *args, **kwargs: Provider())
+    monkeypatch.setattr(grounding.asyncio, "wait_for", measured_wait)
+    result = await grounding.review_grounding(target, sources, deps)
+    assert result.status == "supported"
+    assert len(requests) == len(waits) == 1
+    assert requests[0].timeout_s == waits[0] == expected
+    assert requests[0].max_tokens == 3072
+    assert requests[0].max_retries == 0
+    assert deps.config is original_config
+    assert deps.config.runtime.judge_timeout_s == 20
+    assert deps.config.runtime.request_timeout_s == request_limit
+    assert deps.config.runtime.max_tokens == 8192
+    elapsed = 56 if expected > 56 else 0
+    if deps.deadline is not None:
+        assert deps.deadline.remaining_s() == external - elapsed
+    if deps.budget is not None:
+        assert deps.budget.remaining_s() == hard - elapsed
+        assert deps.budget.idle_remaining_s() == idle - elapsed
+
+
+@pytest.mark.parametrize("exhausted", ["external", "hard", "idle"])
+async def test_exhausted_shared_review_time_is_unverified_without_judge_or_retry(
+    monkeypatch, tmp_path, exhausted
+):
+    from fusion_cli.core.turn_deadline import TurnDeadline
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.research_grounding import finalize_grounding
+    from tests.test_turn_deadline import FakeClock
+
+    context, _, sources = target_sources(tmp_path)
+    deps = _deps(tmp_path, RecordingSink(), runtime={"request_timeout_s": 600})
+    deps.tool_context = context
+    clock = FakeClock()
+    deps.deadline = TurnDeadline.from_duration(1 if exhausted == "external" else 60, clock)
+    budget = loop._new_budget(
+        deps.config, TurnDeadline.from_duration(1 if exhausted == "hard" else 60, clock)
+    )
+    deps.budget = budget
+    budget.idle_timeout_s = 1 if exhausted == "idle" else 60
+    budget.research_required = True
+    budget.research_contract = context.delivery_contract.accepted
+    budget.research_sources.extend(sources)
+    clock.value = 1
+    calls = []
+
+    async def judge(prompt, config, publisher):
+        calls.append(prompt)
+        return model_result(typed_clean(prompt))
+
+    monkeypatch.setattr(loop.review, "_ask", judge)
+    outcome = AgentOutcome("Orion release date from official sources.", [])
+    first = await finalize_grounding(outcome, deps, VerificationResult(True))
+    second = await finalize_grounding(outcome, deps, first)
+    assert not calls
+    assert first == second
+    assert first.evidence[-1].status is EvidenceStatus.UNVERIFIED
+    assert budget.verify_rounds == 0
+
+
+async def test_required_review_timeout_cancels_transport_within_shared_hard_time(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from fusion_cli.core.clock import SystemClock
+    from fusion_cli.core.turn_deadline import TurnDeadline
+    from fusion_cli.engines.agent.research_grounding import review_grounding
+
+    _, target, sources = target_sources(tmp_path)
+    deps = _deps(tmp_path, RecordingSink(), runtime={"request_timeout_s": 600})
+    deps.deadline = TurnDeadline.from_duration(0.03, SystemClock())
+    calls = []
+    cancelled = asyncio.Event()
+
+    async def judge(prompt, config, publisher):
+        calls.append(config.runtime.judge_timeout_s)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(loop.review, "_ask", judge)
+    async with asyncio.timeout(0.3):
+        verdict = await review_grounding(target, sources, deps)
+    assert verdict.status == "incomplete"
+    assert len(calls) == 1
+    assert 0 < calls[0] <= 0.03
+    assert cancelled.is_set()
+
+
+async def test_external_cancellation_of_required_review_propagates(monkeypatch, tmp_path):
+    import asyncio
+
+    from fusion_cli.engines.agent.research_grounding import review_grounding
+
+    _, target, sources = target_sources(tmp_path)
+    deps = _deps(tmp_path, RecordingSink(), runtime={"request_timeout_s": 600})
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def judge(prompt, config, publisher):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(loop.review, "_ask", judge)
+    task = asyncio.create_task(review_grounding(target, sources, deps))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
