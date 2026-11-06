@@ -619,13 +619,29 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         )
     ):
         return EffectKind.WORKSPACE_MUTATION.value
-    if _matches(lowered, _BULK_COUNT_PATTERNS):
+    if _matches(lowered, _BULK_COUNT_PATTERNS) and not _pure_runtime_catalog_count(task):
         return _BULK_COUNT_EFFECT
     if current_fact or explicit_web:
         return EffectKind.WEB_LOOKUP.value
     if _matches(lowered, _WORKSPACE_READ_PATTERNS):
         return EffectKind.WORKSPACE_READ.value
     return None
+
+
+def _pure_runtime_catalog_count(task: str) -> bool:
+    """Only a whole, explicit current-runtime inventory request is introspection.
+
+    Match the original clause, not extracted prose: quoted instructions, external
+    collections and mixed requests must retain the business evidence gate.
+    """
+    return (
+        re.fullmatch(
+            r"\s*kullanılabilir\s+(?:mcp\s+)?(?:araçlarının|ajanların)\s+"
+            r"(?:sayısını|adedini)\s+ver\s*[.?]?\s*",
+            lower_tr_aware(task),
+        )
+        is not None
+    )
 
 
 def detect_contract(task: str) -> EffectContract | None:

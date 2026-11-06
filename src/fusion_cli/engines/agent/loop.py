@@ -216,6 +216,7 @@ from .expertise import (
     is_remotion_task,
     is_worktree_task,
 )
+from .harness_metadata import DISCOVERY_METADATA_NAMES, data_count_witness
 from .history import history_chars, needs_compression, total_chars
 from .hook_batch import batch_hook
 from .hook_bridge import (
@@ -2916,6 +2917,8 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     if effect is None:
         return True
     evidence = budget.successful_tool_evidence
+    if effect == "bulk_count":
+        return any(data_count_witness(name) for name, _, _ in evidence)
     if effect == "git_push":
         return any(
             tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "push")
@@ -4815,8 +4818,9 @@ async def _run_tools(
             mutating = bool(tool is not None and tool.mutating)
             # Connection metadata and server-authored instructions are not
             # evidence that the user's requested service operation happened.
-            if call.name not in {"DiscoverMcpTools", "WaitForMcpServers"}:
-                budget.successful_tool_evidence.append((call.name, args, mutating))
+            identity = tool.name if tool is not None else call.name
+            if identity not in DISCOVERY_METADATA_NAMES:
+                budget.successful_tool_evidence.append((identity, args, mutating))
             if result.source_read_url:
                 budget.successful_source_reads.append(result.source_read_url)
                 budget.successful_source_read_scopes.append(

@@ -35,6 +35,7 @@ from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from . import history
+from .harness_metadata import DISCOVERY_METADATA_NAMES, OPAQUE_DELEGATION_NAMES
 
 _LOG = logging.getLogger(__name__)
 
@@ -157,24 +158,13 @@ def _fill_prompt(task: str, trace: str) -> str:
 #: Dış içerik getirmeyen ama `BROWSER` ailesinde sayılan araçlar (yerel önizleme).
 _LOCAL_BROWSER_TOOLS = frozenset({"start_preview"})
 #: Ailesi tanınmayan (`EXTERNAL`) ama dış siteyi okuyan yerleşik araçlar.
-_EXTERNAL_BUILTINS = frozenset({"clone_site", "DiscoverMcpTools", "WaitForMcpServers"})
+_EXTERNAL_BUILTINS = frozenset({"clone_site"}) | DISCOVERY_METADATA_NAMES
 #: MCP araçları `<sunucu>__<araç>` biçiminde eklenir (bkz. `core.tools.tool_family`).
 _MCP_SEPARATOR = "__"
 
 
-_OPAQUE_AGENT_RESULT_TOOLS = frozenset(
-    {
-        "Agent",
-        "Task",
-        "spawn_agent",
-        "spawn_agents",
-        "invoke_subagent",
-        "invoke_agent",
-        "ListAgents",
-        "list_agents",
-        "DiscoverMcpTools",
-        "WaitForMcpServers",
-    }
+_OPAQUE_AGENT_RESULT_TOOLS = (
+    OPAQUE_DELEGATION_NAMES | DISCOVERY_METADATA_NAMES | {"ListAgents", "list_agents"}
 )
 
 
