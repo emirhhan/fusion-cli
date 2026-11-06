@@ -1257,3 +1257,69 @@ async def test_required_review_uses_configured_normal_output_cap_only(
     assert deps.config.runtime.max_tokens == normal_cap
     assert deps.config.runtime.judge_max_tokens == 3072
     assert deps.config.runtime.judge_timeout_s == 20
+
+
+@pytest.mark.parametrize(
+    "case,expected",
+    [
+        ("html_body_clipped", "truncated"),
+        ("html_links_clipped", "truncated"),
+        ("html_link_count_clipped", "truncated"),
+        ("html_duplicate_after_cap", "complete"),
+        ("html_nonhttp_after_cap", "complete"),
+        ("html_complete", "complete"),
+        ("html_short_links", "complete"),
+        ("plain_complete", "complete"),
+        ("plain_clipped", "truncated"),
+        ("blocked", "blocked"),
+    ],
+)
+def test_builtin_fetch_preserves_actual_html_rendering_truncation(
+    monkeypatch, tmp_path, case, expected
+):
+    from fusion_cli.core.constants import MAX_OUTPUT_CHARS
+    from fusion_cli.core.tools import ToolContext
+
+    url = "https://orion.example/releases"
+    content_type = "text/html"
+    body = "<p>Orion 8 released October 25.</p>"
+    if case == "html_body_clipped":
+        body = (
+            "<p>" + "Orion release notes. " * 5000 + "END_OF_DOCUMENT_FACT</p>"
+            "<a href='/index'>Release index</a>"
+        )
+    elif case == "html_links_clipped":
+        body = "<a href='/" + "x" * MAX_OUTPUT_CHARS + "__TAIL_TARGET__'>Release index</a>"
+    elif case == "html_link_count_clipped":
+        body = "".join(f"<a href='/release-{index}'>Release</a>" for index in range(80))
+        body += "<a href='/discarded-extra'>Extra</a>"
+    elif case in {"html_duplicate_after_cap", "html_nonhttp_after_cap"}:
+        body = "".join(f"<a href='/release-{index}'>Release</a>" for index in range(80))
+        extra = "/release-1" if case == "html_duplicate_after_cap" else "mailto:info@example.test"
+        body += f"<a href='{extra}'>Extra</a>"
+    elif case == "html_short_links":
+        body += "<a href='/index'>Release index</a>"
+    elif case.startswith("plain_"):
+        content_type = "text/plain"
+        body = "Orion 8 released October 25."
+        if case == "plain_clipped":
+            body *= MAX_OUTPUT_CHARS
+    elif case == "blocked":
+        body = "<p>Please enable javascript to continue</p>"
+    assert len(body.encode()) < web.MAX_FETCH_BYTES
+    monkeypatch.setattr(web, "url_block_reason", lambda value: None)
+    monkeypatch.setattr(web, "fetch_following_redirects", lambda value: (content_type, body, url))
+    result = web.web_fetch({"url": url}, ToolContext(root=tmp_path))
+    assert result.source_receipt.completeness == expected
+    assert result.source_receipt.text in result.output
+    if case.startswith("html_"):
+        rendered = web.page_text(body, url)
+        assert isinstance(rendered, str)
+        if expected == "truncated":
+            assert len(rendered) < MAX_OUTPUT_CHARS
+    if case == "html_body_clipped":
+        assert "END_OF_DOCUMENT_FACT" not in result.source_receipt.text
+    elif case == "html_links_clipped":
+        assert "__TAIL_TARGET__" not in result.source_receipt.text
+    elif case == "html_link_count_clipped":
+        assert "/discarded-extra" not in result.source_receipt.text

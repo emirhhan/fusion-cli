@@ -97,7 +97,10 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
             "Dosyayı projeye indirmek için download_file kullan (PDF/ZIP için sonra "
             "extract_archive ya da uygun araç)."
         )
-    text = page_text(body, final_url) if _looks_like_html(content_type, body) else body
+    if _looks_like_html(content_type, body):
+        text, rendering_truncated = _page_text_with_truncation(body, final_url)
+    else:
+        text, rendering_truncated = body, False
     govde = truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)"
     duvar = access_wall_notice(text)
     fetched_at = timestamp(clock or SystemClock())
@@ -126,7 +129,9 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
         completeness="blocked"
         if duvar
         else "truncated"
-        if len(text) > MAX_OUTPUT_CHARS or len(body.encode("utf-8")) >= MAX_FETCH_BYTES
+        if rendering_truncated
+        or len(text) > MAX_OUTPUT_CHARS
+        or len(body.encode("utf-8")) >= MAX_FETCH_BYTES
         else "complete",
         published_at=dates.published_at or "",
         updated_at=dates.updated_at or "",
@@ -296,28 +301,39 @@ class _PageLinks(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.base_url = base_url
         self.urls: list[str] = []
+        self.truncated = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         href = dict(attrs).get("href")
-        if tag != "a" or not href or len(self.urls) >= 80:
+        if tag != "a" or not href:
             return
         url = urljoin(self.base_url, href)
         if urlparse(url).scheme in _ALLOWED_SCHEMES and url not in self.urls:
-            self.urls.append(url)
+            if len(self.urls) >= 80:
+                self.truncated = True
+            else:
+                self.urls.append(url)
 
 
 def page_text(body: str, base_url: str) -> str:
     """Sayfa temizlenirken indirme bağlantıları kaybolup model URL uydurmasın."""
+    return _page_text_with_truncation(body, base_url)[0]
+
+
+def _page_text_with_truncation(body: str, base_url: str) -> tuple[str, bool]:
+    """Preserve actual rendering loss separately from the public string output."""
     links = _PageLinks(base_url)
     links.feed(body)
     text = strip_html(body)
     if not links.urls:
-        return text
+        return text, False
     # Bağlantılara ayrı yer ayır: uzun sayfa metni indirme hedeflerini kesmesin.
     body_budget = MAX_OUTPUT_CHARS // 2
-    targets = truncate_notice("\n".join(links.urls), body_budget - 100, ne="bağlantılar")
+    link_text = "\n".join(links.urls)
+    targets = truncate_notice(link_text, body_budget - 100, ne="bağlantılar")
     summary = truncate_notice(text, body_budget, ne="sayfa metni")
-    return f"{summary}\n\nSayfadaki bağlantılar:\n{targets}"
+    truncated = links.truncated or len(text) > body_budget or len(link_text) > body_budget - 100
+    return f"{summary}\n\nSayfadaki bağlantılar:\n{targets}", truncated
 
 
 def strip_html(html: str) -> str:
