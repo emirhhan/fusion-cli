@@ -46,7 +46,7 @@ it('öneri metnini HTML olarak çalıştırmaz ve şüpheli belge işaretini kar
   expect(container.querySelector('img')).toBeNull();
   rerender(<DeliveryCard evidence={{...evidence, blocking:true}}/>);
   expect(screen.queryByText('Dosya / önizleme kontrol ayrıntıları')).toBeNull();
-  expect(screen.getByText('Doğrulama geçmedi')).toBeTruthy();
+  expect(screen.getByText('Doğrulama tamamlanamadı')).toBeTruthy();
 });
 
 it('belge dışı doğrulama etiketini değiştirmez', () => {
@@ -58,14 +58,15 @@ it('belge dışı doğrulama etiketini değiştirmez', () => {
   expect(screen.queryByText('Dosya / önizleme kontrolleri')).toBeNull();
 });
 
-it('uyarı ve ölçülemeyen kontroller kapalı ayrıntının arkasında saklanmaz', () => {
+it('uyarı görünür kalır ve ölçülemeyen kontrol tarafsız ayrıntıda korunur', () => {
   const evidence = decodeDeliveryEvidence({schema_version:1,dogrulandi:true,engelliyor:false,yanlis_iddia:false,
     degisen:[],degisen_sayisi:0,sorunlar:[],sunum:'document',uyarilar:['Teslim doğrulanmadı'],
     olculmeyen:['Gerçek gönderim ölçülmedi']});
   if (!evidence) throw new Error('Kanıt çözülmedi');
   render(<DeliveryCard evidence={evidence}/>);
   expect(screen.getByText('Teslim doğrulanmadı').closest('details')).toBeNull();
-  expect(screen.getByText('Gerçek gönderim ölçülmedi').closest('details')).toBeNull();
+  expect(screen.getByText('Gerçek gönderim ölçülmedi').closest('details')?.open).toBe(false);
+  expect(screen.getByText('Doğrulama tamamlanamadı')).toBeTruthy();
   expect(screen.queryByText('Bildirilen kontroller geçti')).toBeNull();
 });
 
@@ -74,7 +75,7 @@ it.each(observationFixtures)("backend gözlem/teslim sınıflaması korunur: $na
   if (!evidence) throw new Error('Kanıt çözülmedi');
   expect(evidence.deliveryKind).toBe(fixture.kind);
   render(<DeliveryCard evidence={evidence}/>);
-  expect(screen.getByText(fixture.title)).toBeTruthy();
+  expect(screen.getByText(fixture.kind === 'artifact' ? 'Doğrulama tamamlanamadı' : fixture.title)).toBeTruthy();
   expect(screen.getByText(`Değişen dosyalar (${fixture.payload.degisen.length})`)).toBeTruthy();
   expect(evidence.changed).toEqual(fixture.payload.degisen);
   expect(evidence.verified).toBe(false);
