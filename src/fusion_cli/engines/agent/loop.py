@@ -4857,18 +4857,6 @@ async def _run_tools(
             identity = tool.name if tool is not None else call.name
             if identity not in DISCOVERY_METADATA_NAMES:
                 budget.successful_tool_evidence.append((identity, args, mutating))
-            if result.source_receipt is not None and budget.research_required:
-                from .research_grounding import capture_source
-
-                contract = budget.research_contract
-                if contract is not None and (
-                    contract.owner == deps.tool_context.job_scope
-                    and deps.tool_context.delivery_contract.accepted == contract
-                ):
-                    receipt = result.source_receipt
-                    if receipt.text not in result.output:
-                        receipt = replace(receipt, text=result.output, completeness="truncated")
-                    budget.research_sources.append(capture_source(receipt, contract, call.id))
             if result.source_read_url:
                 budget.successful_source_reads.append(result.source_read_url)
                 budget.successful_source_read_scopes.append(
@@ -5035,6 +5023,29 @@ async def _run_tools(
             tool_diff=diff,
         )
         messages.append(message)
+        # Semantic evidence must be the trusted reader body actually delivered
+        # to the actor. Hooks may withhold/replace it; their replacement is never
+        # promoted into a reader receipt. Operation observations remain separate.
+        if (
+            outcome is ToolOutcome.OK
+            and budget.research_required
+            and result.source_receipt is not None
+            and post_hook.replaced_output is None
+            and result.output
+            and result.output in govde
+            and result.source_receipt.text
+            and result.source_receipt.text in govde
+        ):
+            from .research_grounding import capture_source
+
+            contract = budget.research_contract
+            if contract is not None and (
+                contract.owner == deps.tool_context.job_scope
+                and deps.tool_context.delivery_contract.accepted == contract
+            ):
+                budget.research_sources.append(
+                    capture_source(result.source_receipt, contract, call.id)
+                )
         if (
             result.visual_observation is not None
             and outcome is ToolOutcome.OK
