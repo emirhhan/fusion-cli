@@ -150,7 +150,7 @@ from ...tools.mcp_background import (
 from ...tools.outside_reads import reads_outside
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
-from ...tools.tool_search import visible_tool_names
+from ...tools.tool_search import bind_tool_search, visible_tool_names
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
@@ -3389,20 +3389,30 @@ async def _call_model(
         )
     _refresh_model_identity(messages, spec)
     update_surface_task(registry, _surface_task(messages))
+
+    def permitted() -> set[str]:
+        return (
+            _permitted(
+                allowed_tools,
+                registry,
+                execution,
+                deps.tool_context.task_kinds,
+                denied=surface_denied(deps, registry.names()),
+                task=_surface_task(messages),
+                phase=deps.tool_context.tool_phase,
+            )
+            or set()
+        )
+
+    # Bind even before a selected service publishes its first search helper.
+    # The callback uses names/policy only and never refreshes descriptions.
+    bind_tool_search(registry, permitted)
     offered_tools = (
         tuple(
             registry.schemas(
                 # Araç araması (#258): ertelenmiş ve yüklenmemiş MCP şemaları gönderilmez.
                 visible_tool_names(
-                    _permitted(
-                        allowed_tools,
-                        registry,
-                        execution,
-                        deps.tool_context.task_kinds,
-                        denied=surface_denied(deps, registry.names()),
-                        task=_surface_task(messages),
-                        phase=deps.tool_context.tool_phase,
-                    ),
+                    permitted(),
                     registry,
                     lambda: input_window_tokens(spec.model),
                     model=spec.model,

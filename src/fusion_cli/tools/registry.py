@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 import time
-from collections.abc import Awaitable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import replace
 from threading import Event
 from typing import Literal, cast
@@ -76,6 +76,9 @@ class ToolRegistry:
         self._tools: dict[str, Tool] = {}
         #: `register_or_replace` ile gelen (uzak/eklenti) araç adları; sıkı yüzeyde sayılır.
         self._remote: set[str] = set()
+        # Runtime-owned admission is deliberately not copied with tool objects.
+        # Search state can be shared; authority cannot be shared across clones.
+        self._tool_search_permitted: Callable[[], set[str]] | None = None
 
     def register(self, tool: Tool) -> None:
         if tool.name in self._tools:
