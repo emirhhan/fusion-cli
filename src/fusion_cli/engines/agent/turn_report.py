@@ -787,7 +787,7 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
     gate = report.gate
     verified: list[str] = []
     unmeasured: list[str] = []
-    if gate is not None and gate.ok:
+    if gate is not None:
         verified.extend(
             _gate_label(item)
             for item in gate.evidence
@@ -801,6 +801,11 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
         for run in runs
     )
     if gate is not None:
+        if any(
+            item.criterion_id == "research_grounding" and item.status is EvidenceStatus.UNVERIFIED
+            for item in gate.evidence
+        ):
+            unmeasured.append("Olgusal kaynak denetimi tamamlanamadı.")
         for warning in gate.warnings:
             reason = _unmeasured_reason(warning)
             if reason is not None:
