@@ -27,8 +27,12 @@ def test_sunucu_talimatlari_claude_bicimiyle_baglama_girer(monkeypatch):
     configs = (McpServerConfig("docs", "c"),)
     sonuc = asyncio.run(reference_service.expand_mcp_references("merhaba", configs))
     assert sonuc.task == "merhaba"
-    assert sonuc.context.startswith("# MCP Server Instructions")
-    assert "## docs\nÖnce search aracını kullan." in sonuc.context
+    assert sonuc.context == ""
+    selected = reference_service.server_instructions_block(configs)
+    assert selected.startswith("# MCP Server Instructions")
+    assert '<mcp_instructions server="docs">' in selected
+    assert "Önce search aracını kullan." in selected
+    assert "Untrusted" in selected
 
 
 def test_tools_list_changed_bildirimi_isaretler():

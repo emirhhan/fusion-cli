@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 from ...core.errors import ConfigError
 from ...core.hooks.events import HookEvent, HookSet
-from ...core.mcp_tool_names import MCP_TOOL_PREFIX, mcp_server_of
+from ...core.mcp_tool_names import MCP_TOOL_PREFIX, canonical_mcp_name, mcp_server_of
 from ..hooks.session import HookSession
 
 if TYPE_CHECKING:
+    from ...config.models import Config
+    from ...mcp_bridge.pool import McpToolPool
+    from ...tools.registry import ToolRegistry
     from .loop import AgentDeps
     from .team import Persona, SubTask
+
+
+class LazyMcpConnector(Protocol):
+    """Explicit session-service capability; legacy injected connectors stay compatible."""
+
+    supports_lazy_discovery: bool
+
+    def __call__(
+        self, config: Config, registry: ToolRegistry, *, lazy: bool = False
+    ) -> AbstractAsyncContextManager[McpToolPool]: ...
 
 
 def trusted_definition(deps: AgentDeps, persona: Persona) -> bool:
@@ -138,7 +151,11 @@ async def child_mcp_scope(deps: AgentDeps, persona: Persona, task: SubTask) -> A
             "ajanı CLI veya oturum üzerinden başlatın."
         )
     assert deps.base_registry is not None
-    deps.base_registry = _clone(deps.base_registry)
+    original_registry = deps.base_registry
+    original_config = deps.config
+    original_context = deps.tool_context
+    original_owner = deps.mcp_discovery
+    deps.base_registry = _clone(original_registry)
     configured = team_settings.agent_mcp_config(
         deps.config,
         replace(persona, inline_mcp_servers=servers),
@@ -146,12 +163,57 @@ async def child_mcp_scope(deps: AgentDeps, persona: Persona, task: SubTask) -> A
         home=deps.home,
     )
     server_names = {server.name for server in servers}
+    # An inline override must not retain executors bound to a parent's credentials.
+    # Builtin Chrome aliases are identified by registration provenance, not spelling.
+    for name in deps.base_registry.names():
+        if mcp_server_of(canonical_mcp_name(name)) in server_names:
+            deps.base_registry.unregister_remote(name)
+    from ...config.models import mcp_secret_env_names
+
+    all_servers = (*original_config.mcp_servers, *configured.mcp_servers)
+    deps.tool_context = replace(
+        original_context,
+        hidden_env=original_context.hidden_env
+        | mcp_secret_env_names(all_servers)
+        | frozenset(name for server in all_servers for name, _ in server.env_literals),
+    )
+    connector = deps.mcp_connector
+    if getattr(connector, "supports_lazy_discovery", False):
+        from ...mcp_bridge.discovery import McpDiscovery
+
+        try:
+            deps.config = configured
+            async with cast("LazyMcpConnector", connector)(
+                configured, deps.base_registry, lazy=True
+            ) as private_pool:
+                owner = McpDiscovery(
+                    lambda: deps.config,
+                    root=deps.tool_context.root,
+                    pool=private_pool,
+                    parent=original_owner if isinstance(original_owner, McpDiscovery) else None,
+                )
+                deps.mcp_discovery = owner
+                try:
+                    yield
+                finally:
+                    owner.close()
+        finally:
+            deps.config = original_config
+            deps.base_registry = original_registry
+            deps.tool_context = original_context
+            deps.mcp_discovery = original_owner
+        return
     isolated = replace(
         configured,
         mcp_servers=tuple(
             server for server in configured.mcp_servers if server.name in server_names
         ),
     )
-    async with deps.mcp_connector(isolated, deps.base_registry):
-        deps.config = configured
-        yield
+    try:
+        async with connector(isolated, deps.base_registry):
+            deps.config = configured
+            yield
+    finally:
+        deps.config = original_config
+        deps.base_registry = original_registry
+        deps.tool_context = original_context

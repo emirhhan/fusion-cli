@@ -99,7 +99,6 @@ async def test_browser_bootstrap_skip_preserves_shell_secret_caps_and_model_conf
 
     monkeypatch.setattr(pool, "ensure_mcp_tools", ensure)
     monkeypatch.setattr(reference_service, "expand_mcp_references", expand)
-    monkeypatch.setattr(cli_session, "new_failure_lines", lambda _: ())
     monkeypatch.setattr(cli_session, "run_agent", run)
     session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
     configured = (
@@ -120,12 +119,12 @@ async def test_browser_bootstrap_skip_preserves_shell_secret_caps_and_model_conf
 
     await session._run_turn("normal main task")
     assert captured[1][0].mcp_servers == configured
-    assert connections == [configured]
+    assert connections == []
     monkeypatch.setattr(
         session_module,
         "CHROME_CODE_TURN_TOOLS",
         session_module.CHROME_CODE_TURN_TOOLS | {"fake-connector__search"},
     )
     await session._chrome_turn("external future surface")
-    assert connections == [configured, configured]
+    assert connections == [configured]
     assert all(config.mcp_servers == configured for config, _ in captured)

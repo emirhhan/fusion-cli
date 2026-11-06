@@ -184,17 +184,8 @@ async def test_bozuk_bir_sunucu_saglam_sunucunun_araclarini_dusurmez(tmp_path):
 # --- fusion agent (tek-atış CLI) MCP'ye bağlanır ---------------------------- #
 
 
-async def test_fusion_agent_yapilandirilmis_mcp_araclarini_gorev_oncesi_baglar(
-    monkeypatch, tmp_path
-):
-    """`fusion agent` (tek-atış) yolu, REPL gibi, dış MCP araçlarını modele sunmalı.
-
-    Önceden yalnızca REPL (`cli/repl/loop.py`) MCP'ye bağlanıyordu; kullanıcı
-    "şu MCP'yi kur" dedikten sonra `fusion agent` ile (ör. otomasyon betiğinde)
-    görev verirse bağlı MCP'nin araçları modele HİÇ sunulmuyordu. Bu test gerçek
-    bir MCP sunucusuna (Fusion'ın kendisi, stdio alt-süreç) bağlanıp aracın
-    `run_agent`'a geçmeden ÖNCE kayıt defterinde göründüğünü doğrular.
-    """
+async def test_fusion_agent_mcp_araclarini_yalniz_acik_secimle_baglar(monkeypatch, tmp_path):
+    """An exact MCP tool allowlist deliberately preflights that server only."""
     from fusion_cli.cli import session
 
     gorulen_registry: list[object] = []
@@ -222,6 +213,7 @@ async def test_fusion_agent_yapilandirilmis_mcp_araclarini_gorev_oncesi_baglar(
         prompter_factory=lambda _drain: _Prompter(),
         root=tmp_path,
         interactive=False,
+        allowed_tools={"mcp__fusion__list_dir"},
     )
 
     assert len(gorulen_registry) == 1

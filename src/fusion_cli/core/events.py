@@ -116,6 +116,22 @@ class ProviderCallDiagnostic(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class McpDiscoveryDiagnostic(Event):
+    """Private phase clock: no identifiers, configuration or remote content."""
+
+    stage: Literal[
+        "catalog_preparation",
+        "selected_connection_wait",
+        "selected_schema_discovery",
+        "runtime_publication",
+        "explicit_reference_expansion",
+    ]
+    elapsed_ms: int
+    selected_count: int
+    outcome: Literal["ready", "cancelled", "error"]
+
+
+@dataclass(frozen=True, slots=True)
 class AutomaticRecallDiagnostic(Event):
     """Private automatic-hint outcome; never serialized onto the native protocol."""
 

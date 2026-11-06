@@ -175,7 +175,9 @@ async def learn(
     if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
-    external = learning.reads_external_content(outcome.tool_uses)
+    external = learning.reads_external_content(outcome.tool_uses) or bool(
+        getattr(deps, "mcp_external_content", False)
+    )
     verification = deps.lesson_state.verification if deps.lesson_state else None
     work = _bounded(
         _extract_and_store(

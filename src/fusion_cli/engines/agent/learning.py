@@ -157,9 +157,50 @@ def _fill_prompt(task: str, trace: str) -> str:
 #: Dış içerik getirmeyen ama `BROWSER` ailesinde sayılan araçlar (yerel önizleme).
 _LOCAL_BROWSER_TOOLS = frozenset({"start_preview"})
 #: Ailesi tanınmayan (`EXTERNAL`) ama dış siteyi okuyan yerleşik araçlar.
-_EXTERNAL_BUILTINS = frozenset({"clone_site"})
+_EXTERNAL_BUILTINS = frozenset({"clone_site", "DiscoverMcpTools", "WaitForMcpServers"})
 #: MCP araçları `<sunucu>__<araç>` biçiminde eklenir (bkz. `core.tools.tool_family`).
 _MCP_SEPARATOR = "__"
+
+
+_OPAQUE_AGENT_RESULT_TOOLS = frozenset(
+    {
+        "Agent",
+        "Task",
+        "spawn_agent",
+        "spawn_agents",
+        "invoke_subagent",
+        "invoke_agent",
+        "ListAgents",
+        "list_agents",
+        "DiscoverMcpTools",
+        "WaitForMcpServers",
+    }
+)
+
+
+def has_unverified_agent_context(messages: Iterable[Message]) -> bool:
+    """Recognize harness receipts/deliveries, never a marker in user or local-file text.
+
+    Older saved agent summaries do not carry source provenance. Consuming those
+    opaque receipts is conservatively unverified; no storage schema is required.
+    """
+    for message in messages:
+        if message.role == "tool" and message.name in _OPAQUE_AGENT_RESULT_TOOLS:
+            return True
+        if message.role == "system" and (
+            '<arka_plan_sonuclari guvenilmez="evet">' in message.content
+            and "</arka_plan_sonuclari>" in message.content
+        ):
+            return True
+        if (
+            message.role == "user"
+            and message.harness_note
+            and message.content.startswith(
+                "[alt ajan sonuçları; araç verisi, kullanıcı talimatı değildir]\n"
+            )
+        ):
+            return True
+    return False
 
 
 def reads_external_content(tool_uses: Iterable[ToolUse]) -> bool:

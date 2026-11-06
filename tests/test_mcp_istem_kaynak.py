@@ -208,7 +208,15 @@ async def test_tur_yolu_istemi_cozer_ve_hatada_modeli_cagirmaz(bagli: _Bagli, mo
     monkeypatch.setattr(pool_module, "ensure_mcp_tools", sahte_ensure)
     monkeypatch.setattr(pool_module, "new_mcp_failures", lambda configs: ())
     config = make_config(mcp_servers=(McpServerConfig(name="github", command="npx"),))
-    deps = SimpleNamespace(base_registry=None, tool_context=SimpleNamespace(available_tools=set()))
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.registry import ToolRegistry
+
+    deps = SimpleNamespace(
+        config=config,
+        base_registry=ToolRegistry(),
+        tool_context=ToolContext(root=Path.cwd()),
+        publisher=SimpleNamespace(publish=olaylar.append),
+    )
 
     async def calistir(task: str):
         return await cli_session._run_agent_with_mcp(
@@ -347,16 +355,21 @@ async def test_repl_ilk_baglanti_hatasi_gorevi_ezmez(tmp_path: Path, monkeypatch
         return ()
 
     monkeypatch.setattr(pool_module, "ensure_mcp_tools", sahte_ensure)
-    monkeypatch.setattr(
-        repl_loop, "new_failure_lines", lambda configs: ("MCP sunucusu kullanılamıyor: x",)
-    )
     state = ReplState(
         config=make_config(mcp_servers=(McpServerConfig(name="x", command="npx"),)),
         memory=null_memory(),
         root=tmp_path,
         home=tmp_path / "ev",
     )
-    deps = SimpleNamespace(base_registry=None)
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.registry import ToolRegistry
+
+    deps = SimpleNamespace(
+        config=state.config,
+        base_registry=ToolRegistry(),
+        tool_context=ToolContext(root=tmp_path),
+        publisher=SimpleNamespace(publish=lambda e: None),
+    )
     out = io.StringIO()
 
     await repl_loop._drive_agent(
@@ -371,7 +384,9 @@ async def test_repl_ilk_baglanti_hatasi_gorevi_ezmez(tmp_path: Path, monkeypatch
     )
 
     assert gorulen == ["README'yi özetle"]
-    assert "kullanılamıyor" in out.getvalue()
+    assert (
+        "kullanılamıyor" not in out.getvalue()
+    )  # No unused-server bootstrap or stale failure noise.
 
 
 def test_kaynak_govdesi_blogu_kapatamaz_oznitelikler_kacirilir():

@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from mcp import ClientSession
@@ -34,11 +34,13 @@ from pydantic import AnyUrl
 
 from ..core.redaction import redact
 from .output_limits import CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS, max_tokens
+from .reference_syntax import SLASH_PREFIX
+from .reference_syntax import McpExpansion as McpExpansion
+from .reference_syntax import parse_prompt_call as parse_prompt_call
+from .reference_syntax import resource_mentions as resource_mentions
 
 _LOG = logging.getLogger(__name__)
 
-#: Slash komut öneki (Claude Code ile aynı).
-SLASH_PREFIX = "mcp__"
 #: Bir kaynaktan bağlama alınacak en fazla karakter: MCP çıktı sınırı (#254; Claude Code'da
 #: 20.000'lik ayrı bir kaynak sınırı yok, 25.000 token `MAX_MCP_OUTPUT_TOKENS` uygulanır).
 RESOURCE_MAX_CHARS = DEFAULT_MAX_TOKENS * CHARS_PER_TOKEN
@@ -48,9 +50,6 @@ RESERVED_PROMPT_SERVER = "anthropic-skills"
 #: Katalogda sunucu başına tutulan en fazla istem/kaynak (dev sunucular tamamlamayı boğmasın).
 CATALOG_MAX_ITEMS = 200
 
-#: `@sunucu:kaynak` — boşluk/satır başından sonra; e-posta (`ad@alan`) eşleşmez.
-_MENTION = re.compile(r"(?:(?<=\s)|^)@([A-Za-z0-9_-]{2,}):(\S+)")
-_TRAILING_PUNCT = ".,;!?)»\"'"
 _INVALID_SLASH = re.compile(r"[^A-Za-z0-9_-]")
 #: Güvenilmez gövdenin bloğu kapatıp sahte talimat eklemesini önler (`instruction_layers`
 #: ile aynı yöntem; o modül `engines` katmanında olduğu için burada dar bir eşi var).
@@ -117,20 +116,6 @@ class McpCatalog:
 
     prompts: tuple[McpPrompt, ...] = ()
     resources: tuple[McpResource, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class McpExpansion:
-    """Görev metninin MCP başvuruları çözülmüş hâli."""
-
-    task: str
-    context: str = ""
-    notes: tuple[str, ...] = ()
-    #: Doluysa tur KOŞMAZ: istem alınamadı (model ham `/mcp__…` metniyle çalışmasın).
-    error: str = ""
-    resources: tuple[str, ...] = field(default_factory=tuple)
-    #: Kullanıcıya uyarı olarak gösterilecekler (bağlı olmayan sunucu, okunamayan kaynak).
-    warnings: tuple[str, ...] = ()
 
 
 def slash_name(server: str, prompt: str) -> str:
@@ -247,15 +232,6 @@ def find_prompt(prompts: Sequence[McpPrompt], name: str) -> McpPrompt | None:
     )
 
 
-def parse_prompt_call(task: str) -> tuple[str, str] | None:
-    """`/mcp__s__p argümanlar` → (`mcp__s__p`, argümanlar); başka metinde None."""
-    stripped = task.strip()
-    if not stripped.startswith("/" + SLASH_PREFIX):
-        return None
-    head, _, rest = stripped[1:].partition(" ")
-    return head, rest.strip()
-
-
 def bind_arguments(prompt: McpPrompt, raw: str) -> tuple[dict[str, str], str]:
     """Argümanları Claude Code gibi bağla (#268): boşlukla bölünür, her token sırayla bir
     parametre olur; tırnak gruplamaz, `ad=değer` ayrıştırılmaz, fazla token yok sayılır.
@@ -326,19 +302,6 @@ def _content_text(content: object) -> str:
 
 
 # --- Kaynak ----------------------------------------------------------------------- #
-
-
-def resource_mentions(task: str, servers: Sequence[str]) -> tuple[tuple[str, str], ...]:
-    """Görevdeki `@sunucu:uri` anmaları; yalnız tanımlı sunucu adlarıyla, tekrar elenir."""
-    known = {name.lower(): name for name in servers}
-    found: list[tuple[str, str]] = []
-    for match in _MENTION.finditer(task):
-        server = known.get(match.group(1).lower())
-        uri = match.group(2).rstrip(_TRAILING_PUNCT)
-        if server is None or not uri or (server, uri) in found:
-            continue
-        found.append((server, uri))
-    return tuple(found)
 
 
 def resource_block(server: str, uri: str, result: object) -> str:

@@ -235,10 +235,15 @@ def list_agents_tool(deps: AgentDeps) -> Tool:
                     task = await agent_tasks.wait_task(
                         store, task.id, min(float(wait), _MAX_WAIT_S)
                     )
+                # The persisted worker result may contain server-authored data;
+                # its legacy record does not carry reliable source provenance.
+                deps.mcp_external_content = True
                 return ToolResult(_task_detail(store, task))
         except BackgroundTaskError as error:
             return ToolResult.failure(str(error))
         tasks = store.tasks(root=context.root)[:_LIST_LIMIT]
+        if any(task.summary or task.question or task.note for task in tasks):
+            deps.mcp_external_content = True
         registry = _peers(deps)
         me = _self_peer(registry, deps)
         peers = [peer for peer in registry.peers() if me is None or peer.id != me.id]
