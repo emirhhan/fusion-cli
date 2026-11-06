@@ -682,30 +682,36 @@ async def test_maxturns_sinirina_ulasan_alt_ajan_kismi_isaretlenir(tmp_path):
     assert "ilk yarı" in run.text and "maxTurns" in run.text
 
 
-async def test_sendmessage_alan_alt_ajan_adli_kardes_listesini_gorur(tmp_path):
-    """Claude Code: SendMessage'i olan fork olmayan alt ajana `main` ve adlı ajanlar listelenir."""
+@pytest.mark.parametrize("denied", [False, True])
+async def test_sendmessage_alan_alt_ajan_adli_kardes_listesini_gorur(tmp_path, monkeypatch, denied):
+    """Mutable sibling claims belong to an authorized request, not early extra_system."""
     from fusion_cli.core.agent_runtime_state import AgentRunState
+    from fusion_cli.engines.agent import loop
     from fusion_cli.engines.agent.team import run_subagent
+    from tests.fakes import ScriptedProvider, model_result
 
     deps = _deps(tmp_path, RecordingSink())
     deps.child_runs.remember(
         AgentRunState(
             "arastirmaci-1",
             deps.child_runs.session_id,
-            str(tmp_path),
+            str(tmp_path.resolve()),
             "x",
             True,
             name="arastirmaci",
         ),
         (),
     )
-    gorulen: dict[str, str] = {}
-
-    async def _ajan(task, sub_deps, **kwargs):
-        gorulen["extra"] = kwargs.get("extra_system") or ""
-        return SimpleNamespace(final_text="tamam", ok=True, tool_calls_made=0, messages=[])
-
-    await run_subagent(deps, SubTask("iş", name="yazar"), depth=0, run_agent=_ajan)
-
-    assert "main" in gorulen["extra"] and "arastirmaci" in gorulen["extra"]
-    assert "SendMessage" in gorulen["extra"]
+    if denied:
+        deps.denied_tools = frozenset({"SendMessage", "send_message"})
+    provider = ScriptedProvider([model_result("tamam")])
+    monkeypatch.setattr(loop, "build_provider", lambda *a, **kw: provider)
+    result = await run_subagent(
+        deps, SubTask("iş", name="yazar"), depth=0, run_agent=loop.run_agent
+    )
+    assert result.ok
+    current = provider.seen_messages[0][0].content.split("<fusion-current-capabilities>")[-1]
+    assert ("SendMessage ile ulaşılabilen ajanlar" in current) is not denied
+    assert ("arastirmaci-1" in current) is not denied
+    if not denied:
+        assert "main" in current and "arastirmaci" in current
