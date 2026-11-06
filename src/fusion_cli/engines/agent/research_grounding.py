@@ -371,7 +371,11 @@ async def review_grounding(
         ),
     )
     try:
-        call = judge(prompt) if judge else review._ask(prompt, config, deps.publisher)
+        call = (
+            judge(prompt)
+            if judge
+            else review._ask(prompt, config, deps.publisher, disable_thinking=True)
+        )
         result = await asyncio.wait_for(call, timeout=timeout)
     except Exception:  # Transport/schema failure cannot become a clean factual verdict.
         return incomplete

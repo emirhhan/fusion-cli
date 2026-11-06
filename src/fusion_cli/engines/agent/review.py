@@ -139,13 +139,20 @@ async def review_turn(
     return parse_feedback(result.text)
 
 
-async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) -> ModelResult:
+async def _ask(
+    prompt: str,
+    config: Config,
+    publisher: EventPublisher | None,
+    *,
+    disable_thinking: bool = False,
+) -> ModelResult:
     request = CompletionRequest(
         messages=(Message("user", prompt),),
         temperature=config.runtime.utility_temperature,
         max_tokens=config.runtime.judge_max_tokens,
         timeout_s=config.runtime.judge_timeout_s,
         max_retries=config.runtime.max_retries,
+        disable_thinking=disable_thinking,
     )
     # Arka plan işi: ilerleme satırı GÖSTERİLMEZ ama harcadığı token muhasebeye girer.
     provider = build_provider(
