@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePath
 from typing import TYPE_CHECKING
@@ -59,6 +60,15 @@ def _invalid(value: object) -> dict[str, object]:
         "sorunlar": ["Kanıt özeti okunamadı."],
         "sorun_sayisi": 1,
     }
+
+
+def _warnings_preserved(warnings: Sequence[str], projected: Mapping[str, object]) -> bool:
+    """Compact delivery is safe only when every public warning remains complete."""
+    return (
+        len(warnings) <= _LISTS["uyarilar"]
+        and all(len(item) <= MAX_TEXT for item in warnings)
+        and projected.get("uyarilar", []) == [redact(item) for item in warnings]
+    )
 
 
 def public_delivery_evidence(value: object) -> dict[str, object] | None:
@@ -233,7 +243,7 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
         and result.get("engelliyor") is False
         and result.get("yanlis_iddia") is False
         and not result.get("sorunlar")
-        and not result.get("uyarilar")
+        and _warnings_preserved(value.get("uyarilar", []), result)
         and not result.get("olculmeyen")
         and not tamper
         and result.get("degisen_sayisi") == 1
@@ -283,6 +293,7 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
             oneriler=list(report.gate.advisories if report.gate else ()),
             degisiklik_ozeti=list(report.change_lines),
         )
+    projected = public_delivery_evidence(payload)
     safe = (
         outcome.ok
         and not outcome.budget_stopped
@@ -297,7 +308,8 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
         and not report.test_tamper
         and not summary.unmeasured
         and report.gate is not None
-        and not report.gate.warnings
+        and projected is not None
+        and _warnings_preserved(report.gate.warnings, projected)
         and len(report.changed_paths) == 1
         and short_static_report_output(task) == report.changed_paths[0].removeprefix("./")
         and payload is not None
@@ -314,4 +326,4 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
         evidence = public_delivery_evidence(payload)
         if evidence is not None and evidence.get("sunum") == "document":
             return DeliveryPresentation(remainder.strip(), evidence, True)
-    return DeliveryPresentation(outcome.final_text, public_delivery_evidence(payload))
+    return DeliveryPresentation(outcome.final_text, projected)
