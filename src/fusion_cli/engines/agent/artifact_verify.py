@@ -103,11 +103,13 @@ def _inspect_pdf(path: Path) -> ArtifactInspection:
     return ArtifactInspection(problem="PDF okuyucu dosyayı açamadı." if result.returncode else "")
 
 
-async def verify_artifact_changes(context: ToolContext) -> VerificationResult:
+async def verify_artifact_changes(
+    context: ToolContext, *, paths: tuple[Path, ...] | None = None
+) -> VerificationResult:
     """Görsel/belge görevinde dosyaları aç, görev sonucuna sahte kod kanıtı bağlama."""
     findings: list[str] = []
     warnings: list[str] = []
-    for path in context.changes.paths:
+    for path in context.changes.paths if paths is None else paths:
         if not path.resolve().is_relative_to(context.root.resolve()):
             findings.append("Teslim dosyası çalışma kökü dışında; okunmadı.")
             continue
@@ -140,6 +142,9 @@ class ArtifactChangeVerifier:
         self._context = context
 
     async def verify(self) -> VerificationResult:
-        if not artifact_only(self._context.changes.paths):
+        from .observation_delivery import delivery_change_paths
+
+        paths = delivery_change_paths(self._context)
+        if not artifact_only(paths):
             return VerificationResult(ok=True)
-        return await verify_artifact_changes(self._context)
+        return await verify_artifact_changes(self._context, paths=paths)

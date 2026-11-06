@@ -184,3 +184,128 @@ def test_internal_capture_presentation_cannot_hide_false_claim_warning():
     assert report.blocks_success
     assert report.render()
     assert report.render_with_model_text("All tests passed.") != "All tests passed."
+
+
+async def _verified_capture_chain(
+    monkeypatch, tmp_path, task=CALCULATOR, *, export=False, last_region=False
+):
+    import io
+
+    from PIL import Image
+
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    _retina(monkeypatch)
+    payloads = []
+    for color in ("red", "green", "blue"):
+        buffer = io.BytesIO()
+        Image.new("RGB", (16, 16), color).save(buffer, format="PNG")
+        payloads.append(buffer.getvalue())
+    monkeypatch.setattr(desktop_screen, "_native_capture", lambda *a, **kw: payloads.pop(0))
+    monkeypatch.setattr(desktop_screen, "_shrink", lambda *a: None)
+    deps, *_ = _setup(monkeypatch, tmp_path)
+    deps.config = replace(
+        deps.config,
+        teacher=None,
+        runtime=replace(
+            deps.config.runtime,
+            self_review=False,
+        ),
+    )
+    deps.verifier = build_verifier(deps.config, root=tmp_path, tool_context=deps.tool_context)
+
+    async def drive(_messages, current, _registry, **kwargs):
+        uses = []
+        for args in (
+            {},
+            {"region": "0,0,1,1"},
+            {"path": desktop_screen.DEFAULT_SCREENSHOT_PATH}
+            if export
+            else ({"region": "0,0,1,1"} if last_region else {}),
+        ):
+            result = desktop_screen.desktop_screenshot(args, current.tool_context)
+            assert result.ok, result.output
+            uses.append(
+                ToolUse("desktop_screenshot", output=result.output, arguments=args, mutating=True)
+            )
+        return loop.AgentOutcome(
+            "83 + 29 = 112; sonuç ekranda doğrulandı.",
+            [],
+            tool_uses=tuple(uses),
+            tool_calls_made=3,
+            mutating_tool_calls_made=3,
+        )
+
+    monkeypatch.setattr(loop, "_drive", drive)
+    outcome = await loop.run_agent(task, deps, verify=True)
+    return outcome, deps
+
+
+async def test_full_region_full_real_verifier_does_not_turn_internal_capture_into_deliverable(
+    monkeypatch,
+    tmp_path,
+):
+    from fusion_cli.engines.agent.turn_evidence import evidence_from_turn
+    from fusion_cli.engines.agent.turn_report import summarize_evidence
+
+    outcome, deps = await _verified_capture_chain(monkeypatch, tmp_path)
+    report = outcome.completion_report
+    assert report is not None
+    assert not report.gate.evidence and not report.gate.warnings
+    assert outcome.final_text == "83 + 29 = 112; sonuç ekranda doğrulandı."
+    assert report.is_verified is False  # no formal behavioral verification manufactured
+    assert not summarize_evidence(report).unmeasured
+    assert not evidence_from_turn(outcome, deps.tool_context).changed_files
+    path = tmp_path / desktop_screen.DEFAULT_SCREENSHOT_PATH
+    assert path in deps.tool_context.changes.paths and path in deps.tool_context.touched
+
+
+@pytest.mark.parametrize("export", [False, True])
+async def test_real_verifier_keeps_requested_screenshot_or_explicit_samepath_export(
+    monkeypatch,
+    tmp_path,
+    export,
+):
+    task = CALCULATOR if export else "Ekran görüntüsünü al ve bana ver."
+    outcome, _ = await _verified_capture_chain(monkeypatch, tmp_path, task, export=export)
+    assert "Görsel / belge dosyası kaydı" in outcome.final_text
+    assert outcome.completion_report.gate.evidence
+
+
+async def test_default_then_region_recapture_keeps_latest_bytes_internal(monkeypatch, tmp_path):
+    outcome, deps = await _verified_capture_chain(monkeypatch, tmp_path, last_region=True)
+    assert outcome.final_text == "83 + 29 = 112; sonuç ekranda doğrulandı."
+    assert not outcome.completion_report.gate.evidence
+    path = tmp_path / desktop_screen.DEFAULT_SCREENSHOT_PATH
+    assert deps.tool_context.desktop.observation_artifact_paths(deps.original_cursor.turn_id) == (
+        path,
+    )
+
+
+@pytest.mark.parametrize("replace_capture", [False, True])
+async def test_delivery_projection_keeps_real_artifact_failure_and_changed_capture(
+    monkeypatch,
+    tmp_path,
+    replace_capture,
+):
+    from fusion_cli.engines.agent.artifact_verify import ArtifactChangeVerifier
+    from fusion_cli.engines.agent.observation_delivery import delivery_change_paths
+
+    _, deps = await _verified_capture_chain(monkeypatch, tmp_path)
+    context = deps.tool_context
+    path = (
+        tmp_path / desktop_screen.DEFAULT_SCREENSHOT_PATH
+        if replace_capture
+        else tmp_path / "user.png"
+    )
+    context.changes.record(path)
+    path.write_bytes(b"invalid user replacement")
+    context.changes.record_applied(path)
+    context.touched.add(path)
+    result = await ArtifactChangeVerifier(context).verify()
+    assert not result.ok and any(path.name in finding for finding in result.findings)
+    assert path in delivery_change_paths(context)
+    if not replace_capture:
+        assert tmp_path / desktop_screen.DEFAULT_SCREENSHOT_PATH not in delivery_change_paths(
+            context
+        )
