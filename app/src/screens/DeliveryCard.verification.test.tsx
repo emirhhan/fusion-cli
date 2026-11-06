@@ -86,3 +86,36 @@ it('invalid metadata cannot hide a known false claim',()=>{
   expect(screen.getByText('Başarı iddiası kanıtla uyuşmuyor')).toBeTruthy();
   expect(screen.getByText('Kanıt kaydı okunamadı')).toBeTruthy();
 });
+
+it.each([
+  {keys:['criteria_count','criteria_status_counts','sorun_sayisi']},
+  {keys:['sorun_sayisi']},
+  {keys:['criteria_count']},
+  {keys:['criteria_status_counts']},
+  {keys:['criteria_count','criteria_status_counts']},
+])('missing totals cannot hide a routine-looking source record: $keys',({keys})=>{
+  const payload: Record<string,unknown>={...fixtures.chromeReadOnly.evidence};
+  for(const key of keys) delete payload[key];
+  card(payload);
+  expect(screen.getByRole('region',{name:'Kanıt özeti'})).toBeTruthy();
+});
+
+it('truncated source-check text cannot hide the delivery notice',()=>{
+  card({...fixtures.chromeReadOnly.evidence,
+    criteria:fixtures.chromeReadOnly.evidence.criteria.map(row=>({...row,text_truncated:true}))});
+  expect(screen.getByRole('region',{name:'Kanıt özeti'})).toBeTruthy();
+  expect(screen.getByText('Bazı ayrıntılar gösterim sınırları nedeniyle kısaltıldı.')).toBeTruthy();
+});
+
+it.each([
+  {keys:['criteria_count','criteria_status_counts','sorun_sayisi']},
+  {keys:['sorun_sayisi']},
+  {keys:['criteria_count']},
+  {keys:['criteria_status_counts']},
+  {keys:['criteria_count','criteria_status_counts']},
+])('missing totals cannot hide a zero-criteria record: $keys',({keys})=>{
+  const payload: Record<string,unknown>={...empty};
+  for(const key of keys) delete payload[key];
+  card(payload);
+  expect(screen.getByRole('region',{name:'Kanıt özeti'})).toBeTruthy();
+});
