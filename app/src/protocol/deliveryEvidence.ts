@@ -160,11 +160,16 @@ export function decodeDeliveryEvidence(value: unknown): DeliveryEvidence | undef
       (result.criteriaTotal ?? 0) > representedCriteria)) {
     result.verified = null;
   }
+  const rawWarnings = isTextList(data.uyarilar) ? data.uyarilar : [];
+  const warningsPreserved = rawWarnings.length <= MAX_PROBLEMS &&
+    result.warnings?.length === rawWarnings.length && rawWarnings.every((text, index) =>
+      Array.from(text).length <= MAX_TEXT && result.warnings?.[index] === sirlariMaskele(text));
+  truncated ||= !warningsPreserved;
   if (truncated || data.ayrintilar_kisaltildi !== undefined) result.detailsTruncated = truncated;
   if (data.sunum === "document" && result.kind === "supported" && result.verified === true &&
       !result.blocking && !result.falseClaim && !hasTamperMetadata && !result.problems.length && result.changed.length === 1 &&
       result.changedTotal === 1 && /\.(?:html?|md|txt|rst)$/i.test(result.changed[0]) &&
-      !result.warnings?.length && !result.unmeasured?.length) result.presentation = "document";
+      warningsPreserved && !result.unmeasured?.length) result.presentation = "document";
   // Ek ayrıntıların bütçesi kritik sorun/uyarı/ölçüm kaybını silemez.
   if (byteLength(result) > MAX_BYTES) {
     result.detailsTruncated = true;

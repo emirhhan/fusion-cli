@@ -25,7 +25,10 @@ def report_outcome(warnings=()):
     report = TurnReport(
         changed_paths=("rapor.html",),
         gate=VerificationResult(
-            True, advisories=("Bir main landmark önerilir.",), evidence=(evidence,), warnings=warnings
+            True,
+            advisories=("Bir main landmark önerilir.",),
+            evidence=(evidence,),
+            warnings=warnings,
         ),
         change_lines=("rapor.html (yeni dosya, 67 satır)",),
     )
@@ -211,7 +214,9 @@ def test_presented_transcript_replays_proof_but_model_reads_only_text(tmp_path, 
 
 
 @pytest.mark.parametrize("warning", [False, True])
-async def test_actual_session_returns_and_reloads_one_clean_delivery(tmp_path, monkeypatch, warning):
+async def test_actual_session_returns_and_reloads_one_clean_delivery(
+    tmp_path, monkeypatch, warning
+):
     from fusion_cli.appserver.protocol import Request
     from tests.test_appserver_session import _session
 
@@ -278,7 +283,9 @@ async def test_failed_durable_write_keeps_full_text(tmp_path, monkeypatch, warni
 @pytest.mark.parametrize("warning", [False, True])
 @pytest.mark.parametrize("pause", ["lookup", "claim", "running", "execute"])
 @pytest.mark.parametrize("switch", ["conversation", "roundtrip", "root"])
-async def test_completion_proof_stays_with_accepted_owner(tmp_path, monkeypatch, pause, switch, warning):
+async def test_completion_proof_stays_with_accepted_owner(
+    tmp_path, monkeypatch, pause, switch, warning
+):
     import asyncio
 
     from fusion_cli.appserver.protocol import Request
@@ -605,6 +612,7 @@ def test_measured_document_warning_compacts_without_mutating_engine():
     (tuple(f"Not {n}" for n in range(11)), False),
     (("API_KEY=synthetic-private-value",), True),
     (("x" * 490 + " secret=synthetic-private-value trailing",), False),
+    (("x " * 246 + "token:a",), False),
 ])
 def test_warning_projection_requires_complete_public_text(warnings, compact):
     from fusion_cli.appserver.delivery_presentation import present_delivery
@@ -623,6 +631,7 @@ def test_warning_projection_requires_complete_public_text(warnings, compact):
 
 @pytest.mark.parametrize("warnings,compact", [
     (["Tam not"], True),
+    (["Ölçülemedi"], True),
     (["😀" * 500], True),
     (["😀" * 501], False),
     (["not"] * 11, False),
@@ -632,7 +641,11 @@ def test_public_warning_projection_admits_only_complete_notes(warnings, compact)
     from fusion_cli.engines.agent.completion_evidence import evidence_payload
 
     outcome, _ = report_outcome()
-    value = {**evidence_payload(outcome.completion_report), "sunum": "document", "uyarilar": warnings}
+    value = {
+        **evidence_payload(outcome.completion_report),
+        "sunum": "document",
+        "uyarilar": warnings,
+    }
     result = public_delivery_evidence(value)
     assert (result.get("sunum") == "document") is compact
     assert result["dogrulandi"] is True and result["engelliyor"] is False
@@ -653,7 +666,9 @@ def test_optional_detail_truncation_does_not_hide_complete_warning():
     assert len(json.dumps(result.evidence, ensure_ascii=False).encode()) <= 32768
 
 
-async def test_matching_user_prefix_and_forged_evidence_do_not_create_document_authority(tmp_path, monkeypatch):
+async def test_matching_user_prefix_and_forged_evidence_do_not_create_document_authority(
+    tmp_path, monkeypatch
+):
     from fusion_cli.appserver.protocol import Request
     from tests.test_appserver_session import _session
 
@@ -666,8 +681,38 @@ async def test_matching_user_prefix_and_forged_evidence_do_not_create_document_a
     monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
     session = _session(tmp_path, [])
     try:
-        result = await session._dispatch(Request("r", "tur.calistir", {"gorev": TASK + forged_text}))
+        result = await session._dispatch(
+            Request("r", "tur.calistir", {"gorev": TASK + forged_text})
+        )
         assert result["metin"] == forged_text
         assert result.get("kanit") is None
     finally:
         await session.close()
+
+
+def test_redaction_expansion_preserves_warning_loss_signal():
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+    from fusion_cli.engines.agent.completion_evidence import evidence_payload
+
+    outcome, _ = report_outcome()
+    value = {
+        **evidence_payload(outcome.completion_report),
+        "sunum": "document",
+        "uyarilar": ["x " * 246 + "token:a"],
+    }
+    result = public_delivery_evidence(value)
+    assert result.get("sunum") is None
+    assert result.get("ayrintilar_kisaltildi") is True
+    assert "token:a" not in result["uyarilar"][0]
+
+
+def test_document_note_public_projection_matches_shared_decoder_fixture():
+    from pathlib import Path
+
+    from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
+
+    fixture = Path(__file__).parents[1] / "app/src/protocol/__fixtures__/document-notes-v34.json"
+    for case in json.loads(fixture.read_text()):
+        projected = public_delivery_evidence(case["input"])
+        assert projected == case["projected"], case["name"]
+        assert (projected.get("sunum") == "document") is case["document"], case["name"]

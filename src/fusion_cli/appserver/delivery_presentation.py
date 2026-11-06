@@ -234,6 +234,8 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
             return _invalid(value)
         if tamper["adet"] and result.get("dogrulandi") is True:
             result["dogrulandi"] = None
+    warnings_preserved = _warnings_preserved(value.get("uyarilar", []), result)
+    shortened |= not warnings_preserved
     changed_paths = result.get("degisen")
     if not isinstance(changed_paths, list):
         return _invalid(value)
@@ -243,7 +245,7 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
         and result.get("engelliyor") is False
         and result.get("yanlis_iddia") is False
         and not result.get("sorunlar")
-        and _warnings_preserved(value.get("uyarilar", []), result)
+        and warnings_preserved
         and not result.get("olculmeyen")
         and not tamper
         and result.get("degisen_sayisi") == 1

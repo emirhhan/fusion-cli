@@ -2,6 +2,7 @@ import {expect, it} from "vitest";
 import {decodeDeliveryEvidence} from "./deliveryEvidence";
 import backendFixtures from "./__fixtures__/document-delivery-v6.json";
 import countFixtures from "./__fixtures__/document-delivery-critical-counts-v6.json";
+import noteFixtures from "./__fixtures__/document-notes-v34.json";
 
 const payload = {schema_version: 1, dogrulandi: true, engelliyor: false,
   yanlis_iddia: false, degisen: ["a.py"], sorunlar: [], degisen_sayisi: 60};
@@ -154,7 +155,7 @@ it("doğrulanmış belgenin kalıcı teknik ayrıntılarını çözer", () => {
 });
 
 it.each([{dogrulandi: false}, {engelliyor: true}, {yanlis_iddia: true}, {sorunlar: ["hata"]},
-  {uyarilar: ["uyarı"]}, {olculmeyen: ["Tarayıcı koşmadı"]}, {schema_version: undefined}])(
+  {olculmeyen: ["Tarayıcı koşmadı"]}, {schema_version: undefined}])(
   "belge işareti sorun veya ölçüm eksikliğini güvenli görünüme dönüştürmez: %s", change => {
     const evidence = decodeDeliveryEvidence({...documentPayload, ...change});
     expect(evidence?.presentation).toBeUndefined();
@@ -195,4 +196,62 @@ it("dosya yolunu başka bir dosyanın adına kırpmaz", () => {
   expect(huge?.presentation).toBeUndefined();
   expect(decodeDeliveryEvidence({...documentPayload,degisen:['dir/sk-abcdefghijklmnopqrstuvwx/report.html']}))
     .toMatchObject({changed:[],changedTotal:1,detailsTruncated:true});
+});
+
+
+it("tam engelleyici olmayan notlar ölçülmüş belge sunumunu korur", () => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,uyarilar:["Dokunma hedefi notu"],
+    kontroller:["Tarayıcıda açıldı"],oneriler:["Main önerisi"],degisiklik_ozeti:["Yeni rapor"]});
+  expect(evidence).toMatchObject({presentation:"document",warnings:["Dokunma hedefi notu"],
+    checks:["Tarayıcıda açıldı"],advisories:["Main önerisi"],changeSummary:["Yeni rapor"]});
+});
+
+it.each([{warnings:Array(11).fill("not")},{warnings:["😀".repeat(501)]}])(
+  "kısaltılan uyarı kompakt sunumu açmaz: $warnings", ({warnings}) => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,uyarilar:warnings});
+  expect(evidence).toMatchObject({kind:"supported",verified:true,blocking:false,detailsTruncated:true});
+  expect(evidence?.presentation).toBeUndefined();
+});
+
+it("uyarıyı maskeledikten sonra Unicode bütçesiyle eksiksiz korur", () => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,uyarilar:["API_KEY=synthetic-private-value","😀".repeat(500)]});
+  expect(evidence?.presentation).toBe("document");
+  expect(evidence?.warnings).toEqual(["[gizlendi]","😀".repeat(500)]);
+  expect(JSON.stringify(evidence)).not.toContain("synthetic-private-value");
+});
+
+it("isteğe bağlı ayrıntı bütçesi tam uyarıyı veya belge yolunu düşürmez", () => {
+  const evidence=decodeDeliveryEvidence({...documentPayload,uyarilar:["Tam görünür not"],
+    kontroller:Array(10).fill("😀".repeat(500)),degisiklik_ozeti:Array(50).fill("😀".repeat(500))});
+  expect(evidence).toMatchObject({presentation:"document",warnings:["Tam görünür not"],changed:["rapor.html"],detailsTruncated:true});
+  expect(new TextEncoder().encode(JSON.stringify(evidence)).byteLength).toBeLessThanOrEqual(32768);
+});
+
+it.each([{dogrulandi:false},{engelliyor:true},{yanlis_iddia:true},{sorunlar:["Sorun"]},
+  {olculmeyen:["Ölçülmedi"]},{criteria:[{status:"unverified"}]},{criteria:[{status:"failed"}]},
+  {schema_version:2},{schema_version:undefined},{supheli_test_degisikligi:{adet:0,zayiflatan:0}}])(
+  "uyarılı belge mevcut güvenlik koşullarını geçersiz kılamaz: %s", change => {
+    expect(decodeDeliveryEvidence({...documentPayload,uyarilar:["Not"],...change})?.presentation).toBeUndefined();
+  });
+
+
+it("maskeleme metni büyütürse kısaltılan uyarı belge işaretini açmaz", () => {
+  const warning="x ".repeat(246)+"token:a";
+  expect(warning.length).toBe(499);
+  const evidence=decodeDeliveryEvidence({...documentPayload,uyarilar:[warning]});
+  expect(evidence?.warnings?.[0]).not.toContain("token:a");
+  expect(Array.from(evidence?.warnings?.[0] ?? "")).toHaveLength(500);
+  expect(evidence?.detailsTruncated).toBe(true);
+  expect(evidence?.presentation).toBeUndefined();
+});
+
+
+it.each(noteFixtures)("tam notlar backend ile tutarlı korunur: $name", fixture => {
+  const raw=decodeDeliveryEvidence(fixture.input);
+  const projected=decodeDeliveryEvidence(fixture.projected);
+  expect(raw?.presentation).toBe(fixture.document?"document":undefined);
+  expect(projected?.presentation).toBe(raw?.presentation);
+  expect(projected?.warnings).toEqual(raw?.warnings);
+  expect(projected?.verified).toBe(raw?.verified);
+  expect(projected?.blocking).toBe(raw?.blocking);
 });
