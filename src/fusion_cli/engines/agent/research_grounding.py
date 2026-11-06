@@ -454,8 +454,43 @@ async def finalize_grounding(
     if verdict is None or verdict.target_digest != target.digest or verdict.source_digest != digest:
         from ...core.events import SelfReviewFinished, SelfReviewStarted
 
+        authority = (
+            budget.research_contract,
+            deps.tool_context.delivery_contract.accepted,
+            str(deps.tool_context.root.resolve()),
+            deps.tool_context.job_scope,
+        )
         deps.publisher.publish(SelfReviewStarted())
         verdict = await review_grounding(target, sources, deps)
+        # A judge verdict describes the snapshot submitted before its await.
+        # Re-read the current delivery and authority before caching/publishing it.
+        current_text = outcome.final_text
+        current_target = await asyncio.to_thread(snapshot_target, deps.tool_context, current_text)
+        current_sources = tuple(budget.research_sources)
+        current_digest = source_digest(_owned_sources(current_target, current_sources))
+        if (
+            current_target != target
+            or current_digest != digest
+            or current_sources != sources
+            or outcome.final_text != current_text
+            or not budget.research_required
+            or authority
+            != (
+                budget.research_contract,
+                deps.tool_context.delivery_contract.accepted,
+                str(deps.tool_context.root.resolve()),
+                deps.tool_context.job_scope,
+            )
+        ):
+            target = current_target
+            verdict = GroundingVerdict(
+                target.digest,
+                current_digest,
+                "incomplete",
+                reason="Olgusal kaynak denetimi tamamlanamadı.",
+            )
+        # Cache incomplete against the current snapshot as well: drift must not
+        # create another judge call at the existing final publication seam.
         budget.research_verdict = verdict
         deps.publisher.publish(
             SelfReviewFinished(
