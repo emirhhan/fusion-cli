@@ -865,3 +865,85 @@ async def test_research_eligibility_is_bound_before_routine_workflow_dispatch(
 
     monkeypatch.setattr(loop, "run_execution_plan", planned)
     await loop.run_agent("Research Orion", deps)
+
+
+@pytest.mark.parametrize("replacement", [None, "Document contents withheld by hook."])
+async def test_real_reader_receipt_requires_final_actor_visible_body(
+    monkeypatch, tmp_path, replacement
+):
+    import json
+
+    from fusion_cli.engines.agent.hook_bridge import ToolNote
+
+    sink = RecordingSink()
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("web_fetch", url="https://orion.example/release")]
+                ),
+                model_result("Kaynak araştırması tamamlandı."),
+            ]
+        ),
+    )
+    monkeypatch.setattr(web, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(
+        web, "fetch_following_redirects", lambda url: ("text/html", PAGES["release"], url)
+    )
+
+    async def post_hook(*args, **kwargs):
+        return ToolNote(replaced_output=replacement)
+
+    payloads = []
+
+    async def judge(prompt, config, publisher):
+        payloads.append(json.loads(prompt.split("\nDATA\n", 1)[1]))
+        return model_result(typed_clean(prompt) if replacement is None else "TAMAM")
+
+    monkeypatch.setattr(loop, "post_tool_use", post_hook)
+    monkeypatch.setattr(loop.review, "_ask", judge)
+    deps = _deps(tmp_path, sink)
+    deps.execution = ExecutionPolicy(
+        is_web=False, requires_web_lookup=True, heuristic_auto_continue=False
+    )
+    result = await loop.run_agent("Research Orion release date", deps)
+    message = next(message for message in result.messages if message.role == "tool")
+    budget = deps.require_budget()
+    # Real execution remains operation evidence even if its body is withheld.
+    assert any(name == "web_fetch" for name, _, _ in budget.successful_tool_evidence)
+    assert any(observation.tool_name == "web_fetch" for observation in budget.data_observations)
+    assert payloads
+    if replacement is None:
+        assert "Release date: 2031-10-25" in message.content
+        assert len(budget.research_sources) == 1
+        assert "Release date: 2031-10-25" in budget.research_sources[0].receipt.text
+        assert payloads[0]["sources"]
+        assert result.ok
+    else:
+        assert message.content == replacement
+        assert budget.research_sources == []
+        assert payloads[0]["sources"] == []
+        assert "Release date: 2031-10-25" not in json.dumps(payloads)
+        assert not result.ok
+
+
+async def test_rendered_grounding_schema_uses_exact_validator_enum_tokens(tmp_path):
+    import re
+
+    from fusion_cli.engines.agent.research_grounding import KINDS, review_grounding
+
+    _, target, sources = target_sources(tmp_path)
+    deps = _deps(tmp_path, RecordingSink())
+    prompts = []
+
+    async def judge(prompt):
+        prompts.append(prompt)
+        return model_result(typed_clean(prompt))
+
+    verdict = await review_grounding(target, sources, deps, judge=judge)
+    assert verdict.status == "supported"
+    schema = prompts[0].split("\nDATA\n", 1)[0]
+    enum = re.search(r'"kind"\s*:\s*(.*?)\s*,\s*"sources"', schema, re.S)
+    assert enum is not None
+    assert set(re.findall(r'"([^"]*)"', enum.group(1))) == KINDS

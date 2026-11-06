@@ -67,9 +67,9 @@ _PROMPT = (
     '{"target_digest":<given>,"source_digest":<given>,"status":"supported"|\n'
     '"issues"|"incomplete","reviewed":[target span IDs],"claims":[{"targets":[target span\n'
     'IDs],"kind"\n'
-    ':"supported"|"uncertain"|"nonfactual"|"unsupported"|"contradicted"|"date_role"|"covera\n'
-    'ge"|"unrea\n'
-    'd_citation","sources":[source span IDs],"basis":<concise reasoning or actionable\n'
+    ':"supported"|"uncertain"|"nonfactual"|"unsupported"|"contradicted"|"date_role"|'
+    '"coverage"|"unread_citation","sources":[source span IDs],'
+    '"basis":<concise reasoning or actionable\n'
     "correction>}]}.\n"
     "Review every target ID, classify all spans with claims (group related IDs). Supported\n"
     "claims\n"
