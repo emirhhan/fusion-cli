@@ -42,7 +42,6 @@ from ..core.types import (
     StreamItem,
     is_permanent_error,
 )
-from .stream_cleanup import close_stream as _close
 from .stream_cleanup import closing_stream
 from .stream_opening import is_liveness_chunk, is_provisional
 
@@ -107,14 +106,13 @@ class RetryingProvider:
                     async for item in stream:
                         yield item
                     return
-                await _close(stream)
-                if delay is None or not self._should_retry(erken):
-                    yield StreamDone(erken)
-                    return
-                wait_s = _wait_s(delay, erken)
-                observe_phase(request, "provider_retry_wait", wait_s=wait_s)
-                await self._sleeper.sleep(wait_s)
-                observe_phase(request, "provider_retry_wait_end")
+            if delay is None or not self._should_retry(erken):
+                yield StreamDone(erken)
+                return
+            wait_s = _wait_s(delay, erken)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
 
     # ----------------------------------------------------------------------- #
 

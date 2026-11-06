@@ -407,3 +407,87 @@ async def test_diagnostic_failure_after_acquisition_still_closes(monkeypatch):
     assert not terminal.result.ok
     assert response.closed == 1
     await stream.aclose()
+
+
+@pytest.mark.parametrize("wrapper", ["retry", "fallback"])
+@pytest.mark.parametrize("opening", ["empty", "failure"])
+async def test_early_wrapper_stream_has_one_owner(wrapper, opening):
+    opened = []
+
+    class EarlyStream:
+        def __init__(self):
+            self.closed = 0
+            self.read = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if opening == "empty" or self.read:
+                raise StopAsyncIteration
+            self.read = True
+            return StreamDone(ModelResult("r", "test/model", "", 0, False, error="failed"))
+
+        async def aclose(self):
+            self.closed += 1
+
+    def open_stream(req):
+        assert all(stream.closed == 1 for stream in opened)
+        stream = EarlyStream()
+        opened.append(stream)
+        return stream
+
+    inner = SimpleNamespace(label="test/model", stream=open_stream)
+
+    async def sleep(delay):
+        assert all(stream.closed == 1 for stream in opened)
+
+    provider = (
+        RetryingProvider(inner, delays_s=[0], sleeper=SimpleNamespace(sleep=sleep))
+        if wrapper == "retry"
+        else FallbackProvider([inner, inner], role="r")
+    )
+    stream = provider.stream(request())
+    terminal = await anext(stream)
+    assert isinstance(terminal, StreamDone)
+    assert all(item.closed == 1 for item in opened)
+    await stream.aclose()
+    assert len(opened) == 2
+    assert all(item.closed == 1 for item in opened)
+
+
+@pytest.mark.parametrize("opening", ["empty", "rate_limit"])
+async def test_key_switch_closes_previous_custom_stream_once(opening):
+    from fusion_cli.providers.key_pool import KeyPool
+    from fusion_cli.providers.key_rotation import KeyRotatingProvider
+
+    closed = []
+
+    class FirstStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if opening == "empty":
+                raise StopAsyncIteration
+            return StreamDone(ModelResult("r", "test/model", "", 0, False, error="429 rate limit"))
+
+        async def aclose(self):
+            closed.append("first")
+
+    async def success():
+        yield StreamDone(ModelResult("r", "test/model", "ok", 0, True))
+
+    def factory(key):
+        if key == "second":
+            assert closed == ["first"]
+        return SimpleNamespace(
+            label="test/model",
+            stream=lambda req: FirstStream() if key == "first" else success(),
+        )
+
+    provider = KeyRotatingProvider(
+        factory, KeyPool(["first", "second"], cooldown_s=60), label="test/model"
+    )
+    assert [item async for item in provider.stream(request())][-1].result.ok
+    assert closed == ["first"]

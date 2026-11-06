@@ -22,7 +22,6 @@ from ..core.types import (
     is_rate_limit_error,
 )
 from .key_pool import KeyPool
-from .stream_cleanup import close_stream as _close
 from .stream_cleanup import closing_stream
 
 #: Bir anahtarla sağlayıcı üreten fabrika (LiteLlmProvider(model, …, api_key=key)).
@@ -72,11 +71,9 @@ class KeyRotatingProvider:
             async with closing_stream(inner.stream(request)) as stream:
                 first = await anext(stream, None)
                 if first is None:
-                    await _close(stream)  # eski akış açık kalıp bağlantı sızdırmasın
                     continue
                 if isinstance(first, StreamDone) and is_rate_limit_error(first.result.error):
                     self._pool.mark_rate_limited(key)
-                    await _close(stream)
                     continue
                 yield first
                 async for item in stream:
