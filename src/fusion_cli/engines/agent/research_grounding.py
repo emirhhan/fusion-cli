@@ -352,10 +352,17 @@ async def review_grounding(
     timeout = min(limits)
     if timeout <= 0:
         return incomplete
-    # This required criterion uses time still available to the accepted request;
-    # optional generic reviews retain their configured utility timeout. The
-    # private transport override neither persists nor renews any shared budget.
-    config = replace(deps.config, runtime=replace(deps.config.runtime, judge_timeout_s=timeout))
+    # This required criterion uses the accepted request's remaining time and
+    # configured normal output cap; optional reviews retain their utility limits.
+    # The private override neither persists nor renews any shared budget.
+    config = replace(
+        deps.config,
+        runtime=replace(
+            deps.config.runtime,
+            judge_timeout_s=timeout,
+            judge_max_tokens=deps.config.runtime.max_tokens,
+        ),
+    )
     try:
         call = judge(prompt) if judge else review._ask(prompt, config, deps.publisher)
         result = await asyncio.wait_for(call, timeout=timeout)
