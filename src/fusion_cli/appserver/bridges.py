@@ -18,7 +18,14 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..core.constants import APPROVAL_UNANSWERED_TIMEOUT_S, QUESTION_RECEIPT_HISTORY_LIMIT
-from ..core.events import Event, ProviderCallDiagnostic, ToolCallRepaired, ToolExecuted, ToolStarted
+from ..core.events import (
+    AutomaticRecallDiagnostic,
+    Event,
+    ProviderCallDiagnostic,
+    ToolCallRepaired,
+    ToolExecuted,
+    ToolStarted,
+)
 from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
 from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
@@ -89,7 +96,7 @@ class ProtocolSink:
         Burada yakalanıp `ProtocolError` olayına çevrilir: uygulama en azından
         BİR olayın iletilemediğini görür.
         """
-        if isinstance(event, ProviderCallDiagnostic):
+        if isinstance(event, (ProviderCallDiagnostic, AutomaticRecallDiagnostic)):
             return
         try:
             correlated = self.correlate(event)

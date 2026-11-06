@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 
 # Döngüsel import'tan kaçınmak için tip yalnızca kontrol anında içe alınır.
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...core.events import LessonsLearned, LessonsRecalled
 from ...core.lesson_runtime import LessonDelivery
@@ -295,15 +297,58 @@ def _hint_remaining_s(deps: AgentDeps) -> float | None:
 
 
 async def recall_hints(task: str, deps: AgentDeps) -> str:
+    """Emit one private terminal outcome on the owning loop; diagnostics are optional."""
+    from ...core.events import AutomaticRecallDiagnostic
+
+    started = time.monotonic()
+    diagnostic: dict[str, Any] = {"status": "error", "phase": "gate", "memory_kind": "other"}
+    # No dynamic class names, store attributes, initialization or backend calls.
+    with suppress(Exception):
+        from ...memory.lessons import ChromaLessonMemory
+        from ...memory.null import NullLessonMemory
+
+        memory = deps.lessons
+        diagnostic["memory_kind"] = (
+            "none"
+            if memory is None
+            else "chroma"
+            if isinstance(memory, ChromaLessonMemory)
+            else "null"
+            if isinstance(memory, NullLessonMemory)
+            else "other"
+        )
+    try:
+        return await _recall_hints(task, deps, diagnostic)
+    except asyncio.CancelledError:
+        diagnostic["status"] = "cancelled"
+        raise
+    finally:
+        # A diagnostic observer cannot suppress a usable hint or cancellation.
+        with suppress(Exception):
+            deps.publisher.publish(
+                AutomaticRecallDiagnostic(
+                    **diagnostic,
+                    elapsed_ms=max(0, min(86_400_000, int((time.monotonic() - started) * 1000))),
+                )
+            )
+
+
+async def _recall_hints(task: str, deps: AgentDeps, diagnostic: dict[str, Any]) -> str:
     """Offer timely automatic hints only on their owning attempt's event loop."""
-    if not deps.config.runtime.lesson_recall_hints or not deps.config.runtime.lessons:
+    if not deps.config.runtime.lessons:
+        diagnostic["status"] = "disabled_lessons"
+        return ""
+    if not deps.config.runtime.lesson_recall_hints:
+        diagnostic["status"] = "disabled_hints"
         return ""
     if deps.lessons is None:
+        diagnostic["status"] = "no_memory"
         return ""
     from .automatic_recall import RecallRequest, retrieve
 
     remaining = _hint_remaining_s(deps)
     if remaining is not None and remaining <= 0:
+        diagnostic["status"] = "exhausted_budget"
         return ""
     attempt = deps.attempt_id
     cursor = deps.original_cursor
@@ -321,19 +366,27 @@ async def recall_hints(task: str, deps: AgentDeps) -> str:
                 lesson_attribution.recall_policy(deps),
             ),
             max_wait_s=remaining,
+            diagnostic=diagnostic,
         )
     except Exception as error:
+        from ...memory.store import _diagnostic_error_class
+
+        diagnostic.update(status="error", error_class=_diagnostic_error_class(error))
         logger.debug("Otomatik ders ipucu atlandı (%s).", type(error).__name__)
         return ""
+    diagnostic.update(result.diagnostic)
+    if not result.block or not result.lessons:
+        return ""
     if (
-        not result.block
-        or not result.lessons
-        or deps.attempt_id != attempt
+        deps.attempt_id != attempt
         or deps.original_cursor is not cursor
         or cursor.turn_id != cursor_turn_id
         or deps.lesson_state is not state
-        or ((remaining := _hint_remaining_s(deps)) is not None and remaining <= 0)
     ):
+        diagnostic["status"] = "stale_owner"
+        return ""
+    if (remaining := _hint_remaining_s(deps)) is not None and remaining <= 0:
+        diagnostic["status"] = "exhausted_budget"
         return ""
     recalled_count = len(deps.recalled_lessons)
     offered = dict(state.offered) if state is not None else {}
@@ -353,8 +406,12 @@ async def recall_hints(task: str, deps: AgentDeps) -> str:
             state.offered.clear()
             state.offered.update(offered)
         deps.lesson_state = state
+        from ...memory.store import _diagnostic_error_class
+
+        diagnostic.update(status="offer_error", error_class=_diagnostic_error_class(error))
         logger.debug("Otomatik ders bildirimi atlandı (%s).", type(error).__name__)
         return ""
+    diagnostic["status"] = "offered"
     return result.block
 
 

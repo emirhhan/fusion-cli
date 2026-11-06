@@ -6,14 +6,21 @@ import asyncio
 import hashlib
 import logging
 import threading
-from dataclasses import dataclass
+from contextlib import suppress
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from ...core.lesson_runtime import HINT_LIMIT
 from ...core.memory import Lesson, LessonMemory, LessonRecallPolicy
 from ...core.redaction import redact
 from ...memory.lessons import _LESSON_PREAMBLE, _prompt_safe
-from ...memory.store import _automatic_read_scope
+from ...memory.store import (
+    _automatic_read_scope,
+    _AutomaticReadDiagnostic,
+    _diagnostic_error_class,
+    _note_automatic_read,
+)
 
 AUTO_RECALL_TIMEOUT_S = 1.0
 AUTO_HINT_TOTAL_CHARS = 4096
@@ -39,6 +46,7 @@ class RecallRequest:
 class HintResult:
     block: str = ""
     lessons: tuple[Lesson, ...] = ()
+    diagnostic: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
 def _format(lessons: tuple[Lesson, ...]) -> HintResult:
@@ -71,22 +79,45 @@ def _read(request: RecallRequest) -> HintResult:
     from .learning_steps import _lesson_tags_for
 
     # Filesystem resolution/marker probes may block too: keep them off the event loop.
+    _note_automatic_read(phase="scope_resolution")
     workspace = str(request.root.resolve())
     tags = _lesson_tags_for(request.root, request.tools, request.owner)
+    _note_automatic_read(phase="recall")
     with _automatic_read_scope():
         lessons = request.memory.recall(
             request.task, limit=HINT_LIMIT, workspace=workspace, tags=tags, policy=request.policy
         )
-    return _format(lessons)
+    _note_automatic_read(phase="format", returned_count=min(HINT_LIMIT, len(lessons)))
+    result = _format(lessons)
+    _note_automatic_read(formatted_count=len(result.lessons))
+    return result
 
 
-async def retrieve(request: RecallRequest, *, max_wait_s: float | None = None) -> HintResult:
+async def retrieve(
+    request: RecallRequest,
+    *,
+    max_wait_s: float | None = None,
+    diagnostic: dict[str, Any] | None = None,
+) -> HintResult:
     """Deadline applies to waiting, not backend termination; late data has no owner effects."""
     wait_s = (
         min(AUTO_RECALL_TIMEOUT_S, max_wait_s) if max_wait_s is not None else AUTO_RECALL_TIMEOUT_S
     )
-    if wait_s <= 0 or not _slot.acquire(blocking=False):
-        return HintResult()
+    progress = _AutomaticReadDiagnostic()
+
+    def outcome(status: str, result: HintResult | None = None) -> HintResult:
+        try:
+            values = progress.snapshot()
+        except Exception:
+            values = {"phase": "unknown"}
+        return replace(
+            result if result is not None else HintResult(), diagnostic={**values, "status": status}
+        )
+
+    if wait_s <= 0:
+        return outcome("exhausted_budget")
+    if not _slot.acquire(blocking=False):
+        return outcome("busy")
     event_loop = asyncio.get_running_loop()
     deadline = event_loop.time() + wait_s
     completed: asyncio.Future[HintResult] = event_loop.create_future()
@@ -97,8 +128,11 @@ async def retrieve(request: RecallRequest, *, max_wait_s: float | None = None) -
 
     def worker() -> None:
         try:
-            result = _read(request)
+            with _automatic_read_scope(progress):
+                result = _read(request)
         except Exception as error:
+            with suppress(Exception):
+                progress.note(error_class=_diagnostic_error_class(error))
             # Optional hints may fail; task/lesson/error strings may contain secrets.
             _logger.debug("Otomatik ders okuması atlandı (%s).", type(error).__name__)
             result = HintResult()
@@ -112,14 +146,36 @@ async def retrieve(request: RecallRequest, *, max_wait_s: float | None = None) -
 
     try:
         threading.Thread(target=worker, name="fusion-auto-recall", daemon=True).start()
-    except Exception:
+    except Exception as error:
         _slot.release()
-        return HintResult()
+        with suppress(Exception):
+            progress.note(error_class=_diagnostic_error_class(error))
+        return outcome("worker_start_error")
     try:
         done, _pending = await asyncio.wait(
             {completed}, timeout=max(0, deadline - event_loop.time())
         )
-        return completed.result() if done and event_loop.time() < deadline else HintResult()
+        if not done or event_loop.time() >= deadline:
+            return outcome("timeout")
+        result = completed.result()
+        snapshot = outcome("returned", result)
+        values = snapshot.diagnostic
+        status = (
+            "error"
+            if values.get("error_class")
+            else str(values["backend_status"])
+            if values.get("backend_status") in {"cooldown", "lock_unavailable", "error"}
+            else "ready"
+            if result.block and result.lessons
+            else "rejected_format"
+            if values.get("returned_count", 0)
+            else "empty"
+        )
+        return replace(snapshot, diagnostic={**values, "status": status})
+    except asyncio.CancelledError:
+        if diagnostic is not None:
+            diagnostic.update(outcome("cancelled").diagnostic)
+        raise
     finally:
         # Worker never holds deps, publisher or a callback mutating a session.
         if not completed.done():

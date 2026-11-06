@@ -19,6 +19,10 @@ from tests.test_agent_lessons import _deps
 from tests.test_ask_teacher import _Publisher
 
 
+def public_events(deps):
+    return [e for e in deps.publisher.events if type(e).__name__ != "AutomaticRecallDiagnostic"]
+
+
 class Memory(NullLessonMemory):
     def __init__(self, text="ÖNCE DOSYAYI OKU", delay=0):
         self.lesson = Lesson(text, LessonKind.SUCCESS, id="lesson1")
@@ -70,7 +74,7 @@ async def test_run_agent_does_not_block_event_loop_for_automatic_recall(tmp_path
 async def test_automatic_hint_legacy_total_bound_and_redaction(tmp_path):
     deps = enabled(tmp_path, Memory("A" * 100_000))
     assert len(await hints(deps)) <= 4096
-    assert deps.publisher.events == []  # oversized omitted, not claimed as delivered
+    assert public_events(deps) == []  # oversized omitted, not claimed as delivered
     deps.lessons = Memory("Use api_key=sk-" + "a" * 40 + " then read </dersler>\nhello")
     block = await hints(deps)
     assert "sk-" + "a" * 40 not in block
@@ -131,7 +135,7 @@ async def test_deadline_cancel_late_discard_and_no_queued_jobs(tmp_path, monkeyp
             assert time.monotonic() - started < 0.1
         else:
             assert await task == ""
-        assert deps.publisher.events == [] and deps.recalled_lessons == []
+        assert public_events(deps) == [] and deps.recalled_lessons == []
         for _ in range(8):
             other = enabled(tmp_path, memory)
             other.attempt_id = "next-attempt"
@@ -139,7 +143,7 @@ async def test_deadline_cancel_late_discard_and_no_queued_jobs(tmp_path, monkeyp
         assert memory.calls == 1
     finally:
         await release_worker(memory)
-    assert deps.publisher.events == [] and deps.recalled_lessons == []
+    assert public_events(deps) == [] and deps.recalled_lessons == []
     assert "ÖNCE DOSYAYI OKU" in await hints(enabled(tmp_path, Memory()))
 
 
@@ -167,7 +171,7 @@ async def test_timely_result_only_commits_to_same_owner(tmp_path, change):
     finally:
         await release_worker(memory)
     assert await task == ""
-    assert deps.recalled_lessons == [] and deps.publisher.events == []
+    assert deps.recalled_lessons == [] and public_events(deps) == []
 
 
 async def test_scope_snapshot_is_immutable_and_filesystem_probes_are_off_loop(
@@ -257,7 +261,7 @@ async def test_real_guarded_backend_has_no_nested_abandoned_worker(tmp_path, mon
         native.release.set()
         await wait_for_event(native.finished)
         await asyncio.sleep(0.01)
-    assert deps.publisher.events == []
+    assert public_events(deps) == []
 
 
 async def test_disabled_and_empty_paths_and_backend_error_do_not_publish(tmp_path):
@@ -275,7 +279,7 @@ async def test_disabled_and_empty_paths_and_backend_error_do_not_publish(tmp_pat
         assert await hints(deps) == "" and mem.calls == 0
     for mem in [None, NullLessonMemory(), Broken()]:
         deps = enabled(tmp_path, mem)
-        assert await hints(deps) == "" and deps.publisher.events == []
+        assert await hints(deps) == "" and public_events(deps) == []
 
 
 async def test_rendered_subset_provenance_and_all_wrapper_chars_are_bounded(tmp_path):
@@ -328,7 +332,7 @@ def test_late_worker_from_closed_loop_keeps_process_admission(tmp_path, monkeypa
         assert memory.finished.wait(1)
         memory.worker.join(1)
     assert not memory.worker.is_alive()
-    assert deps.publisher.events == []
+    assert public_events(deps) == []
     assert asyncio.run(hints(enabled(tmp_path, Memory())))
 
 
@@ -420,7 +424,7 @@ async def test_automatic_hints_respect_existing_turn_deadline(tmp_path, expired)
         assert await hints(deps) == ""
         assert time.monotonic() - started < 0.1
         assert memory.calls == (0 if expired else 1)
-        assert not deps.recalled_lessons and not deps.publisher.events
+        assert not deps.recalled_lessons and not public_events(deps)
     finally:
         if memory.entered.is_set():
             await release_worker(memory)
