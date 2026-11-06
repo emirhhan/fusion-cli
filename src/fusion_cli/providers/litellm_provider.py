@@ -38,6 +38,7 @@ from ..core.types import (
 )
 from . import beta_headers
 from .context_window import ollama_num_ctx
+from .stream_cleanup import closing_stream
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
@@ -127,21 +128,22 @@ class LiteLlmProvider:
             sdk = _litellm()
             observe_phase(request, "sdk_await_enter")
             response = await sdk.acompletion(**kwargs)
-            observe_phase(request, "sdk_stream_open")
-            async for chunk in response:
-                chunks.append(chunk)
-                text = _chunk_text(chunk)
-                if request.provider_observer is not None:
-                    request.provider_observer.sdk_chunk(has_text=bool(text))
-                if text:
-                    yield TextChunk(text)
-                else:
-                    # Araç argümanı ya da düşünme parçası: metin yok ama model
-                    # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
-                    # olarak yazan model iki dakika "sessiz" sanılıp her denemede
-                    # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
-                    # sessizlik sınırını tazeler (bkz. `loop._call_model`).
-                    yield TextChunk("", provisional=True)
+            async with closing_stream(response):
+                observe_phase(request, "sdk_stream_open")
+                async for chunk in response:
+                    chunks.append(chunk)
+                    text = _chunk_text(chunk)
+                    if request.provider_observer is not None:
+                        request.provider_observer.sdk_chunk(has_text=bool(text))
+                    if text:
+                        yield TextChunk(text)
+                    else:
+                        # Araç argümanı ya da düşünme parçası: metin yok ama model
+                        # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
+                        # olarak yazan model iki dakika "sessiz" sanılıp her denemede
+                        # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
+                        # sessizlik sınırını tazeler (bkz. `loop._call_model`).
+                        yield TextChunk("", provisional=True)
         except Exception as exc:
             yield StreamDone(self._with_effort(self._failure(exc, started), request))
             return

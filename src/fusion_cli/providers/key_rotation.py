@@ -22,6 +22,8 @@ from ..core.types import (
     is_rate_limit_error,
 )
 from .key_pool import KeyPool
+from .stream_cleanup import close_stream as _close
+from .stream_cleanup import closing_stream
 
 #: Bir anahtarla sağlayıcı üreten fabrika (LiteLlmProvider(model, …, api_key=key)).
 KeyedProviderFactory = Callable[[str], LlmProvider]
@@ -67,29 +69,20 @@ class KeyRotatingProvider:
             if key is None:
                 break
             inner = self._factory(key)
-            stream = inner.stream(request)
-            first = await anext(stream, None)
-            if first is None:
-                await _close(stream)  # eski akış açık kalıp bağlantı sızdırmasın
-                continue
-            if isinstance(first, StreamDone) and is_rate_limit_error(first.result.error):
-                self._pool.mark_rate_limited(key)
-                await _close(stream)
-                continue
-            yield first
+            async with closing_stream(inner.stream(request)) as stream:
+                first = await anext(stream, None)
+                if first is None:
+                    await _close(stream)  # eski akış açık kalıp bağlantı sızdırmasın
+                    continue
+                if isinstance(first, StreamDone) and is_rate_limit_error(first.result.error):
+                    self._pool.mark_rate_limited(key)
+                    await _close(stream)
+                    continue
+                yield first
+                async for item in stream:
+                    yield item
+                return
+        # Anahtar kalmadı: son çare tek akış.
+        async with closing_stream(self._factory(self._fallback_key()).stream(request)) as stream:
             async for item in stream:
                 yield item
-            return
-        # Anahtar kalmadı: son çare tek akış.
-        async for item in self._factory(self._fallback_key()).stream(request):
-            yield item
-
-
-async def _close(stream: AsyncIterator[StreamItem]) -> None:
-    closer = getattr(stream, "aclose", None)
-    if closer is None:
-        return
-    try:
-        await closer()
-    except Exception:
-        return

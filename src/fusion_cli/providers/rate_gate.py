@@ -28,6 +28,7 @@ from ..core.protocols import Clock, LlmProvider, RateLedger, Sleeper
 from ..core.provider_diagnostics import observe_phase
 from ..core.rate_control import RateControl
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
+from .stream_cleanup import closing_stream
 
 #: Kapının ürettiği sonucun hata öneki. "rate limit" içerir: `is_rate_limit_error`
 #: onu gerçek bir 429 gibi sınıflandırır ve zincir aynı yoldan yedeğe geçer.
@@ -78,10 +79,11 @@ class RateGatedProvider:
         if blocked is not None:
             yield StreamDone(blocked)
             return
-        async for item in self._inner.stream(request):
-            if isinstance(item, StreamDone):
-                item = StreamDone(self._record(item.result))
-            yield item
+        async with closing_stream(self._inner.stream(request)) as stream:
+            async for item in stream:
+                if isinstance(item, StreamDone):
+                    item = StreamDone(self._record(item.result))
+                yield item
 
     async def _admit(self, request: CompletionRequest) -> ModelResult | None:
         """Çağrıya izin ver ya da çağrı yapmadan dönülecek sonucu üret."""
