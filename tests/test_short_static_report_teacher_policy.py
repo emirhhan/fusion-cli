@@ -15,6 +15,44 @@ ORDINARY_REPORT = (
 @pytest.mark.parametrize(
     "task",
     [
+        "Resmî sayfayı okuyarak kısa bir rapor.html oluştur. Tek başlık ve kaynak yeterli.",
+        "Read https://example.org/releases/ and create a short report.html with a source link.",
+        "Kısa bir rapor.md hazırla.",
+        (
+            "https://www.python.org/downloads/ resmî sayfasını okuyarak en son kararlı Python "
+            "sürümü ve yayın tarihini içeren kısa bir rapor.html oluştur. Tek başlık, bir kısa "
+            "paragraf ve bir kaynak bağlantısı yeterli; 120 kelimeyi aşma, ek araştırma yapma. "
+            "Dosya yolunu ver."
+        ),
+    ],
+)
+def test_short_report_filename_supplies_report_noun(task):
+    from fusion_cli.engines.agent.teacher_plan import short_static_report_output
+
+    assert classify_teacher_task(task).size == "basit"
+    assert short_static_report_output(task) in {"rapor.html", "report.html", "rapor.md"}
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Create a short analysis in brief-report.html.",
+        "Kısa bir rapor.html oluştur; ayrıca veritabanı ve login ekle.",
+        "Kısa bir rapor.html oluştur; her dakika verileri yenilesin.",
+        "Kısa bir rapor.html oluşturma, kapsamlı inceleme hazırla.",
+        'Create report.html; example: "short report.html".',
+        "Read short-report.html and fix the rendering bug.",
+    ],
+)
+def test_report_filename_does_not_supply_unrequested_short_scope(task):
+    from fusion_cli.engines.agent.teacher_plan import is_bounded_single_file_task
+
+    assert not is_bounded_single_file_task(task)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
         ORDINARY_REPORT,
         (
             "https://example.org/releases/ sayfasını oku; kısa bir HTML raporunu "

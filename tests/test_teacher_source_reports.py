@@ -14,6 +14,29 @@ CURRENT_REPORT = (
 )
 
 
+@pytest.mark.parametrize("verb", ["okuyarak", "okuyup"])
+def test_reading_converb_binds_official_source_without_teacher(verb):
+    from fusion_cli.engines.effects.detect import requested_web_urls
+
+    task = f"https://example.org/releases/ sayfasını {verb} kısa raporu rapor.html olarak hazırla."
+    assert requested_web_urls(task, source_reads_only=True) == ("https://example.org/releases/",)
+    assert is_bounded_single_file_task(task)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "https://example.org/releases/ sayfasını okumayarak kısa raporu rapor.html olarak hazırla.",
+        'Örnekte "https://example.org/releases/ sayfasını okuyarak" yazıyor; rapor.html oluştur.',
+        "https://example.org/releases/ sayfasını okuma; kısa raporu rapor.html olarak hazırla.",
+    ],
+)
+def test_reading_converb_never_admits_negative_or_quoted_source(task):
+    from fusion_cli.engines.effects.detect import requested_web_urls
+
+    assert requested_web_urls(task, source_reads_only=True) == ()
+
+
 @pytest.mark.parametrize(
     "task",
     [

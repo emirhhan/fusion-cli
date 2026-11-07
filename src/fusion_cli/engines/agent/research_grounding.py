@@ -66,6 +66,18 @@ _PROMPT = (
     "conclusions. Resolve conflicting sources or require honest uncertainty. A supported\n"
     "assertion\n"
     "requires actual entailment, not merely a related page.\n"
+    "Aynı takvim tarihinin başka dilde veya biçimde yazılması saat dilimi dönüşümü\n"
+    "ya da çelişki değildir. Seri ilk yayın tarihini mikro sürüm yayın tarihinden ayır;\n"
+    "farklı sürüm düzeylerindeki tarihler birbirini çürütmez. Seri destek bilgisini\n"
+    "kapsamını genişletmeden o serinin mikro sürümü için kullanmak çelişki değildir.\n"
+    "Ancak mevcut bakım durumu ve toplam destek bitişi, o bakım aşamasının bitiş tarihi\n"
+    "değildir. Bunlardan hata düzeltme desteğinin toplam bitişe kadar sürdüğünü veya\n"
+    "toplam destek bitişinden sonra güvenlik desteği verileceğini çıkarma; bu ek iddialar\n"
+    "ayrı açık kaynak kanıtı gerektirir. Destek aşaması ile toplam yaşam döngüsünü ayır.\n"
+    "Kesilmiş bir sayfada okunan açık güncel indirme duyurusu, yalnız o sayfada gösterilen\n"
+    "sürüm iddiasını destekleyebilir; kesilme tek başına bu olumlu kanıtı geçersiz kılmaz.\n"
+    "Okunmayan bölümden yokluk veya eksiksiz tarama sonucu çıkarma. Bulgu türü son\n"
+    "gerekçeyle tutarlı olsun; yeniden değerlendirmede desteklenen iddiayı hata sayma.\n"
     "Return ONLY compact JSON:\n"
     '{"target_digest":<given>,"source_digest":<given>,"claims":[{"targets":[target span\n'
     'IDs],"kind"\n'
@@ -177,8 +189,8 @@ def snapshot_target(context: ToolContext, final_text: str) -> ResearchTarget:
         if Path(path).suffix.lower() in TEXT_FORMATS:
             paths.add(str(path))
     contents = []
-    for index, raw in enumerate(sorted(str(p) for p in paths)):
-        path = (context.root / raw).resolve()
+    resolved_paths = {(context.root / raw).resolve() for raw in paths}
+    for index, path in enumerate(sorted(resolved_paths)):
         if not path.is_relative_to(contract.root) or path.suffix.lower() not in TEXT_FORMATS:
             complete = False
             continue

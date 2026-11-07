@@ -102,6 +102,7 @@ _REPORT_FEATURE_DIRECTIVE = re.compile(
     r"\b(?:ayrıca|ek\s+olarak)\b[^.;!?\n]{0,100}\b(?:geliştir|uygula|kodla|değiştir)\w*\b"
 )
 _STATIC_REPORT_FILE = re.compile(r"\.(?:html?|md|txt|rst)$")
+_REPORT_FILENAME = re.compile(r"(?:.*/)?(?:rapor|report)\.(?:html?|md|txt|rst)$")
 _NON_HTTP_REPORT_SOURCE = re.compile(
     r"\b(?:file|ftp|sftp|data|javascript|mailto):|\b(?!https?://)[a-z][\w+.-]*://"
 )
@@ -162,8 +163,12 @@ def _is_short_static_report(task: str, scope: str, prose: str) -> bool:
         ):
             continue
         return False
+    # Dosya adındaki rapor ismi korunur; dizin/ad içindeki kısa nitelemesi kapsam vermez.
+    report_prose = _FILE_REF.sub(
+        lambda ref: "report" if _REPORT_FILENAME.fullmatch(ref.group()) else " ", scope
+    )
     return bool(
-        _BRIEF_REPORT.search(prose)
+        _BRIEF_REPORT.search(report_prose)
         and not _REJECTED_BRIEF_REPORT.search(prose)
         and not _REPORT_EXPANDED_SCOPE.search(prose)
         and not _REPORT_FEATURE_DIRECTIVE.search(prose)

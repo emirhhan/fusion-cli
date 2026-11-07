@@ -435,7 +435,7 @@ def explicitly_disallows_tools(task: str) -> bool:
 
 
 _SOURCE_READING_ACTION = re.compile(
-    r"\b(?:(?:oku|incele|doğrula|dogrula|başvur|basvur)"
+    r"\b(?:okuyarak|okuyup|(?:oku|incele|doğrula|dogrula|başvur|basvur)"
     r"(?:yun|yın|yin|in|ın|iniz|ınız|yabilir misin)?|kontrol et|"
     r"read|fetch|open|browse|consult|verify|check|cite)\b"
 )
