@@ -1692,7 +1692,12 @@ async def _run_agent(
                 )
             else:
                 remaining = await review_teacher_changes(
-                    task, outcome, deps, registry, verification=verification
+                    task,
+                    outcome,
+                    deps,
+                    registry,
+                    verification=verification,
+                    resolving_findings=True,
                 )
                 if remaining is None or remaining:
                     outcome.ok = False

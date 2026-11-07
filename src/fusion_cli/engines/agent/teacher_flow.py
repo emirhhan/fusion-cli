@@ -34,6 +34,7 @@ from .teacher_plan import (
     TeacherPlanError,
     classify_teacher_task,
     is_bounded_single_file_task,
+    is_short_static_report_task,
     parse_teacher_plan,
     parse_teacher_review,
 )
@@ -667,6 +668,7 @@ async def review_teacher_changes(
     *,
     ordinary_self_review_enabled: bool = False,
     verification: VerificationResult | None = None,
+    resolving_findings: bool = False,
 ) -> tuple[str, ...] | None:
     """Dosya değişikliğini görev gereksinimlerine karşı öğretmene denetlet.
 
@@ -689,6 +691,32 @@ async def review_teacher_changes(
         # One eligible ordinary review is enough for this bounded change. The
         # caller supplies actual eligibility, including explicit overrides; a
         # configured flag alone could otherwise skip both review paths.
+        return None
+    source_review = (
+        deps.budget.research_verdict
+        if deps.budget is not None and deps.budget.research_required
+        else None
+    )
+    if (
+        verification is not None
+        and verification.ok
+        and not resolving_findings
+        and source_review is not None
+        and source_review.status == "supported"
+        and len(deps.tool_context.changes.paths) == 1
+        and is_short_static_report_task(task)
+        and any(
+            item.criterion_id == "research_grounding"
+            and item.status is EvidenceStatus.PASSED
+            and item.applicable
+            and item.source_digest == source_review.target_digest
+            and item.source_after_digest == source_review.source_digest
+            and bool(item.source_digest and item.source_after_digest)
+            for item in verification.evidence
+        )
+    ):
+        # Kaynak ve dosya kapısı geçmiş kısa belgede ikinci otomatik denetim yok.
+        # Açık öğretmen isteği bu dar görev sınıfına girmez; son kaynak kapısı korunur.
         return None
     if not teacher_is_ready(deps, registry):
         return None

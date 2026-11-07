@@ -396,6 +396,10 @@ class CompletionRequest:
     #: düşünme anahtarı olan modeller için (NIM Nemotron). Ölçüldü (3 Ekim 2026): aynı
     #: `header.php` yazımı düşünmeyle 161 sn/4130 token, düşünme kapalı 29 sn/2973 token.
     disable_thinking: bool = False
+    #: Yalnız açıkça istenen yapılandırılmış iç denetim için; normal aktörde None.
+    response_schema: Mapping[str, object] | None = field(default=None, kw_only=True)
+    #: Açık yerel düşünme bütçesi; None normal aktör tercihlerini değiştirmez.
+    reasoning_budget: int | None = field(default=None, kw_only=True)
     #: Bu isteği yapan işin (ana ajan, alt ajan…) kimliği. Durumlu taşımalar (tarayıcı
     #: sohbeti) bunu sohbet anahtarına katar: aynı sistem istemli paralel işler aynı
     #: sohbeti çekiştirmez (P1-31). Boşsa anahtar yalnız mesaj önekinden türer.

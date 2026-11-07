@@ -31,6 +31,7 @@ from ...core.tools import ToolContext
 from ...core.types import ModelResult
 from ...core.verification import VerificationResult
 from . import review
+from .ordinal_evidence import unbacked_ordinals
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -39,6 +40,17 @@ LIMIT = 60_000
 ISSUES = frozenset({"unsupported", "contradicted", "date_role", "coverage", "unread_citation"})
 KINDS = ISSUES | {"supported", "uncertain", "nonfactual"}
 TEXT_FORMATS = frozenset({".html", ".htm", ".md", ".txt", ".csv", ".tsv", ".json", ".xml"})
+_TARGET_NON_PROSE = re.compile(
+    r"<!--[\s\S]*?-->|<(?P<opaque>style|script)\b[^>]*>[\s\S]*?</(?P=opaque)\s*>|"
+    r"""<(?:"[^"]*"|'[^']*'|[^'">])*>""",
+    re.I,
+)
+_SENTENCE_END = re.compile(r"[.!?](?=\s+\S)")
+_ORDINAL_SUPPORT_MISSING = (
+    "Gösterilen kaynak bölümlerinde açık sıra desteği yok. Liste satırları "
+    "tek başına bu türdeki olayın sırasını kanıtlamaz. Bu ek sıra iddiasını "
+    "çıkar veya açıkça destekleyen bir kaynak oku."
+)
 _PROMPT = (
     "Review source consistency of the COMPLETE accepted task, answer and report (including\n"
     "every\n"
@@ -78,6 +90,10 @@ _PROMPT = (
     "sürüm iddiasını destekleyebilir; kesilme tek başına bu olumlu kanıtı geçersiz kılmaz.\n"
     "Okunmayan bölümden yokluk veya eksiksiz tarama sonucu çıkarma. Bulgu türü son\n"
     "gerekçeyle tutarlı olsun; yeniden değerlendirmede desteklenen iddiayı hata sayma.\n"
+    "'A olayından sonra B' ifadesi 'hemen sonraki olay B' demek değildir. Aradaki olayın\n"
+    "özette atlanması, açık ardışıklık veya eksiksizlik iddiası yoksa çelişki değildir.\n"
+    "Sıra iddiasını tarih/sürüm satırlarını sayarak destekleme. Atıf verilen kaynak\n"
+    "bölümlerinde aynı sıranın açık ifadesi yoksa bu iddia desteklenmiş sayılmaz.\n"
     "Return ONLY compact JSON:\n"
     '{"target_digest":<given>,"source_digest":<given>,"claims":[{"targets":[target span\n'
     'IDs],"kind"\n'
@@ -175,11 +191,36 @@ def capture_source(
     )
 
 
+def _target_spans(text: str, prefix: str, location: str) -> tuple[TextSpan, ...]:
+    """Ayrı cümleleri ayrı kapsam hedefi yap; özgün bayt ve konumları koru."""
+    prose = _TARGET_NON_PROSE.sub(lambda match: " " * len(match.group()), text)
+    sentence_ends = tuple(match.end() for match in _SENTENCE_END.finditer(prose))
+    spans: list[TextSpan] = []
+    for block in _spans(text, prefix, location):
+        start = block.start
+        for end in sentence_ends:
+            if (
+                start < end < block.end
+                and prose[start:end].strip()
+                and prose[end : block.end].strip()
+            ):
+                spans.append(
+                    TextSpan(f"{prefix}:{len(spans) + 1}", start, end, text[start:end], location)
+                )
+                start = end
+        spans.append(
+            TextSpan(
+                f"{prefix}:{len(spans) + 1}", start, block.end, text[start : block.end], location
+            )
+        )
+    return tuple(spans)
+
+
 def snapshot_target(context: ToolContext, final_text: str) -> ResearchTarget:
     contract = context.delivery_contract.for_owner(context.root, context.job_scope)
     if contract is None:
         return ResearchTarget("", str(context.root.resolve()), context.job_scope, "", (), "", False)
-    spans = list(_spans(final_text, "answer", "answer"))
+    spans = list(_target_spans(final_text, "answer", "answer"))
     complete = True
     paths = set(context.requested_outputs)
     if contract.document_output:
@@ -203,7 +244,7 @@ def snapshot_target(context: ToolContext, final_text: str) -> ResearchTarget:
         if "\x00" in text:
             complete = False
         contents.append((str(path), hashlib.sha256(data).hexdigest()))
-        spans.extend(_spans(text, f"file{index + 1}", str(path)))
+        spans.extend(_target_spans(text, f"file{index + 1}", str(path)))
     identity = (contract.accepted_id, str(contract.root), contract.owner, final_text, contents)
     return ResearchTarget(
         contract.accepted_id,
@@ -268,6 +309,70 @@ def request_payload(
     }
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Aynı JSON anahtarı eski kararı sessizce ezemesin."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Denetçi JSON yanıtında yinelenen anahtar var.")
+        result[key] = value
+    return result
+
+
+def _response_schema(payload: GroundingPayload) -> dict[str, object]:
+    """Sözdizimi, kimlikler ve kaynak gerekliliği; anlamsal kararı kod üretmez."""
+    source_ids = [key for source in payload["sources"] for key in source["spans"]]
+    properties: dict[str, object] = {
+        "targets": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "enum": list(payload["target"])},
+        },
+        "sources": {"type": "array", "items": {"type": "string", "enum": source_ids}}
+        if source_ids
+        else {"type": "array", "maxItems": 0},
+        "basis": {"type": "string", "minLength": 1, "maxLength": 600},
+    }
+    variants: list[dict[str, object]] = [
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["targets", "sources", "basis", "kind"],
+            "properties": {
+                **properties,
+                "kind": {"type": "string", "enum": sorted(KINDS - {"supported"})},
+            },
+        }
+    ]
+    if source_ids:
+        variants.append(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["targets", "sources", "basis", "kind"],
+                "properties": {
+                    **properties,
+                    "sources": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "enum": source_ids},
+                    },
+                    "kind": {"type": "string", "enum": ["supported"]},
+                },
+            }
+        )
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["target_digest", "source_digest", "claims"],
+        "properties": {
+            "target_digest": {"type": "string", "enum": [payload["target_digest"]]},
+            "source_digest": {"type": "string", "enum": [payload["source_digest"]]},
+            "claims": {"type": "array", "minItems": 1, "items": {"anyOf": variants}},
+        },
+    }
+
+
 def parse_verdict(
     text: str, target: ResearchTarget, sources: tuple[SourceSnapshot, ...]
 ) -> GroundingVerdict:
@@ -277,7 +382,7 @@ def parse_verdict(
         target.digest, sdigest, "incomplete", reason="Olgusal kaynak denetimi tamamlanamadı."
     )
     try:
-        raw = json.loads(text)
+        raw = json.loads(text, object_pairs_hook=_unique_json_object)
         if (
             not isinstance(raw, dict)
             or raw.get("target_digest") != target.digest
@@ -301,7 +406,11 @@ def parse_verdict(
             reviewed_ids = set(reviewed)
         else:
             reviewed_ids = ids
-        source_ids = {key for source in payload["sources"] for key in source["spans"]}
+        source_texts = {
+            key: value for source in payload["sources"] for key, value in source["spans"].items()
+        }
+        source_ids = set(source_texts)
+        target_texts = {span.id: span.text for span in target.spans}
         claims = raw.get("claims")
         if not isinstance(claims, list) or not claims:
             return incomplete
@@ -332,6 +441,12 @@ def parse_verdict(
                 return incomplete
             if kind == "supported" and not refs:
                 return incomplete
+            if kind == "supported" and unbacked_ordinals(
+                " ".join(_TARGET_NON_PROSE.sub(" ", target_texts[key]) for key in targets),
+                (source_texts[key] for key in refs),
+            ):
+                kind = "unsupported"
+                basis = _ORDINAL_SUPPORT_MISSING
             covered.update(targets)
             findings.append(ClaimFinding(tuple(targets), kind, tuple(refs), basis))
         has_issues = any(f.kind in ISSUES for f in findings)
@@ -394,7 +509,13 @@ async def review_grounding(
         call = (
             judge(prompt)
             if judge
-            else review._ask(prompt, config, deps.publisher, disable_thinking=True)
+            else review._ask(
+                prompt,
+                config,
+                deps.publisher,
+                disable_thinking=True,
+                response_schema=_response_schema(payload),
+            )
         )
         result = await asyncio.wait_for(call, timeout=timeout)
     except Exception:  # Transport/schema failure cannot become a clean factual verdict.

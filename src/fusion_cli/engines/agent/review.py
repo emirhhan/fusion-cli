@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from ...config.model_lookup import configured_model_specs
@@ -33,6 +34,7 @@ _PROMPT_PATH = Path(__file__).parent / "prompts" / "review.txt"
 CLEAN_VERDICT = "TAMAM"
 #: Bundan kısa bir cevap anlamlı bir talimat taşıyamaz.
 MIN_INSTRUCTION_CHARS = 8
+_GROUNDED_NIM_REASONING_BUDGET = 1024
 
 #: Denetçiye gösterilecek oturum izinin uzunluğu.
 #:
@@ -145,14 +147,26 @@ async def _ask(
     publisher: EventPublisher | None,
     *,
     disable_thinking: bool = False,
+    response_schema: Mapping[str, object] | None = None,
 ) -> ModelResult:
+    structured_nim = (
+        response_schema is not None
+        and config.judge.model == "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
+    )
     request = CompletionRequest(
         messages=(Message("user", prompt),),
         temperature=config.runtime.utility_temperature,
         max_tokens=config.runtime.judge_max_tokens,
         timeout_s=config.runtime.judge_timeout_s,
         max_retries=config.runtime.max_retries,
-        disable_thinking=disable_thinking,
+        disable_thinking=disable_thinking and not structured_nim,
+        reasoning_effort="medium" if structured_nim else None,
+        reasoning_budget=min(_GROUNDED_NIM_REASONING_BUDGET, config.runtime.judge_max_tokens)
+        if structured_nim
+        else None,
+        # Bu model/taşıma eşleşmesinde şema kısıtı gerçek uçta doğrulandı.
+        # Diğer denetçiler kendi mevcut metin protokolünü korur.
+        response_schema=response_schema if structured_nim else None,
     )
     # Arka plan işi: ilerleme satırı GÖSTERİLMEZ ama harcadığı token muhasebeye girer.
     provider = build_provider(

@@ -83,7 +83,7 @@ async def run_report(monkeypatch, tmp_path, *, supported, typed_judge=None, repa
         lambda url: ("text/html", PAGES[url.rsplit("/", 1)[-1]], url),
     )
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         return model_result(typed_judge(prompt) if typed_judge else "TAMAM")
 
     monkeypatch.setattr(loop.review, "_ask", judge)
@@ -309,7 +309,7 @@ async def test_text_only_research_corrects_without_forced_workspace_write(
         web, "fetch_following_redirects", lambda url: ("text/html", PAGES["release"], url)
     )
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         data = json.loads(prompt.split("\nDATA\n")[1])
         text = " ".join(row["text"] for row in data["target"].values())
         return model_result(typed_issues(prompt) if "October 26" in text else typed_clean(prompt))
@@ -377,7 +377,7 @@ async def test_final_snapshot_changes_invalidate_cached_review(monkeypatch, tmp_
     budget.research_sources.extend(sources)
     calls = []
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         calls.append(prompt)
         return model_result(typed_clean(prompt))
 
@@ -460,7 +460,7 @@ async def test_workflow_finalization_requires_same_grounding_even_without_self_r
     deps.budget.research_sources.extend(sources)
     deps.budget.max_verify_rounds = 0
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         return model_result(typed_clean(prompt) if supported else typed_issues(prompt))
 
     monkeypatch.setattr(loop.review, "_ask", judge)
@@ -660,7 +660,7 @@ async def test_refresh_replaces_only_factual_failure_and_retains_mechanical_fail
     deps.budget.research_sources.extend(sources)
     count = 0
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         nonlocal count
         count += 1
         return model_result(typed_issues(prompt) if count == 1 else typed_clean(prompt))
@@ -781,7 +781,7 @@ async def test_real_workflow_reader_requires_inherited_accepted_contract(
         web, "fetch_following_redirects", lambda url: ("text/html", PAGES["release"], url)
     )
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         return model_result(typed_clean(prompt))
 
     monkeypatch.setattr(loop.review, "_ask", judge)
@@ -894,7 +894,7 @@ async def test_real_reader_receipt_requires_final_actor_visible_body(
 
     payloads = []
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         payloads.append(json.loads(prompt.split("\nDATA\n", 1)[1]))
         return model_result(typed_clean(prompt) if replacement is None else "TAMAM")
 
@@ -987,7 +987,7 @@ async def test_judge_await_drift_invalidates_snapshot_without_extra_review(
     )
     calls = []
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         calls.append(prompt)
         await asyncio.sleep(0)
         if drift == "artifact":
@@ -1142,7 +1142,7 @@ async def test_exhausted_shared_review_time_is_unverified_without_judge_or_retry
     clock.value = 1
     calls = []
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         calls.append(prompt)
         return model_result(typed_clean(prompt))
 
@@ -1171,7 +1171,7 @@ async def test_required_review_timeout_cancels_transport_within_shared_hard_time
     calls = []
     cancelled = asyncio.Event()
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         calls.append(config.runtime.judge_timeout_s)
         try:
             await asyncio.Event().wait()
@@ -1197,7 +1197,7 @@ async def test_external_cancellation_of_required_review_propagates(monkeypatch, 
     started = asyncio.Event()
     cancelled = asyncio.Event()
 
-    async def judge(prompt, config, publisher, *, disable_thinking=False):
+    async def judge(prompt, config, publisher, *, disable_thinking=False, response_schema=None):
         started.set()
         try:
             await asyncio.Event().wait()

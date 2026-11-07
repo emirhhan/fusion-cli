@@ -22,7 +22,7 @@ from ..core.clock import SystemClock
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock
 from ..core.provider_diagnostics import observe_phase
-from ..core.reasoning import resolve_reasoning
+from ..core.reasoning import ReasoningResolution, resolve_reasoning
 from ..core.redaction import redact
 from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
 from ..core.tool_schema_variants import accepts_raw_schemas, with_raw_schemas
@@ -42,6 +42,7 @@ from .stream_cleanup import closing_stream
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
+_NIM_BUDGET_MODEL = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
 
 #: Çıktı bütçesi düşünme sırasında dolduğunda kullanıcıya dönen açıklama.
 TRUNCATED_ERROR = (
@@ -164,6 +165,15 @@ class LiteLlmProvider:
             # NIM's LiteLLM mapping drops max_retries, restoring the SDK default
             # of two retries even when the request explicitly asks for zero.
             kwargs["allowed_openai_params"] = ["max_retries"]
+        if request.response_schema is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "fusion_response",
+                    "strict": True,
+                    "schema": dict(request.response_schema),
+                },
+            }
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             if accepts_raw_schemas(self._model):
@@ -185,6 +195,22 @@ class LiteLlmProvider:
             # Yalnız ölçülen sağlayıcıda: NIM şablon anahtarı. Başka uçlara ham gövde
             # gönderilmez (OpenAI 400 verir).
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        if request.reasoning_budget is not None:
+            if (
+                self._model != _NIM_BUDGET_MODEL
+                or request.reasoning_effort not in {"medium", "high"}
+                or request.disable_thinking
+                or isinstance(request.reasoning_budget, bool)
+                or not 0 < request.reasoning_budget <= request.max_tokens
+            ):
+                raise ValueError("Düşünme bütçesi bu model/istek için geçerli değil.")
+            # Resmî NIM infer API: yerel alanlar. LiteLLM reasoning_effort'u düşürür;
+            # extra_body içindeki yerel alanlar gerçek gövdeye aynen aktarılır.
+            kwargs.pop("reasoning_effort", None)
+            kwargs["extra_body"] = {
+                "reasoning_effort": request.reasoning_effort,
+                "reasoning_budget": request.reasoning_budget,
+            }
         measured_local_default = self._model in {
             "ollama/huihui_ai/qwen3.5-abliterated:9b",
             "ollama_chat/huihui_ai/qwen3.5-abliterated:9b",
@@ -225,7 +251,25 @@ class LiteLlmProvider:
 
     def _with_effort(self, result: ModelResult, request: CompletionRequest) -> ModelResult:
         resolution = resolve_reasoning(request.reasoning_effort, self._capability)
-        if resolution.applied is not None and self._model.startswith("nvidia_nim/"):
+        native_budget = (
+            self._model == _NIM_BUDGET_MODEL
+            and request.reasoning_budget is not None
+            and request.reasoning_effort in {"medium", "high"}
+            and not request.disable_thinking
+            and not isinstance(request.reasoning_budget, bool)
+            and 0 < request.reasoning_budget <= request.max_tokens
+        )
+        if native_budget:
+            resolution = ReasoningResolution(
+                request.reasoning_effort,
+                request.reasoning_effort,
+                "Yoğunluk ve sınırlı bütçe NIM yerel istek gövdesine iletildi.",
+            )
+        if (
+            resolution.applied is not None
+            and self._model.startswith("nvidia_nim/")
+            and not native_budget
+        ):
             # Capability intent can survive our kwargs yet be dropped by the SDK's
             # NIM mapper. The receipt must describe that transport, not the intent.
             supported = _litellm().get_supported_openai_params(
