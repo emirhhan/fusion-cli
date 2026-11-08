@@ -20,6 +20,7 @@ describe("Composer", () => {
     const { rerender } = render(<Composer onSend={vi.fn()} />);
     expect(screen.queryByRole("combobox", { name: "Oturum kişiliği" })).toBeNull();
     rerender(<Composer onSend={vi.fn()} persona={null} personaOptions={[{ ad: "explore", unvan: "Kâşif" }, { ad: "plan" }]} onPersonaChange={onPersonaChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
     const secici = screen.getByRole("combobox", { name: "Oturum kişiliği" }) as HTMLSelectElement;
     expect(secici.value).toBe("");
     fireEvent.change(secici, { target: { value: "explore" } });
@@ -32,6 +33,7 @@ describe("Composer", () => {
 
   it("ajan seçici konuşma başladıktan sonra kilitlenir; ajan oturum başında seçilir (#34)", () => {
     render(<Composer onSend={vi.fn()} persona="explore" personaLocked personaOptions={[{ ad: "explore" }]} onPersonaChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
     const secici = screen.getByRole("combobox", { name: "Oturum kişiliği" }) as HTMLSelectElement;
     expect(secici.disabled).toBe(true);
     expect(secici.title).toContain("yeni sohbet");
@@ -45,6 +47,7 @@ describe("Composer", () => {
     rerender(<Composer commands={[subtask]} onSend={onSend} value="" />);
     expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
     rerender(<Composer commands={[subtask]} onSend={onSend} value="testleri koştur" />);
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("button", { name: "Alt görev olarak gönder" }));
     expect(onSend).toHaveBeenCalledWith("/subtask testleri koştur");
     rerender(<Composer commands={[subtask]} onSend={onSend} value="/compact" />);
@@ -107,6 +110,7 @@ describe("Composer", () => {
     const onWorkspaceModeChange = vi.fn();
     render(<Composer onSend={vi.fn()} onWorkspaceModeChange={onWorkspaceModeChange} workspaceMode="sohbet" />);
     expect(screen.getByRole("textbox", { name: "Mesaj" }).getAttribute("placeholder")).toBe("İstediğin bir şeyi sor");
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("button", { name: /Çalışma kipi: Sohbet/ }));
     expect(onWorkspaceModeChange).toHaveBeenCalledWith("kod");
   });
@@ -278,7 +282,7 @@ describe("Composer — slash paleti ve ekler", () => {
 describe("Composer — izin modu", () => {
   it("seçili izin modunu gösterir; sabit metin basmaz", () => {
     render(<Composer approval="security" onSend={() => undefined} />);
-    expect(screen.getByText("Manuel")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sohbet seçenekleri" }).textContent).toContain("Manuel");
     expect(screen.queryByText("Agent · Otomatik")).toBeNull();
   });
 
@@ -288,6 +292,7 @@ describe("Composer — izin modu", () => {
     const { unmount } = render(
       <Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
     expect(screen.getAllByRole("menuitemradio").map((s) => s.querySelector("strong")?.textContent)).toEqual([
       "Manuel", "Düzenlemeleri kabul et", "Plan", "Otomatik",
@@ -296,6 +301,7 @@ describe("Composer — izin modu", () => {
 
     window.localStorage.setItem("fusion.allowBypassPermissionsMode", "true");
     render(<Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
     const secenekler = screen.getAllByRole("menuitemradio");
     expect(secenekler.map((s) => s.querySelector("strong")?.textContent)).toEqual([
@@ -686,4 +692,39 @@ it("running composer shows an unread active model as failure without a selected-
   const trigger = screen.getByRole("button", { name: /Model: Etkin model okunamadı/ });
   expect(trigger.textContent).toContain("Etkin model okunamadı");
   expect(trigger.textContent).not.toContain("Model seç");
+});
+
+it("dikte yalnız açıkken görünür bir Dinliyor durumu gösterir", () => {
+  const onDictation = vi.fn();
+  const { rerender } = render(<Composer onSend={vi.fn()} onDictation={onDictation} />);
+  expect(screen.queryByRole("status")).toBeNull();
+  rerender(<Composer onSend={vi.fn()} onDictation={onDictation} dictating />);
+  expect(screen.getByRole("status").textContent).toContain("Dinliyor");
+  fireEvent.click(screen.getByRole("button", { name: "Dikteyi durdur" }));
+  expect(onDictation).toHaveBeenCalledOnce();
+});
+it("ikincil seçenekleri kapalı tutar, açınca kişilik değiştirilebilir", () => {
+  const onPersonaChange = vi.fn();
+  render(<Composer onSend={vi.fn()} onPersonaChange={onPersonaChange} personaOptions={[{ ad: "plan" }]} />);
+  expect(screen.queryByRole("combobox", { name: "Oturum kişiliği" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Oturum kişiliği" }), { target: { value: "plan" } });
+  expect(onPersonaChange).toHaveBeenCalledWith("plan");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("combobox", { name: "Oturum kişiliği" })).toBeNull();
+});
+it("Escape önce iç menüyü ve seçenekleri kapatır, sonra çalışan işi durdurabilir", () => {
+  const onStop = vi.fn();
+  render(<Composer onSend={vi.fn()} onStop={onStop} running approval="plan" onApprovalChange={vi.fn()} />);
+  const input = screen.getByRole("textbox", { name: "Mesaj" });
+  fireEvent.keyDown(input, { key: "m", ctrlKey: true, shiftKey: true });
+  expect(screen.getByRole("menu")).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(onStop).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(screen.getByRole("button", { name: "Sohbet seçenekleri" }).getAttribute("aria-expanded")).toBe("false");
+  expect(onStop).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(onStop).toHaveBeenCalledOnce();
 });

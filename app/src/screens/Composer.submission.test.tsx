@@ -117,6 +117,7 @@ it("bekleyen kabul alt gönderimleri kilitlerken çalışan turun durdurmasını
   const view = render(<Composer commands={commands} onSend={onSend} onStop={onStop} />);
   fireEvent.change(screen.getByLabelText("Mesaj"), { target: { value: "kabul bekleyen görev" } });
   fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Enter" });
+  fireEvent.click(screen.getByRole("button", { name: "Sohbet seçenekleri" }));
   expect(screen.getByRole("button", { name: "Alt görev olarak gönder" })).toHaveProperty("disabled", true);
   view.rerender(<Composer commands={commands} onSend={onSend} onStop={onStop} running />);
   const stop = screen.getByRole("button", { name: "Durdur" });

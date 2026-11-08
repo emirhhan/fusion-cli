@@ -1,5 +1,5 @@
 import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
@@ -212,6 +212,33 @@ export function Composer({
   value,
 }: ComposerProps) {
   const [internalValue, setInternalValue] = useState("");
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const optionsTrigger = useRef<HTMLButtonElement>(null);
+  const optionsId = useId();
+  useEffect(() => {
+    const outside = (event: MouseEvent) => {
+      if (optionsRef.current && !optionsRef.current.contains(event.target as Node)) setOptionsOpen(false);
+    };
+    const key = (event: globalThis.KeyboardEvent) => {
+      if (event.isComposing) return;
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey &&
+          (event.key.toLowerCase() === "m" || (!running && event.key.toLowerCase() === "e"))) setOptionsOpen(true);
+      if (event.key === "Escape" && optionsOpen) {
+        event.preventDefault();
+        if (optionsRef.current?.querySelector('[role="menu"]')) return;
+        event.stopPropagation();
+        setOptionsOpen(false);
+        optionsTrigger.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [optionsOpen, running]);
   const [activeCommand, setActiveCommand] = useState(0);
   const [activeMention, setActiveMention] = useState(0);
   const [caret, setCaret] = useState(0);
@@ -343,6 +370,7 @@ export function Composer({
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.defaultPrevented) return;
     // IME adayını onaylayan Enter ve composition sırasında basılan diğer
     // kısayollar (aday penceresini kapatan Esc dahil), Fusion komutu, turu
     // durdurma veya izin modu eylemi değildir (U1-12).
@@ -432,7 +460,7 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className="composer" data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => { if (dosyaSurukleniyor(event)) event.preventDefault(); }} onDrop={handleDrop}>
+      <div className="composer" data-dictating={dictating ? "true" : undefined} data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => { if (dosyaSurukleniyor(event)) event.preventDefault(); }} onDrop={handleDrop}>
         {running && onBusySubmissionModeChange && <label className="composer__submission">
           <span>Bu mesaj</span>
           <select aria-label="Çalışan işe mesaj" value={busySubmissionMode} disabled={stopping || busySubmissionDisabled}
@@ -513,11 +541,22 @@ export function Composer({
           rows={1}
           value={draft}
         />
+        {dictating && <div className="composer__dictation" role="status">
+          <span className="composer__listening-bars" aria-hidden="true"><i/><i/><i/><i/><i/></span>
+          <span>Dinliyor</span><span className="composer__dictation-hint">Söylediklerin mesaja yazılıyor</span>
+        </div>}
         <div className="composer__toolbar">
           <div className="composer__tools">
             <span>
               <Button aria-label="Dosya veya klasör ekle" icon="attach" iconOnly onClick={onAttach} />
             </span>
+            <div className="composer__options" ref={optionsRef}>
+              <button aria-label="Sohbet seçenekleri" aria-expanded={optionsOpen} aria-controls={optionsId}
+                className="composer__options-trigger" onClick={() => setOptionsOpen((open) => !open)} ref={optionsTrigger} type="button">
+                <span aria-hidden="true">•••</span>
+                {approval !== "auto" && <span>{approvalInfo(approval).label}</span>}
+              </button>
+              <div id={optionsId} className="composer__options-panel" role="group" aria-label="Sohbet seçenekleri" hidden={!optionsOpen}>
             {onWorkspaceModeChange && (
               <button
                 aria-label={`Çalışma kipi: ${workspaceMode === "sohbet" ? "Sohbet" : "Çalışma"}. Değiştirmek için tıkla.`}
@@ -555,7 +594,24 @@ export function Composer({
                 ))}
                 {persona && !personaOptions.some((option) => option.ad === persona) && <option value={persona}>{persona}</option>}
               </select>
-            )}
+            )}              {/* Efor menüsü (⌘⇧E, #444): tur sürerken komut mesaj olarak gidebileceği için yok. */}
+              {!running && onModelSelect && <EffortMenu onSelect={(level) => void onSend(`/effort ${level}`)} />}
+              {!running && subtaskAvailable && (
+                <button
+                  aria-label="Alt görev olarak gönder"
+                  className="composer__subtask"
+                  aria-busy={submissionPending || undefined}
+                  disabled={submissionPending}
+                  onClick={() => send("/subtask ")}
+                  title="Bağlamı devralan bir alt ajanda çalıştır; sohbete yalnız özeti döner (/subtask)"
+                  type="button"
+                >
+                  Alt görev
+                </button>
+              )}
+
+              </div>
+            </div>
           </div>
           {running ? (
             <span className="composer__actions">
@@ -601,8 +657,6 @@ export function Composer({
                   <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24" width="18"><path d="M3 10v4M7 6v12M11 3v18M15 7v10M19 5v14M23 10v4" /></svg>
                 </button>
               )}
-              {/* Efor menüsü (⌘⇧E, #444): tur sürerken komut mesaj olarak gidebileceği için yok. */}
-              {onModelSelect && <EffortMenu onSelect={(level) => void onSend(`/effort ${level}`)} />}
               {onModelSelect && (
                 <ModelPicker
                   activePending={activeModelPending}
@@ -619,19 +673,6 @@ export function Composer({
                   onSelect={onModelSelect}
                   options={modelOptions}
                 />
-              )}
-              {subtaskAvailable && (
-                <button
-                  aria-label="Alt görev olarak gönder"
-                  className="composer__subtask"
-                  aria-busy={submissionPending || undefined}
-                  disabled={submissionPending}
-                  onClick={() => send("/subtask ")}
-                  title="Bağlamı devralan bir alt ajanda çalıştır; sohbete yalnız özeti döner (/subtask)"
-                  type="button"
-                >
-                  Alt görev
-                </button>
               )}
               <Button aria-label="Gönder" aria-busy={submissionPending || undefined} disabled={!draft.trim() || submissionPending} icon="send" iconOnly onClick={() => send()} title={submissionPending ? "Mesaj gönderiliyor" : undefined} variant="primary" />
             </span>

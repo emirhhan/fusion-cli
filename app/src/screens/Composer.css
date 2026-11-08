@@ -327,3 +327,26 @@
 .composer__subtask { background: var(--surface-hover); border: 0; border-radius: 999px; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); padding: 6px 10px; }
 .composer__subtask:hover { background: var(--surface-selected); color: var(--text-primary); }
 .composer__subtask:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Keep secondary controls behind one explicitly labelled options group. */
+.composer[data-layout] { display: block; padding: 10px 14px; border-radius: 24px; }
+.composer[data-layout] textarea { display: block; width: 100%; min-height: 28px; }
+.composer[data-layout] .composer__toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.composer[data-layout] .composer__tools { display: flex; min-width: 0; gap: 4px; }
+.composer__options { position: relative; }
+.composer__options-trigger { display: flex; align-items: center; gap: 5px; height: 32px; padding: 5px 8px; border: 0; border-radius: 16px; color: var(--text-secondary); background: transparent; font: inherit; font-size: var(--text-xs); }
+.composer__options-trigger:hover { background: var(--surface-selected); }
+.composer__options-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__options-panel { position: absolute; z-index: 40; bottom: calc(100% + 12px); left: 0; width: 280px; max-width: calc(100vw - 48px); padding: 12px; background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: 16px; box-shadow: 0 10px 35px #0003; }
+.composer__options-panel:not([hidden]) { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+.composer__options-panel[hidden] { display: none; }
+.composer__options-panel .composer__persona { max-width: 100%; }
+.composer[data-dictating="true"] { border-color: var(--accent-text); box-shadow: 0 0 0 2px var(--surface-accent-subtle); }
+.composer__dictation { display: flex; align-items: center; gap: 8px; margin: 5px 2px 9px; color: var(--accent-text); font-size: var(--text-xs); }
+.composer__dictation-hint { color: var(--text-secondary); }
+.composer__listening-bars { display: flex; align-items: center; justify-content: center; gap: 3px; width: 26px; height: 18px; }
+.composer__listening-bars i { width: 3px; height: 6px; border-radius: 3px; background: currentColor; animation: composer-listen .8s ease-in-out infinite alternate; }
+.composer__listening-bars i:nth-child(2), .composer__listening-bars i:nth-child(4) { height: 12px; animation-delay: -.25s; }
+.composer__listening-bars i:nth-child(3) { height: 16px; animation-delay: -.5s; }
+@keyframes composer-listen { from { transform: scaleY(.45); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .composer__listening-bars i { animation: none; } }
