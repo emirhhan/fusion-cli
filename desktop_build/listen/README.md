@@ -19,7 +19,10 @@ Her olay beş alanı da taşır; platformda bulunmayan güven değeri `null` yaz
 `"dikte_kapali"`: macOS Siri/Dikte kapalı); arayüz önce koda, kod yoksa eski metne bakar.
 Oturum kimliği yardımcı tarafından üretilmez, süreç düzeyindeki oturumun sahibi Rust'tır.
 macOS yardımcısı ilk 300 ms'de ortam gürültüsünü ölçer, RMS tabanlı başlangıç/bitiş
-histerezisi uygular ve 250 ms'den kısa ses aralıklarında final metin yayınlamaz.
+histerezisi uygular. Kısmi ve final metinler en az 250 ms ölçülmüş konuşma
+gerektirir; tanıyıcının kelime tahmini ve VAD kapanışındaki sessizlik süreye
+eklenmez. Sıfır güven puanı, Türkçe cihaz üstü tanımada raporlanmamış değer
+olabilir; fiziksel konuşma kanıtının yerini almaz.
 Windows yardımcısı `SpeechDetected` ile aynı başlangıç/bitiş olaylarını bağlar; kısmi
 ve final metinleri en az 250 ms konuşma ve `0.2` güven eşiğiyle sınırlar.
 

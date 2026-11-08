@@ -745,22 +745,40 @@ def test_macos_listen_yardimcisi_gercek_imza_tasir(tmp_path: Path):
     sys.platform != "darwin" or shutil.which("swiftc") is None,
     reason="macOS konuşma yardımcısı yalnız swiftc bulunan macOS'ta derlenir",
 )
-def test_macos_listen_kapi_acilmasa_da_metin_uretilir(tmp_path: Path):
-    """Ses etkinlik kapısı tanıyıcıya giden sesi ENGELLEMEZ.
-
-    Ölçülen hata: kapının sabit eşiği (0.012 RMS) bu mikrofonun konuşma
-    seviyesinin (0.007–0.010) üstündeydi. Kapı hiç açılmadığı için tanıyıcıya
-    tek bir örnek bile gitmiyor, kullanıcı konuşurken hiçbir şey olmuyordu.
-    Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi sesi
-    engellemek değil, turun ne zaman biteceğini söylemektir.
-    """
+def test_macos_listen_sessizlikte_ham_hipotez_soz_olmaz(tmp_path: Path):
+    """Açık tanıma isteği tek başına fiziksel konuşma kanıtı değildir."""
     result = run_listen_fixture(tmp_path, fixture="kapisiz")
     events = [json.loads(line) for line in result.stdout.splitlines()]
-    kinds = [event["tur"] for event in events]
-
     assert result.returncode == 0, result.stderr
-    assert "ses-basladi" not in kinds, "bu senaryoda kapı açılmamalı"
-    assert "kismi" in kinds, f"kapı açılmasa da metin üretilmeli: {events}"
+    assert not any(event["tur"] in {"kismi", "son"} for event in events)
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS gerçek tampon hattı konuşma kanıtı testi",
+)
+@pytest.mark.parametrize(
+    "fixture, expected_final",
+    [
+        ("sessiz-hipotez", False),
+        ("kisa-gurultu-hipotezi", False),
+        ("dusuk-ses-gercek", True),
+    ],
+)
+def test_macos_listen_hipotez_fiziksel_ses_kaniti_gerektirir(
+    tmp_path: Path, fixture: str, expected_final: bool
+):
+    result = run_listen_fixture(tmp_path, fixture=fixture)
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    assert result.returncode == 0, result.stderr
+    finals = [event for event in events if event["tur"] == "son"]
+    assert bool(finals) is expected_final, events
+    if expected_final:
+        assert finals[0]["metin"] == "Evet"
+        assert finals[0]["speech_ms"] == 400
+    assert events[0]["tur"] == "hazir"
+    if not expected_final:
+        assert not any(event["tur"] == "kismi" for event in events)
 
 
 @pytest.mark.skipif(

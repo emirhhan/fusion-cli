@@ -114,6 +114,19 @@ final class SesEtkinligiKapisi {
 let dil = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "tr-TR"
 let motor = AVAudioEngine()
 let kapı = SesEtkinligiKapisi()
+// Tampon fixture da canlı hatla aynı kilidi ve 24 tamponluk önhafızayı kullanır.
+// Geri çağrılar ve ses tapı aynı yinelemeli kilitle korunur.
+let onTampon = OnTampon(kapasite: 24)
+/// Paylaşılan tur durumunu koruyan kilit.
+///
+/// Bu durum ÜÇ ayrı bağlamdan görülür: ses tapı (gerçek zamanlı ses iş
+/// parçacığı), tanıma geri çağrısı (Apple'ın kuyruğu) ve süre gözcüsü
+/// (`DispatchQueue.main`). Kilitsiz erişimde `append` ile `endAudio` aynı
+/// istek üzerinde yarışabiliyor, `turlar` sözlüğü iki iş parçacığından
+/// değiştirilebiliyordu — ikincisi tanımsız davranıştır.
+///
+/// Yinelemeli seçildi: `konusmaAc` içinden `konusmaKapat` çağrılır.
+let durumKilidi = NSRecursiveLock()
 /// Bir tanıma turu: isteği ve görevi BİRLİKTE yaşar.
 ///
 /// Üç ayrı global (`istek`, `görev`, `acikIstek`) tutmak aynı hatayı iki kez
@@ -148,6 +161,20 @@ final class Tur {
     var sonEtkinlik = Date()
 
     init(istek: SFSpeechAudioBufferRecognitionRequest) { self.istek = istek }
+
+    /// Metin hipotezini saklar; fiziksel ses ölçümü tampon hattından gelir.
+    func kismiKaydet(_ metin: String, guven: Float) -> String {
+        if !metin.isEmpty && hipotezSifirlandiMi(metin) { onceki = sonKismi }
+        hamKismi = metin
+        let tam = tamMetin(metin)
+        if !metin.isEmpty {
+            sonKismi = tam
+            sonKismiGuven = guven
+            sonEtkinlik = Date()
+            kismiSayaci += 1
+        }
+        return tam
+    }
 
     /// Duraklama öncesi metin + tanıyıcının güncel hipotezi.
     func tamMetin(_ ham: String) -> String {
@@ -319,7 +346,7 @@ func metinYaz(
     // gelen kısmi, kullanıcı susmuşken ekrana yazı düşürürdü. Final için
     // konuşma süresi eşiği yeterlidir.
     let sure = konusmaSuresi ?? kapı.konusmaMs
-    guard final ? kapı.yeterliKonusma(sure) : konusmaAcik else { return false }
+    guard kapı.yeterliKonusma(sure), final || konusmaAcik else { return false }
     yaz(final ? "son" : "kismi", metin, guven: puan,
         speechMs: sure, segment: callbackSegment)
     return true
@@ -378,10 +405,31 @@ func sentetikFixture(_ ad: String) -> Never {
         yaz("hazir", "indirgeme", guven: seviye, speechMs: Int(mono?.frameLength ?? 0), segment: 1)
         bitir(0)
     }
+    if ["sessiz-hipotez", "kisa-gurultu-hipotezi", "dusuk-ses-gercek"].contains(ad) {
+        let tur = Tur(istek: SFSpeechAudioBufferRecognitionRequest())
+        turlar[0] = tur
+        konusmaAcik = true
+        guard let bicim = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false),
+              let tampon = AVAudioPCMBuffer(pcmFormat: bicim, frameCapacity: 480),
+              let veri = tampon.floatChannelData else { bitir(11) }
+        tampon.frameLength = 480
+        func besle(_ rms: Float, _ adet: Int) {
+            for _ in 0..<adet {
+                for i in 0..<480 { veri[0][i] = rms }
+                tamponIsle(tampon)
+            }
+        }
+        if ad == "kisa-gurultu-hipotezi" { besle(0.008, 8) }
+        if ad == "dusuk-ses-gercek" { besle(0.008, 40) }
+        besle(0.0009, 50)
+        let metin = tur.kismiKaydet("Evet", guven: 0)
+        metinYaz(final: false, metin: metin, guven: 0, callbackSegment: 0, konusmaSuresi: tur.konusmaMs)
+        metinYaz(final: true, metin: metin, guven: 0, callbackSegment: 0, konusmaSuresi: tur.konusmaMs)
+        bitir(0)
+    }
     if ad == "kapisiz" {
-        // Kapı eşiğin altındaki sesle HİÇ açılmaz. Ses yine de tanıyıcıya
-        // aktığı için kısmi sonuç üretilebilmelidir; eskiden bu durumda
-        // kullanıcı konuşurken ekranda hiçbir şey çıkmıyordu.
+        // Ses tanıyıcıya ulaşabilir; sessiz girişteki ham hipotez
+        // fiziksel konuşma kanıtı olmadan yayımlanmaz.
         konusmaAcik = true
         for _ in 0..<60 { _ = kapı.isle(rms: 0.0009, sureMs: 10) }
         metinYaz(final: false, metin: "esik-altinda", guven: 0.0, callbackSegment: 1)
@@ -610,21 +658,6 @@ final class OnTampon {
     }
 }
 
-//: 1024 örneklik tamponlarda ~48 kHz'de her tampon ~21 ms; 16 tampon ≈ 340 ms.
-//: Kapının 80 ms'lik doğrulama penceresini rahatça kapsar.
-let onTampon = OnTampon(kapasite: 24)
-
-/// Paylaşılan tur durumunu koruyan kilit.
-///
-/// Bu durum ÜÇ ayrı bağlamdan görülür: ses tapı (gerçek zamanlı ses iş
-/// parçacığı), tanıma geri çağrısı (Apple'ın kuyruğu) ve süre gözcüsü
-/// (`DispatchQueue.main`). Kilitsiz erişimde `append` ile `endAudio` aynı
-/// istek üzerinde yarışabiliyor, `turlar` sözlüğü iki iş parçacığından
-/// değiştirilebiliyordu — ikincisi tanımsız davranıştır.
-///
-/// Yinelemeli seçildi: `konusmaAc` içinden `konusmaKapat` çağrılır.
-let durumKilidi = NSRecursiveLock()
-
 /// Tur durumuna kilit altında eriş.
 func durumla<T>(_ islem: () -> T) -> T {
     durumKilidi.lock()
@@ -757,6 +790,8 @@ func konusmaAc(segment: Int) {
         // kullanmak turu iki kez tamamlıyor ve başarılı finalin hemen ardından
         // sahte bir hata yazıyordu; bu yüzden dallar birbirini dışlar.
         if let sonuç = sonuç, sonuç.isFinal || hata == nil {
+            guard turlar[turNo] != nil else { return }
+            if !sonuç.isFinal && acikTurNo != turNo { return }
             let metin = sonuç.bestTranscription.formattedString
             let puan = guven(sonuç)
             taniYaz(
@@ -775,7 +810,7 @@ func konusmaAc(segment: Int) {
                     konusmaSuresi: tur?.konusmaMs
                 ) {
                     let sure = tur?.konusmaMs ?? 0
-                    if teslim.isEmpty && !kapı.yeterliKonusma(sure) {
+                    if !kapı.yeterliKonusma(sure) {
                         yaz("ses-bitti", speechMs: sure, segment: segment)
                     } else {
                         yaz("hata", "Ses duydum ancak sözcükleri net çözemedim. Tekrar söyleyebilirsin.",
@@ -784,23 +819,10 @@ func konusmaAc(segment: Int) {
                 }
                 turTamamlandi(turNo)
             } else {
-                var tamMetin = metin
-                if !metin.isEmpty, let tur = turlar[turNo] {
-                    if tur.hipotezSifirlandiMi(metin) { tur.onceki = tur.sonKismi }
-                    tur.hamKismi = metin
-                    tamMetin = tur.tamMetin(metin)
-                }
-                if !metin.isEmpty {
-                    turlar[turNo]?.sonKismi = tamMetin
-                    turlar[turNo]?.sonKismiGuven = puan
-                    turlar[turNo]?.sonEtkinlik = Date()
-                    // Tanıyıcı metin üretti: konuşma vardır. Kapı açılmamış olsa
-                    // bile final bu yüzden "çok kısa" diye reddedilmez.
-                    if let tur = turlar[turNo] {
-                        tur.konusmaMs = max(tur.konusmaMs, 250)
-                        tur.kismiSayaci += 1
-                        kismiDurmaGozcusuKur(turNo: turNo, sayac: tur.kismiSayaci)
-                    }
+                let tur = turlar[turNo]
+                let tamMetin = tur?.kismiKaydet(metin, guven: puan) ?? metin
+                if !metin.isEmpty, let tur = tur {
+                    kismiDurmaGozcusuKur(turNo: turNo, sayac: tur.kismiSayaci)
                 }
                 metinYaz(final: false, metin: tamMetin, guven: puan, callbackSegment: segment,
                     konusmaSuresi: turlar[turNo]?.konusmaMs)
@@ -928,12 +950,11 @@ func tamponIsle(_ tampon: AVAudioPCMBuffer) {
     let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
     let seviye = rms(tampon)
     akisTanisi.olc(rms: seviye, biçim: biçim)
+    let oncekiKonusmaMs = kapı.konusmaMs
     let olay = kapı.isle(rms: seviye, sureMs: sureMs)
-    // Ses tanıyıcıya KOŞULSUZ akar. Eskiden kapı açılmadan tampon
-    // tutuluyordu; kapının eşiği bu mikrofonun seviyesinin üstünde kalınca
-    // tanıyıcıya tek bir örnek bile gitmiyor ve hiçbir şey olmuyordu.
-    // Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi
-    // sesi ENGELLEMEK değil, turun ne zaman biteceğini söylemektir.
+    // Besleme önhafızası ve düşük-seviye fallback'i korunur. Ancak
+    // tanıyıcının hipotezi konuşma kanıtı değildir; yayımlama için ham
+    // tamponlarda ölçülmüş konuşma süresi aranır.
     if let mono = monoIndirgerAl().indirge(tampon) {
         // Zarf yalnız konuşma sırasında beslenir; kazanç tanıyıcıya GİDERKEN
         // uygulanır, önhafızadaki tamponlar HAM saklanır.
@@ -953,7 +974,9 @@ func tamponIsle(_ tampon: AVAudioPCMBuffer) {
             // turu kesmemeli.
             if kapı.etkin {
                 turlar[acikTurNo]?.sonEtkinlik = Date()
-                turlar[acikTurNo]?.konusmaMs += sureMs
+                // Yalnız ölçülmüş konuşma; VAD'ın sessiz kapanış kuyruğu sayılmaz.
+                let artis = olay == "ses-basladi" ? kapı.konusmaMs : max(0, kapı.konusmaMs - oncekiKonusmaMs)
+                turlar[acikTurNo]?.konusmaMs += artis
             }
         }
     } else {
