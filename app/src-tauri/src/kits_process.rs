@@ -73,6 +73,144 @@ struct Running {
     url: String,
 }
 
+/// A private launch-agent receipt is only a hint; a live nonce challenge is required.
+#[cfg(unix)]
+fn background_status(data_dir: &Path) -> Result<Option<KitsStatus>, String> {
+    use std::io::Write;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let path = data_dir.join("kits-background.json");
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if data_dir.join("kits-background.enabled").exists() {
+                return Err("Arka plan hizmeti hazırlanıyor; ikinci sunucu başlatılmadı. Biraz sonra yeniden dene.".into());
+            }
+            return Ok(None);
+        }
+        Err(_) => return Err("Arka plan hizmetinin kaydı okunamadı.".into()),
+    };
+    // SAFETY: geteuid has no preconditions.
+    let owner = unsafe { libc::geteuid() };
+    if !metadata.is_file()
+        || metadata.permissions().mode() & 0o077 != 0
+        || metadata.uid() != owner
+        || metadata.len() > 4096
+    {
+        return Err("Arka plan hizmetinin özel kaydı güvenli değil.".into());
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Receipt {
+        version: u8,
+        pid: u32,
+        port: u16,
+        nonce: String,
+    }
+    let receipt: Receipt =
+        serde_json::from_slice(&std::fs::read(&path).map_err(|_| "Arka plan kaydı okunamadı.")?)
+            .map_err(|_| "Arka plan kaydı geçersiz; hizmeti kontrol et.")?;
+    if receipt.version != 1
+        || receipt.pid == 0
+        || receipt.port == 0
+        || receipt.nonce.len() != 64
+        || !receipt.nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Arka plan kaydı geçersiz; hizmeti kontrol et.".into());
+    }
+    let address = SocketAddr::from(([127, 0, 0, 1], receipt.port));
+    let connect = || -> std::io::Result<String> {
+        let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(300))?;
+        stream.set_read_timeout(Some(Duration::from_millis(300)))?;
+        stream.set_write_timeout(Some(Duration::from_millis(300)))?;
+        write!(stream, "GET /background-health HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-Fusion-Background: {}\r\nConnection: close\r\n\r\n", receipt.port, receipt.nonce)?;
+        let mut response = String::new();
+        stream.take(4096).read_to_string(&mut response)?;
+        Ok(response)
+    };
+    let response = connect().map_err(|_| "Arka plan hizmeti yanıt vermiyor; ikinci sunucu başlatılmadı. Hizmeti yeniden başlat veya kapat.")?;
+    let expected = format!("fusion-kits-background:{}:{}", receipt.nonce, receipt.pid);
+    if !response.starts_with("HTTP/1.1 200 ")
+        || response.split_once("\r\n\r\n").map(|(_, body)| body) != Some(expected.as_str())
+    {
+        return Err("Arka plan hizmetinin kimliği doğrulanamadı.".into());
+    }
+    Ok(Some(KitsStatus {
+        url: format!("http://127.0.0.1:{}", receipt.port),
+    }))
+}
+
+#[cfg(not(unix))]
+fn background_status(_data_dir: &Path) -> Result<Option<KitsStatus>, String> {
+    Ok(None)
+}
+
+#[cfg(all(test, unix))]
+mod background_tests {
+    use super::*;
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn adopts_only_private_background_receipt_with_matching_live_challenge() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(background_status(directory.path()).unwrap().is_none());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let nonce = "a".repeat(64);
+        let path = directory.path().join("kits-background.json");
+        std::fs::write(
+            &path,
+            serde_json::json!({"version":1,"pid":std::process::id(),"port":port,"nonce":nonce})
+                .to_string(),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 2048];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let size = stream.read(&mut buffer).unwrap();
+                assert!(size > 0 && request.len() < 4096);
+                request.extend_from_slice(&buffer[..size]);
+            }
+            assert!(String::from_utf8_lossy(&request)
+                .contains(&format!("X-Fusion-Background: {}", "a".repeat(64))));
+            let body = format!(
+                "fusion-kits-background:{}:{}",
+                "a".repeat(64),
+                std::process::id()
+            );
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        assert_eq!(
+            background_status(directory.path()).unwrap().unwrap().url,
+            format!("http://127.0.0.1:{port}")
+        );
+        server.join().unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(background_status(directory.path()).is_err());
+    }
+
+    #[test]
+    fn refuses_stale_or_malformed_background_mode_instead_of_starting_a_second_server() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("kits-background.json");
+        std::fs::write(&path, "{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(background_status(directory.path()).is_err());
+    }
+}
+
 #[derive(Default)]
 pub struct KitsManager {
     running: Mutex<Option<Running>>,
@@ -119,6 +257,10 @@ impl KitsManager {
         }
         if self.stopping.load(Ordering::SeqCst) {
             return Err("Uygulama kapanıyor; Kits başlatılmadı.".to_string());
+        }
+        if let Some(status) = background_status(data_dir)? {
+            // The launch agent owns this server; closing the UI must not stop it.
+            return Ok(status);
         }
         let kits_dir = find_kits_dir(&kits_dir_candidates(data_dir, resource_dir))?;
         let node = self.find_node(&node_candidates(home, resource_dir))?;
