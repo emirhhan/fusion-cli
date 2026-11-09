@@ -56,9 +56,28 @@ Yetki sınırı için açık ek kısıtlar vardır: root dışı okuma/yazma kap
 `write_root` shell sandbox ve `fail_if_unavailable` zorunlu; unsandboxed,
 excluded command, extra write root ve zayıflatılmış namespace yoktur. Frozen
 kabul girişinde yalnız native dosya araçları ve **sandbox içindeki** `run_shell`
-açılır. MCP/process/browser başlatıcıları, otomatik dış doğrulama komutları ve
+açılır. MCP/process/browser başlatıcıları, keyfi dış doğrulama komutları ve
 MCP bootstrap bu profile dahil değildir. Python çalıştırılacaksa aynı shell
 sandbox'ından geçer. Gerçek MCP kontrolü ayrı bağımsız denetçiye aittir.
+
+Normal ürün onarım döngüsüne gerçek bulgu vermek için profilde yalnız
+`verification_commands: [fusion-inspect-production]` açılır. Mevcut
+`build_verifier` / `CommandVerifier` bu komutu çalıştırır; özel sonuç düzeltmesi
+ve görev cevabı ipucu yoktur. Host her görev/tekrar için readonly bir wrapper ve
+binding üretir; mutlak protected `host/bin` dizinini PATH'in başına koyar.
+Wrapper mutlak güvenilir venv Python'unu `-I` ile başlatır, yalnız sabit repo
+kaynağını yükler; ek argümanları, yanlış CWD'yi ve actor ortamındaki görev/kök
+geçersiz kılmalarını reddeder. Binding task/root, source/scorer/profile, wrapper,
+interpreter ve venv config baytlarına bağlıdır. Kontrol yolları writable temp
+ve candidate kökü dışındadır; host guard değişiklikte ölçümü durdurur.
+
+Wrapper sağlayıcı sırlarını temizler; mevcut clean-copy executor ve zorunlu
+macOS sandbox içinden aynı trusted production inspectors çalışır. Başarısız MCP
+callback'inin stderr kuyruğu sınırlı/redacted tanı olarak taşınır; ebeveynin
+MCP witness'ı ve gerçek çıkış kodu dışında PASS sinyali kabul edilmez. Böylece
+normal doğrulama onarım turu gerçek AttributeError gibi hataları görür. Son
+ayrı verifier işi yine aynı bağımsız inspectorları yeniden çalıştırır; ara
+feedback komutu yayın yetkisi vermez. Eski c154 sonuçları düzeltilmiş sayılmaz.
 
 Mevcut shell sandbox genel temp dizinlerini yazılabilir tutar. Bu yüzden host
 runtime/config ve observer çıktı kökleri `/tmp`, `TMPDIR` ve diğer

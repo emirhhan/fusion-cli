@@ -127,6 +127,30 @@ class IsolatedOracleExecutor(AgentTaskExecutor):
         )
 
 
+class MacIsolatedOracleExecutor(AgentTaskExecutor):
+    """Use the existing mandatory macOS sandbox for trusted feedback inspection."""
+
+    async def _exit_code(
+        self, task: EvalTask, workspace: Path, acceptance: AcceptanceCommand
+    ) -> int | None:
+        from fusion_cli.core.sandbox_policy import SandboxPolicy
+        from fusion_cli.core.shell_sandbox import plan_shell_sandbox
+
+        policy = SandboxPolicy(
+            fail_if_unavailable=True,
+            allow_unsandboxed=False,
+            hide_secret_env=True,
+            allow_localhost=False,
+        )
+        plan = plan_shell_sandbox("write_root", (workspace,), policy=policy)
+        if sys.platform != "darwin" or not plan.is_active or plan.refused:
+            raise ValueError("Trusted feedback requires the mandatory macOS sandbox.")
+        if acceptance.command is None:
+            return await super()._exit_code(task, workspace, acceptance)
+        command = shlex.join([*plan.prefix, "/bin/sh", "-c", acceptance.command])
+        return await super()._exit_code(task, workspace, replace(acceptance, command=command))
+
+
 async def inspect_workspaces(
     workspaces: Path, *, repeat: int, isolated: bool = False
 ) -> list[dict[str, object]]:

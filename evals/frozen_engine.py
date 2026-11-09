@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from evals.driver_config import SessionAPI
 from evals.engine_proof import ImportedEngineProof
+from evals.feedback_binding import INSPECTOR_COMMAND, runtime_route
 from fusion_cli.config.models import Config
 
 PROVENANCE = "release-build.json"
@@ -65,7 +66,7 @@ def require_protected_profile(config: Config, *, platform: str = sys.platform) -
         and runtime.shell_sandbox == "write_root"
         and runtime.teacherless
         and not runtime.lessons
-        and not runtime.verification_commands
+        and runtime.verification_commands == (INSPECTOR_COMMAND,)
         and not runtime.post_edit_commands
         and not runtime.web_verification
         and not runtime.browser_verification
@@ -90,7 +91,7 @@ def require_protected_profile(config: Config, *, platform: str = sys.platform) -
         raise ValueError("Explicit protected release acceptance profile required.")
 
 
-def install_profile_guard(session: SessionAPI) -> None:
+def install_profile_guard(session: SessionAPI, proof: ImportedEngineProof) -> None:
     original = session.run_agent_task
     signature = inspect.signature(original)
 
@@ -99,6 +100,10 @@ def install_profile_guard(session: SessionAPI) -> None:
         bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()
         require_protected_profile(cast(Config, bound.arguments["config"]))
+        root = bound.arguments.get("root")
+        if not isinstance(root, Path):
+            raise ValueError("Fixed inspector requires an explicit candidate root.")
+        runtime_route(root.resolve(), proof.source_digest)
         if bound.arguments.get("extra_roots"):
             raise ValueError("Protected acceptance cannot expose extra writable roots.")
         kwargs["allowed_tools"] = set(ACCEPTANCE_TOOLS)
@@ -119,7 +124,7 @@ def install() -> None:
     _install_config_observer(proof)
     import fusion_cli.cli.session as session
 
-    install_profile_guard(cast(SessionAPI, session))
+    install_profile_guard(cast(SessionAPI, session), proof)
 
 
 def validate(raw: object, executable: Path, pid: int) -> ImportedEngineProof:

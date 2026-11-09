@@ -214,6 +214,8 @@ def _scorer_entries(root: Path) -> tuple[tuple[str, str], ...]:
             root / "evals/criteria.py",
             root / "scripts/release_oracle.py",
             root / "scripts/release_verify.py",
+            root / "scripts/release_feedback.py",
+            root / "evals/feedback_binding.py",
             root / "evals/acceptance_command.py",
             root / "evals/research_acceptance.py",
             root / "evals/executor.py",

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from evals.tasks import CriterionKind, EvalTask, SuccessCriterion, TaskBudget
@@ -45,6 +46,15 @@ def _fake_run(tmp_path, monkeypatch, *, mutate_config=False):
     monkeypatch.setattr(release_live, "_source_entries", lambda root: ())
     monkeypatch.setattr(release_live, "_scorer_entries", lambda root: ())
     monkeypatch.setattr(release_live, "verify_runtime_files", lambda *args: None)
+    monkeypatch.setattr(
+        release_live,
+        "prepare_feedback",
+        lambda *args: SimpleNamespace(
+            environment={},
+            manifest=lambda: {},
+            assert_unchanged=lambda: None,
+        ),
+    )
     source = release_live._digest_entries(())
 
     def extract(archive, manifest, root):

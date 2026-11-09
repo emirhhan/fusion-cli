@@ -80,6 +80,14 @@ asyncio.run(module.smoke(Client()))
 """
 
 
+async def _bounded_stderr(stream: asyncio.StreamReader) -> bytes:
+    tail = bytearray()
+    while chunk := await stream.read(4096):
+        tail.extend(chunk)
+        del tail[:-8192]
+    return bytes(tail)
+
+
 async def _observe_candidate(root: Path, client: _SmokeClient) -> int:
     """Candidate exits cannot end the trusted observer or modify its witness state."""
     process = await asyncio.create_subprocess_exec(
@@ -91,10 +99,11 @@ async def _observe_candidate(root: Path, client: _SmokeClient) -> int:
         cwd=root,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
         start_new_session=os.name == "posix",
     )
-    assert process.stdin is not None and process.stdout is not None
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    stderr_task = asyncio.create_task(_bounded_stderr(process.stderr))
     try:
         while line := await process.stdout.readline():
             request = json.loads(line)
@@ -120,6 +129,13 @@ async def _observe_candidate(root: Path, client: _SmokeClient) -> int:
         elif process.returncode is None:
             process.kill()
         await process.wait()
+        diagnostic = await stderr_task
+        if process.returncode != 0 and diagnostic:
+            from fusion_cli.core.redaction import redact
+
+            # Failure text is diagnostic only; parent-owned MCP witness and exit
+            # status remain the acceptance authority. No candidate PASS parsing.
+            print(redact(diagnostic.decode("utf-8", errors="replace")), file=sys.stderr)
 
 
 async def check_mcp(root: Path) -> None:

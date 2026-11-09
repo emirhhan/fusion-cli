@@ -53,7 +53,7 @@ runtime:
   agent_max_steps: 30
   workflow_mode: "off"
   post_edit_commands: []
-  verification_commands: []
+  verification_commands: [fusion-inspect-production]
   self_review: true
   web_verification: false
   browser_verification: false

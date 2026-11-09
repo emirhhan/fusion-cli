@@ -23,6 +23,7 @@ from evals.executor import _snapshot, _write_seed_file
 from evals.live_drive import drive
 from evals.loader import load_tasks
 from evals.profiles import _digest_entries, _scorer_entries, _source_entries
+from scripts.release_feedback import FeedbackControl, prepare_feedback
 from scripts.release_manifest import ROOT, sha256_file
 from scripts.release_runtime import extract_runtime, verify_runtime_files
 
@@ -49,6 +50,13 @@ def _checkpoint(out: Path, payload: dict[str, Any], status: str) -> None:
 def _assert_config_unchanged(config: Path, source: Path, expected_sha256: str) -> None:
     if sha256_file(config) != expected_sha256 or sha256_file(source) != expected_sha256:
         raise ValueError("Koşu sırasında config değişti.")
+
+
+def _guard_run_inputs(
+    config: Path, source: Path, expected_sha256: str, control: FeedbackControl
+) -> None:
+    _assert_config_unchanged(config, source, expected_sha256)
+    control.assert_unchanged()
 
 
 def _config_failure_evidence(config: Path | None, expected: bytes | None) -> dict[str, object]:
@@ -155,11 +163,15 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                     root.mkdir(parents=True)
                     for name, content in task.setup.items():
                         _write_seed_file(root, name, content)
+                    control = prepare_feedback(
+                        host / "bin" / f"{task.id}-{index}", root, task.id, config
+                    )
+                    feedback_manifest = control.manifest()
                     options = argparse.Namespace(
                         runtime_executable=str(executable),
-                        runtime_env=env,
-                        runtime_config_guard=lambda: _assert_config_unchanged(
-                            config, args.config, config_digest
+                        runtime_env={**env, **control.environment},
+                        runtime_config_guard=lambda control=control: _guard_run_inputs(
+                            config, args.config, config_digest, control
                         ),
                         persist_mode=False,
                         kok=str(root.resolve()),
@@ -190,13 +202,14 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                             "finished_at": time.time(),
                             "candidate_digest": _digest_entries(_snapshot(root)),
                             "driver": observed,
+                            "feedback": feedback_manifest,
                             "events": events.name,
                         }
                     )
                     payload.pop("active_execution", None)
                     _checkpoint(args.out, payload, "in_progress")
                     phase = "config_integrity_after_execution"
-                    _assert_config_unchanged(config, args.config, config_digest)
+                    _guard_run_inputs(config, args.config, config_digest, control)
             phase = "final_integrity"
             verify_runtime_files(executable.parent, manifest)
             if (
