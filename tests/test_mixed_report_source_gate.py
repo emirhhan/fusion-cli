@@ -1,4 +1,8 @@
-"""A researched artifact needs both the artifact and its specifically requested source reads."""
+"""A researched artifact needs its artifact and specifically requested source reads.
+
+verify=False engine cases test mechanical action evidence, not factual acceptance.
+Optional post-edit delivery review is isolated without inventing a positive verdict.
+"""
 
 from types import SimpleNamespace
 
@@ -169,12 +173,30 @@ async def test_actual_report_engine_requires_artifact_and_named_source(tmp_path,
     async def ordinary_review(*args, **kwargs):
         return ""
 
+    post_edit_dispatches = []
+    post_edit_reviews = []
+
+    async def post_edit_review(task, outcome, call_deps, registry, **kwargs):
+        assert call_deps is deps
+        post_edit_dispatches.append(outcome.ok)
+        # The dispatcher also receives failures; retain its real early outcome guard.
+        if not outcome.ok:
+            return None
+        post_edit_reviews.append((task, outcome))
+        return None
+
     monkeypatch.setattr(loop.review, "review_turn", ordinary_review)
+    monkeypatch.setattr(loop, "review_teacher_changes", post_edit_review)
     outcome = await loop.run_agent(CURRENT_REPORT, deps, verify=False)
 
     assert outcome.ok is (case in {"correct", "recovery"})
     assert (tmp_path / "rapor.html").exists() is (case != "read_only")
     assert teacher.calls == 0
+    assert post_edit_dispatches == [case in {"correct", "recovery"}]
+    assert len(post_edit_reviews) == (1 if case in {"correct", "recovery"} else 0)
+    if post_edit_reviews:
+        assert post_edit_reviews[0][0] == CURRENT_REPORT
+        assert post_edit_reviews[0][1].ok
     if case in {"none", "unrelated", "search", "failed", "recovery"}:
         notes = [
             m.content

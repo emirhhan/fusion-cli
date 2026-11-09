@@ -103,14 +103,18 @@ def test_quoted_or_negated_self_containment_does_not_authorize_bounded_route(sco
 async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_review(
     tmp_path, monkeypatch
 ):
+    import json
     from dataclasses import replace
 
-    from fusion_cli.core.tools import ToolResult
+    from fusion_cli.core.evidence import EvidenceStatus
+    from fusion_cli.core.research_grounding import SourceReceipt
     from fusion_cli.core.verification import VerificationResult
     from fusion_cli.engines.agent import loop
+    from fusion_cli.tools import web
     from fusion_cli.tools.builtin import build_registry
     from fusion_cli.tools.registry import ToolRegistry
     from tests.fakes import model_result, tool_call
+    from tests.test_research_grounding import typed_clean
     from tests.test_teacher_first import _setup
 
     # Deliberately a test fixture, not a claim about current Python releases.
@@ -129,9 +133,19 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
     registry = ToolRegistry()
     reads = []
 
+    source_text = "Test source fixture only: stable A and B; not current publication data."
+
+    def synthetic_fetch(url):
+        assert url == "https://www.python.org/downloads/"
+        return "text/html", f"<main>{source_text}</main>", url
+
+    monkeypatch.setattr(web, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(web, "fetch_following_redirects", synthetic_fetch)
+
     def source_fixture(args, context):
         reads.append(args["url"])
-        return ToolResult("Test source fixture only: stable A and B; not current publication data.")
+        # The actual trusted reader creates the private receipt; only HTTP is synthetic.
+        return web.web_fetch(args, context)
 
     for tool in build_registry():
         registry.register(replace(tool, run=source_fixture) if tool.name == "web_fetch" else tool)
@@ -141,6 +155,35 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
     async def ordinary_review(*args, **kwargs):
         reviews.append(True)
         return ""
+
+    factual_reviews = []
+
+    async def factual_review(prompt, config, publisher, **kwargs):
+        payload = json.loads(prompt.split("\nDATA\n", 1)[1])
+        budget = deps.require_budget()
+        contract = budget.research_contract
+        assert contract is not None
+        assert contract.root == tmp_path.resolve()
+        assert contract.owner == deps.tool_context.job_scope
+        assert contract.task == payload["original_task"] == CURRENT_REPORT
+        assert len(budget.research_sources) == 1
+        source = budget.research_sources[0]
+        assert isinstance(source.receipt, SourceReceipt)
+        assert source.accepted_id == contract.accepted_id
+        assert source.root == str(contract.root)
+        assert source.owner == contract.owner
+        assert source.call_id
+        assert source.receipt.requested_url == source.receipt.final_url == reads[0]
+        assert source_text in source.receipt.text
+        assert payload["omitted_sources"] == 0
+        assert len(payload["sources"]) == 1
+        assert source_text in " ".join(payload["sources"][0]["spans"].values())
+        assert html in "".join(
+            span["text"] for span in payload["target"].values() if span["location"] != "answer"
+        )
+        factual_reviews.append(payload)
+        # Controlled semantic fixture, still bound to the actual full target/source payload.
+        return model_result(typed_clean(prompt))
 
     class FileVerifier:
         calls = 0
@@ -153,13 +196,27 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
     verifier = FileVerifier()
     deps.verifier = verifier
     monkeypatch.setattr(loop.review, "review_turn", ordinary_review)
+    monkeypatch.setattr(loop.review, "_ask", factual_review)
     outcome = await loop.run_agent(CURRENT_REPORT, deps)
 
     assert (tmp_path / "rapor.html").read_text() == html
     assert teacher.calls == 0
     assert outcome.ok
     assert reads == ["https://www.python.org/downloads/"]
-    assert verifier.calls == 1 and reviews == [True]
+    assert verifier.calls == 1 and reviews == []
+    assert len(factual_reviews) == 1
+    verdict = deps.require_budget().research_verdict
+    assert verdict is not None and verdict.status == "supported"
+    assert set(verdict.reviewed) == set(factual_reviews[0]["target"])
+    assert all(finding.kind == "supported" and finding.sources for finding in verdict.claims)
+    evidence = next(
+        item
+        for item in outcome.completion_report.gate.evidence
+        if item.criterion_id == "research_grounding"
+    )
+    assert evidence.status is EvidenceStatus.PASSED
+    assert evidence.source_digest == verdict.target_digest
+    assert evidence.source_after_digest == verdict.source_digest
     assert apprentice.calls == 3
     assert any(
         schema["function"]["name"] == "ask_teacher" for schema in apprentice.seen_requests[0]
