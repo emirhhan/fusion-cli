@@ -377,6 +377,7 @@ def _build_runtime(raw: object) -> RuntimeConfig:
         "repo_map_chars",
         "instruction_max_chars",
         "skill_index_chars",
+        "agent_catalog_chars",
         "goal_checkin_minutes",
         "dynamic_workflow_max_concurrent",
         "dynamic_workflow_confirm_agents",

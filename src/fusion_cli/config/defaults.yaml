@@ -430,6 +430,7 @@ runtime:
   # Kök turda sistem bağlamına giren beceri dizini (ad — açıklama satırları) bütçesi, karakter.
   # Model uygun beceriyi aramadan tanır ve read_skill ile yükler. 0 = kapalı (yalnız find_skill).
   skill_index_chars: 4000
+  agent_catalog_chars: 0
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false

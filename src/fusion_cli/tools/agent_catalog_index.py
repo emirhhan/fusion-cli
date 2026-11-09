@@ -29,8 +29,9 @@ def agent_catalog_index(
     include: Callable[[Capability, str], bool] | None = None,
     invocation_tool: str = "Agent",
     agents: tuple[Capability, ...] | None = None,
+    max_chars: int | None = None,
 ) -> str:
-    """Tüm etkin ajan adlarını/açıklamalarını ver; büyük dizinde yalnız uyar."""
+    """Keep every permitted name; optionally bound metadata with exact lookup guidance."""
     if agents is None:
         agents = registry.agents() if registry is not None else ()
     counts = Counter(item.name for item in agents)
@@ -48,6 +49,7 @@ def agent_catalog_index(
     if tokens > AGENT_DESCRIPTION_WARNING_TOKENS:
         _LOG.warning(_WARNING, extra={"token_sayisi": tokens, "ajan_sayisi": len(agents)})
     lines = []
+    descriptors = []
     for item, callable_name in selected:
         aliases = [name for name, target in BUILTIN_AGENT_ALIASES.items() if target == item.name]
         name = (
@@ -56,11 +58,42 @@ def agent_catalog_index(
             else callable_name
         )
         description = " ".join(item.description.split())
-        line = f"- {' '.join(name.split())} [{item.source}] — {description}"
-        lines.append(neutralize_closing_tags(line, "ajan_katalogu", "system"))
+        prefix = f"- {' '.join(name.split())} [{item.source}]"
+        descriptors.append(
+            (
+                neutralize_closing_tags(prefix, "ajan_katalogu", "system"),
+                neutralize_closing_tags(description, "ajan_katalogu", "system"),
+            )
+        )
+        lines.append(prefix + " — " + description)
     header = _HEADER.replace("Agent aracıyla", f"{invocation_tool} aracıyla")
     if invocation_tool == "invoke_agent":
         header = header.replace("(subagent_type)", "(name)")
     elif invocation_tool not in {"Agent", "Task"}:
         header = header.replace(" (subagent_type)", "")
-    return header + "\n<ajan_katalogu>\n" + "\n".join(lines) + "\n</ajan_katalogu>"
+    opening, closing = "\n<ajan_katalogu>\n", "\n</ajan_katalogu>"
+    full = (
+        header
+        + opening
+        + "\n".join(neutralize_closing_tags(line, "ajan_katalogu", "system") for line in lines)
+        + closing
+    )
+    if not max_chars or len(full) <= max_chars:
+        return full
+    guidance = "\nAçıklamalar kısaltıldı. Tam açıklama: find_agent(query='select:<ad>', offset=0)."
+    header += guidance
+    minimum = header + opening + "\n".join(prefix for prefix, _ in descriptors) + closing
+    if len(minimum) > max_chars:
+        return minimum + "\nTüm adlar korundu; asgari ad listesi bütçeyi aşıyor."
+    remaining = max_chars - len(minimum)
+    per_item = remaining // len(descriptors)
+    compact = []
+    for prefix, description in descriptors:
+        if per_item >= 4 and description:
+            available = per_item - 3
+            excerpt = (
+                description if len(description) <= available else description[: available - 1] + "…"
+            )
+            prefix += " — " + excerpt
+        compact.append(prefix)
+    return header + opening + "\n".join(compact) + closing

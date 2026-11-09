@@ -72,6 +72,7 @@ def request_capability_messages(
                     )
                 ),
                 invocation_tool=route,
+                max_chars=(deps.config.runtime.agent_catalog_chars if "find_agent" in names else 0),
                 count_tokens=lambda text: (
                     (len(text) + CHARS_PER_TOKEN_ESTIMATE - 1) // CHARS_PER_TOKEN_ESTIMATE
                 ),

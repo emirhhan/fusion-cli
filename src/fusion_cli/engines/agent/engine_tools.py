@@ -47,6 +47,7 @@ from ...tools.registry import ToolRegistry
 from ...tools.skill_pages import read_skill_page
 from ...ui import messages
 from . import learning_steps
+from .agent_runtime_context import launch_type_denial
 from .agent_task_tools import agent_task_tools
 from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
@@ -971,7 +972,7 @@ def _register_capability_tools(
 
             registry.register(build_skill_tool(library, deps, depth=depth, run_agent=run_agent))
     if library.agents():
-        registry.register(_find_agent_tool(library))
+        registry.register(_find_agent_tool(library, deps=deps, depth=depth))
         registry.register(_invoke_agent_tool(deps, depth=depth, run_agent=run_agent))
 
 
@@ -1120,18 +1121,54 @@ def _read_skill_tool(
     )
 
 
-def _find_agent_tool(library: CapabilityRegistry) -> Tool:
+def _find_agent_tool(
+    library: CapabilityRegistry, *, deps: AgentDeps | None = None, depth: int = 0
+) -> Tool:
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-        hits = search(library.agents(), str(args.get("query", "")))
-        return ToolResult(_format(hits) or "(eşleşen agent yok)")
+        # Refresh at execution, including continuation pages after a permission change.
+        def allowed(item: Capability, requested: str) -> bool:
+            return deps is None or (
+                not depth_limit_reached(deps, depth)
+                and not launch_type_denial(
+                    deps, name=item.name, source=item.source, requested=requested
+                )
+            )
+
+        query = str(args.get("query", "")).strip()
+        if query.startswith("select:"):
+            name = query.removeprefix("select:").strip()
+            item = library.get_agent(name)
+            if item is None or item not in library.agents() or not allowed(item, name):
+                return ToolResult.failure("Agent bulunamadı veya güncel kapsamda değil.")
+            offset = args.get("offset", 0)
+            if type(offset) is not int or offset < 0:
+                return ToolResult.failure("offset negatif olmayan tamsayı olmalı.")
+            description = item.description
+            page = description[offset : offset + 3000]
+            end = offset + len(page)
+            continuation = f"\nnext_offset={end}" if end < len(description) else ""
+            return ToolResult(f"{item.qualified_name} — {page}{continuation}")
+        visible = tuple(
+            item
+            for item in library.agents()
+            if allowed(item, item.qualified_name) or allowed(item, item.name)
+        )
+        hits = search(visible, query)
+        # Search is a metadata preview. Exact selection pages preserve long descriptions.
+        output = "\n".join(f"- {item.qualified_name} — {item.description[:400]}" for item in hits)
+        return ToolResult(output or "(eşleşen agent yok)")
 
     return Tool(
         name="find_agent",
-        description="Uzman AGENT kütüphanesinde ara. Uygun bir uzman bulursan işi "
-        "invoke_agent ile ona devret.",
+        description="İzinli uzman ajanlarda ara. Tam açıklama için query='select:<ad>' "
+        "kullan; devam varsa aynı sorgu ve next_offset ile oku. "
+        "Gövde yalnız ajan başlayınca yüklenir.",
         parameters={
             "type": "object",
-            "properties": {"query": {**_STRING, "description": "aranan uzmanlık"}},
+            "properties": {
+                "query": {**_STRING, "description": "aranan uzmanlık veya select:<ad>"},
+                "offset": {"type": "integer", "minimum": 0},
+            },
             "required": ["query"],
         },
         run=_run,

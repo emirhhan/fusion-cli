@@ -490,6 +490,8 @@ class RuntimeConfig:
     #: disclosure davranışı). 0 = dizin kapalı (yalnız find_skill). Küçük pencereli modelde
     #: pencerenin %2'sini aşmaz.
     skill_index_chars: int = 4_000
+    #: 0 preserves full agent descriptions; positive budgets require find_agent discovery.
+    agent_catalog_chars: int = 0
     #: Proje talimatı ve dış araç bellekleri tur başında okunsun mu? `fusion agent --bare`
     #: kapatır (Claude Code `--bare`); varsayılan açık (P-026).
     project_instructions: bool = True
@@ -565,6 +567,8 @@ class RuntimeConfig:
             raise ConfigError("runtime.teacher_max_brief_chars: en az 1000 olmalı.")
         if self.emulation_protocol not in {"v1", "v2"}:
             raise ConfigError("runtime.emulation_protocol: v1 veya v2 olmalı.")
+        if type(self.agent_catalog_chars) is not int or self.agent_catalog_chars < 0:
+            raise ConfigError("runtime.agent_catalog_chars: negatif olmayan tamsayı gerekli.")
         if self.code_lexical_candidates < 0:
             raise ConfigError("runtime.code_lexical_candidates: negatif olamaz.")
 
