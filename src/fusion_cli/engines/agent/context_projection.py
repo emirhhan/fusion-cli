@@ -16,6 +16,7 @@ from ...core.evidence import EvidenceStatus
 from ...core.execution_plan import StepStatus
 from ...core.optional_read import OptionalReadWorker
 from ...core.original_trace import OriginalTraceJournal, OriginalTraceScope
+from ...core.read_budget import ReadBudget, ReadBudgetExceededError
 from ...core.redaction import redact
 from ...core.types import Message
 from .plan_checkpoint import _digest
@@ -54,7 +55,9 @@ async def derive_context(deps: AgentDeps, *, local_remaining: int | None = None)
 
     accepted_owner = owner()
     return await _context_reader.run(
-        lambda valid: _derive_context(snapshot, local_remaining, valid),
+        lambda valid: _derive_context(
+            snapshot, local_remaining, lambda: valid() and owner() == accepted_owner
+        ),
         timeout_s=timeout,
         fallback=ActiveContext(),
         still_owned=lambda: owner() == accepted_owner,
@@ -64,11 +67,29 @@ async def derive_context(deps: AgentDeps, *, local_remaining: int | None = None)
 def _derive_context(
     deps: AgentDeps, local_remaining: int | None, valid: Callable[[], bool]
 ) -> ActiveContext:
+    budget = ReadBudget(valid=valid)
+    try:
+        budget.check()
+        result = _derive_context_bounded(deps, local_remaining, valid, budget)
+        budget.check()
+        return result
+    except ReadBudgetExceededError:
+        return ActiveContext()
+
+
+def _derive_context_bounded(
+    deps: AgentDeps, local_remaining: int | None, valid: Callable[[], bool], budget: ReadBudget
+) -> ActiveContext:
     """Only a plan accepted by the workflow runner can restore persisted criteria."""
     checkpoint = None
     root = deps.tool_context.root.resolve()
     if deps.context_plan_id and deps.checkpoint_store is not None and deps.conversation_id:
-        checkpoint = deps.checkpoint_store.load(deps.context_plan_id)
+        bounded_load = getattr(deps.checkpoint_store, "load_bounded", None)
+        checkpoint = (
+            bounded_load(deps.context_plan_id, read_budget=budget)
+            if callable(bounded_load)
+            else deps.checkpoint_store.load(deps.context_plan_id)
+        )
         if checkpoint is not None and (
             checkpoint.plan.plan_id != deps.context_plan_id
             or checkpoint.conversation_id != deps.conversation_id
@@ -89,7 +110,7 @@ def _derive_context(
         return ActiveContext()
     lines = [ACTIVE_HEADER, "Bu ölçülmüş durum model özetinden üstündür."]
     pins: list[str] = []
-    current_source = source_digest(root)
+    current_source = source_digest(root, read_budget=budget)
     for step in opened:
         lines.extend(
             f"Açık koşul {step.step_id}: {redact(text)[:180]}" for text in step.success_criteria[:8]
@@ -106,6 +127,7 @@ def _derive_context(
         deps,
         current_source,
         valid,
+        budget,
     )
     lines[2:2] = [_budget_line(deps, local_remaining), *_bounded_evidence(evidence_lines)]
     unique = tuple(dict.fromkeys(pins))
@@ -135,6 +157,7 @@ def _evidence_lines(
     deps: AgentDeps,
     current_source: str,
     valid: Callable[[], bool],
+    read_budget: ReadBudget | None = None,
 ) -> tuple[list[str], list[str]]:
     """Ölçülmüş sürüm ve çağrı kanıtlarını mevcut kaynakla eşleştir."""
     lines: list[str] = []
@@ -147,7 +170,7 @@ def _evidence_lines(
         for artifact in evidence.artifacts:
             if not valid():
                 break
-            current = _digest(deps.tool_context.root, artifact.path)
+            current = _digest(deps.tool_context.root, artifact.path, read_budget=read_budget)
             if current and current == artifact.digest:
                 lines.append(f"Doğrulanmış SHA-256 {redact(artifact.path)}: {current}")
             else:
@@ -156,13 +179,15 @@ def _evidence_lines(
             if not valid():
                 break
             if (
-                criterion.source_after_digest == current_source
+                current_source
+                and criterion.source_after_digest == current_source
                 and criterion.environment
                 and criterion.call_id
                 and evidence_environment(
                     deps.tool_context.root,
                     tuple(criterion.environment.command.splitlines()),
                     runtime=sys.version,
+                    read_budget=read_budget,
                 )
                 == criterion.environment
             ):

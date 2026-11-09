@@ -18,6 +18,7 @@ from ...core.execution_plan import (
     StepStatus,
     VerificationCheckKind,
 )
+from ...core.read_budget import ReadBudget, ReadBudgetExceededError
 from ...core.tools import ToolEffect
 from .step_verification import StepVerificationResult, evaluate_file_check, verify_step
 
@@ -67,18 +68,43 @@ def invalidate(plan: ExecutionPlan, roots: set[str]) -> ExecutionPlan:
 _DIGEST_CHUNK = 1 << 20
 
 
-def _digest(root: Path, name: str) -> str:
+def _digest(root: Path, name: str, *, read_budget: ReadBudget | None = None) -> str:
     """Dosyanın içerik, klasörün dosya listesi (ad+boyut) özeti; okunamıyorsa boş.
 
     Ölçüldü (29 Ekim, A3-17): klasör hedefi (`file:assets/`) `read_bytes` ile OSError verip
     boş özet üretiyor, `artifact_changed` bunu "değişti" sayıp adımı her devamda yeniden
     koşturuyordu. Büyük ikililer de tamamen belleğe okunuyordu; artık 1 MiB parçalarla.
     """
+    if read_budget is not None:
+        try:
+            read_budget.check()
+        except ReadBudgetExceededError:
+            return ""
     path = (root / name).resolve()
     if not path.is_relative_to(root.resolve()):
         return ""
     digest = hashlib.sha256()
     try:
+        if read_budget is not None:
+            read_budget.check()
+            if path.is_dir():
+                pending, files = [path], []
+                while pending:
+                    for entry in read_budget.iterdir(pending.pop()):
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(Path(entry.path))
+                        elif entry.is_file():
+                            files.append(Path(entry.path))
+                for item in sorted(files):
+                    read_budget.check()
+                    digest.update(
+                        f"{item.relative_to(path).as_posix()}:{item.stat().st_size}\n".encode()
+                    )
+            else:
+                for chunk in read_budget.chunks(path):
+                    digest.update(chunk)
+            read_budget.check()
+            return digest.hexdigest()
         if path.is_dir():
             for item in sorted(path.rglob("*")):
                 if item.is_file():
@@ -90,7 +116,7 @@ def _digest(root: Path, name: str) -> str:
             while chunk := handle.read(_DIGEST_CHUNK):
                 digest.update(chunk)
         return digest.hexdigest()
-    except OSError:
+    except (OSError, ReadBudgetExceededError):
         return ""
 
 

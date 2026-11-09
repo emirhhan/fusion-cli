@@ -22,11 +22,13 @@ import sys
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
+from email.parser import Parser
 from functools import partial
 from importlib import metadata
 from pathlib import Path, PurePosixPath
 
 from ...core.evidence import EvidenceEnvironment
+from ...core.read_budget import ReadBudget, ReadBudgetExceededError
 from ...core.repo_imports import (
     GRAPH_SUFFIXES,
     ImportRef,
@@ -547,14 +549,20 @@ def _command_tokens(command: str) -> tuple[str, ...]:
     return tuple(lexer)
 
 
-def command_environment(root: Path, command: str) -> CommandEnvironment | None:
+def command_environment(
+    root: Path, command: str, *, read_budget: ReadBudget | None = None
+) -> CommandEnvironment | None:
     """Yalnız kök içindeki açık cd öneklerini çöz; belirsiz kabukta önbellek yok."""
-    root = root.resolve()
     try:
+        if read_budget is not None:
+            read_budget.entry()
+        root = root.resolve()
         tokens = _command_tokens(command)
         cwd = root
         remaining = tokens
         while remaining and remaining[0] == "cd":
+            if read_budget is not None:
+                read_budget.entry()
             if len(remaining) < 3 or remaining[2] not in {"&&", ";"}:
                 return None
             target = remaining[1]
@@ -582,10 +590,18 @@ def evidence_environment(
     *,
     runtime: str,
     runner_paths: tuple[Path, ...] = (),
+    read_budget: ReadBudget | None = None,
 ) -> EvidenceEnvironment | None:
     """Güvenle ölçülen etkin proje girdilerini özetle; belirsizlikte cache'i kapat."""
+    if read_budget is not None:
+        try:
+            read_budget.check()
+        except ReadBudgetExceededError:
+            return None
     root = root.resolve()
-    environments = [command_environment(root, command) for command in commands]
+    environments = [
+        command_environment(root, command, read_budget=read_budget) for command in commands
+    ]
     if not environments or any(item is None for item in environments):
         return None
     known = [item for item in environments if item is not None]
@@ -607,17 +623,20 @@ def evidence_environment(
             runners.add(item.cwd / ".venv" / "bin" / program.name)
         if any(part.startswith(".env") for runner in runners for part in runner.parts):
             return None
-        safe_configs = _environment_paths(root, configs)
-        safe_dependencies = _environment_paths(root, dependencies)
+        safe_configs = _environment_paths(root, configs, read_budget=read_budget)
+        safe_dependencies = _environment_paths(root, dependencies, read_budget=read_budget)
         if safe_configs is None or safe_dependencies is None:
             return None
-        runner_digest = content_digest(runners, strict=True)
+        runner_digest = content_digest(runners, strict=True, read_budget=read_budget)
+        versions = _runner_versions(distributions, read_budget=read_budget)
         return EvidenceEnvironment(
             command="\n".join(commands),
             cwd="\n".join(str(item.cwd) for item in known),
-            runtime=f"{runtime}:{_runner_versions(distributions)}:{runner_digest}",
-            dependency_digest=content_digest(safe_dependencies, strict=True),
-            config_digest=content_digest(safe_configs, strict=True),
+            runtime=f"{runtime}:{versions}:{runner_digest}",
+            dependency_digest=content_digest(
+                safe_dependencies, strict=True, read_budget=read_budget
+            ),
+            config_digest=content_digest(safe_configs, strict=True, read_budget=read_budget),
         )
     except (OSError, ValueError, RuntimeError):
         return None
@@ -635,10 +654,14 @@ def _project_ancestors(root: Path, cwd: Path) -> tuple[Path, ...]:
     raise ValueError("Etkin çalışma dizini izin verilen proje kökü dışında.")
 
 
-def _environment_paths(root: Path, paths: set[Path]) -> tuple[Path, ...] | None:
+def _environment_paths(
+    root: Path, paths: set[Path], *, read_budget: ReadBudget | None = None
+) -> tuple[Path, ...] | None:
     """Bağ kimliğiyle birlikte izin verilen hedef içeriğini de ölçüme ekle."""
     expanded: set[Path] = set()
     for path in paths:
+        if read_budget is not None:
+            read_budget.entry()
         target = path.resolve()
         if not target.is_relative_to(root) or any(
             part.startswith(".env") for part in target.relative_to(root).parts
@@ -681,21 +704,64 @@ def _explicit_configs(root: Path, tokens: list[str]) -> set[Path]:
 _RUNNER_DISTRIBUTIONS = frozenset({"pytest", "ruff", "mypy", "tox", "nox"})
 
 
-def _runner_versions(distributions: set[str]) -> str:
+def _runner_versions(distributions: set[str], *, read_budget: ReadBudget | None = None) -> str:
     """Yalnız seçilmiş Python koşucularının kurulu sürüm kaydını oku; paket kurma."""
     versions = []
     for distribution in sorted(distributions):
         try:
-            version = metadata.version(distribution)
+            version = (
+                metadata.version(distribution)
+                if read_budget is None
+                else _bounded_runner_version(distribution, read_budget)
+            )
         except metadata.PackageNotFoundError:
             version = "kurulu-degil"
         versions.append(f"{distribution}:{version}")
     return ";".join(versions)
 
 
-def source_digest(root: Path) -> str:
+def _bounded_runner_version(distribution: str, budget: ReadBudget) -> str:
+    """Read standard installed metadata with the same entry/byte/deadline budget."""
+    target = distribution.replace("_", "-").lower()
+    for base in dict.fromkeys(sys.path):
+        budget.check()
+        directory = Path(base or ".")
+        if directory.is_file():
+            # Archive/custom metadata providers have no bounded read contract.
+            raise ValueError("Unbounded distribution metadata unavailable.")
+        try:
+            for entry in budget.iterdir(directory):
+                suffix = next(
+                    (
+                        suffix
+                        for suffix in (".dist-info", ".egg-info")
+                        if entry.name.endswith(suffix)
+                    ),
+                    "",
+                )
+                if (
+                    not suffix
+                    or entry.name[: -len(suffix)].split("-", 1)[0].replace("_", "-").lower()
+                    != target
+                ):
+                    continue
+                name = "METADATA" if suffix == ".dist-info" else "PKG-INFO"
+                text = budget.read_bytes(Path(entry.path) / name).decode("utf-8")
+                version = Parser().parsestr(text).get("Version")
+                if not version:
+                    raise ValueError("Distribution version unavailable.")
+                return str(version)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+    return "kurulu-degil"
+
+
+def source_digest(root: Path, *, read_budget: ReadBudget | None = None) -> str:
     """Mevcut içerik özetleyiciyle kaynak/test dosyalarını ölç; sır dosyalarını okuma."""
-    snapshot = take_fingerprint(root)
+    try:
+        snapshot = take_fingerprint(root, read_budget=read_budget)
+    except ReadBudgetExceededError:
+        return ""
     if snapshot is None:
         return ""
     paths = tuple(
@@ -705,8 +771,8 @@ def source_digest(root: Path) -> str:
         and not any(part.startswith(".env") for part in Path(name).parts)
     )
     try:
-        return content_digest(paths, strict=True)
-    except OSError:
+        return content_digest(paths, strict=True, read_budget=read_budget)
+    except (OSError, ReadBudgetExceededError):
         return ""
 
 

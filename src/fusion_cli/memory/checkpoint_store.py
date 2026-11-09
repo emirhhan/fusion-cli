@@ -24,6 +24,7 @@ from ..core.execution_plan import (
     VerificationCheckKind,
 )
 from ..core.file_lease import FileLease
+from ..core.read_budget import ReadBudget, ReadBudgetExceededError
 from ..core.routine_codec import decode_routine, encode_routine
 from .checkpoint_effects import effects_payload, parse_effects
 from .checkpoint_evidence import budget_payload, evidence_payload, parse_budget, parse_evidence
@@ -293,6 +294,20 @@ class JsonCheckpointStore:
         return committed.storage_revision
 
     def load(self, plan_id: str) -> WorkflowCheckpoint | None:
+        return self._load(plan_id)
+
+    def load_bounded(self, plan_id: str, *, read_budget: ReadBudget) -> WorkflowCheckpoint | None:
+        """Optional projection only; incomplete bytes never become a checkpoint."""
+        try:
+            result = self._load(plan_id, read_budget=read_budget)
+            read_budget.check()
+            return result
+        except ReadBudgetExceededError:
+            return None
+
+    def _load(
+        self, plan_id: str, *, read_budget: ReadBudget | None = None
+    ) -> WorkflowCheckpoint | None:
         paths: tuple[Path, ...]
         if self._scope is not None:
             root, conversation = self._scope
@@ -300,11 +315,22 @@ class JsonCheckpointStore:
                 self._canonical((root, conversation or "", plan_id)),
                 *self._legacy_paths(plan_id),
             )
+        elif read_budget is not None:
+            try:
+                paths = tuple(
+                    Path(entry.path)
+                    for entry in read_budget.iterdir(self._base_dir)
+                    if entry.name.endswith(".json")
+                )
+            except FileNotFoundError:
+                paths = ()
         else:
             paths = self._paths()
         matches: dict[tuple[str, str, str], WorkflowCheckpoint] = {}
         for path in paths:
-            checkpoint = self._read_valid(path)
+            if read_budget is not None:
+                read_budget.check()
+            checkpoint = self._read_valid(path, read_budget=read_budget)
             if checkpoint is None or checkpoint.plan.plan_id != plan_id:
                 continue
             identity = self._identity(checkpoint)
@@ -315,15 +341,32 @@ class JsonCheckpointStore:
         return result
 
     @staticmethod
-    def _read_path(path: Path) -> WorkflowCheckpoint | None:
+    def _read_path(
+        path: Path, *, read_budget: ReadBudget | None = None
+    ) -> WorkflowCheckpoint | None:
         try:
-            raw = cast("object", json.loads(path.read_text(encoding="utf-8")))
-            return _from_dict(raw)
+            text = (
+                path.read_text(encoding="utf-8")
+                if read_budget is None
+                else read_budget.read_bytes(path).decode("utf-8")
+            )
+            raw = cast("object", json.loads(text))
+            result = _from_dict(raw)
+            if read_budget is not None:
+                read_budget.check()
+            return result
         except (OSError, ValueError, TypeError, KeyError) as error:
             # Neden okunamadığı sessizce kaybolmasın: dosya adı ve hata türü loglanır.
             _logger.warning(
                 "checkpoint okunamadı",
-                extra={"dosya": path.name, "hata": f"{type(error).__name__}: {str(error)[:200]}"},
+                extra={
+                    "dosya": path.name,
+                    "hata": (
+                        type(error).__name__
+                        if read_budget is not None
+                        else f"{type(error).__name__}: {str(error)[:200]}"
+                    ),
+                },
             )
             return None
 
@@ -345,8 +388,10 @@ class JsonCheckpointStore:
             "okunamayan checkpoint kenara alındı", extra={"dosya": path.name, "yedek": hedef.name}
         )
 
-    def _read_valid(self, path: Path) -> WorkflowCheckpoint | None:
-        checkpoint = self._read_path(path)
+    def _read_valid(
+        self, path: Path, *, read_budget: ReadBudget | None = None
+    ) -> WorkflowCheckpoint | None:
+        checkpoint = self._read_path(path, read_budget=read_budget)
         if checkpoint is None:
             return None
         canonical = self._canonical(self._identity(checkpoint))

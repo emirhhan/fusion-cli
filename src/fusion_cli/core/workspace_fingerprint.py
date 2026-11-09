@@ -33,6 +33,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from .read_budget import ReadBudget
+
 #: Bir parmak izine girecek en çok dosya; aşılırsa ölçüm yapılmaz.
 MAX_FILES = 20_000
 #: Bir parmak izi için en uzun süre (sn); aşılırsa ölçüm yapılmaz.
@@ -81,6 +83,7 @@ def take_fingerprint(
     max_files: int = MAX_FILES,
     max_seconds: float = MAX_SECONDS,
     clock: Callable[[], float] = time.monotonic,
+    read_budget: ReadBudget | None = None,
 ) -> dict[str, tuple[int, int]] | None:
     """Kökün parmak izi; sınır aşılır ya da kök okunamazsa `None` (ölçülemedi).
 
@@ -94,6 +97,11 @@ def take_fingerprint(
     while stack:
         directory = stack.pop()
         try:
+            if read_budget is not None:
+                for entry in read_budget.iterdir(Path(directory)):
+                    if _visit(entry, base, files, stack, strict=True) and len(files) > max_files:
+                        return None
+                continue
             with os.scandir(directory) as entries:
                 for entry in entries:
                     seen += 1
@@ -102,14 +110,19 @@ def take_fingerprint(
                     if _visit(entry, base, files, stack) and len(files) > max_files:
                         return None
         except OSError:
-            if directory == base:
+            if directory == base or read_budget is not None:
                 return None  # Kök okunamadı: ölçüm yok.
             continue  # Alt dizin kayboldu/izin yok: o dal atlanır.
     return files
 
 
 def _visit(
-    entry: os.DirEntry[str], base: str, files: dict[str, tuple[int, int]], stack: list[str]
+    entry: os.DirEntry[str],
+    base: str,
+    files: dict[str, tuple[int, int]],
+    stack: list[str],
+    *,
+    strict: bool = False,
 ) -> bool:
     """Bir girdiyi işle; dosya eklendiyse True."""
     try:
@@ -121,6 +134,8 @@ def _visit(
             return False
         info = entry.stat(follow_symlinks=False)
     except OSError:
+        if strict:
+            raise
         return False  # Girdi gezinirken silindi: yarış, sonraki karşılaştırmada görünür.
     files[os.path.relpath(entry.path, base)] = (info.st_size, info.st_mtime_ns)
     return True
@@ -175,20 +190,37 @@ def measure_effect(before: Fingerprint | None, root: Path) -> WorkspaceEffect:
 _CONTENT_CHUNK_BYTES = 65_536
 
 
-def content_digest(paths: Iterable[Path], *, strict: bool = False) -> str:
+def content_digest(
+    paths: Iterable[Path], *, strict: bool = False, read_budget: ReadBudget | None = None
+) -> str:
     """Açıkça seçilmiş dosyaların adını ve içeriğini tek özette birleştir.
 
     Dosya yokluğu da kimliktir; okunamayan dosya başarıyla okunmuş sayılmaz.
     Sembolik bağın hedefi yerine bağın kendi değeri kullanılır.
     """
     digest = hashlib.sha256()
+    if read_budget is not None:
+        selected: list[Path] = []
+        for path in paths:
+            read_budget.check()
+            if len(selected) >= read_budget.max_entries - read_budget.entries_read:
+                read_budget.fail()
+            selected.append(path)
+        paths = selected
     for path in sorted(set(paths)):
+        if read_budget is not None:
+            read_budget.check()
         digest.update(str(path).encode())
         digest.update(b"\0")
         try:
             if path.is_symlink():
+                if read_budget is not None:
+                    read_budget.entry()
                 digest.update(b"link:")
                 digest.update(str(path.readlink()).encode())
+            elif read_budget is not None:
+                for chunk in read_budget.chunks(path):
+                    digest.update(chunk)
             else:
                 with path.open("rb") as stream:
                     while chunk := stream.read(_CONTENT_CHUNK_BYTES):
@@ -198,4 +230,6 @@ def content_digest(paths: Iterable[Path], *, strict: bool = False) -> str:
                 raise
             digest.update(f"okunamadi:{error.errno}".encode())
         digest.update(b"\0")
+    if read_budget is not None:
+        read_budget.check()
     return digest.hexdigest()
