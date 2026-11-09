@@ -215,3 +215,36 @@ async def test_basarisiz_oyun_kaniti_teslim_raporunu_bloklar(tmp_path, monkeypat
     result = await _kapi(tmp_path, monkeypatch, _BOZUK)
     report = build_turn_report(("game.js",), (), result, require_behavioral_evidence=True)
     assert not report.is_verified and report.blocks_success
+
+
+async def test_accepted_pause_button_requirement_reaches_actual_probe(tmp_path, monkeypatch):
+    from fusion_cli.engines.agent.delivery_contract import accept_delivery_contract
+
+    (tmp_path / "index.html").write_text("<canvas></canvas>")
+    context = ToolContext(root=tmp_path, task_kinds={"oyun"})
+    context.touched.add(tmp_path / "index.html")
+    accept_delivery_contract(context, "Bir oyun yap. Başlat/duraklat düğmeleri olsun.")
+    seen = []
+
+    async def probe(url, **kwargs):
+        seen.append(kwargs)
+        return _SAGLAM
+
+    monkeypatch.setattr(game_verify, "probe_game", probe)
+    await GameProbeVerifier(context).verify()
+    assert seen and seen[0]["require_pause_button"] is True
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Oyun yap.",
+        "Oyunda duraklatma düğmesi olmasın.",
+        "Pause button is not required.",
+        "Sadece klavye ile duraklat.",
+    ],
+)
+def test_no_invented_pause_button_requirement(task):
+    from fusion_cli.tools.game_controls import requires_pause_button
+
+    assert not requires_pause_button(task)

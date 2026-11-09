@@ -78,6 +78,8 @@ class ProbeReport:
     canvas_kind: str | None = None
     #: Sayfa hatası SAYILMAYAN kaynak notları (favicon 404 gibi).
     ignored_resources: tuple[str, ...] = ()
+    control_problems: tuple[str, ...] = ()
+    control_warnings: tuple[str, ...] = ()
 
     def problems(self) -> tuple[str, ...]:
         """Oyunu oynanamaz kılan ölçümler (kapı bunlarla turu kapatmaz)."""
@@ -101,6 +103,7 @@ class ProbeReport:
         sorunlar.extend(self.startup_problems)
         sorunlar.extend(self.hud_problems)
         sorunlar.extend(self.restart_problems)
+        sorunlar.extend(self.control_problems)
         sorunlar.extend(f"görsel: {sorun}" for sorun in self.visual_problems)
         if self.asset_usage.problem:
             sorunlar.append(f"görsel: {self.asset_usage.problem}")
@@ -153,6 +156,8 @@ class ProbeReport:
         satirlar.extend(f"BAŞLATMA SORUNU: {sorun}" for sorun in self.startup_problems)
         satirlar.extend(f"HUD SORUNU: {sorun}" for sorun in self.hud_problems)
         satirlar.extend(f"YENİDEN BAŞLATMA SORUNU: {sorun}" for sorun in self.restart_problems)
+        satirlar.extend(f"DURAKLAT/DEVAM SORUNU: {s}" for s in self.control_problems)
+        satirlar.extend(f"DURAKLAT/DEVAM ÖLÇÜLEMEDİ: {s}" for s in self.control_warnings)
         if self.ended_checked and not self.restart_problems:
             satirlar.append("Oyun sonu → yeniden başlat: sorun ölçülmedi (ya da oyun bitmedi)")
         satirlar.extend(f"GÖRSEL SORUN: {sorun}" for sorun in self.visual_problems)
@@ -182,7 +187,11 @@ async def _press(page: Page, keys: tuple[str, ...]) -> tuple[str, ...]:
 
 
 async def probe_game(
-    url: str, keys: tuple[str, ...] = DEFAULT_KEYS, *, play_to_end: bool = False
+    url: str,
+    keys: tuple[str, ...] = DEFAULT_KEYS,
+    *,
+    play_to_end: bool = False,
+    require_pause_button: bool = False,
 ) -> ProbeReport:
     """Oyunu aç, tuşlara bas, durumu karşılaştır. Playwright yoksa ImportError.
 
@@ -211,6 +220,11 @@ async def probe_game(
             )
             if not baslatma.has_button:
                 await _press(sayfa, ("Enter", "Space"))
+            from .game_controls import pause_button_behavior
+
+            controls, control_warnings = (
+                await pause_button_behavior(sayfa) if require_pause_button else ((), ())
+            )
             once, tuval_once = await sayfa.evaluate(_STATE), await read_canvas(sayfa)
             gorsel = await _visual_problems(sayfa)
             etkili = await _press(sayfa, keys)
@@ -239,6 +253,8 @@ async def probe_game(
         play_to_end,
         tuval_turu,
         tuple(dict.fromkeys(notlar)),
+        controls,
+        control_warnings,
     )
 
 

@@ -81,8 +81,14 @@ async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
         if not await asyncio.to_thread(yol.is_file):
             return ToolResult.failure(f"Dosya yok: {hedef}")
         hedef = yol.as_uri()
+    from ...tools.game_controls import requires_pause_button
+
+    contract = context.delivery_contract.for_owner(context.root, context.job_scope)
     try:
-        rapor = await probe_game(hedef, parse_keys(args.get("keys")))
+        if contract and requires_pause_button(contract.task):
+            rapor = await probe_game(hedef, parse_keys(args.get("keys")), require_pause_button=True)
+        else:
+            rapor = await probe_game(hedef, parse_keys(args.get("keys")))
     except ImportError:
         return ToolResult.failure("Playwright kurulu değil; oyun sondası çalışamadı.")
     except Exception as error:  # sınır: Chromium indirilmemiş vb. (A4-48)
@@ -130,7 +136,7 @@ async def run_play_probe(args: ToolArgs, context: ToolContext) -> ToolResult:
             is_observation=True,
         )
     context.probed_games.add(hedef)
-    return ToolResult(f"Oyun sondası ({hedef}):\n{rapor.summary()}")
+    return ToolResult(f"Oyun sondası ({hedef}):\n{rapor.summary()}", ok=not rapor.control_problems)
 
 
 def web_work_tools() -> tuple[Tool, ...]:

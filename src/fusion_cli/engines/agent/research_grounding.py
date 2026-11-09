@@ -108,7 +108,11 @@ _PROMPT = (
     "One concrete actionable issue may cover a nonempty subset of target IDs. Otherwise,\n"
     "review every target ID and classify all spans with claims (group related\n"
     "IDs). claims.sources must use ONLY exact keys from a source's spans (e.g. s1:13),\n"
-    "never source-level labels. Use [] for an unsupported claim without an evidence span;\n"
+    "never source-level labels. sN:receipt spans are reader metadata: they support only\n"
+    "fetch scope, URL, access timestamp and completeness statements, not page facts.\n"
+    "An honest truncation disclosure backed by completeness=truncated is supported,\n"
+    "not unsupported merely because the page body does not announce its own truncation.\n"
+    "Use [] for an unsupported claim without an evidence span;\n"
     "never invent or shorten IDs. Supported claims\n"
     "must cite exact supplied source span IDs. uncertain means explicitly source-honest\n"
     "uncertainty\n"
@@ -297,10 +301,24 @@ def request_payload(
                 "updated_at": source.receipt.updated_at,
                 "completeness": source.receipt.completeness,
                 "spans": {
-                    span.id: span.text
-                    for span in _spans(
-                        source.receipt.text, f"s{index + 1}", source.receipt.final_url
-                    )
+                    **{
+                        span.id: span.text
+                        for span in _spans(
+                            source.receipt.text, f"s{index + 1}", source.receipt.final_url
+                        )
+                    },
+                    f"s{index + 1}:receipt": json.dumps(
+                        {
+                            "record_kind": "reader_receipt_metadata",
+                            "requested_url": source.receipt.requested_url,
+                            "final_url": source.receipt.final_url,
+                            "fetched_at": source.receipt.fetched_at,
+                            "completeness": source.receipt.completeness,
+                            "scope": source.receipt.scope,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                 },
             }
             for index, source in enumerate(admitted)

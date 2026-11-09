@@ -1586,3 +1586,24 @@ def test_legacy_headers_must_agree_with_claims_and_coverage(tmp_path, kind):
     assert parse_verdict(json.dumps(raw), target, sources).status == expected
     raw["status"] = "supported" if expected == "issues" else "issues"
     assert parse_verdict(json.dumps(raw), target, sources).status == "incomplete"
+
+
+def test_owned_fetch_metadata_has_exact_citable_span_without_page_invention(tmp_path):
+    import json
+    from dataclasses import replace
+
+    from fusion_cli.engines.agent import research_grounding as g
+
+    context, target, sources = target_sources(tmp_path)
+    original = sources[0]
+    receipt = replace(original.receipt, completeness="truncated")
+    contract = context.delivery_contract.for_owner(context.root, context.job_scope)
+    source = g.capture_source(receipt, contract, "actual-fetch")
+    payload = g.request_payload(target, (source,))
+    metadata = json.loads(payload["sources"][0]["spans"]["s1:receipt"])
+    assert metadata["completeness"] == "truncated"
+    assert metadata["fetched_at"] == receipt.fetched_at
+    assert metadata["record_kind"] == "reader_receipt_metadata"
+    assert "text" not in metadata
+    forged = replace(source, receipt=replace(receipt, completeness="complete"))
+    assert not g.request_payload(target, (forged,))["sources"]

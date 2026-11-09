@@ -18,6 +18,7 @@ from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
+from ...tools.game_controls import requires_pause_button
 from ...tools.play_probe import probe_game
 
 _LOG = logging.getLogger(__name__)
@@ -58,9 +59,13 @@ class GameProbeVerifier:
             adresler.add(dosya)
         evidence: list[CriterionEvidence] = []
         warnings: list[str] = []
+        contract = self._context.delivery_contract.for_owner(
+            self._context.root, self._context.job_scope
+        )
+        pause_required = bool(contract and requires_pause_button(contract.task))
         for adres in sorted(adresler):
             onek = f"{adres}: " if adres != dosya else f"{DOSYADAN}: "
-            result = await _probe_result(adres, onek)
+            result = await _probe_result(adres, onek, require_pause_button=pause_required)
             bulgular.extend(result.findings)
             warnings.extend(result.warnings)
             evidence.extend(result.evidence)
@@ -73,10 +78,15 @@ class GameProbeVerifier:
         )
 
 
-async def _probe_result(address: str, prefix: str) -> VerificationResult:
+async def _probe_result(
+    address: str, prefix: str, *, require_pause_button: bool = False
+) -> VerificationResult:
     """Gerçek kısa sondanın kapsamını taşı; ölçülmeyen uzun oyunu onaylama."""
     try:
-        report = await probe_game(address, play_to_end=True)
+        if require_pause_button:
+            report = await probe_game(address, play_to_end=True, require_pause_button=True)
+        else:
+            report = await probe_game(address, play_to_end=True)
     except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı
         _LOG.warning("Oyun sondası çalıştırılamadı", exc_info=True)
         detail = (
@@ -117,10 +127,31 @@ async def _probe_result(address: str, prefix: str) -> VerificationResult:
         output=report.summary(),
         behavioral=True,
     )
+    extra: tuple[CriterionEvidence, ...] = ()
+    if require_pause_button:
+        extra = (
+            CriterionEvidence(
+                criterion_id=f"game_pause:{address}",
+                kind=VerificationCheckKind.TOOL,
+                status=(
+                    EvidenceStatus.FAILED
+                    if report.control_problems
+                    else EvidenceStatus.UNVERIFIED
+                    if report.control_warnings
+                    else EvidenceStatus.PASSED
+                ),
+                summary="İstenen duraklat/devam düğmelerinin görünürlük ve durum geçişi sondası.",
+                artifact=address,
+                command="play_probe",
+                behavioral=not report.control_warnings,
+                output="\n".join((*report.control_problems, *report.control_warnings)),
+            ),
+        )
     return VerificationResult(
         ok=not problems,
         findings=tuple(prefix + problem for problem in problems),
-        evidence=(evidence,),
+        warnings=report.control_warnings,
+        evidence=(evidence, *extra),
     )
 
 
