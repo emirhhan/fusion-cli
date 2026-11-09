@@ -482,6 +482,7 @@ async def _run_child(
         active_model_override=selected_model,
         publisher=ScopedPublisher(deps.publisher, sub_id),
         policy=policy,
+        denied_tools=deps.denied_tools | subtask.tool_deny | persona.disallowed_tools,
         tool_context=context,
         base_registry=deps.base_registry,
         asker=deps.asker,

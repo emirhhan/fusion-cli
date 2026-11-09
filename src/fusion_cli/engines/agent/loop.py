@@ -331,7 +331,12 @@ from .teacher_flow import (
 from .teacher_lessons import PendingAdvice
 from .teacher_plan import TeacherPlan, UnworkablePart, classify_teacher_task
 from .team import Persona
-from .tool_constraints import prohibited_tool
+from .tool_constraints import (
+    NATIVE_METHOD_BLOCKED,
+    native_method_blocked,
+    native_method_denials,
+    prohibited_tool,
+)
 from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
@@ -786,6 +791,7 @@ async def run_agent(
             if system_prompt is None and persona.prompt.strip():
                 system_prompt = persona.prompt.strip()
     original_publisher = deps.publisher
+    original_denied_tools = deps.denied_tools
     original_attempt = deps.attempt_id
     child_turn_token = None
     if depth == 0 and not internal:
@@ -810,6 +816,19 @@ async def run_agent(
     try:
         # Kancalar (P-009): kök turda SessionStart + UserPromptSubmit; engel istemi düşürür.
         root_turn = depth == 0 and not internal
+        # Scoped additions reuse the ordinary deny surface and child inheritance.
+        # A later root turn can clear only these derived additions; caller,
+        # persona and inherited parent ceilings remain part of the original set.
+        deps.denied_tools = (
+            deps.denied_tools
+            | denied_tools
+            | (
+                deps.session_persona.disallowed_tools
+                if root_turn and deps.session_persona
+                else frozenset()
+            )
+            | (native_method_denials(task) if root_turn else frozenset())
+        )
         if root_turn:
             from .tool_constraints import forbidden_families
 
@@ -912,6 +931,7 @@ async def run_agent(
         if child_turn_token is not None:
             deps.child_runs.end_turn(child_turn_token)
         deps.attempt_id = original_attempt
+        deps.denied_tools = original_denied_tools
         if depth == 0 and not internal:
             deps.publisher = original_publisher
             await deps.questions.close()
@@ -5111,6 +5131,8 @@ async def _execute(
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
+    if native_method_blocked(call.name, args, deps.denied_tools):
+        return ToolResult.failure(NATIVE_METHOD_BLOCKED), ToolOutcome.BLOCKED
     if prohibited_tool(call.name, execution.forbidden_tool_families | deps.turn_forbidden_families):
         return ToolResult.failure(
             "Kullanıcının bu turdaki açık araç sınırı bu araç ailesine izin vermiyor. "
@@ -5172,6 +5194,8 @@ async def _execute(
     if hook_gate.blocked is not None:
         return hook_gate.failure(), (ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED)
     args = hook_gate.arguments
+    if native_method_blocked(call.name, args, deps.denied_tools):
+        return ToolResult.failure(NATIVE_METHOD_BLOCKED), ToolOutcome.BLOCKED
     desktop_presented_ref = args.get("ref")
     # Resolve presentation aliases before approval, risk classification, and
     # native stale-reference recovery. Hooks cannot inject a foreign alias.
@@ -5257,6 +5281,8 @@ async def _execute(
             # Onaylayan argümanı değiştirdi (`-p` onay aracı `updatedInput`): yeni argüman
             # kural/kök-dışı engelinden yeniden geçer, sonra çalışır.
             args = dict(verdict.arguments)
+            if native_method_blocked(call.name, args, deps.denied_tools):
+                return ToolResult.failure(NATIVE_METHOD_BLOCKED), ToolOutcome.BLOCKED
             if args.get("ref") != desktop_canonical_ref:
                 desktop_presented_ref = args.get("ref")
             try:
