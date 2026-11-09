@@ -107,7 +107,27 @@ def test_release_manifest_canli_olcum_yokken_olculmedi_der(tmp_path):
     assert manifest["claimsReady"] is False
 
 
-def test_canli_rapor_eski_paket_veya_model_cagrisi_yoksa_kabul_edilmez(tmp_path):
+@pytest.mark.parametrize(
+    "change",
+    (
+        "stale",
+        "package",
+        "calls",
+        "provider",
+        "missing_task",
+        "duplicate_execution",
+        "missing_config",
+        "invalid_digest",
+        "unknown_failure",
+        "bool_runs",
+        "duplicate_call",
+        "missing_task_ids",
+        "wrong_repeat_count",
+        "duplicate_budget",
+        "bool_model_calls",
+    ),
+)
+def test_canli_rapor_eski_paket_veya_model_cagrisi_yoksa_kabul_edilmez(tmp_path, change):
     spec = importlib.util.spec_from_file_location(
         "deep_release_manifest", ROOT / "scripts/release_manifest.py"
     )
@@ -151,26 +171,53 @@ def test_canli_rapor_eski_paket_veya_model_cagrisi_yoksa_kabul_edilmez(tmp_path)
     report["metadata"]["task_budgets"] = [[name, 30, 180] for name in identifiers]
     report["metadata"]["calls"] *= 15
     report["results"] = [{**report["results"][0], "task_id": name} for name in identifiers]
+    report["metadata"]["execution_ids"] = [
+        [name, index] for name in identifiers for index in range(1, 4)
+    ]
+    report["metadata"]["task_config_digests"] = [
+        [name, "d" * 64] for name, _ in report["metadata"]["execution_ids"]
+    ]
+    report["metadata"]["calls"] = [
+        {"call_id": f"call-{index}", "served_model": "test/model", "outcome": "ok"}
+        for index in range(15)
+    ]
     path = tmp_path / "live.json"
     path.write_text(json.dumps(report))
     assert module.live_acceptance(path, artifacts, "a" * 40, now=1001)["status"] == "passed"
-    for change in ("stale", "package", "calls", "provider", "missing_task"):
-        candidate = json.loads(json.dumps(report))
-        if change == "stale":
-            candidate["binding"]["measured_at"] = 0
-        if change == "package":
-            candidate["binding"]["artifacts"]["app.dmg"] = "0" * 64
-        if change == "calls":
-            candidate["metadata"]["calls"] = []
-        if change == "provider":
-            candidate["results"][0]["rate_limited"] = True
-        if change == "missing_task":
-            candidate["results"].pop()
-        path.write_text(json.dumps(candidate))
-        with pytest.raises(SystemExit):
-            module.live_acceptance(
-                path, artifacts, "a" * 40, now=200000 if change == "stale" else 1001
-            )
+    candidate = json.loads(json.dumps(report))
+    if change == "stale":
+        candidate["binding"]["measured_at"] = 0
+    if change == "package":
+        candidate["binding"]["artifacts"]["app.dmg"] = "0" * 64
+    if change == "calls":
+        candidate["metadata"]["calls"] = []
+    if change == "provider":
+        candidate["results"][0]["rate_limited"] = True
+    if change == "missing_task":
+        candidate["results"].pop()
+    if change == "duplicate_execution":
+        candidate["metadata"]["execution_ids"][-1] = candidate["metadata"]["execution_ids"][0]
+    if change == "missing_config":
+        candidate["metadata"]["task_config_digests"].pop()
+    if change == "invalid_digest":
+        candidate["metadata"]["source_digest"] = "unknown"
+    if change == "unknown_failure":
+        candidate["results"][0]["false_success"] = None
+    if change == "bool_runs":
+        candidate["results"][0]["runs"] = True
+    if change == "duplicate_call":
+        candidate["metadata"]["calls"][-1] = candidate["metadata"]["calls"][0]
+    if change == "missing_task_ids":
+        candidate["metadata"]["task_ids"] += [identifiers[0]]
+    if change == "wrong_repeat_count":
+        candidate["results"][0]["runs"] = candidate["results"][0]["passes"] = 4
+    if change == "duplicate_budget":
+        candidate["metadata"]["task_budgets"] += [candidate["metadata"]["task_budgets"][0]]
+    if change == "bool_model_calls":
+        candidate["results"][0]["model_calls"] = True
+    path.write_text(json.dumps(candidate))
+    with pytest.raises(SystemExit):
+        module.live_acceptance(path, artifacts, "a" * 40, now=200000 if change == "stale" else 1001)
 
 
 def test_rapor_onay_metrigi_ve_saglayici_olculemedi_bilgisini_korur():

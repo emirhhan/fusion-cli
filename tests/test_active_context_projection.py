@@ -39,11 +39,12 @@ async def test_runtime_uc_sikistirmada_checkpoint_hash_ve_butceyi_korur(tmp_path
     )
 
     class Store:
-        def find_resumable(self, root, conversation_id):
+        def load(self, plan_id):
             return checkpoint
 
     deps.checkpoint_store = Store()
     deps.conversation_id = "chat"
+    deps.context_plan_id = "plan"
     deps.budget = loop._new_budget(deps.config)
     deps.config = replace(
         deps.config, runtime=replace(deps.config.runtime, context_restore_state=True)
@@ -131,11 +132,12 @@ async def test_acik_kriter_pini_kapaninca_ve_kaynak_degistiğinde_birakilir(tmp_
     )
 
     class Store:
-        def find_resumable(self, root, conversation_id):
+        def load(self, plan_id):
             return checkpoint
 
     deps.checkpoint_store = Store()
     deps.conversation_id = "chat"
+    deps.context_plan_id = "plan"
     assert (await derive_context(deps)).pinned_call_ids == frozenset({"gercek-call"})
     (tmp_path / "app.py").write_text("def changed(): pass\n")
     assert not (await derive_context(deps)).pinned_call_ids

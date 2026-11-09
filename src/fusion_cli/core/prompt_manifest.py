@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+ComponentLocation = Literal["unknown", "absent", "system", "history", "mixed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +30,7 @@ class PromptTransportMeasurement:
 
 @dataclass(frozen=True, slots=True)
 class PromptManifest:
-    """Üst toplam ayrık parçalardır; repo/skill talimat system altkırılımıdır."""
+    """Üst toplam ayrık; altkırılımlar kendi gerçek mesaj katmanına dahildir."""
 
     system_chars: int
     history_chars: int
@@ -44,6 +47,11 @@ class PromptManifest:
     tokens_estimated: bool = True
     prompt_tokens: int = 0
     subcomponents_in_system: bool = True
+    # Defaults preserve pre-v2 records; only the publisher asserts measured placement.
+    measurement_version: int = 1
+    instructions_location: ComponentLocation = "unknown"
+    repo_map_location: ComponentLocation = "unknown"
+    skill_location: ComponentLocation = "unknown"
 
 
 @dataclass(frozen=True, slots=True)

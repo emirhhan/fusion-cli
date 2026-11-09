@@ -658,6 +658,8 @@ class AgentDeps:
     journal: TurnJournal | None = None
     original_cursor: OriginalCursor = field(default_factory=OriginalCursor)
     context_step: PlanStep | None = None
+    #: Yalnız plan yürütücüsünün kabul ettiği plan; aynı sohbet tek başına sahiplik değildir.
+    context_plan_id: str | None = None
     active_context: ActiveContext = field(default_factory=ActiveContext)
     prompt_components: PromptComponents = field(default_factory=PromptComponents)
     #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.

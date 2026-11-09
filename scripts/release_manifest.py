@@ -23,6 +23,7 @@ import re
 import sys
 import time
 import tomllib
+from collections import Counter
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ SCHEMA = 2
 LIVE_ACCEPTANCE_MAX_AGE_S = 48 * 60 * 60
 LIVE_ACCEPTANCE_MIN_REPEAT = 3
 _KITS_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def sha256_file(path: Path) -> str:
@@ -216,7 +218,13 @@ def _validate_live_measurement(metadata: dict[str, Any], results: list[dict[str,
     )
     if not isinstance(results, list) or {item["task_id"] for item in results} != required:
         raise ValueError("Tam production görev seti ölçülmeli.")
-    if len(results) != len(required) or set(metadata["task_ids"]) != required:
+    task_ids = metadata["task_ids"]
+    if (
+        len(results) != len(required)
+        or not isinstance(task_ids, list)
+        or len(task_ids) != len(required)
+        or set(task_ids) != required
+    ):
         raise ValueError("Görev kimlikleri eksik veya yinelenmiş.")
     if metadata["split_digest"] != sha256_file(ROOT / "evals/suite/production.yaml"):
         raise ValueError("Rapor güncel production görev setine ait değil.")
@@ -224,25 +232,48 @@ def _validate_live_measurement(metadata: dict[str, Any], results: list[dict[str,
         raise ValueError("Canlı kabul production profili ve model kimliği gerektirir.")
     if type(metadata["repeat"]) is not int or metadata["repeat"] < LIVE_ACCEPTANCE_MIN_REPEAT:
         raise ValueError("Canlı kabul en az üç tekrar gerektirir.")
-    if not metadata["effective_config_digest"] or not metadata["source_digest"]:
+    if any(
+        not isinstance(metadata[name], str) or not _DIGEST.fullmatch(metadata[name])
+        for name in ("effective_config_digest", "source_digest")
+    ):
         raise ValueError("Kaynak/yapılandırma kimliği eksik.")
+    _validate_execution_coverage(metadata, required)
     calls = metadata["calls"]
-    if len(calls) < len(results) * LIVE_ACCEPTANCE_MIN_REPEAT or any(
-        not isinstance(call.get("served_model"), str) or not call["served_model"] for call in calls
+    if (
+        not isinstance(calls, list)
+        or len(calls) < len(results) * metadata["repeat"]
+        or any(
+            not isinstance(call.get("served_model"), str)
+            or not call["served_model"].strip()
+            or not isinstance(call.get("call_id"), str)
+            or not call["call_id"].strip()
+            for call in calls
+        )
     ):
         raise ValueError("Gerçek sunulan model çağrısı kimliği eksik.")
+    if len({call["call_id"] for call in calls}) != len(calls):
+        raise ValueError("Aynı model çağrısı birden fazla ölçüm sayılamaz.")
     if not results or any(
         item["success"] is not True
-        or item.get("false_success")
-        or item.get("rate_limited")
+        or item.get("false_success") is not False
+        or item.get("rate_limited") is not False
+        or type(item["model_calls"]) is not int
         or item["model_calls"] <= 0
-        or item["runs"] < LIVE_ACCEPTANCE_MIN_REPEAT
+        or type(item["runs"]) is not int
+        or item["runs"] != metadata["repeat"]
+        or type(item["passes"]) is not int
         or item["passes"] != item["runs"]
         for item in results
     ):
         raise ValueError("Kabul başarısız veya sağlayıcı yüzünden ölçülememiş.")
     budgets = metadata["task_budgets"]
-    if {item[0] for item in budgets} != {item["task_id"] for item in results} or any(
+    if (
+        not isinstance(budgets, list)
+        or len(budgets) != len(required)
+        or any(not isinstance(item, list) or len(item) != 3 for item in budgets)
+    ):
+        raise ValueError("Görev bütçeleri tam ve tekil olmalı.")
+    if {item[0] for item in budgets} != required or any(
         type(item[1]) is not int
         or item[1] <= 0
         or type(item[2]) not in (int, float)
@@ -250,6 +281,38 @@ def _validate_live_measurement(metadata: dict[str, Any], results: list[dict[str,
         for item in budgets
     ):
         raise ValueError("Her görev için sınırlı çağrı/süre bütçesi gerekli.")
+
+
+def _validate_execution_coverage(metadata: dict[str, Any], required: set[str]) -> None:
+    """Aggregate pass counts cannot substitute for measured task/repeat/config coverage."""
+    executions = metadata["execution_ids"]
+    if not isinstance(executions, list) or any(
+        not isinstance(item, list)
+        or len(item) != 2
+        or not isinstance(item[0], str)
+        or type(item[1]) is not int
+        for item in executions
+    ):
+        raise ValueError("Görev/tekrar kimliği ölçülmeli.")
+    expected = Counter(
+        (name, index) for name in required for index in range(1, metadata["repeat"] + 1)
+    )
+    if Counter(tuple(item) for item in executions) != expected:
+        raise ValueError("Her görev/tekrar tam bir kez ölçülmeli.")
+    configs = metadata["task_config_digests"]
+    if (
+        not isinstance(configs, list)
+        or len(configs) != len(executions)
+        or any(
+            not isinstance(item, list)
+            or len(item) != 2
+            or item[0] != execution[0]
+            or not isinstance(item[1], str)
+            or not _DIGEST.fullmatch(item[1])
+            for item, execution in zip(configs, executions, strict=False)
+        )
+    ):
+        raise ValueError("Her çalıştırmanın gerçek yapılandırma özeti gerekli.")
 
 
 def build_manifest(

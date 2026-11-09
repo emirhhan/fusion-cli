@@ -34,6 +34,7 @@ class _SayacliKapi:
 class _Deps:
     tool_context: ToolContext
     context_step: PlanStep | None = None
+    context_plan_id: str | None = None
     lesson_state: LessonTurnState | None = None
     verifier: object | None = None
     execution: object | None = None

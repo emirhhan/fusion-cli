@@ -154,6 +154,10 @@ def test_ic_ice_manifest_dto_telde_yapisini_korur() -> None:
         "trimmed_chars": 5,
         "attachment_chars": 0,
     }
+    # Default construction is historical/unknown, never silently relabelled as v2.
+    assert payload["manifest"]["measurement_version"] == 1
+    assert payload["manifest"]["instructions_location"] == "unknown"
+    assert payload["manifest"]["subcomponents_in_system"] is True
 
 
 def _ornek_uret(cls: type[E.Event]) -> E.Event:

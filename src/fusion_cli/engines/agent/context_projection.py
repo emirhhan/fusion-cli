@@ -6,8 +6,12 @@ import asyncio
 import hashlib
 import logging
 import sys
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+import threading
+import time
+from collections.abc import Callable, Sequence
+from contextlib import suppress
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.active_context import ActiveContext
@@ -28,28 +32,102 @@ ACTIVE_MAX_CHARS = 3000
 MAX_PINS = 4
 EVIDENCE_NOTE_CHARS = 1000
 _LOG = logging.getLogger(__name__)
+CONTEXT_TIMEOUT_S = 1.0
+_context_slot = threading.BoundedSemaphore(1)
 
 
 async def derive_context(deps: AgentDeps, *, local_remaining: int | None = None) -> ActiveContext:
-    """Plan uydurmadan mevcut otoriteyi oku; eski hash'i yeniden doğrula."""
-    checkpoint = None
-    if deps.checkpoint_store is not None and deps.conversation_id:
-        checkpoint = await asyncio.to_thread(
-            deps.checkpoint_store.find_resumable,
-            str(deps.tool_context.root.resolve()),
+    """Optional disk reads get one daemon worker and a deadline; late results have no effect."""
+    if not deps.context_plan_id and deps.context_step is None:
+        return ActiveContext()
+    if not _context_slot.acquire(blocking=False):
+        return ActiveContext()
+    loop = asyncio.get_running_loop()
+    remaining = deps.budget.remaining_s() if deps.budget is not None else None
+    timeout = (
+        min(CONTEXT_TIMEOUT_S, max(0, remaining)) if remaining is not None else CONTEXT_TIMEOUT_S
+    )
+    deadline = time.monotonic() + timeout
+    stopped = threading.Event()
+    snapshot = replace(deps, tool_context=replace(deps.tool_context))
+    owner = (
+        deps.attempt_id,
+        deps.conversation_id,
+        deps.context_plan_id,
+        deps.context_step,
+        deps.tool_context.root,
+    )
+    completed: asyncio.Future[ActiveContext] = loop.create_future()
+
+    def valid() -> bool:
+        return not stopped.is_set() and time.monotonic() < deadline
+
+    def deliver(result: ActiveContext) -> None:
+        if valid() and not completed.done():
+            completed.set_result(result)
+
+    def worker() -> None:
+        result = ActiveContext()
+        try:
+            if valid():
+                result = _derive_context(snapshot, local_remaining, valid)
+        except Exception as error:
+            _LOG.debug("Optional context skipped (%s).", type(error).__name__)
+        finally:
+            _context_slot.release()
+        with suppress(RuntimeError):
+            loop.call_soon_threadsafe(deliver, result)
+
+    try:
+        threading.Thread(target=worker, name="fusion-context-read", daemon=True).start()
+    except Exception as error:
+        _context_slot.release()
+        _LOG.debug("Optional context worker unavailable (%s).", type(error).__name__)
+        return ActiveContext()
+    try:
+        done, _ = await asyncio.wait({completed}, timeout=max(0, deadline - time.monotonic()))
+        current = (
+            deps.attempt_id,
             deps.conversation_id,
+            deps.context_plan_id,
+            deps.context_step,
+            deps.tool_context.root,
         )
+        return completed.result() if done and valid() and current == owner else ActiveContext()
+    finally:
+        stopped.set()
+        completed.cancel()
+
+
+def _derive_context(
+    deps: AgentDeps, local_remaining: int | None, valid: Callable[[], bool]
+) -> ActiveContext:
+    """Only a plan accepted by the workflow runner can restore persisted criteria."""
+    checkpoint = None
+    root = deps.tool_context.root.resolve()
+    if deps.context_plan_id and deps.checkpoint_store is not None and deps.conversation_id:
+        checkpoint = deps.checkpoint_store.load(deps.context_plan_id)
+        if checkpoint is not None and (
+            checkpoint.plan.plan_id != deps.context_plan_id
+            or checkpoint.conversation_id != deps.conversation_id
+            or Path(checkpoint.root).resolve() != root
+        ):
+            checkpoint = None
+    if not valid():
+        return ActiveContext()
     steps = checkpoint.plan.steps if checkpoint is not None else ()
-    if deps.context_step is not None and not any(
-        item.step_id == deps.context_step.step_id for item in steps
-    ):
-        steps = (*steps, deps.context_step)
+    if deps.context_step is not None:
+        # The currently executing step supersedes its stale persisted copy.
+        steps = (
+            *(item for item in steps if item.step_id != deps.context_step.step_id),
+            deps.context_step,
+        )
     opened = [step for step in steps if step.status is not StepStatus.COMPLETED]
     if not opened:
         return ActiveContext()
     lines = [ACTIVE_HEADER, "Bu ölçülmüş durum model özetinden üstündür."]
     pins: list[str] = []
-    current_source = await asyncio.to_thread(source_digest, deps.tool_context.root)
+    current_source = source_digest(root)
     for step in opened:
         lines.extend(
             f"Açık koşul {step.step_id}: {redact(text)[:180]}" for text in step.success_criteria[:8]
@@ -60,8 +138,12 @@ async def derive_context(deps: AgentDeps, *, local_remaining: int | None = None)
     relevant = {step.step_id for step in opened} | {
         identity for step in opened for identity in step.depends_on
     }
-    evidence_lines, pins = await _evidence_lines(
-        checkpoint.step_evidence if checkpoint is not None else (), relevant, deps, current_source
+    evidence_lines, pins = _evidence_lines(
+        checkpoint.step_evidence if checkpoint is not None else (),
+        relevant,
+        deps,
+        current_source,
+        valid,
     )
     lines[2:2] = [_budget_line(deps, local_remaining), *_bounded_evidence(evidence_lines)]
     unique = tuple(dict.fromkeys(pins))
@@ -85,31 +167,37 @@ def _bounded_evidence(lines: list[str]) -> list[str]:
     return selected
 
 
-async def _evidence_lines(
+def _evidence_lines(
     records: tuple[StepCheckpointEvidence, ...],
     relevant: set[str],
     deps: AgentDeps,
     current_source: str,
+    valid: Callable[[], bool],
 ) -> tuple[list[str], list[str]]:
     """Ölçülmüş sürüm ve çağrı kanıtlarını mevcut kaynakla eşleştir."""
     lines: list[str] = []
     pins: list[str] = []
     for evidence in records:
+        if not valid():
+            break
         if evidence.step_id not in relevant:
             continue
         for artifact in evidence.artifacts:
-            current = await asyncio.to_thread(_digest, deps.tool_context.root, artifact.path)
+            if not valid():
+                break
+            current = _digest(deps.tool_context.root, artifact.path)
             if current and current == artifact.digest:
                 lines.append(f"Doğrulanmış SHA-256 {redact(artifact.path)}: {current}")
             else:
                 lines.append(f"Kanıt güncel değil: {redact(artifact.path)}")
         for criterion in evidence.criteria:
+            if not valid():
+                break
             if (
                 criterion.source_after_digest == current_source
                 and criterion.environment
                 and criterion.call_id
-                and await asyncio.to_thread(
-                    evidence_environment,
+                and evidence_environment(
                     deps.tool_context.root,
                     tuple(criterion.environment.command.splitlines()),
                     runtime=sys.version,

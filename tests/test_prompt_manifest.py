@@ -29,6 +29,54 @@ async def test_ilk_talimat_yuku_gercek_cagrinin_manifestine_tasinir(tmp_path, mo
     )
     assert "Zorunlu orta kural" not in repr(manifest)
     assert provider.seen_messages
+    assert manifest.subcomponents_in_system is False
+    assert manifest.instructions_location == "history"
+
+
+@pytest.mark.parametrize("role,location", [("user", "history"), ("system", "system")])
+def test_manifest_counts_components_in_their_actual_request_layer(role, location):
+    from fusion_cli.core.types import CompletionRequest, Message
+    from fusion_cli.engines.agent.instruction_layers import InstructionLoad
+    from fusion_cli.engines.agent.prompt_manifest import PromptComponents, publish_manifest
+
+    from .test_agent_loop import _Publisher
+
+    sink = RecordingSink()
+    components = PromptComponents(InstructionLoad("PRIVATE-RULE"), "PRIVATE-MAP", "PRIVATE-SKILL")
+    request = CompletionRequest(
+        (Message(role, "PRIVATE-RULE\nPRIVATE-MAP\nPRIVATE-SKILL", harness_note=True),), 0, 10, 1
+    )
+    publish_manifest(request, model_result("ok"), components, _Publisher(sink))
+    manifest = sink.events[-1].manifest
+    assert manifest.repo_map_chars == len("PRIVATE-MAP")
+    assert manifest.skill_chars == len("PRIVATE-SKILL")
+    assert manifest.instructions_location == location
+    assert manifest.repo_map_location == location
+    assert manifest.skill_location == location
+    assert manifest.subcomponents_in_system is (role == "system")
+    assert manifest.measurement_version == 2
+    assert (
+        manifest.total_chars == manifest.system_chars + manifest.history_chars + manifest.tool_chars
+    )
+    assert "PRIVATE-" not in repr(manifest)
+
+
+def test_manifest_absent_and_mixed_components_are_distinct():
+    from fusion_cli.core.types import CompletionRequest, Message
+    from fusion_cli.engines.agent.instruction_layers import InstructionLoad
+    from fusion_cli.engines.agent.prompt_manifest import PromptComponents, publish_manifest
+
+    from .test_agent_loop import _Publisher
+
+    sink = RecordingSink()
+    components = PromptComponents(InstructionLoad("rule"), "missing-map", "")
+    request = CompletionRequest((Message("system", "rule"), Message("user", "rule")), 0, 10, 1)
+    publish_manifest(request, model_result("ok"), components, _Publisher(sink))
+    manifest = sink.events[-1].manifest
+    assert manifest.instructions_location == "mixed"
+    assert manifest.repo_map_location == manifest.skill_location == "absent"
+    assert manifest.repo_map_chars == manifest.skill_chars == 0
+    assert manifest.subcomponents_in_system is False
 
 
 async def test_gercek_web_son_kirpma_orta_kural_kaybini_manifestte_olcer(tmp_path, monkeypatch):

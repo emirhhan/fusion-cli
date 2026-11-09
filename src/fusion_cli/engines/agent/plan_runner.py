@@ -1830,6 +1830,7 @@ async def run_execution_plan(
         current, run.evidence = await resume_plan(checkpoint, deps)
         run.grant_extra_budget(current)
     run.current = replace(current, status=PlanStatus.RUNNING)
+    run.deps = replace(run.deps, context_plan_id=current.plan_id)
     await run.save()
     run.routine_start = await begin_routine(run.current, deps)
     # Plan BAŞLAMADAN önceki kapı bulguları planın suçu değildir; yarım kurulmuş

@@ -32,8 +32,10 @@ async def test_plan_adimi_onceki_sohbeti_gorur(tmp_path):
         steps=(_step("inspect"), _step("patch", depends_on=("inspect",))),
     )
     histories: list[list[Message] | None] = []
+    plan_ids = []
 
     async def agent(task, deps, **kwargs):
+        plan_ids.append(deps.context_plan_id)
         del task, deps
         history = kwargs.get("history")
         histories.append(list(history) if history is not None else None)
@@ -52,6 +54,7 @@ async def test_plan_adimi_onceki_sohbeti_gorur(tmp_path):
     )
 
     assert len(histories) == 2
+    assert plan_ids == ["p", "p"]
     for history in histories:
         assert history is not None
         assert any("MAVİ-KEDİ" in message.content for message in history)

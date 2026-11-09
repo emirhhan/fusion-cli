@@ -85,6 +85,7 @@ class _FakeDeps:
     execution: object | None = None
     effect_recorder: object | None = None
     context_step: object | None = None
+    context_plan_id: str | None = None
     invocation_budget: object | None = None
     lesson_state: object | None = None
     budget: object | None = None

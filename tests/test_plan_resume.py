@@ -30,6 +30,7 @@ class _Deps:
     checkpoint_store: JsonCheckpointStore
     conversation_id: str = "conv"
     context_step: PlanStep | None = None
+    context_plan_id: str | None = None
     lesson_state: LessonTurnState | None = None
     verifier: object | None = None
     budget: object | None = None
