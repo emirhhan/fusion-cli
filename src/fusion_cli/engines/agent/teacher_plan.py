@@ -20,7 +20,7 @@ class TeacherTaskDecision:
 
 
 #: Görevde geçen dosya adları (uzantılı).
-_FILE_REF = re.compile(r"[\w./-]+\.\w{1,5}\b")
+_FILE_REF = re.compile(r"[\w./-]+\.\w{1,5}\b(?!/)")
 #: Salt belge/metin dosyaları: bu dosyalardaki küçük düzenleme öğretmen planı gerektirmez.
 _DOC_FILE = re.compile(
     r"(?:^|/)(?:readme|changelog|license|contributing)\b|\.(?:md|markdown|txt|rst)$", re.IGNORECASE
@@ -37,19 +37,33 @@ _SMALL_TASK_CHARS = 240
 # noun (such as "counter") or a model-size guess. Ambiguity keeps the old route.
 _BOUNDED_TASK_CHARS = 1_000
 _SINGLE_FILE = re.compile(
-    r"\b(?:tek(?:\s+bir)?|bir)\s+(?:[\w+#-]+\s+){0,2}dosya(?:s[ıi])?\b|"
+    r"\b(?:tek(?:\s+bir)?|bir)\s+(?:[\w+#-]+\s+){0,2}"
+    r"dosya(?:s[ıi])?(?:nda|ndan|na|nı|ni|ya|yı|yi)?\b|"
     r"\b(?:single|one)[-\s]+(?:[\w+#-]+[-\s]+){0,2}file\b"
 )
 _REJECTED_SINGLE_FILE = re.compile(
     r"\s+(?:olmasın|değil|yazma|oluşturma|kullanma|olsun\s+istemiyorum|is\s+not)\b"
 )
 _NO_EXTERNAL_DEPENDENCIES = re.compile(
-    r"\b(?:harici|dış)\s+(?:hiçbir\s+)?(?:bağımlılık|kütüphane|paket)\w*\s+"
+    r"\b(?:harici|dış)\s+"
+    r"(?:(?:font|resim|cdn|api)\s*(?:,\s*|ve(?:ya)?\s+)){0,6}"
+    r"(?:hiçbir\s+)?(?:bağımlılık|kütüphane|paket)\w*\s+"
     r"(?:kullanma(?:dan)?|olmasın|yok)\b|"
     r"\b(?:sadece|yalnızca|yalnız)\s+standart\s+kütüphane\w*\s+kullan\b|"
     r"\b(?:no|without)\s+(?:any\s+)?(?:external\s+)?dependenc(?:y|ies)\b|"
     r"\b(?:only|just)\s+(?:the\s+)?standard\s+library\b"
 )
+_NO_INSTALL = re.compile(
+    r"\bbağımlılık\s+(?:kurma|ekleme)\b|"
+    r"\b(?:do\s+not|don't)\s+(?:install|add)\s+dependenc(?:y|ies)\b"
+)
+_FUNCTION_TARGET = re.compile(r"\b[a-z_]\w*\s+fonksiyon\w*\b|\bfunction\s+[a-z_]\w*\b")
+_PRESERVE_SIGNATURE = re.compile(
+    r"\bimza\w*(?:\s+\w+){0,4}\s+koru(?:yarak|yup|yun)?\b|"
+    r"\bpreserve\s+(?:the\s+)?(?:function\s+)?signature\b"
+)
+_REJECTED_SIGNATURE = re.compile(r"\b(?:not|never|don't)\s+preserve\b")
+_FIX_FUNCTION = re.compile(r"\b(?:düzelt\w*|onar\w*|fix|repair|correct)\b")
 _EXTERNAL_OR_EXPANDED_SCOPE = re.compile(
     r"\bapi\b|\bcdn\b|\bruntime\b|\bfetch\b|\bscript\b|\bstylesheet\b|"
     r"çalışma\s+zaman|her\s+açılış|veri\w*\s+(?:çek|getir|yükle)|"
@@ -204,8 +218,14 @@ def is_bounded_single_file_task(task: str) -> bool:
     if len(task) > _BOUNDED_TASK_CHARS:
         return False
     folded = _scope_text(task)
-    single_file_scopes = tuple(_SINGLE_FILE.finditer(folded))
-    dependency_scopes = tuple(_NO_EXTERNAL_DEPENDENCIES.finditer(folded))
+    # Filenames can sit between 'single' and 'file'. Padding keeps the offsets
+    # used to reject a following negation tied to the original scope text.
+    scope_surface = _FILE_REF.sub(lambda match: " " * len(match.group()), folded)
+    single_file_scopes = tuple(_SINGLE_FILE.finditer(scope_surface))
+    dependency_scopes = (
+        *tuple(_NO_EXTERNAL_DEPENDENCIES.finditer(folded)),
+        *tuple(_NO_INSTALL.finditer(folded)),
+    )
     if any(_REJECTED_DEPENDENCY_SCOPE.match(folded, scope.end()) for scope in dependency_scopes):
         return False
     if not _source_urls_are_read_only(folded):
@@ -231,11 +251,21 @@ def is_bounded_single_file_task(task: str) -> bool:
         report_scope
     ):
         return True
-    if _EXTERNAL_OR_EXPANDED_SCOPE.search(prose):
+    # A finite list of expressly forbidden dependencies is not a request to
+    # integrate them. Separate affirmative API/CDN clauses remain visible.
+    if _EXTERNAL_OR_EXPANDED_SCOPE.search(_NO_EXTERNAL_DEPENDENCIES.sub(" ", prose)):
         return False
-    return bool(
-        single_file_scopes and dependency_scopes and len(set(_FILE_REF.findall(folded))) <= 1
-    )
+    files = set(_FILE_REF.findall(folded))
+    if (
+        len(files) == 1
+        and _FUNCTION_TARGET.search(prose)
+        and _PRESERVE_SIGNATURE.search(prose)
+        and not _REJECTED_SIGNATURE.search(prose)
+        and _FIX_FUNCTION.search(prose)
+        and _NO_INSTALL.search(prose)
+    ):
+        return True
+    return bool(single_file_scopes and _NO_EXTERNAL_DEPENDENCIES.search(folded) and len(files) <= 1)
 
 
 def is_short_static_report_task(task: str) -> bool:
@@ -284,14 +314,27 @@ def _is_small_edit(task: str) -> bool:
 def classify_teacher_task(task: str) -> TeacherTaskDecision:
     """Mevcut etki kararı ile görevin yapısal kapsamını birlikte kullan."""
     mutation = EffectKind.WORKSPACE_MUTATION.value
-    has_mutation = any(required_effect_for(part) == mutation for part in (task, *task.split(";")))
+    has_mutation = any(
+        required_effect_for(part) == mutation
+        for part in (task, *re.split(r";|[.!?](?=\s)", task))
+    )
+    # An imperative named-function repair remains a mutation even when a later
+    # "do not install" sentence wins the general effect classifier's priority.
+    scope = _SOURCE_URL.sub(" ", _scope_text(task))
+    has_mutation = has_mutation or bool(
+        re.match(r"\s*(?:please\s+)?(?:fix|repair|correct)\b", scope)
+        and _FUNCTION_TARGET.search(scope)
+        and _FILE_REF.search(scope)
+    )
     reasons: list[str] = []
     if has_mutation and not (_is_small_edit(task) or is_bounded_single_file_task(task)):
         reasons.append(f"istenen etki: {mutation}")
     # Dış API bağımlılığı ad listesinden tahmin edilmez: istek açıkça API
     # entegrasyonu söylüyorsa öğretmenin yapılabilirlik planı gereklidir.
     if re.search(
-        r"\bAPI\b", _SOURCE_URL.sub(" ", task), re.IGNORECASE
+        r"\bAPI\b",
+        _NO_EXTERNAL_DEPENDENCIES.sub(" ", _SOURCE_URL.sub(" ", fold_tr(task))),
+        re.IGNORECASE,
     ) and not task.strip().endswith("?"):
         reasons.append("dış API bağımlılığı")
     # Birden fazla numaralı madde, sözcük tahmini olmadan açık bir iş dizisidir.

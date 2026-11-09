@@ -216,6 +216,12 @@ def page_findings_by_severity(
 
     for page in observations:
         for contact in page.contact_forms:
+            if contact.input_markup_reflected:
+                blocking.append(
+                    f"{page.name} contact form turns entered text into HTML elements. "
+                    "Render form values with textContent or escaped text; do not interpolate "
+                    "untrusted input into innerHTML. A harmless local marker was observed."
+                )
             if contact.status == "false_receipt":
                 blocking.append(
                     f"{page.name} contact form claims receipt without attempted transport: "
@@ -313,11 +319,24 @@ def browser_verification_result(
                     "visible_receipt": contact.visible_receipt,
                     "transport_attempts": contact.transport_attempts,
                     "reason": contact.reason,
+                    "input_markup_reflected": contact.input_markup_reflected,
                 }
             ),
         )
         for page in observations
         for contact in page.contact_forms
+    )
+    kanit += tuple(
+        CriterionEvidence(
+            criterion_id="contact_input_text",
+            kind=VerificationCheckKind.TOOL,
+            status=EvidenceStatus.FAILED,
+            summary=f"{page.name}: entered text materialized as HTML; render it as text",
+            artifact=page.name,
+        )
+        for page in observations
+        for contact in page.contact_forms
+        if contact.input_markup_reflected
     )
     if not blocking and not warnings and not advisories:
         return VerificationResult(ok=True, evidence=kanit)

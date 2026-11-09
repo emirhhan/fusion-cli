@@ -356,3 +356,22 @@ def test_report_repair_preserves_unsupported_original_claim_failure(tmp_path):
     assert outcome.completion_report.false_claim
     assert not outcome.ok
     assert "Rapor hazır" not in outcome.final_text
+
+
+@pytest.mark.parametrize(
+    "task,expected",
+    [
+        ("İletişim formu yalnız yerel bir demo olsun; hiçbir yere veri göndermesin.", True),
+        ("İletişim formu olsun. Form yalnız yerel bir demo: hiçbir yere veri göndermesin.", True),
+        ("İletişim formu demo olsun; verinin gönderilmediğini açıkça söylesin.", True),
+        ("İletişim formu demo olsun; veri gönderme, mesajı gerçek servise ilet.", False),
+        ("İletişim formu demo olsun; veri göndermesin demiyorum.", False),
+    ],
+)
+def test_explicit_data_no_send_intent_is_not_confused_with_real_delivery(tmp_path, task, expected):
+    from fusion_cli.core.delivery_contract import ContactIntent
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.delivery_contract import accept_delivery_contract
+
+    contract = accept_delivery_contract(ToolContext(root=tmp_path), task)
+    assert (contract.contact is ContactIntent.DEMO_NO_SEND) is expected

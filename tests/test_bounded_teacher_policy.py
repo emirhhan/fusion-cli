@@ -23,6 +23,58 @@ COUNTER_TASK = (
     "ve dosya yolunu ver."
 )
 
+FUNCTION_FIX_TASK = (
+    "invoice.py içindeki invoice_total fonksiyonunda vergi yüzdesi yanlış uygulanıyor. "
+    "Fonksiyon imzasını ve miktar varsayılanını koruyarak hatayı düzelt; "
+    "vergi argümanı yüzde anlamına gelsin. Mevcut testleri değiştirme, bağımlılık kurma. "
+    "Test komutu: /tmp/project/.venv/bin/python -m pytest -q."
+)
+
+DEMO_SITE_TASK = (
+    "Tek bir index.html dosyasında Türkçe, mobil uyumlu küçük bir danışmanlık sitesi oluştur. "
+    "Başlık, üç hizmet kartı ve ad/e-posta/mesaj alanlı bir iletişim formu olsun. "
+    "Form yalnız yerel bir demo: hiçbir yere veri göndermesin. "
+    "Harici font, resim, CDN veya bağımlılık kullanma."
+)
+
+
+@pytest.mark.parametrize("task", [FUNCTION_FIX_TASK, DEMO_SITE_TASK])
+def test_named_local_function_fix_and_explicit_dependency_free_demo_skip_preflight(task):
+    assert classify_teacher_task(task).size == "basit"
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        " Ayrıca ödeme API entegrasyonu yap.",
+        " API ekle, CDN kullanma.",
+        " CDN ekle, harici bağımlılık kullanma.",
+        " İkinci olarak auth.py dosyasını değiştir.",
+        " Öğretmene danış.",
+        " Veritabanına bağla.",
+        " Uygulamayı deploy et.",
+    ],
+)
+@pytest.mark.parametrize("task", [FUNCTION_FIX_TASK, DEMO_SITE_TASK])
+def test_bounded_local_work_does_not_hide_a_separate_expanded_request(task, suffix):
+    assert classify_teacher_task(task + suffix).size == "orta-buyuk"
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "invoice.py içindeki hatayı düzelt; bağımlılık kurma.",
+        "invoice.py içindeki invoice_total fonksiyonundaki hatayı düzelt.",
+        FUNCTION_FIX_TASK.replace("bağımlılık kurma", "bağımlılık kurma demiyorum"),
+        FUNCTION_FIX_TASK.replace("koruyarak", "korumadan"),
+        "Fix function invoice_total in invoice.py. Do not preserve the signature. "
+        "Do not install dependencies.",
+        DEMO_SITE_TASK.replace("kullanma.", "kullanma demiyorum."),
+    ],
+)
+def test_underspecified_or_rejected_constraints_keep_normal_planning(task):
+    assert classify_teacher_task(task).size == "orta-buyuk"
+
 
 @pytest.mark.parametrize(
     "task",

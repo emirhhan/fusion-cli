@@ -37,12 +37,13 @@ _DISCLOSURE = re.compile(
 
 
 _NO_SEND_OUTCOME = re.compile(
-    r"(?:mesaj\w*|ileti\w*)[^.!?;,\n]{0,50}(?:gönderilmedi|gönderilmez|iletilmedi)"
+    r"(?:mesaj\w*|ileti\w*|veri\w*)[^.!?;,\n]{0,50}(?:gönderilmedi|gönderilmez|iletilmedi)"
     r"|\bno messages? (?:(?:was|were|is|are) )?sent\b"
     r"|\bnothing (?:(?:was|is) )?sent\b|\bmessage\w*[^.!?;,\n]{0,40}\bnot sent\b",
     re.I,
 )
 _DEMO_DISCLOSURE = re.compile(r"\bdemo\b|demonstration", re.I)
+_MARKUP_SAMPLE = "Synthetic QA message <span data-fusion-probe-echo>probe</span>"
 
 
 def _claims_receipt(text: str) -> bool:
@@ -65,6 +66,8 @@ class ContactObservation:
     visible_demo_disclosure: bool = False
     #: Gönderme denemesi sonrası yeni görünen açık no-send sonucu.
     visible_no_send_outcome: bool = False
+    #: Only a newly materialized harmless canary is a finding; absence proves no general safety.
+    input_markup_reflected: bool = False
 
 
 class _Preflight(HTMLParser):
@@ -150,13 +153,34 @@ _SNAPSHOT = r"""index => {
         }
         return true;
     };
-    return Array.from(root.querySelectorAll('*'))
+    const text = Array.from(root.querySelectorAll('*'))
         .filter(e => visible(e) && !['SCRIPT','STYLE','NOSCRIPT'].includes(e.tagName))
         .flatMap(e => Array.from(e.childNodes).filter(n => n.nodeType === Node.TEXT_NODE)
             .map(n => n.textContent.trim()).filter(Boolean));
+    // Inline emphasis must not split one disclosure into unrelated fragments.
+    // Do not join separate blocks or combine a form/section's unrelated text.
+    const blocks = Array.from(root.querySelectorAll('p, div, aside, [role=alert]'))
+        .filter(e => visible(e) &&
+            !e.querySelector('p, div, aside, form, input, textarea, select, button, script, style'))
+        .map(e => {
+            const parts = [];
+            const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+                const parent = node.parentElement;
+                if (parent && visible(parent) &&
+                    !['SCRIPT','STYLE','NOSCRIPT'].includes(parent.tagName)) {
+                    parts.push(node.textContent);
+                }
+            }
+            return parts.join('').trim();
+        }).filter(Boolean);
+    return Array.from(new Set([...text, ...blocks]));
 }"""
 
-_SUBMIT = r"""index => {
+_SUBMIT = r"""args => {
+    const index = typeof args === 'number' ? args : args.index;
+    const sample = typeof args === 'number' ? 'Synthetic QA message' : args.sample;
     const f = document.forms[index];
     window.__fusionContactProbe.active = true;
     for (const input of f.querySelectorAll('input, textarea, select')) {
@@ -166,7 +190,7 @@ _SUBMIT = r"""index => {
             input.selectedIndex = Math.min(1, input.options.length - 1);
         }
         else input.value = input.type === 'email' ? 'fusion-qa@example.invalid' :
-            input.type === 'number' ? '1' : 'Synthetic QA message';
+            input.type === 'number' ? '1' : sample;
         input.dispatchEvent(new Event('input', {bubbles:true}));
         input.dispatchEvent(new Event('change', {bubbles:true}));
     }
@@ -327,6 +351,45 @@ async def probe_contact_forms(
                 no_send_result = any(
                     _NO_SEND_OUTCOME.search(text) for text in nearby if text not in nearby_before
                 )
+                reflected = False
+                if status == "observed_no_false_receipt":
+                    selector = "[data-fusion-probe-echo]"
+                    before_canaries = await page.locator(selector).count()
+                    await page.evaluate(
+                        _SUBMIT,
+                        {
+                            "index": index,
+                            "sample": _MARKUP_SAMPLE,
+                        },
+                    )
+                    await page.wait_for_timeout(100)
+                    reflected = before_canaries == 0 and await page.locator(selector).count() > 0
+                    # All transport remains denied during this second input observation.
+                    # Include its attempts rather than retaining a stale zero counter.
+                    state_after = await page.evaluate("window.__fusionContactProbe")
+                    attempts = routed_attempts + state_after["attempts"] + navigation_attempts
+                    # A second submission can replace the receipt or remove its
+                    # disclosure. Its later state cannot inherit the first proof.
+                    after = await page.evaluate(_SNAPSHOT, None)
+                    nearby = await page.evaluate(_SNAPSHOT, index)
+                    later_dialogs = state_after["dialogs"][len(state["dialogs"]) :]
+                    new = [text for text in [*after, *later_dialogs] if text not in before]
+                    receipts = [text for text in new if _claims_receipt(text)]
+                    disclosure_after = any(
+                        _DEMO_DISCLOSURE.search(text) and _NO_SEND_OUTCOME.search(text)
+                        for text in nearby
+                    )
+                    no_send_result = any(
+                        _NO_SEND_OUTCOME.search(text)
+                        for text in nearby
+                        if text not in nearby_before
+                    )
+                    if errors or state_after["unsupported"] or unsupported_transport:
+                        status, reason = "not_measured", "Unsupported behavior in input probe"
+                    elif attempts:
+                        status, reason = "unverified_transport", "Transport blocked in input probe"
+                    elif receipts and not any(_DISCLOSURE.search(text) for text in [*nearby, *new]):
+                        status, reason = "false_receipt", "New undisclosed receipt in input probe"
                 results.append(
                     ContactObservation(
                         status,
@@ -336,6 +399,7 @@ async def probe_contact_forms(
                         reason,
                         visible_demo_disclosure=bool(disclosure_before and disclosure_after),
                         visible_no_send_outcome=bool(no_send_result and not receipts),
+                        input_markup_reflected=reflected,
                     )
                 )
     except Exception as exc:

@@ -183,6 +183,9 @@ def test_missing_or_rejected_bounded_report_scope_stays_conservative(task):
 async def test_ordinary_current_report_preserves_source_artifact_and_review_gates(
     monkeypatch, tmp_path, review_mode
 ):
+    import json
+
+    from fusion_cli.core.research_grounding import SourceReceipt
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.core.verification import VerificationResult
     from fusion_cli.engines.agent import loop
@@ -193,7 +196,7 @@ async def test_ordinary_current_report_preserves_source_artifact_and_review_gate
 
     html = '<main>Source fixture only; not current data. <a href="https://example.org/">Source</a></main>'
     answers = [
-        model_result(tool_calls=(tool_call("web_search", query="test release fixture"),)),
+        model_result(tool_calls=(tool_call("web_fetch", url="https://example.org/"),)),
         model_result(tool_calls=(tool_call("write_file", path="rapor.html", content=html),)),
         *[model_result("rapor.html hazırlandı; kaynak dosyada.")] * 4,
     ]
@@ -215,17 +218,50 @@ async def test_ordinary_current_report_preserves_source_artifact_and_review_gate
     reads = []
 
     def source_fixture(args, context):
-        reads.append(args["query"])
-        return ToolResult("Fixture only: release A; https://example.org/")
+        reads.append(args["url"])
+        body = "Fixture only: release A; https://example.org/"
+        return ToolResult(
+            body,
+            source_receipt=SourceReceipt(
+                "https://example.org/", "https://example.org/", "2030-01-01T00:00:00Z", body
+            ),
+        )
 
     for tool in build_registry():
-        registry.register(replace(tool, run=source_fixture) if tool.name == "web_search" else tool)
+        registry.register(replace(tool, run=source_fixture) if tool.name == "web_fetch" else tool)
     deps.base_registry = registry
     reviews = []
 
     async def review(*args, **kwargs):
         reviews.append(True)
         return ""
+
+    grounding_calls = []
+
+    async def grounding_reply(prompt, *args, **kwargs):
+        # Fake only the provider boundary. The actual receipt ownership,
+        # target/source digests, full coverage parser and delivery gate still run.
+        payload = json.loads(prompt.split("DATA\n", 1)[1])
+        assert len(payload["sources"]) == 1
+        refs = list(payload["sources"][0]["spans"])
+        assert refs and "Fixture only" in " ".join(payload["sources"][0]["spans"].values())
+        grounding_calls.append(True)
+        return model_result(
+            json.dumps(
+                {
+                    "target_digest": payload["target_digest"],
+                    "source_digest": payload["source_digest"],
+                    "claims": [
+                        {
+                            "targets": list(payload["target"]),
+                            "sources": refs,
+                            "kind": "nonfactual",
+                            "basis": "Fixture-only text; no current release assertion.",
+                        }
+                    ],
+                }
+            )
+        )
 
     class FileVerifier:
         calls = 0
@@ -238,13 +274,17 @@ async def test_ordinary_current_report_preserves_source_artifact_and_review_gate
     verifier = FileVerifier()
     deps.verifier = verifier
     monkeypatch.setattr(loop.review, "review_turn", review)
+    monkeypatch.setattr(loop.review, "_ask", grounding_reply)
     outcome = await loop.run_agent(
         ORDINARY_REPORT, deps, self_review=False if review_mode == "off" else None
     )
 
-    assert outcome.ok and teacher.calls == (0 if review_mode == "ordinary" else 1)
-    assert reads == ["test release fixture"]
-    assert verifier.calls == 1 and reviews == ([] if review_mode == "off" else [True])
+    # v41 removed redundant advisory reviews after mandatory source+file gates.
+    # A voluntary teacher call still occurs; required grounding is never skipped.
+    assert outcome.ok and teacher.calls == (1 if review_mode == "manual" else 0)
+    assert reads == ["https://example.org/"]
+    assert grounding_calls == [True]
+    assert verifier.calls == 1 and reviews == []
     assert apprentice.calls == (4 if review_mode == "manual" else 3)
     assert any(
         schema["function"]["name"] == "ask_teacher" for schema in apprentice.seen_requests[0]

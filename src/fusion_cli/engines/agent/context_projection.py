@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import sys
-import threading
-import time
 from collections.abc import Callable, Sequence
-from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,6 +14,7 @@ from ...core.active_context import ActiveContext
 from ...core.checkpoint import StepCheckpointEvidence
 from ...core.evidence import EvidenceStatus
 from ...core.execution_plan import StepStatus
+from ...core.optional_read import OptionalReadWorker
 from ...core.original_trace import OriginalTraceJournal, OriginalTraceScope
 from ...core.redaction import redact
 from ...core.types import Message
@@ -33,70 +30,35 @@ MAX_PINS = 4
 EVIDENCE_NOTE_CHARS = 1000
 _LOG = logging.getLogger(__name__)
 CONTEXT_TIMEOUT_S = 1.0
-_context_slot = threading.BoundedSemaphore(1)
+_context_reader = OptionalReadWorker("fusion-context-read")
 
 
 async def derive_context(deps: AgentDeps, *, local_remaining: int | None = None) -> ActiveContext:
     """Optional disk reads get one daemon worker and a deadline; late results have no effect."""
     if not deps.context_plan_id and deps.context_step is None:
         return ActiveContext()
-    if not _context_slot.acquire(blocking=False):
-        return ActiveContext()
-    loop = asyncio.get_running_loop()
     remaining = deps.budget.remaining_s() if deps.budget is not None else None
     timeout = (
         min(CONTEXT_TIMEOUT_S, max(0, remaining)) if remaining is not None else CONTEXT_TIMEOUT_S
     )
-    deadline = time.monotonic() + timeout
-    stopped = threading.Event()
     snapshot = replace(deps, tool_context=replace(deps.tool_context))
-    owner = (
-        deps.attempt_id,
-        deps.conversation_id,
-        deps.context_plan_id,
-        deps.context_step,
-        deps.tool_context.root,
-    )
-    completed: asyncio.Future[ActiveContext] = loop.create_future()
 
-    def valid() -> bool:
-        return not stopped.is_set() and time.monotonic() < deadline
-
-    def deliver(result: ActiveContext) -> None:
-        if valid() and not completed.done():
-            completed.set_result(result)
-
-    def worker() -> None:
-        result = ActiveContext()
-        try:
-            if valid():
-                result = _derive_context(snapshot, local_remaining, valid)
-        except Exception as error:
-            _LOG.debug("Optional context skipped (%s).", type(error).__name__)
-        finally:
-            _context_slot.release()
-        with suppress(RuntimeError):
-            loop.call_soon_threadsafe(deliver, result)
-
-    try:
-        threading.Thread(target=worker, name="fusion-context-read", daemon=True).start()
-    except Exception as error:
-        _context_slot.release()
-        _LOG.debug("Optional context worker unavailable (%s).", type(error).__name__)
-        return ActiveContext()
-    try:
-        done, _ = await asyncio.wait({completed}, timeout=max(0, deadline - time.monotonic()))
-        current = (
+    def owner() -> tuple[object, ...]:
+        return (
             deps.attempt_id,
             deps.conversation_id,
             deps.context_plan_id,
             deps.context_step,
             deps.tool_context.root,
         )
-        return completed.result() if done and valid() and current == owner else ActiveContext()
-    finally:
-        stopped.set()
-        completed.cancel()
+
+    accepted_owner = owner()
+    return await _context_reader.run(
+        lambda valid: _derive_context(snapshot, local_remaining, valid),
+        timeout_s=timeout,
+        fallback=ActiveContext(),
+        still_owned=lambda: owner() == accepted_owner,
+    )
 
 
 def _derive_context(

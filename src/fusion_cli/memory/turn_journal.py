@@ -12,7 +12,9 @@ import json
 import logging
 import math
 import os
+import threading
 import time
+import weakref
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +23,7 @@ from ..core.agent_runtime_state import AgentRunState
 from ..core.atomic_file import atomic_replace_text
 from ..core.clock import SystemClock
 from ..core.file_lease import FileLease
+from ..core.optional_read import OptionalReadWorker
 from ..core.original_trace import OriginalTraceRead, OriginalTraceScope
 from ..core.protocols import Clock
 from ..core.redaction import redact
@@ -42,6 +45,29 @@ _MAX_JOURNAL_IMAGE_CHARS = 56 * 1024 * 1024
 #: Günlük kilidi için bekleme: en çok `_LOCK_ATTEMPTS * _LOCK_RETRY_S` ≈ 0,6 sn.
 _LOCK_ATTEMPTS = 12
 _LOCK_RETRY_S = 0.05
+ORIGINAL_READ_TIMEOUT_S = 1.0
+_original_reader = OptionalReadWorker("fusion-original-read")
+
+
+class _OriginalReadEpoch:
+    def __init__(self) -> None:
+        self.generation = 0
+
+
+_read_epochs: weakref.WeakValueDictionary[str, _OriginalReadEpoch] = weakref.WeakValueDictionary()
+_read_epochs_lock = threading.Lock()
+
+
+def _read_epoch(path: Path) -> _OriginalReadEpoch:
+    """Live handles for one owned path share invalidation, without a growing path cache."""
+    # Keep construction filesystem-free; resolving symlinks can block on I/O.
+    key = os.path.abspath(path)  # noqa: PTH100
+    with _read_epochs_lock:
+        epoch = _read_epochs.get(key)
+        if epoch is None:
+            epoch = _OriginalReadEpoch()
+            _read_epochs[key] = epoch
+        return epoch
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +101,7 @@ class FileTurnJournal:
         self._task = task
         self._clock = clock or SystemClock()
         self._original_owner_id = original_owner_id
+        self._original_read_epoch = _read_epoch(path)
         self.agent_state = agent_state
 
     @property
@@ -147,6 +174,8 @@ class FileTurnJournal:
                 )
 
     def clear(self) -> None:
+        # Pending optional reads lose ownership even if deletion cannot get the lease.
+        self._original_read_epoch.generation += 1
         with self._transaction() as owned:
             if owned:
                 for path in (self._path, self.original_path):
@@ -175,7 +204,13 @@ class FileTurnJournal:
         """Sahibi doğrula, ardından yalnız istenen tur ve segment kapsamını döndür."""
         if not self._owns_scope(scope):
             return OriginalTraceRead(scope, "invalid_scope")
-        return await asyncio.to_thread(self._read_original, scope)
+        generation = self._original_read_epoch.generation
+        return await _original_reader.run(
+            lambda _valid: self._read_original(scope),
+            timeout_s=ORIGINAL_READ_TIMEOUT_S,
+            fallback=OriginalTraceRead(scope, "unavailable"),
+            still_owned=lambda: self._original_read_epoch.generation == generation,
+        )
 
     def _owns_scope(self, scope: OriginalTraceScope) -> bool:
         return (

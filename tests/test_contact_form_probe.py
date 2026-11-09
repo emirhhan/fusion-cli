@@ -33,6 +33,98 @@ def form(handler: str, *, disclosure: str = "", extra: str = "") -> str:
     </script>"""
 
 
+@pytest.mark.parametrize("sink, reflected", [("innerHTML", True), ("textContent", False)])
+async def test_user_form_values_cannot_become_markup(browser, sink, reflected):
+    from fusion_cli.engines.agent.browser_verify import PageObservation, page_findings_by_severity
+
+    html = form(
+        f"status.{sink} = 'Demo: nothing sent. ' + form.elements.message.value;",
+        disclosure="<p>Demo only; no message is sent.</p>",
+    )
+    contacts = await probe_contact_forms(browser, html)
+    assert contacts[0].input_markup_reflected is reflected
+    blocking, _, _ = page_findings_by_severity(
+        [PageObservation("index.html", contact_forms=contacts)]
+    )
+    assert bool(blocking) is reflected
+
+
+async def test_data_no_send_outcome_is_observed_for_an_explicit_demo(browser):
+    html = form(
+        "status.textContent='Demo: veriler hiçbir yere gönderilmedi.';",
+        disclosure="<p>Demo: veriler gönderilmez.</p>",
+    )
+    observed = (await probe_contact_forms(browser, html))[0]
+    assert observed.visible_demo_disclosure
+    assert observed.visible_no_send_outcome
+
+
+async def test_inline_markup_does_not_split_a_single_visible_demo_disclosure(browser):
+    html = form(
+        "status.textContent='Demo: veriler hiçbir yere gönderilmedi.';",
+        disclosure="<div><strong>Demo Uyarısı:</strong> Hiçbir veri sunucuya gönderilmez.</div>",
+    )
+    observed = (await probe_contact_forms(browser, html))[0]
+    assert observed.visible_demo_disclosure
+
+
+@pytest.mark.parametrize("hidden", ["opacity:0", "display:none", "visibility:hidden"])
+async def test_grouped_disclosure_does_not_include_invisible_inline_text(browser, hidden):
+    from fusion_cli.core.delivery_contract import ContactIntent
+    from fusion_cli.core.evidence import EvidenceStatus
+    from fusion_cli.engines.agent.browser_verify import PageObservation, browser_verification_result
+
+    html = form(
+        "status.textContent='Nothing sent.';",
+        disclosure=(
+            f'<div><strong style="{hidden}">Demo Uyarısı:</strong> '
+            "Hiçbir veri sunucuya gönderilmez.</div>"
+        ),
+    )
+    contacts = await probe_contact_forms(browser, html)
+    assert not contacts[0].visible_demo_disclosure
+    result = browser_verification_result(
+        [PageObservation("index.html", contact_forms=contacts)],
+        source="offline Chromium",
+        contact_intent=ContactIntent.DEMO_NO_SEND,
+    )
+    assert not any(
+        item.criterion_id == "contact_receipt_truth" and item.status is EvidenceStatus.PASSED
+        for item in result.evidence
+    )
+
+
+async def test_second_input_probe_cannot_retain_a_stale_demo_receipt_proof(browser):
+    from fusion_cli.core.delivery_contract import ContactIntent
+    from fusion_cli.core.evidence import EvidenceStatus
+    from fusion_cli.engines.agent.browser_verify import (
+        PageObservation,
+        browser_verification_result,
+    )
+
+    html = form(
+        "window.submissions=(window.submissions||0)+1; "
+        "if(window.submissions===1) status.textContent='Demo: nothing sent.'; "
+        "else {document.getElementById('disclosure').remove(); "
+        "status.textContent='Your message has been received.';}",
+        disclosure="<p id='disclosure'>Demo: no message is sent.</p>",
+    )
+    contacts = await probe_contact_forms(browser, html)
+    assert contacts[0].status == "false_receipt"
+    assert not contacts[0].visible_demo_disclosure
+    assert not contacts[0].visible_no_send_outcome
+    result = browser_verification_result(
+        [PageObservation("index.html", contact_forms=contacts)],
+        source="offline Chromium",
+        contact_intent=ContactIntent.DEMO_NO_SEND,
+    )
+    assert not result.ok
+    assert not any(
+        item.criterion_id == "contact_receipt_truth" and item.status is EvidenceStatus.PASSED
+        for item in result.evidence
+    )
+
+
 @pytest.mark.parametrize(
     "receipt",
     [

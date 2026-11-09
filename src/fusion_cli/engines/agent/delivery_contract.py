@@ -18,13 +18,13 @@ if TYPE_CHECKING:
 _QUOTED = re.compile(r'```.*?```|`[^`]*`|^[ \t]*>[^\n]*|["“][^"”\n]*["”]|‘[^’\n]*’', re.M | re.S)
 _CONTACT_DEMO = re.compile(
     r"\b(?:iletisim\w*|contact\w*|form\w*)\b[^.!?;\n]{0,100}\bdemo"
-    r"(?:\s+olsun\b|\s+oldugunu[^.!?;\n]{0,50}\bsoylesin\b|\s+only\b)"
+    r"(?:\s+olsun\b|\s+oldugunu[^.!?;\n]{0,50}\bsoylesin\b|\s+only\b|(?=\s*[:;.!?]|$))"
 )
 _POSITIVE_SEND = r"(?:gonder\w*|ilet(?:in|iniz|ilsin)?|iletil\w*|send\w*|sent|deliver\w*|submit\w*)"
 _NO_SEND = re.compile(
-    r"\b(?:mesaj\w*|ileti\w*)\b"
+    r"\b(?:mesaj\w*|ileti\w*|veri\w*)\b"
     rf"(?:(?!\b{_POSITIVE_SEND}\b)[^.!?;\n]){{0,70}}"
-    r"\b(?:gonderme|gonderilmesin|gonderilmez|"
+    r"\b(?:gonderme|gondermesin|gonderilmesin|gonderilmez|"
     r"gonderilmedigini|gonderilmis gibi davranmasin|gercekten gonderilmez)\b"
     r"|\b(?:no messages? (?:is |are )?sent|do not send|don.t send|nothing (?:is )?sent|no.send)\b"
 )
@@ -32,6 +32,7 @@ _REJECT_DEMO = re.compile(
     r"\bdemo\s+(?:olmasin|degil|istemiyorum)\b|\b(?:not|no|never)\s+(?:a\s+)?demo\b|don.t[^.!?;\n]{0,30}\bdemo\b"
 )
 _REAL_SEND = re.compile(rf"\b{_POSITIVE_SEND}\b")
+_REJECTED_NO_SEND = re.compile(r"\s+(?:demiyorum|demedim|degil|istemi(?:yorum|yoruz))\b")
 
 
 def accept_delivery_contract(context: ToolContext, task: str) -> AcceptedDeliveryContract:
@@ -41,6 +42,9 @@ def accept_delivery_contract(context: ToolContext, task: str) -> AcceptedDeliver
     demo = bool(
         _CONTACT_DEMO.search(prose)
         and _NO_SEND.search(prose)
+        and not any(
+            _REJECTED_NO_SEND.match(prose, match.end()) for match in _NO_SEND.finditer(prose)
+        )
         and not _REJECT_DEMO.search(prose)
         and not _REAL_SEND.search(_NO_SEND.sub(" ", prose))
     )
