@@ -42,7 +42,8 @@ async def _actionable(button: Locator) -> bool:
                 let opacity = 1;
                 for(let e=el; e; e=e.parentElement) {
                     const s=getComputedStyle(e); opacity *= Number(s.opacity);
-                    if(s.display==='none'||s.visibility!=='visible'||e.inert||opacity<0.05)
+                    // Target visibility is checked above; children may override a hidden parent.
+                    if(s.display==='none'||e.inert||opacity<0.05)
                         return false;
                 }
                 const r=el.getBoundingClientRect();
@@ -86,6 +87,30 @@ _PHASE = """() => {
 }"""
 
 
+async def _observe_phase(page: Page, expected: str) -> str:
+    """Require 120 ms of sampled phase stability inside the one-second window."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1
+    stable_since: float | None = None
+    while True:
+        phase: str = await page.evaluate(_PHASE)
+        now = loop.time()
+        if phase == "unknown":
+            return phase
+        remaining = deadline - now
+        if remaining <= 0:
+            # A late expected sample without its settling window is not proof.
+            return "unknown" if phase == expected else phase
+        if phase == expected:
+            if stable_since is None:
+                stable_since = now
+            elif now - stable_since >= 0.12:
+                return phase
+        else:
+            stable_since = None
+        await asyncio.sleep(min(0.05, remaining))
+
+
 async def pause_button_behavior(page: Page) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Optional control measurement has one fixed deadline including UI restoration."""
     try:
@@ -114,10 +139,11 @@ async def _pause_button_behavior(page: Page) -> tuple[tuple[str, ...], tuple[str
             await button.click(timeout=1000)
         except PlaywrightTimeoutError:
             continue
-        await page.wait_for_timeout(120)
-        after = await page.evaluate(_PHASE)
+        after = await _observe_phase(page, "paused")
         if before == "playing" and after == "playing":
-            return ("Duraklat düğmesine tıklandı ama oyun durumu oynuyor olarak kaldı.",), ()
+            return (
+                "Ölçüm süresi içinde duraklat düğmesine tıklama sonrası oyun oynuyor olarak kaldı.",
+            ), ()
         if after != "paused":
             return (), ("Duraklat/devam düğmesi davranışı durum kancasıyla ölçülemedi.",)
         # Restore through UI so subsequent keyboard/HUD probes still exercise live gameplay.
@@ -128,8 +154,7 @@ async def _pause_button_behavior(page: Page) -> tuple[tuple[str, ...], tuple[str
             if await _actionable(control):
                 try:
                     await control.click(timeout=1000)
-                    await page.wait_for_timeout(120)
-                    if await page.evaluate(_PHASE) == "playing":
+                    if await _observe_phase(page, "playing") == "playing":
                         restored = True
                         break
                 except PlaywrightTimeoutError:
@@ -137,10 +162,13 @@ async def _pause_button_behavior(page: Page) -> tuple[tuple[str, ...], tuple[str
         if not restored and after == "paused":
             with suppress(PlaywrightTimeoutError):
                 await button.click(timeout=1000)
-        await page.wait_for_timeout(120)
-        final = await page.evaluate(_PHASE)
+            final = await _observe_phase(page, "playing")
+        else:
+            final = await page.evaluate(_PHASE)
         if after == "paused" and final == "paused":
-            return ("Duraklatma sonrası görünür düğmelerle oyuna devam edilemedi.",), ()
+            return (
+                "Ölçüm süresi içinde duraklatma sonrası görünür düğmelerle oyuna devam edilemedi.",
+            ), ()
         if before == "playing" and after == "paused" and final == "playing":
             return (), ()
         return (), ("Duraklat/devam düğmesi davranışı durum kancasıyla ölçülemedi.",)
