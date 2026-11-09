@@ -22,7 +22,14 @@ _GODOT_KONUM = re.compile(r"at:.*?\((?P<path>res://[^\s:()]+):(?P<line>\d+)\)")
 _GODOT_BELIRTI = re.compile(r"^(?:SCRIPT )?ERROR:\s*(?P<msg>.+)$", re.MULTILINE)
 
 #: Python traceback çerçevesi: `File "/proje/x.py", line 4, in f`
-_PY_CERCEVE = re.compile(r'File "(?P<path>[^"]+)", line (?P<line>\d+)')
+_PY_CERCEVE = re.compile(r'  File "(?P<path>[^"]+)", line (?P<line>\d+)(?:, in .+)?')
+_PY_TRACE_HEADER = "Traceback (most recent call last):"
+_PY_GROUP_HEADER = "Exception Group Traceback (most recent call last):"
+_PY_TRACE_BELIRTI = re.compile(
+    r"(?P<msg>(?:[A-Za-z_][\w.]*?(?:Error|Exception|Warning)|Error|Exception|Warning|"
+    r"KeyboardInterrupt|SystemExit|GeneratorExit|StopIteration|StopAsyncIteration)"
+    r"(?::[ \t]?.*)?)"
+)
 #: Traceback'in son satırı: `KeyError: 'port'`
 _PY_BELIRTI = re.compile(r"^(?P<msg>[A-Za-z_][\w.]*(?:Error|Exception|Warning)\b.*)$", re.MULTILINE)
 
@@ -51,7 +58,10 @@ class Diagnosis:
 
     def as_guidance(self) -> str:
         """Kurtarma turuna verilecek tek satırlık yönerge."""
-        return f"Hata {self.path}:{self.line} konumunda: {self.symptom}. Kök nedeni orada ara."
+        return (
+            f"Hata {self.path}:{self.line} konumunda: {self.symptom}. "
+            "Bu konumu ve ilgili çağrı zincirini incele."
+        )
 
 
 def diagnose(output: str) -> Diagnosis | None:
@@ -77,21 +87,48 @@ def _godot(output: str) -> Diagnosis | None:
 
 
 def _python_traceback(output: str) -> Diagnosis | None:
-    if "Traceback (most recent call last)" not in output:
-        return None
-    cerceveler = _PY_CERCEVE.findall(output)
-    if not cerceveler:
-        return None
-    # EN İÇTEKİ çerçeve seçilir: kök neden en dıştaki çağrı değil, hatanın
-    # gerçekleştiği yerdir. Dıştaki çerçeveyi göstermek modeli yanlış dosyaya yollar.
-    path, line = cerceveler[-1]
-    belirtiler = _PY_BELIRTI.findall(output)
-    return Diagnosis(
-        path=path,
-        line=int(line),
-        symptom=belirtiler[-1].strip() if belirtiler else "istisna",
-        quote=f'File "{path}", line {line}',
-    )
+    # A frame and terminal exception must belong to the same complete plain block.
+    # Group rendering has multiple branches: do not flatten it into a guessed cause.
+    latest = None
+    active = False
+    frame = None
+    for raw_line in output.splitlines():
+        line = raw_line.rstrip(" \t")
+        if line == _PY_TRACE_HEADER:
+            active = True
+            frame = None
+            continue
+        if line.lstrip(" \t+|") in {_PY_TRACE_HEADER, _PY_GROUP_HEADER}:
+            active = False
+            frame = None
+            continue
+        if not active:
+            continue
+        candidate = _PY_CERCEVE.fullmatch(line)
+        if candidate is not None:
+            frame = candidate
+            continue
+        if line.startswith("  File "):
+            # An unreadable inner frame cannot make the last outer frame definitive.
+            active = False
+            frame = None
+            continue
+        symptom = _PY_TRACE_BELIRTI.fullmatch(line)
+        if symptom is not None:
+            if frame is not None:
+                path, number = frame.group("path", "line")
+                latest = Diagnosis(
+                    path=path,
+                    line=int(number),
+                    symptom=symptom.group("msg").strip(),
+                    quote=f'File "{path}", line {number}',
+                )
+            active = False
+            frame = None
+        elif line and not line[0].isspace():
+            active = False
+            frame = None
+    return latest
 
 
 def _pytest(output: str) -> Diagnosis | None:
