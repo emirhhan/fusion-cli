@@ -1076,6 +1076,7 @@ async def test_required_review_uses_existing_request_and_shared_remaining_time(
         },
     )
     clock = FakeClock()
+    monkeypatch.setattr(grounding, "monotonic", clock.monotonic)
     deps.deadline = TurnDeadline.from_duration(external, clock)
     if hard is not None or idle is not None:
         deps.budget = loop._new_budget(deps.config, TurnDeadline.from_duration(hard or 120, clock))
@@ -1218,6 +1219,8 @@ async def test_required_review_uses_configured_normal_output_cap_only(
     monkeypatch, tmp_path, normal_cap
 ):
     from fusion_cli.engines.agent import research_grounding as grounding
+
+    monkeypatch.setattr(grounding, "monotonic", lambda: 0.0)
 
     _, target, sources = target_sources(tmp_path)
     deps = _deps(
@@ -1427,8 +1430,10 @@ def test_source_group_label_stays_invalid_even_with_other_valid_span_references(
 async def test_required_review_disables_utility_thinking_without_actor_override(
     monkeypatch, tmp_path
 ):
+    from fusion_cli.engines.agent import research_grounding as grounding
     from fusion_cli.providers.litellm_provider import LiteLlmProvider
 
+    monkeypatch.setattr(grounding, "monotonic", lambda: 0.0)
     actor_requests = []
     utility_requests = []
 
