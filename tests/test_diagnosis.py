@@ -108,3 +108,170 @@ def test_grep_ciktisi_calisma_zamani_hatasi_sanilmaz():
 
 def test_hata_belirtisi_olmayan_dosya_satir_cifti_tani_degildir():
     assert diagnose("/proje/app.js:12\n    kod\n") is None
+
+
+EXCEPTION_GROUP = (
+    "  + Exception Group Traceback (most recent call last):\n"
+    '  |   File "/project/cleanup.py", line 90, in close\n'
+    "  | ExceptionGroup: cleanup failures (1 sub-exception)\n"
+    "  +-+---------------- 1 ----------------\n"
+    "    | Traceback (most recent call last):\n"
+    '    |   File "/project/wrapper.py", line 99, in report\n'
+    "    | RuntimeError: cleanup did not finish\n"
+    "    +------------------------------------\n"
+)
+
+
+def test_group_cleanup_frames_cannot_steal_plain_primary_exception():
+    diagnosis = diagnose(TRACEBACK + "\n" + EXCEPTION_GROUP)
+    assert diagnosis is not None
+    assert (diagnosis.path, diagnosis.line, diagnosis.symptom) == (
+        "/proje/ayarlar.py",
+        4,
+        "KeyError: 'port'",
+    )
+    assert "wrapper" not in diagnosis.quote
+
+
+def test_group_only_trace_is_not_flattened_into_a_confident_root_location():
+    assert diagnose(EXCEPTION_GROUP) is None
+
+
+def test_chaining_uses_frame_and_terminal_exception_from_latest_complete_block():
+    diagnosis = diagnose(
+        TRACEBACK
+        + "\nDuring handling of the above exception, another exception occurred:\n\n"
+        + "Traceback (most recent call last):\n"
+        + '  File "/project/service.py", line 18, in start\n'
+        + "    raise RuntimeError('startup failed')\n"
+        + "RuntimeError: startup failed\n"
+    )
+    assert diagnosis is not None
+    assert (diagnosis.path, diagnosis.line, diagnosis.symptom) == (
+        "/project/service.py",
+        18,
+        "RuntimeError: startup failed",
+    )
+
+
+def test_truncated_new_trace_cannot_take_exception_from_previous_complete_trace():
+    diagnosis = diagnose(
+        TRACEBACK
+        + "\nTraceback (most recent call last):\n"
+        + '  File "/project/incomplete.py", line 44, in stop\n'
+        + "    release_resources()\n"
+    )
+    assert diagnosis is not None
+    assert (diagnosis.path, diagnosis.line, diagnosis.symptom) == (
+        "/proje/ayarlar.py",
+        4,
+        "KeyError: 'port'",
+    )
+
+
+def test_new_header_without_frame_cannot_reuse_old_frame_with_new_exception():
+    diagnosis = diagnose(
+        TRACEBACK + "\nTraceback (most recent call last):\nValueError: later error\n"
+    )
+    assert diagnosis is not None
+    assert diagnosis.path == "/proje/ayarlar.py"
+    assert diagnosis.symptom == "KeyError: 'port'"
+
+
+def test_exception_line_without_a_new_trace_cannot_replace_completed_symptom():
+    diagnosis = diagnose(TRACEBACK + "\nRuntimeError: unrelated summary\n")
+    assert diagnosis is not None
+    assert diagnosis.symptom == "KeyError: 'port'"
+
+
+def test_incomplete_trace_before_unrelated_log_cannot_claim_its_later_error():
+    assert (
+        diagnose(
+            "Traceback (most recent call last):\n"
+            '  File "/project/incomplete.py", line 44, in stop\n'
+            "unrelated service log\n"
+            "ValueError: other service failed\n"
+        )
+        is None
+    )
+
+
+def test_incomplete_trace_without_terminal_exception_does_not_guess_symptom():
+    assert (
+        diagnose(
+            "Traceback (most recent call last):\n"
+            '  File "/project/incomplete.py", line 44, in stop\n'
+        )
+        is None
+    )
+
+
+def test_group_boundary_ends_incomplete_plain_trace_before_unrelated_exception():
+    assert (
+        diagnose(
+            "Traceback (most recent call last):\n"
+            '  File "/project/incomplete.py", line 44, in stop\n'
+            + EXCEPTION_GROUP
+            + "RuntimeError: unrelated summary\n"
+        )
+        is None
+    )
+
+
+def test_indented_source_quote_is_not_a_traceback_frame():
+    diagnosis = diagnose(
+        "Traceback (most recent call last):\n"
+        '  File "/project/worker.py", line 12, in run\n'
+        "    print('File \"/project/not_a_frame.py\", line 999')\n"
+        "ValueError: bad input\n"
+    )
+    assert diagnosis is not None
+    assert (diagnosis.path, diagnosis.line) == ("/project/worker.py", 12)
+
+
+def test_plain_trace_header_must_be_anchored_not_a_log_or_source_quote():
+    assert (
+        diagnose(
+            "INFO quoted Traceback (most recent call last):\n"
+            '  File "/project/not_a_frame.py", line 999\n'
+            "ValueError: a quoted error\n"
+        )
+        is None
+    )
+
+
+def test_missing_parseable_inner_frame_is_not_replaced_with_outer_frame():
+    assert (
+        diagnose(
+            "Traceback (most recent call last):\n"
+            '  File "/project/outer.py", line 1, in call\n'
+            '  File "/project/inner.py", line unknown, in run\n'
+            "ValueError: bad input\n"
+        )
+        is None
+    )
+
+
+def test_bare_base_exception_is_still_associated_with_its_own_trace_block():
+    diagnosis = diagnose(
+        "Traceback (most recent call last):\n"
+        '  File "/project/worker.py", line 12, in run\n'
+        "Exception: failed\n"
+    )
+    assert diagnosis is not None
+    assert diagnosis.symptom == "Exception: failed"
+
+
+def test_plain_completed_trace_after_group_has_its_own_matching_symptom():
+    diagnosis = diagnose(
+        EXCEPTION_GROUP
+        + "Traceback (most recent call last):\n"
+        + '  File "/project/final.py", line 24\n'
+        + "TypeError: invalid result\n"
+    )
+    assert diagnosis is not None
+    assert (diagnosis.path, diagnosis.line, diagnosis.symptom) == (
+        "/project/final.py",
+        24,
+        "TypeError: invalid result",
+    )
