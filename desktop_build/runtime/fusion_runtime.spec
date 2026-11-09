@@ -26,7 +26,7 @@ _metadata_guard["require_project_metadata_version"](_source_version)
 
 datas = []
 binaries = []
-hiddenimports = []
+hiddenimports = ["evals.frozen_engine", "evals.driver_config", "evals.driver_engine"]
 # Kaynak ile paketli ikili aynı derlemeden gelir. Swift yalnız derleme makinesinde
 # gerekir; çalışan uygulama tools/data/fusion-desktop-host dosyasını tercih eder.
 _native_build = runpy.run_path(
@@ -80,7 +80,7 @@ for distribution in (
 
 a = Analysis(
     [os.path.join(SPECPATH, "entrypoint.py")],  # noqa: F821
-    pathex=[os.path.join(_repo_root, "src")],
+    pathex=[os.path.join(_repo_root, "src"), _repo_root],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

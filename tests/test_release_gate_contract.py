@@ -108,3 +108,36 @@ def test_check_ci_atlamasi_pty_isiyle_tutarli():
     assert "--skip terminal::tests::" in paket["check:ci"]
     assert paket["check:pty"].endswith("cargo test terminal::tests::")
     assert "--skip" not in paket["check:pty"]
+
+
+def test_release_requires_live_acceptance_and_preserves_exact_candidate_first():
+    steps = _adimlar("release")
+    manifest = next(s for s in steps if "release_manifest.py" in str(s.get("run", "")))
+    assert "--require-live-acceptance" in manifest["run"]
+    assert "--kits-manifest kanit-girdisi/kits-manifest.json" in manifest["run"]
+    stage = next(s for s in steps if s.get("with", {}).get("name") == "fusion-release-candidate")
+    assert steps.index(stage) < steps.index(manifest)
+    assert stage["with"]["path"] == "dagitim/*"
+    assert "continue-on-error" not in manifest
+    for job in ("macos", "windows"):
+        assert any(
+            "fusion-kits-" in str(step.get("with", {}).get("name", ""))
+            and "kits-manifest.json" in str(step.get("with", {}).get("path", ""))
+            for step in _adimlar(job)
+        )
+
+
+def test_verifier_authority_is_separate_from_actor_artifacts():
+    jobs = _yukle("desktop.yml")["jobs"]
+    verifier = jobs["acceptance-verifier"]
+    assert "acceptance-actor" in verifier["needs"]
+    assert "acceptance-candidate" in verifier["needs"]
+    assert "acceptance-verifier" in jobs["release"]["needs"]
+    assert "steps.verify.outputs.verifier_key_sha256" in verifier["outputs"]["verifier_key_sha256"]
+    assert "NVIDIA_NIM_API_KEY" not in str(verifier)
+    assert any("bubblewrap" in step.get("run", "") for step in verifier["steps"])
+    gate = next(
+        step for step in jobs["release"]["steps"] if "release_manifest.py" in step.get("run", "")
+    )
+    assert "needs.acceptance-verifier.outputs.verifier_key_sha256" in gate["run"]
+    assert "--live-acceptance-signature" in gate["run"]

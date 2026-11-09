@@ -7,7 +7,7 @@
     "Chrome Web Store ve VS Code Marketplace yayını yapılmadı.",
     "Uzaktan erişim (eşleştirme, Telegram, PWA) gerçek telefon ve gerçek bot ile denenmedi.",
     "Canlı MCP OAuth sağlayıcı girişleri ve 8/24/72 saatlik dayanıklılık koşuları yapılmadı.",
-    "Paket/source/config kimliğine bağlı üç tekrarlı canlı production kabulü bu düzeltme turunda yapılmadı; CI yayın zincirinde zorunlu değil.",
+    "Paket/source/config kimliğine bağlı üç tekrarlı canlı frozen-runtime kabulü henüz ölçülmedi; bağımsız izole oracle ve imzalı CI kapısı eklendi. Windows korumalı actor adaptörü (K29) yok; tam platform kabulü olmadan yayın durur.",
     "Gerçek uygulama sohbet izolasyonu ile insan onay süresi, gereksiz tekrar, yeni panelde pending soru ve restart sonrası izin devamlılığı canlı ürün metriği olarak ölçülmedi."
   ]
 }

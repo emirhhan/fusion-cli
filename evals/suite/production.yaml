@@ -10,19 +10,17 @@ tasks:
   criterion:
     kind: exit_code
     expected_exit_code: 0
-    command: python -c "from pathlib import Path; from fusion_cli.core.assets import inspect_image_asset,
-      validate_asset_manifest; p=Path('assets/player.png'); assert inspect_image_asset(p).valid;
-      assert not validate_asset_manifest(p, Path('.'))"
+    command: python -m evals.fixtures.production_acceptance assets
   budget:
     max_model_calls: 30
     timeout_s: 180
 - id: mcp-stdio-listele-cagir
-  request: smoke_test.py içinde async smoke(client) yaz. Verilen gerçek MCP istemcisinde önce await
+  request: mcp_candidate.py içinde async smoke(client) yaz. Verilen gerçek MCP istemcisinde önce await
     client.list_tools() ile ping aracını listele, sonra await client.call_tool("ping", {}) ile çağır.
     Sunucuyu kendin başlatma; kabul harness gerçek sırsız stdio MCP oturumunu sağlar. Bu görev OAuth
     girişini ölçmez.
   setup:
-    smoke_test.py: |
+    mcp_candidate.py: |
       async def smoke(client):
           pass
   criterion:
@@ -40,8 +38,7 @@ tasks:
   criterion:
     kind: exit_code
     expected_exit_code: 0
-    command: python -c "import json,os; assert json.load(open('config.json'))['enabled'] is True;
-      assert not os.path.exists('legacy')"
+    command: python -m evals.fixtures.production_acceptance replan
   budget:
     max_model_calls: 30
     timeout_s: 180
@@ -78,8 +75,7 @@ tasks:
   criterion:
     kind: exit_code
     expected_exit_code: 0
-    command: python -c "import json; a=json.load(open('conversation-a.json')); b=json.load(open('conversation-b.json'));
-      assert a=={'status':'done','owner':'a'}; assert b=={'status':'pending','owner':'b'}"
+    command: python -m evals.fixtures.production_acceptance json
   budget:
     max_model_calls: 30
     timeout_s: 180

@@ -5,5 +5,21 @@
     "yanlis-hedefte-yeniden-planla",
     "buyuk-artifact-korumali-duzenleme",
     "json-dosya-izolasyonu"
+  ],
+  "expected_model": null,
+  "expected_effective_config_digest": null,
+  "independent_oracle_handoff": "separate_ci_verifier_ed25519_pinned_job_output",
+  "expected_profile": "release/acceptance-profile.yaml",
+  "release_targets": [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc"
+  ],
+  "protected_actor_targets": [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin"
+  ],
+  "conditional_gaps": [
+    "K29: Windows protected actor adapter unavailable"
   ]
 }

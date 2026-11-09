@@ -84,3 +84,54 @@ def test_sbom_python_bilesenleri_kilit_dosyasindan_gelir(tmp_path: Path) -> None
 
     purls = {item["purl"] for item in sbom["components"]}
     assert purls == {"pkg:pypi/kilitli-paket@1.0.0"}
+
+
+def test_required_release_rejects_missing_live_report(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="zorunlu"):
+        module.live_acceptance(None, [], "a" * 40, now=1001, required=True, version="1.2.3")
+
+
+@pytest.mark.parametrize("change", ["version", "source", "scorer", "model", "config", "oracle"])
+def test_release_binding_and_oracle_are_fail_closed(
+    tmp_path: Path, monkeypatch, change: str
+) -> None:
+    from copy import deepcopy
+
+    artifacts = [{"name": "app.dmg", "sha256": "a" * 64}]
+    expected = {
+        "source_digest": "b" * 64,
+        "scorer_digest": "c" * 64,
+        "model": "approved-model",
+        "effective_config_digest": "d" * 64,
+    }
+    monkeypatch.setattr(module, "_release_expectations", lambda: expected)
+    monkeypatch.setattr(module, "_validate_live_measurement", lambda metadata, results: None)
+    payload = {
+        "binding": {
+            "commit": "a" * 40,
+            "artifacts": {"app.dmg": "a" * 64},
+            "version": "1.2.3",
+            "measured_at": 1000,
+        },
+        "metadata": deepcopy(expected),
+        "results": [],
+        "oracle": {"independent": True, "passed": True, "producer": "trusted"},
+    }
+    if change == "version":
+        payload["binding"]["version"] = "old"
+    elif change != "oracle":
+        key = {
+            "source": "source_digest",
+            "scorer": "scorer_digest",
+            "model": "model",
+            "config": "effective_config_digest",
+        }[change]
+        payload["metadata"][key] = "wrong"
+    path = tmp_path / "candidate-written.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(SystemExit, match=r"Sürüm|kimliği|Bağımsız"):
+        module.live_acceptance(path, artifacts, "a" * 40, now=1001, required=True, version="1.2.3")
+
+
+def test_diagnostic_missing_report_stays_unmeasured() -> None:
+    assert module.live_acceptance(None, [], "abc", now=1001)["status"] == "not_measured"

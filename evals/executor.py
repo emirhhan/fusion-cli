@@ -307,7 +307,7 @@ def _write_seed_file(workspace: Path, relative: str, content: str) -> None:
     if root not in target.parents:
         raise EvalError(f"setup yolu çalışma dizini dışına çıkıyor: {relative}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    target.write_text(content, encoding="utf-8", newline="\n")
 
 
 def _snapshot(root: Path) -> dict[str, str]:
@@ -318,7 +318,7 @@ def _snapshot(root: Path) -> dict[str, str]:
             raise EvalError("Değerlendirme çalışma dizini sembolik bağlantı içeremez.")
         if not path.is_file():
             continue
-        relative = str(path.relative_to(root))
+        relative = path.relative_to(root).as_posix()
         if relative in _HARNESS_EVIDENCE:
             continue
         snapshot[relative] = _hash_file(path)

@@ -40,7 +40,7 @@ def _criterion(task, root):
 
 def test_mcp_stdout_ping_pong_gercek_protokol_cagrisi_sayilmaz(tmp_path):
     run = _criterion(_production_task("mcp"), tmp_path)
-    (tmp_path / "smoke_test.py").write_text("print('ping pong')\n")
+    (tmp_path / "mcp_candidate.py").write_text("print('ping pong')\n")
     assert run().returncode != 0
 
 

@@ -1,0 +1,73 @@
+# Explicit frozen-runtime acceptance profile. Never installed as user defaults.
+agent: &acceptance-model
+  name: release-acceptance
+  model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+  fallback: []
+  tags: [strict]
+candidates:
+  - name: release-acceptance
+    model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+    fallback: []
+    tags: [strict]
+judge:
+  name: release-acceptance
+  model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+  fallback: []
+  tags: [strict]
+vision:
+  name: release-acceptance
+  model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+  fallback: []
+  tags: [strict]
+teacher: null
+task_model_map:
+  general: release-acceptance
+  code: release-acceptance
+  reasoning: release-acceptance
+  agent: release-acceptance
+tiers:
+  - name: low
+    label: Release acceptance (single model)
+    agent: *acceptance-model
+    judge: *acceptance-model
+    candidates: [*acceptance-model]
+mcp_servers: []
+hosted_connectors: []
+web_sessions: []
+runtime:
+  max_tokens: 8192
+  request_timeout_s: 600
+  max_retries: 0
+  reasoning_effort: auto
+  teacherless: true
+  lessons: false
+  teacher_lesson_sync: false
+  teacher_codex_fallback: false
+  escalate_on_gate_failure: false
+  escalation_model: ""
+  auto_web_fallback: false
+  restrict_to_root: true
+  block_reads_outside_root: true
+  block_writes_outside_root: true
+  shell_sandbox: write_root
+  agent_max_steps: 30
+  workflow_mode: "off"
+  post_edit_commands: []
+  verification_commands: []
+  self_review: true
+  web_verification: false
+  browser_verification: false
+  visual_verification: false
+  playbooks: false
+sandbox:
+  allow_write: []
+  fail_if_unavailable: true
+  allow_unsandboxed: false
+  excluded_commands: []
+  hide_secret_env: true
+  filesystem_disabled: false
+  enable_weaker_nested_sandbox: false
+  allow_nested_user_namespaces: false
+  network: allowlist
+  allowed_domains: []
+  allow_localhost: false

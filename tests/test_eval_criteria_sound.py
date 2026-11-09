@@ -40,7 +40,7 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
         ),
     },
     "mcp-stdio-listele-cagir": {
-        "smoke_test.py": (
+        "mcp_candidate.py": (
             "async def smoke(client):\n"
             "    await client.list_tools()\n"
             "    await client.call_tool('ping', {})\n"

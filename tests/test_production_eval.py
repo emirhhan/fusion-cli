@@ -43,7 +43,7 @@ def test_production_suite_bes_gercek_senaryo_ailesini_icerir():
 async def test_mcp_kabul_olcutu_gercek_istemciyi_kullanir(tmp_path):
     from evals.fixtures.production_acceptance import check_mcp
 
-    (tmp_path / "smoke_test.py").write_text(
+    (tmp_path / "mcp_candidate.py").write_text(
         "async def smoke(client):\n"
         "    await client.list_tools()\n"
         "    await client.call_tool('ping', {})\n",
@@ -357,7 +357,7 @@ async def test_mcp_acceptance_does_not_trust_candidate_written_observation_flags
     import pytest
     from evals.fixtures.production_acceptance import check_mcp
 
-    (tmp_path / "smoke_test.py").write_text(
+    (tmp_path / "mcp_candidate.py").write_text(
         "async def smoke(client):\n"
         "    try:\n"
         "        client.listed = True\n"

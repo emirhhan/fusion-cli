@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -49,6 +51,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -83,6 +87,8 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -158,6 +164,22 @@ jobs:
           mkdir -p dagitim
           SUFFIX=$([ "${{ matrix.target }}" = "aarch64-apple-darwin" ] && echo "Apple-Silicon" || echo "Intel")
           cp app/src-tauri/target/release/bundle/dmg/*.dmg "dagitim/Fusion-macOS-$SUFFIX.dmg"
+      - name: Kabul edilecek frozen runtime artefaktını hazırla
+        run: |
+          mkdir -p runtime-distribution
+          cp app/src-tauri/resources/runtime/fusion-runtime.tar.gz runtime-distribution/fusion-runtime-${{ matrix.target }}.tar.gz
+          cp app/src-tauri/resources/runtime/runtime-manifest.json runtime-distribution/fusion-runtime-${{ matrix.target }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fusion-frozen-${{ matrix.target }}
+          path: runtime-distribution/*
+          if-no-files-found: error
+      - name: Paketlenen Kits kimliğini sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: fusion-kits-${{ matrix.target }}
+          path: app/src-tauri/resources/kits/kits-manifest.json
+          if-no-files-found: error
       - name: İmzasız macOS paketini sakla
         uses: actions/upload-artifact@v4
         with:
@@ -197,6 +219,8 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -283,6 +307,23 @@ jobs:
           name: fusion-update-windows-x86_64
           path: guncelleme/*
           if-no-files-found: error
+      - name: Kabul edilecek frozen runtime artefaktını hazırla
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force runtime-distribution | Out-Null
+          Copy-Item app/src-tauri/resources/runtime/fusion-runtime.tar.gz runtime-distribution/fusion-runtime-x86_64-pc-windows-msvc.tar.gz
+          Copy-Item app/src-tauri/resources/runtime/runtime-manifest.json runtime-distribution/fusion-runtime-x86_64-pc-windows-msvc.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fusion-frozen-x86_64-pc-windows-msvc
+          path: runtime-distribution/*
+          if-no-files-found: error
+      - name: Paketlenen Kits kimliğini sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: fusion-kits-x86_64-pc-windows-msvc
+          path: app/src-tauri/resources/kits/kits-manifest.json
+          if-no-files-found: error
       - name: İmzasız Windows kurucusunu sakla
         uses: actions/upload-artifact@v4
         with:
@@ -293,29 +334,33 @@ jobs:
   # Etiket atıldığında (ör. `git tag v0.3.0-alpha.1 && git push --tags`) üç paketi
   # toplayıp herkese açık bir Release oluşturur. Arkadaşlara verilecek tek adres
   # budur; Actions artefaktları erişim ister ve süresi dolar, Release dolmaz.
-  release:
+  acceptance-candidate:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [quality, macos, windows, terminal]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
     steps:
       # release_manifest.py, known-gaps.json ve kilit dosyaları (uv.lock, package-lock,
       # Cargo.lock) depodan gelir.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
           path: indirilenler
+          pattern: fusion-*
       - name: Paketleri tek klasörde topla
         run: |
           mkdir -p dagitim
           find indirilenler -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} dagitim/ \;
           find indirilenler -type f \( -name '*.tar.gz' -o -name '*.sig' \) -exec cp {} dagitim/ \;
           find indirilenler -type f -name '*.whl' -exec cp {} dagitim/ \;
+          find indirilenler -type f -name 'fusion-runtime-*.json' -exec cp {} dagitim/ \;
           python - <<'PY'
           import json, pathlib
           # Sayı değil PLATFORM KÜMESİ doğrulanır. Eskiden "tam iki manifest"
@@ -337,7 +382,201 @@ jobs:
           pathlib.Path('dagitim/latest.json').write_text(json.dumps(merged, indent=2))
           PY
           ls -lh dagitim
+      - name: Üç platformun Kits kimliğini doğrula
+        run: |
+          python - <<'PYTHON'
+          import json, pathlib
+          from scripts.release_manifest import resolve_kits_commit
+          root = pathlib.Path('indirilenler')
+          targets = ('aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc')
+          manifests = [root / f'fusion-kits-{target}' / 'kits-manifest.json' for target in targets]
+          commits = {resolve_kits_commit('', path) for path in manifests}
+          if len(commits) != 1:
+              raise SystemExit('Platformlar farklı Kits commitleri paketledi; yayın reddedildi.')
+          output = pathlib.Path('kanit-girdisi')
+          output.mkdir()
+          (output / 'kits-manifest.json').write_text(json.dumps({'commit': commits.pop()}))
+          PYTHON
+      # Preserve the exact final bytes before acceptance; no separate job can
+      # precompute evidence for artifacts that did not exist yet.
+      - name: Kabul bekleyen yayın adayını sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-acceptance-candidate
+          path: dagitim/*
+          if-no-files-found: error
+
+  acceptance-actor:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev,mcp]'
+      - uses: actions/download-artifact@v4
+        with:
+          name: fusion-frozen-${{ matrix.target }}
+          path: frozen
+      - name: Açık kabul profilini kopyala (kullanıcı ayarı değiştirilmez)
+        run: python -c "from pathlib import Path; Path('acceptance-config.yaml').write_bytes(Path('release/acceptance-profile.yaml').read_bytes())"
+      - name: Aynı frozen artefaktı production görevleriyle çalıştır
+        shell: bash
+        env:
+          PYTHONPATH: src:.
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python scripts/release_live.py \
+            --archive frozen/fusion-runtime-${{ matrix.target }}.tar.gz \
+            --manifest frozen/fusion-runtime-${{ matrix.target }}.json \
+            --config acceptance-config.yaml --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA" \
+            --provider-env NVIDIA_NIM_API_KEY --provider-env OPENROUTER_API_KEY --out live-output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-run-${{ matrix.target }}
+          path: live-output/*
+          if-no-files-found: error
+
+  acceptance-verifier:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [acceptance-candidate, acceptance-actor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      verifier_key_sha256: ${{ steps.verify.outputs.verifier_key_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev,mcp]'
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acceptance-run-*
+          path: runs
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-acceptance-candidate
+          path: candidate
+      - name: Aynı açık kabul profilini kopyala
+        run: cp release/acceptance-profile.yaml acceptance-config.yaml
+      - name: Bağımsız izole oracle denetimi ve korunmuş imza
+        id: verify
+        env:
+          PYTHONPATH: src:.
+        run: |
+          python scripts/release_verify.py --runs runs --artifacts candidate \
+            --config acceptance-config.yaml --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA" \
+            --target aarch64-apple-darwin --target x86_64-apple-darwin --target x86_64-pc-windows-msvc \
+            --out acceptance-evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-acceptance-evidence
+          path: acceptance-evidence/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, macos, windows, terminal, acceptance-verifier]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      # release_manifest.py, known-gaps.json ve kilit dosyaları (uv.lock, package-lock,
+      # Cargo.lock) depodan gelir.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          path: indirilenler
+          pattern: fusion-*
+      - name: Paketleri tek klasörde topla
+        run: |
+          mkdir -p dagitim
+          find indirilenler -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} dagitim/ \;
+          find indirilenler -type f \( -name '*.tar.gz' -o -name '*.sig' \) -exec cp {} dagitim/ \;
+          find indirilenler -type f -name '*.whl' -exec cp {} dagitim/ \;
+          find indirilenler -type f -name 'fusion-runtime-*.json' -exec cp {} dagitim/ \;
+          python - <<'PY'
+          import json, pathlib
+          # Sayı değil PLATFORM KÜMESİ doğrulanır. Eskiden "tam iki manifest"
+          # aranıyordu ve bu, Windows manifesti eklendiğinde sessizce kırılırdı;
+          # ayrıca hangi platformun eksik olduğunu da söylemiyordu. Ölçüldü
+          # (alpha.12): latest.json yalnız iki macOS taşıyordu ve Windows
+          # kullanıcıları otomatik güncelleme alamıyordu.
+          beklenen = {'darwin-aarch64', 'darwin-x86_64', 'windows-x86_64'}
+          manifests = [json.loads(p.read_text()) for p in pathlib.Path('indirilenler').rglob('latest-*.json')]
+          assert manifests, 'Hiç güncelleme manifesti bulunamadı'
+          merged = {**manifests[0], 'platforms': {}}
+          for manifest in manifests:
+              assert manifest['version'] == merged['version'], (
+                  f"Sürümler ayrıştı: {manifest['version']} != {merged['version']}"
+              )
+              merged['platforms'].update(manifest['platforms'])
+          eksik = beklenen - set(merged['platforms'])
+          assert not eksik, f'Güncelleme manifestinde eksik platform: {sorted(eksik)}'
+          pathlib.Path('dagitim/latest.json').write_text(json.dumps(merged, indent=2))
+          PY
+          ls -lh dagitim
+      - name: Üç platformun Kits kimliğini doğrula
+        run: |
+          python - <<'PYTHON'
+          import json, pathlib
+          from scripts.release_manifest import resolve_kits_commit
+          root = pathlib.Path('indirilenler')
+          targets = ('aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc')
+          manifests = [root / f'fusion-kits-{target}' / 'kits-manifest.json' for target in targets]
+          commits = {resolve_kits_commit('', path) for path in manifests}
+          if len(commits) != 1:
+              raise SystemExit('Platformlar farklı Kits commitleri paketledi; yayın reddedildi.')
+          output = pathlib.Path('kanit-girdisi')
+          output.mkdir()
+          (output / 'kits-manifest.json').write_text(json.dumps({'commit': commits.pop()}))
+          PYTHON
+      # Preserve the exact final bytes before acceptance; no separate job can
+      # precompute evidence for artifacts that did not exist yet.
+      - name: Kabul bekleyen yayın adayını sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: fusion-release-candidate
+          path: dagitim/*
+          if-no-files-found: error
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-acceptance-evidence
+          path: acceptance-evidence
+      - run: python -m pip install -e .
       - name: Kanıt paketi (SHA256SUMS, SBOM, manifest)
+        env:
+          PYTHONPATH: src:.
         # Q1-05: kanıt YAYINLANAN dosyalar için üretilir. Eskiden ayrı iş akışı
         # yalnız wheel/sdist'i özetliyordu; DMG/EXE/güncelleme paketi hiç
         # girmiyordu. `dagitim/` Release'e yüklenen klasörün kendisidir; özetler
@@ -347,8 +586,14 @@ jobs:
           python scripts/release_manifest.py \
             --version "${GITHUB_REF_NAME#v}" \
             --commit "$GITHUB_SHA" \
+            --kits-manifest kanit-girdisi/kits-manifest.json \
             --artifacts dagitim \
-            --out kanit
+            --out kanit \
+            --require-live-acceptance \
+            --live-acceptance acceptance-evidence/live-acceptance.json \
+            --live-acceptance-signature acceptance-evidence/live-acceptance.sig \
+            --live-acceptance-key acceptance-evidence/verifier.pub \
+            --live-acceptance-key-sha256 "${{ needs.acceptance-verifier.outputs.verifier_key_sha256 }}"
           (cd dagitim && sha256sum -c ../kanit/SHA256SUMS)
       - name: Release oluştur ve dosyaları yükle
         uses: softprops/action-gh-release@v2

@@ -11,6 +11,14 @@ def main() -> None:
         # value retains Playwright's normal platform cache and explicit overrides.
         os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "")
 
+    if sys.argv[1:2] == ["--release-observer"]:
+        if not getattr(sys, "frozen", False):
+            raise SystemExit("Release observer requires the frozen runtime.")
+        sys.argv.pop(1)
+        from evals.frozen_engine import install
+
+        install()
+
     from fusion_cli.cli.app import main as run_cli
 
     run_cli()

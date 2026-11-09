@@ -135,6 +135,8 @@ main()
 
 
 def _komut(args: argparse.Namespace) -> list[str]:
+    if getattr(args, "runtime_executable", ""):
+        return [str(Path(args.runtime_executable).resolve()), "--release-observer", "app"]
     selected = driver_engine.selected_command(args)
     if selected is not None:
         return selected
@@ -194,6 +196,10 @@ async def drive(
     args: argparse.Namespace, stderr: IO[bytes] | None, olay_gunlugu: IO[bytes] | None = None
 ) -> dict[str, Any]:
     engine = driver_engine.from_options(args)
+    frozen = getattr(args, "runtime_executable", "")
+    if frozen and engine is not None:
+        raise ValueError("Kaynak ve frozen motor aynı anda seçilemez.")
+    selected = engine is not None or bool(frozen)
     process = await asyncio.create_subprocess_exec(
         *_komut(args),
         cwd=args.kok,
@@ -201,6 +207,7 @@ async def drive(
         stdout=asyncio.subprocess.PIPE,
         stderr=stderr or asyncio.subprocess.DEVNULL,
         limit=16 * 1024 * 1024,
+        env=getattr(args, "runtime_env", None),
     )
     assert process.stdin and process.stdout
     kayit: dict[str, Any] = {"izinler": [], "sorular": [], "araclar": [], "turlar": []}
@@ -219,7 +226,7 @@ async def drive(
     kayit["sayaclar"] = sayac
     bekleyen: dict[str, asyncio.Future[dict[str, Any]]] = {}
     engine_ready: asyncio.Future[dict[str, object]] | None = (
-        asyncio.get_running_loop().create_future() if engine is not None else None
+        asyncio.get_running_loop().create_future() if selected else None
     )
 
     def gonder(payload: dict[str, Any]) -> None:
@@ -258,18 +265,23 @@ async def drive(
         except ValueError:
             return
         tip, veri = mesaj.get("tip"), mesaj.get("veri") or {}
-        if tip == "motor_kaniti" and engine is not None and engine_ready is not None:
+        if tip == "motor_kaniti" and selected and engine_ready is not None:
             if engine_ready.done():
                 kayit["hata"] = "Yinelenen motor kanıtı reddedildi."
                 driver_engine.invalidate_pending(bekleyen, kayit["hata"])
                 return
             try:
-                receipt = driver_engine.validate_receipt(veri, engine, process.pid)
+                if engine is not None:
+                    receipt = driver_engine.validate_receipt(veri, engine, process.pid)
+                else:
+                    from evals.frozen_engine import validate
+
+                    receipt = validate(veri, Path(frozen).resolve(), process.pid)
                 engine_ready.set_result(asdict(receipt))
             except ValueError as error:
                 engine_ready.set_exception(error)
             return
-        if engine is not None and driver_engine.handle_config(tip, veri, kayit):
+        if selected and driver_engine.handle_config(tip, veri, kayit):
             if kayit.get("hata"):
                 driver_engine.invalidate_pending(bekleyen, kayit["hata"])
             return
@@ -323,7 +335,7 @@ async def drive(
                 kayit["hata"] = "Chrome eklentisi eşleştirilmedi."
                 return kayit
         for gorev in args.gorev:
-            if engine is not None and kayit.get("hata"):
+            if selected and kayit.get("hata"):
                 return kayit
             basla = time.monotonic()
             kayit["efektif_baslangic"] = len(kayit.get("efektif_kanitlar", []))
@@ -338,7 +350,7 @@ async def drive(
                 ozet = {"ok": False, "metin": f"zaman aşımı ({args.sure} sn)"}
             except ConnectionError as hata:
                 ozet = {"ok": False, "metin": str(hata)}
-            if engine is not None:
+            if selected:
                 ozet["efektif_kanit"] = (
                     len(kayit.get("efektif_kanitlar", [])) > kayit["efektif_baslangic"]
                 )
@@ -356,11 +368,11 @@ async def drive(
             process.kill()
             await process.wait()
         await okuyucu
-        if engine is not None:
+        if selected:
             kayit["kontrollu_ayar_kaniti"] = bool(kayit.get("efektif_kanitlar")) and not kayit.get(
                 "hata"
             )
-        if engine is not None and kayit.get("hata"):
+        if selected and kayit.get("hata"):
             for turn in kayit["turlar"]:
                 turn.update(ok=False, metin=kayit["hata"])
     # Tek görevli eski çağıranlar için kısayol.
@@ -380,6 +392,7 @@ def main() -> None:
     parser.add_argument("--sure", type=float, default=900)
     parser.add_argument("--stderr", default="")
     parser.add_argument("--log", action="store_true")
+    parser.add_argument("--runtime-executable", default="")
     parser.add_argument("--engine-source", default="")
     parser.add_argument("--engine-manifest", default="")
     parser.add_argument("--engine-proof", default="")

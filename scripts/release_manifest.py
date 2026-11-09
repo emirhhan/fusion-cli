@@ -180,10 +180,23 @@ def resolve_kits_commit(kits_commit: str, kits_manifest: Path | None) -> str:
 
 
 def live_acceptance(
-    path: Path | None, artifacts: list[dict[str, Any]], commit: str, *, now: float
+    path: Path | None,
+    artifacts: list[dict[str, Any]],
+    commit: str,
+    *,
+    now: float,
+    required: bool = False,
+    version: str | None = None,
+    signature: Path | None = None,
+    public_key: Path | None = None,
+    trusted_key_sha256: str = "",
+    expected_model: str = "",
+    expected_config_digest: str = "",
 ) -> dict[str, Any]:
     """Canlı rapor yoksa ölçülmedi; verilmiş ama eski/uyumsuz rapor yayını durdurur."""
     if path is None:
+        if required:
+            raise SystemExit("Yayın için paket kimliğine bağlı canlı kabul raporu zorunlu.")
         return {"status": "not_measured", "reason": "Paket kimliğine bağlı canlı kabul raporu yok."}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -199,10 +212,30 @@ def live_acceptance(
         ):
             raise ValueError("Canlı rapor eski veya gelecek tarihli.")
         _validate_live_measurement(metadata, results)
+        if required:
+            _validate_release_binding(
+                binding, metadata, version, expected_model, expected_config_digest
+            )
+            if signature is None or public_key is None:
+                raise ValueError("Bağımsız verifier imzası ve güvenilir anahtar kimliği zorunlu.")
+            from scripts.release_attestation import verify
+
+            verify(path, signature, public_key, trusted_key_sha256)
+            if payload.get("scope") != "frozen-runtime":
+                raise ValueError("Bağımsız kabul frozen-runtime kapsamını doğrulamalı.")
+            policy = json.loads((ROOT / "release/live-acceptance-policy.json").read_text())
+            targets = payload.get("targets")
+            required_targets = set(policy["release_targets"])
+            if (not isinstance(targets, list) or len(targets) != len(required_targets)
+                or set(targets) != required_targets):
+                raise ValueError("K29: zorunlu frozen platform kabulü eksik.")
     except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
         raise SystemExit(f"Canlı kabul kanıtı geçersiz: {error}") from error
     return {
         "status": "passed",
+        "scope": payload.get("scope", "diagnostic-report"),
+        "targets": payload.get("targets", []),
+        "limitations": payload.get("limitations", []),
         "sha256": sha256_file(path),
         "measuredAt": measured_at,
         "model": metadata["model"],
@@ -210,6 +243,59 @@ def live_acceptance(
         "sourceDigest": metadata["source_digest"],
         "repeat": metadata["repeat"],
     }
+
+
+def _release_expectations() -> dict[str, str]:
+    """Reuse the evaluation harness identity; never infer approved config from a report.
+
+    These hashes identify checkout bytes, not provenance of an executed binary.
+    No user config, environment credentials or model providers are accessed.
+    """
+    from evals.profiles import _digest_entries, _scorer_entries, _source_entries
+
+    policy = json.loads((ROOT / "release/live-acceptance-policy.json").read_text())
+    from scripts.release_profile import profile_facts
+
+    facts = profile_facts(ROOT / policy["expected_profile"])
+    model = policy.get("expected_model") or facts["model"]
+    config = policy.get("expected_effective_config_digest") or facts["effective_config_digest"]
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("Onaylanmış yayın model kimliği policy içinde henüz tanımlanmadı.")
+    if not isinstance(config, str) or not _DIGEST.fullmatch(config):
+        raise ValueError("Onaylanmış yayın yapılandırma kimliği henüz tanımlanmadı.")
+    return {
+        "source_digest": _digest_entries(_source_entries(ROOT)),
+        "scorer_digest": _digest_entries(_scorer_entries(ROOT)),
+        "model": model,
+        "effective_config_digest": config,
+    }
+
+
+def _validate_release_binding(
+    binding: dict[str, Any],
+    metadata: dict[str, Any],
+    version: str | None,
+    model: str = "",
+    config: str = "",
+) -> None:
+    if not version or binding.get("version") != version:
+        raise ValueError("Sürüm kimliği canlı raporla uyuşmuyor.")
+    if model or config:
+        from evals.profiles import _digest_entries, _scorer_entries, _source_entries
+
+        if not model.strip() or not _DIGEST.fullmatch(config):
+            raise ValueError("Onaylanmış model/config kimliği birlikte gerekli.")
+        expectations = {
+            "model": model,
+            "effective_config_digest": config,
+            "source_digest": _digest_entries(_source_entries(ROOT)),
+            "scorer_digest": _digest_entries(_scorer_entries(ROOT)),
+        }
+    else:
+        expectations = _release_expectations()
+    for name, expected in expectations.items():
+        if metadata.get(name) != expected:
+            raise ValueError(f"Yayın {name} kimliği canlı raporla uyuşmuyor.")
 
 
 def _validate_live_measurement(metadata: dict[str, Any], results: list[dict[str, Any]]) -> None:
@@ -355,6 +441,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--gaps", type=Path, default=ROOT / "release" / "known-gaps.json")
     parser.add_argument("--evidence", action="append", default=[])
     parser.add_argument("--live-acceptance", type=Path)
+    parser.add_argument("--live-acceptance-signature", type=Path)
+    parser.add_argument("--live-acceptance-key", type=Path)
+    parser.add_argument("--live-acceptance-key-sha256", default="")
+    parser.add_argument("--expected-model", default="")
+    parser.add_argument("--expected-effective-config-digest", default="")
+    parser.add_argument(
+        "--require-live-acceptance",
+        action="store_true",
+        help="Yayın kapısı: eksik/uyumsuz veya bağımsız oracle kanıtı olmayan raporu reddet.",
+    )
     parser.add_argument(
         "--rollback",
         default="Önceki sürümün SHA256SUMS ile doğrulanmış paketini kur; kullanıcı verisi korunur.",
@@ -366,7 +462,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     kits_commit = resolve_kits_commit(args.kits_commit, args.kits_manifest)
     artifacts = collect_artifacts(args.artifacts)
-    live = live_acceptance(args.live_acceptance, artifacts, args.commit, now=time.time())
+    live = live_acceptance(
+        args.live_acceptance,
+        artifacts,
+        args.commit,
+        now=time.time(),
+        required=args.require_live_acceptance,
+        version=args.version,
+        signature=args.live_acceptance_signature,
+        public_key=args.live_acceptance_key,
+        trusted_key_sha256=args.live_acceptance_key_sha256,
+        expected_model=args.expected_model,
+        expected_config_digest=args.expected_effective_config_digest,
+    )
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "SHA256SUMS").write_text(checksums_text(artifacts), encoding="utf-8")
     (args.out / "sbom.cdx.json").write_text(

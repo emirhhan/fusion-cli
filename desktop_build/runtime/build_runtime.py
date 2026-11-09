@@ -175,6 +175,32 @@ def build_runtime(output_dir: Path, work_dir: Path) -> tuple[Path, Path]:
     _run_pyinstaller(dist_path, build_path)
 
     bundle_root = dist_path / _BUNDLE_NAME
+    # Stored inside the actual frozen archive. This is CI build provenance, not
+    # an actor-written declaration; consumers also verify the archive/file map.
+    from evals.frozen_engine import PROVENANCE
+    from evals.profiles import _digest_entries, _scorer_entries, _source_entries
+
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=_REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (bundle_root / "_internal").mkdir(exist_ok=True)
+    (bundle_root / "_internal" / PROVENANCE).write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "version": source_version,
+                "commit": commit,
+                "source_digest": _digest_entries(_source_entries(_REPO_ROOT)),
+                "scorer_digest": _digest_entries(_scorer_entries(_REPO_ROOT)),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     archive_path = output_dir / "fusion-runtime.tar.gz"
     write_archive(bundle_root, archive_path)
 

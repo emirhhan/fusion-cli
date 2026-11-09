@@ -1,0 +1,2 @@
+# Acceptance source identities must hash the same checkout bytes on every target.
+* text=auto eol=lf

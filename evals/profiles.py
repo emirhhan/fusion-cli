@@ -155,14 +155,40 @@ def _digest_entries(entries: object) -> str:
 
 def _file_digests(root: Path, paths: tuple[Path, ...]) -> tuple[tuple[str, str], ...]:
     return tuple(
-        (str(path.relative_to(root)), hashlib.sha256(path.read_bytes()).hexdigest())
-        for path in sorted(paths)
+        (path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest())
+        for path in sorted(paths, key=lambda item: item.relative_to(root).as_posix())
         if path.is_file() and not path.is_symlink()
     )
 
 
 def _source_entries(root: Path) -> tuple[tuple[str, str], ...]:
-    paths = (*tuple((root / "src").rglob("*.py")), *tuple((root / "evals").rglob("*.py")))
+    # Frozen acceptance must bind its build/observer/orchestrator and tests as
+    # well as engine Python. Package data/defaults can change runtime behavior.
+    package = tuple(
+        path
+        for path in (root / "src").rglob("*")
+        if "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
+        and not any(part.endswith(".egg-info") for part in path.parts)
+    )
+    control = tuple(
+        path
+        for directory in ("evals", "desktop_build", "scripts", "tests")
+        for path in (root / directory).rglob("*")
+        if path.suffix in {".py", ".spec"} and "__pycache__" not in path.parts
+    )
+    paths = (
+        *package,
+        *control,
+        root / "pyproject.toml",
+        root / "uv.lock",
+        root / ".gitattributes",
+        root / ".github/workflows/desktop.yml",
+        root / "release/acceptance-profile.yaml",
+        root / "release/live-acceptance-policy.json",
+    )
+    if any(path.is_symlink() for path in paths):
+        raise ValueError("Kaynak kimliği sembolik bağlantı içeremez.")
     return _file_digests(root, paths)
 
 
@@ -186,6 +212,9 @@ def _scorer_entries(root: Path) -> tuple[tuple[str, str], ...]:
             root / "evals/fixtures/production_acceptance.py",
             root / "evals/fixtures/oauth_mcp_server.py",
             root / "evals/criteria.py",
+            root / "scripts/release_oracle.py",
+            root / "scripts/release_verify.py",
+            root / "evals/acceptance_command.py",
             root / "evals/research_acceptance.py",
             root / "evals/executor.py",
             root / "evals/metrics.py",

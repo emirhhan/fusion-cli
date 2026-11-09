@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
-import importlib.util
+import json
+import os
+import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -53,16 +56,74 @@ def _measured_client(session: ClientSession) -> tuple[_SmokeClient, Callable[[],
     return MeasuredClient(), lambda: listed and called
 
 
+_CANDIDATE_BRIDGE = r"""
+import asyncio, importlib.util, json, sys
+from mcp.types import ListToolsResult, CallToolResult
+_protocol = sys.stdout
+sys.stdout = sys.stderr
+class Client:
+    def request(self, payload):
+        print(json.dumps(payload), file=_protocol, flush=True)
+        line = sys.stdin.readline()
+        if not line:
+            raise RuntimeError('trusted MCP observer closed')
+        return json.loads(line)
+    async def list_tools(self):
+        return ListToolsResult.model_validate(self.request({'op': 'list_tools'}))
+    async def call_tool(self, name, arguments):
+        payload = {'op': 'call_tool', 'name': name, 'arguments': arguments}
+        return CallToolResult.model_validate(self.request(payload))
+spec = importlib.util.spec_from_file_location('candidate_smoke', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+asyncio.run(module.smoke(Client()))
+"""
+
+
+async def _observe_candidate(root: Path, client: _SmokeClient) -> int:
+    """Candidate exits cannot end the trusted observer or modify its witness state."""
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-I",
+        "-c",
+        _CANDIDATE_BRIDGE,
+        str(root / "mcp_candidate.py"),
+        cwd=root,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=os.name == "posix",
+    )
+    assert process.stdin is not None and process.stdout is not None
+    try:
+        while line := await process.stdout.readline():
+            request = json.loads(line)
+            if request == {"op": "list_tools"}:
+                result = (await client.list_tools()).model_dump(mode="json")
+            elif (
+                isinstance(request, dict)
+                and set(request) == {"op", "name", "arguments"}
+                and request["op"] == "call_tool"
+                and request["name"] == "ping"
+                and request["arguments"] == {}
+            ):
+                result = (await client.call_tool("ping", {})).model_dump(mode="json")
+            else:
+                raise ValueError("Candidate MCP bridge request is invalid.")
+            process.stdin.write((json.dumps(result) + "\n").encode())
+            await process.stdin.drain()
+        return await process.wait()
+    finally:
+        if os.name == "posix":
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+        elif process.returncode is None:
+            process.kill()
+        await process.wait()
+
+
 async def check_mcp(root: Path) -> None:
-    """Aday fonksiyonu gerçek sırsız stdio oturumunda listeleme ve çağırma yapmalı."""
-    spec = importlib.util.spec_from_file_location("candidate_smoke", root / "smoke_test.py")
-    if spec is None or spec.loader is None:
-        raise ValueError("smoke_test.py okunamadı.")
-    candidate = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(candidate)
-    smoke = getattr(candidate, "smoke", None)
-    if not callable(smoke):
-        raise ValueError("smoke_test.py içinde async smoke(client) gerekli.")
+    """Only parent-observed calls on the real, secret-free MCP session count."""
     server = Path(__file__).with_name("oauth_mcp_server.py")
     parameters = StdioServerParameters(command=sys.executable, args=[str(server), "--stdio"])
     async with (
@@ -72,8 +133,8 @@ async def check_mcp(root: Path) -> None:
     ):
         await session.initialize()
         client, completed = _measured_client(session)
-        await smoke(client)
-        if not completed():
+        code = await _observe_candidate(root, client)
+        if code != 0 or not completed():
             raise ValueError("Gerçek MCP list_tools ve ping çağrısı gözlenmedi.")
 
 
@@ -84,13 +145,48 @@ def check_large(root: Path) -> None:
         raise ValueError("Büyük dosya eksik, bozuk veya TARGET dışında değiştirilmiş.")
 
 
+def check_assets(root: Path) -> None:
+    from fusion_cli.core.assets import inspect_image_asset, validate_asset_manifest
+
+    image = root / "assets/player.png"
+    if not inspect_image_asset(image).valid or validate_asset_manifest(image, root):
+        raise ValueError("Gerçek PNG ve lisans kaydı gerekli.")
+    if (root / "project.godot").read_text() != '[application]\nconfig/name="Fusion Eval"\n':
+        raise ValueError("Godot proje dosyası korunmalı.")
+
+
+def check_replan(root: Path) -> None:
+    if (
+        json.loads((root / "config.json").read_text()).get("enabled") is not True
+        or (root / "legacy").exists()
+    ):
+        raise ValueError("Gerçek hedef güncellenmeli; legacy oluşturulmamalı.")
+
+
+def check_json(root: Path) -> None:
+    if json.loads((root / "conversation-a.json").read_text()) != {
+        "status": "done",
+        "owner": "a",
+    } or json.loads((root / "conversation-b.json").read_text()) != {
+        "status": "pending",
+        "owner": "b",
+    }:
+        raise ValueError("Yalnız conversation-a durum alanı değişmeli.")
+
+
 def main() -> None:
     if sys.argv[1:] == ["mcp"]:
         asyncio.run(check_mcp(Path.cwd()))
-    elif sys.argv[1:] == ["large"]:
-        check_large(Path.cwd())
-    else:
-        raise SystemExit("Kabul türü mcp veya large olmalı.")
+        return
+    checks = {
+        "large": check_large,
+        "assets": check_assets,
+        "replan": check_replan,
+        "json": check_json,
+    }
+    if len(sys.argv) != 2 or sys.argv[1] not in checks:
+        raise SystemExit("Kabul türü mcp, large, assets, replan veya json olmalı.")
+    checks[sys.argv[1]](Path.cwd())
 
 
 if __name__ == "__main__":
