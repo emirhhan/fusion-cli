@@ -25,6 +25,11 @@ _source_version = _metadata_guard["checkout_version"](_repo_root)
 _metadata_guard["require_project_metadata_version"](_source_version)
 
 datas = []
+_tokenizer_build = runpy.run_path(os.path.join(SPECPATH, "tokenizer_cache.py"))  # noqa: F821
+_tokenizer_cache = _tokenizer_build["stage_tokenizer_cache"](
+    os.path.join(workpath, "tokenizer-resources")  # noqa: F821
+)
+datas.append((_tokenizer_cache, "fusion-tokenizer-cache"))
 binaries = []
 hiddenimports = ["evals.frozen_engine", "evals.driver_config", "evals.driver_engine"]
 # Kaynak ile paketli ikili aynı derlemeden gelir. Swift yalnız derleme makinesinde

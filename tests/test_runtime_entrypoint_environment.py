@@ -14,6 +14,14 @@ import pytest
 ENTRYPOINT = Path(__file__).resolve().parents[1] / "desktop_build/runtime/entrypoint.py"
 
 
+@pytest.fixture(autouse=True)
+def isolated_dotenv_candidates(monkeypatch):
+    from fusion_cli.config import loader
+
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [])
+    monkeypatch.setattr(loader, "_DOTENV_KEYS", frozenset())
+
+
 def _run_entrypoint(
     monkeypatch: pytest.MonkeyPatch, *, prepare_cli: Callable[[], None] | None = None
 ) -> list[str | None]:
@@ -67,3 +75,133 @@ def test_bootstrap_default_allows_user_dotenv_browser_cache(monkeypatch, tmp_pat
     assert _run_entrypoint(monkeypatch, prepare_cli=loader.load_environment) == [
         "/user/configured-cache"
     ]
+
+
+def test_frozen_startup_selects_bundled_tokenizers_before_cli(monkeypatch, tmp_path):
+    bundle = tmp_path / "fusion-tokenizer-cache"
+    bundle.mkdir()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.delenv("DATA_GYM_CACHE_DIR", raising=False)
+    observed = []
+    _run_entrypoint(
+        monkeypatch, prepare_cli=lambda: observed.append(os.environ.get("TIKTOKEN_CACHE_DIR"))
+    )
+    assert observed == [str(bundle)]
+
+
+@pytest.mark.parametrize("name", ["TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR"])
+@pytest.mark.parametrize("value", ["", "/explicit/cache"])
+def test_frozen_tokenizers_preserve_explicit_cache_and_empty_optout(
+    monkeypatch, tmp_path, name, value
+):
+    (tmp_path / "fusion-tokenizer-cache").mkdir()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.delenv("DATA_GYM_CACHE_DIR", raising=False)
+    monkeypatch.setenv(name, value)
+    observed = []
+    _run_entrypoint(monkeypatch, prepare_cli=lambda: observed.append(dict(os.environ)))
+    assert observed[0][name] == value
+    if name == "DATA_GYM_CACHE_DIR":
+        assert "TIKTOKEN_CACHE_DIR" not in observed[0]
+
+
+def test_source_entrypoint_does_not_select_bundled_tokenizers(monkeypatch, tmp_path):
+    (tmp_path / "fusion-tokenizer-cache").mkdir()
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.delenv("DATA_GYM_CACHE_DIR", raising=False)
+    observed = []
+    _run_entrypoint(
+        monkeypatch, prepare_cli=lambda: observed.append(os.environ.get("TIKTOKEN_CACHE_DIR"))
+    )
+    assert observed == [None]
+
+
+@pytest.mark.parametrize("name", ["TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR"])
+def test_frozen_tokenizer_default_allows_user_dotenv_cache(monkeypatch, tmp_path, name):
+    from fusion_cli.config import loader
+
+    (tmp_path / "fusion-tokenizer-cache").mkdir()
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        f"{name}=/user/tokenizer-cache\nBOOTSTRAP_UNRELATED_CANARY=yes\n", encoding="utf-8"
+    )
+    monkeypatch.delenv("BOOTSTRAP_UNRELATED_CANARY", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.delenv("DATA_GYM_CACHE_DIR", raising=False)
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [dotenv])
+    monkeypatch.setattr(loader, "_DOTENV_KEYS", frozenset())
+    secret_reads = []
+    monkeypatch.setattr(loader, "_apply_stored_secrets", lambda: secret_reads.append(True))
+    observed = []
+
+    def cli():
+        assert "BOOTSTRAP_UNRELATED_CANARY" not in os.environ
+        assert secret_reads == []  # bootstrap must not read stored credentials
+        loader.load_environment()
+        observed.append(dict(os.environ))
+
+    _run_entrypoint(monkeypatch, prepare_cli=cli)
+    assert observed[0][name] == "/user/tokenizer-cache"
+    if name == "DATA_GYM_CACHE_DIR":
+        assert "TIKTOKEN_CACHE_DIR" not in observed[0]
+    assert secret_reads == [True]  # only normal loader phase owns secret reads
+
+
+@pytest.mark.parametrize("name", ["TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR"])
+def test_frozen_tokenizer_process_cache_wins_over_dotenv(monkeypatch, tmp_path, name):
+    from fusion_cli.config import loader
+
+    (tmp_path / "fusion-tokenizer-cache").mkdir()
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(f"{name}=/dotenv/cache\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.delenv("DATA_GYM_CACHE_DIR", raising=False)
+    monkeypatch.setenv(name, "/process/cache")
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [dotenv])
+    monkeypatch.setattr(loader, "_DOTENV_KEYS", frozenset())
+    monkeypatch.setattr(loader, "_apply_stored_secrets", lambda: None)
+    observed = []
+    _run_entrypoint(
+        monkeypatch,
+        prepare_cli=lambda: (loader.load_environment(), observed.append(dict(os.environ))),
+    )
+    assert observed[0][name] == "/process/cache"
+
+
+@pytest.mark.parametrize("name", ["TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR"])
+def test_frozen_empty_process_cache_optout_survives_conflicting_dotenv(monkeypatch, tmp_path, name):
+    from fusion_cli.config import loader
+
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(f"{name}=/dotenv/cache\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv(name, "")
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [dotenv])
+    monkeypatch.setattr(loader, "_apply_stored_secrets", lambda: None)
+    _run_entrypoint(monkeypatch, prepare_cli=loader.load_environment)
+    assert os.environ[name] == ""
+
+
+def test_frozen_cache_variables_retain_tiktoken_priority_across_sources(monkeypatch, tmp_path):
+    from fusion_cli.config import loader
+
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("TIKTOKEN_CACHE_DIR=/dotenv/high-priority-cache\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.setenv("DATA_GYM_CACHE_DIR", "/process/lower-priority-cache")
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: [dotenv])
+    monkeypatch.setattr(loader, "_apply_stored_secrets", lambda: None)
+    _run_entrypoint(monkeypatch, prepare_cli=loader.load_environment)
+    assert os.environ["TIKTOKEN_CACHE_DIR"] == "/dotenv/high-priority-cache"
+    assert os.environ["DATA_GYM_CACHE_DIR"] == "/process/lower-priority-cache"

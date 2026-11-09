@@ -18,6 +18,7 @@ import dataclasses
 import logging
 import math
 import os
+import sys
 from enum import Enum
 from pathlib import Path
 from types import UnionType
@@ -104,6 +105,16 @@ def load_environment() -> None:
     olarak gölgeliyordu — kurulum "tamam" diyor, hiçbir model çağrılamıyordu.
     Doldurulmamış bir satır "bu anahtar yok" demektir, "bu anahtar boş" değil.
     """
+    load_dotenv_environment()
+    _apply_stored_secrets()
+
+
+def load_dotenv_environment(*, keys: frozenset[str] | None = None) -> None:
+    """Apply the shared dotenv rules, optionally for early non-secret preferences.
+
+    This phase never opens the stored credential vault. Normal configuration
+    still loads every key and applies stored secrets afterward.
+    """
     global _DOTENV_KEYS
     eklenen: set[str] = set()
     for candidate in env_file_candidates():
@@ -113,11 +124,21 @@ def load_environment() -> None:
             # Mevcut ortamda BOŞ dışa aktarılmış değişken (`OPENROUTER_API_KEY=""`) "yok"
             # sayılır: aksi hâlde `.env`'deki gerçek anahtarı gölgeliyordu (`_apply_stored_secrets`
             # boşları zaten böyle ele alıyor; L2-19).
+            if keys is not None and key not in keys:
+                continue
+            # Frozen tokenizer caches use empty as an explicit cache opt-out.
+            # Preserve it in both early bootstrap and normal reloads;
+            # ordinary dotenv/secret empty-value semantics remain unchanged.
+            if (
+                getattr(sys, "frozen", False)
+                and key in {"TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR"}
+                and key in os.environ
+            ):
+                continue
             if value and value.strip() and not os.environ.get(key, "").strip():
                 os.environ[key] = value
                 eklenen.add(key)
     _DOTENV_KEYS = _DOTENV_KEYS | eklenen
-    _apply_stored_secrets()
 
 
 def _apply_stored_secrets() -> None:

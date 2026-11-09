@@ -2,10 +2,22 @@
 
 import os
 import sys
+from pathlib import Path
 
 
 def main() -> None:
     if getattr(sys, "frozen", False):
+        # tiktoken data must be usable before LiteLLM/CLI imports, without an
+        # online first-run download. Explicit cache paths (including empty)
+        # retain tiktoken's own precedence and opt-out semantics.
+        from fusion_cli.config.loader import load_dotenv_environment
+
+        load_dotenv_environment(keys=frozenset({"TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR"}))
+        if "TIKTOKEN_CACHE_DIR" not in os.environ and "DATA_GYM_CACHE_DIR" not in os.environ:
+            bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+            tokenizers = bundle / "fusion-tokenizer-cache"
+            if tokenizers.is_dir():
+                os.environ["TIKTOKEN_CACHE_DIR"] = str(tokenizers)
         # Playwright otherwise forces a hermetic .local-browsers directory for
         # frozen apps. Our runtime uses separately installed browsers; an empty
         # value retains Playwright's normal platform cache and explicit overrides.
