@@ -27,6 +27,7 @@ _CLAUSE = re.compile(
     r"|\b(?:and|or)\s+(?=(?:(?:do not|don't|never)\s+)?(?:use|run|open|call)\b)"
     # The Turkish negative verb closes its coordinated object list before a comma.
     r"|(?<=kullanma),|(?<=calistirma),|(?<=cagirma),|(?<=acma),"
+    r"|(?<=basma),|(?<=yazma),|(?<=yapistirma),"
 )
 _FORBIDDEN = re.compile(
     r"\b(?:kullanma|calistirma|cagirma|acma)\b\s*(?:lutfen)?\s*$"

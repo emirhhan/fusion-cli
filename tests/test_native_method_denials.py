@@ -287,3 +287,17 @@ async def test_main_persona_denial_is_a_ceiling(tmp_path, monkeypatch):
     monkeypatch.setattr(loop, "_run_agent", turn)
     await loop.run_agent("Klavye kullanabilirsin.", deps, self_review=False)
     assert "desktop_key" in seen[0]
+
+
+@pytest.mark.parametrize(
+    ("task", "required"),
+    [
+        ("Metin yazma, fareyle devam et.", {"desktop_type", "desktop_background_action:set_value"}),
+        ("Yapıştırma, fareyle devam et.", {"desktop_key:paste"}),
+        ("Klavye tuşlarına basma, fareyle devam et.", {"desktop_key", "desktop_type"}),
+    ],
+)
+def test_turkish_method_negative_closes_before_comma(task, required):
+    from fusion_cli.engines.agent.tool_constraints import native_method_denials
+
+    assert required <= native_method_denials(task)
