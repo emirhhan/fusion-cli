@@ -313,7 +313,10 @@ async def drive(
             kayit["motor_kaniti"] = await engine_ready
             if kayit.get("hata"):
                 raise ValueError("Motor kanıtı yinelendi.")
-        await istek("oturum.baslat", {"kok": args.kok, "mod": args.mod, "kip": "kod"}, 60)
+        session = {"kok": args.kok, "mod": args.mod, "kip": "kod"}
+        if getattr(args, "persist_mode", True) is False:
+            session["mod_kalici"] = False
+        await istek("oturum.baslat", session, 60)
 
     okuyucu = asyncio.create_task(oku())
     try:
@@ -322,6 +325,9 @@ async def drive(
         except (ValueError, ConnectionError, TimeoutError) as error:
             kayit["hata"] = f"Oturum/motor başlangıcı doğrulanmadı: {type(error).__name__}"
             return kayit
+        config_guard = getattr(args, "runtime_config_guard", None)
+        if config_guard is not None:
+            config_guard()
         if args.chrome:
             bilgi = await istek("chrome.baslat", {}, 30)
             eslesme = json.dumps({"port": bilgi.get("port"), "anahtar": bilgi.get("anahtar")})
@@ -392,6 +398,9 @@ def main() -> None:
     parser.add_argument("--sure", type=float, default=900)
     parser.add_argument("--stderr", default="")
     parser.add_argument("--log", action="store_true")
+    parser.add_argument(
+        "--session-mode-only", dest="persist_mode", action="store_false", default=True
+    )
     parser.add_argument("--runtime-executable", default="")
     parser.add_argument("--engine-source", default="")
     parser.add_argument("--engine-manifest", default="")

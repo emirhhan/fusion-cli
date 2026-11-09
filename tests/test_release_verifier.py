@@ -96,6 +96,7 @@ def _runs(tmp_path, monkeypatch):
             }
         )
     raw = {
+        "status": "completed",
         "target": "fixture-platform",
         "binding": {
             "commit": "a" * 40,
@@ -136,6 +137,8 @@ def _runs(tmp_path, monkeypatch):
         "wrong_source",
         "duplicate_repeat",
         "stale_execution",
+        "incomplete_checkpoint",
+        "diagnostic_checkpoint",
     ],
 )
 async def test_independent_verifier_rejects_unmeasured_or_mismatched_runs(
@@ -153,6 +156,10 @@ async def test_independent_verifier_rejects_unmeasured_or_mismatched_runs(
         (args.artifacts / "runtime.tar.gz").write_bytes(b"changed")
     if mutation == "wrong_source":
         raw["binding"]["source_digest"] = "0" * 64
+    if mutation == "diagnostic_checkpoint":
+        raw["acceptance_eligible"] = False
+    if mutation == "incomplete_checkpoint":
+        raw["status"] = "invalid"
     if mutation == "stale_execution":
         raw["observations"][0]["started_at"] = 0
         raw["observations"][0]["finished_at"] = 1

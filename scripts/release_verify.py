@@ -81,6 +81,10 @@ async def verify_runs(args: argparse.Namespace) -> dict[str, Any]:
     measured_at = time.time()
     for directory in directories:
         raw = json.loads((directory / "observations.json").read_text())
+        if raw.get("status") != "completed" or raw.get("acceptance_eligible") is False:
+            raise ValueError(
+                "Frozen çalışma kaydı tamamlanmamış/geçersiz checkpoint; kabul edilemez."
+            )
         binding = raw["binding"]
         target = raw["target"]
         if target not in PROTECTED_TARGETS:
