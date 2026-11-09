@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sys
 from collections.abc import Callable
 from typing import ParamSpec, Protocol, TypeVar
 
@@ -12,7 +13,12 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import ValidationError
 
 from ..core.errors import FusionError
+from ..core.optional_read import OptionalReadWorker
 from ..core.owned_thread import await_owned_thread
+
+NONINTERACTIVE_READ_TIMEOUT_S = 1.0
+_token_reader = OptionalReadWorker("fusion-mcp-credential-read")
+_UNAVAILABLE = object()
 
 
 class McpTokenStorageError(FusionError):
@@ -42,7 +48,14 @@ class KeyringBackend(Protocol):
 
 
 class _SystemKeyring:
+    def __init__(self, *, interactive: bool = True) -> None:
+        self._interactive = interactive
+
     def get_password(self, service: str, account: str) -> str | None:
+        if not self._interactive and sys.platform == "darwin":
+            from .keychain_read import read_password_noninteractive
+
+            return read_password_noninteractive(service, account)
         import keyring
         from keyring.errors import NoKeyringError
 
@@ -70,16 +83,37 @@ class KeyringTokenStorage:
 
     _SERVICE = "fusion-cli-mcp-oauth"
 
-    def __init__(self, server_id: str, *, backend: KeyringBackend | None = None) -> None:
+    def __init__(
+        self, server_id: str, *, backend: KeyringBackend | None = None, interactive: bool = True
+    ) -> None:
         digest = hashlib.sha256(server_id.encode("utf-8")).hexdigest()[:32]
         self._tokens_account = f"{digest}:tokens"
         self._client_account = f"{digest}:client"
         #: Önceden kayıtlı OAuth uygulamasının sırrı (Claude Code `--client-secret`, #248).
         self._secret_account = f"{digest}:secret"
-        self._backend = backend or _SystemKeyring()
+        self._backend = backend or _SystemKeyring(interactive=interactive)
+        self._interactive = interactive
+
+    async def _read(self, account: str) -> str | None:
+        if self._interactive:
+            return await _keyring_call(self._backend.get_password, self._SERVICE, account)
+        # Only reads use the daemon/no-queue helper. Mutations retain their
+        # owned-thread completion and OAuth namespace ordering below.
+        value = await _token_reader.run(
+            lambda _valid: self._backend.get_password(self._SERVICE, account),
+            timeout_s=NONINTERACTIVE_READ_TIMEOUT_S,
+            fallback=_UNAVAILABLE,
+            still_owned=lambda: True,
+            wait_for_slot=True,
+        )
+        if value is not None and not isinstance(value, str):
+            raise McpTokenStorageError(
+                "Anahtarlık etkileşimsiz okunamadı; erişimi kontrol et ve açıkça yeniden bağlan."
+            )
+        return value
 
     async def get_tokens(self) -> OAuthToken | None:
-        raw = await _keyring_call(self._backend.get_password, self._SERVICE, self._tokens_account)
+        raw = await self._read(self._tokens_account)
         try:
             return OAuthToken.model_validate_json(raw) if raw else None
         except ValidationError:
@@ -96,7 +130,7 @@ class KeyringTokenStorage:
         )
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        raw = await _keyring_call(self._backend.get_password, self._SERVICE, self._client_account)
+        raw = await self._read(self._client_account)
         try:
             return OAuthClientInformationFull.model_validate_json(raw) if raw else None
         except ValidationError:
@@ -113,7 +147,7 @@ class KeyringTokenStorage:
         )
 
     async def get_client_secret(self) -> str:
-        raw = await _keyring_call(self._backend.get_password, self._SERVICE, self._secret_account)
+        raw = await self._read(self._secret_account)
         return raw or ""
 
     async def set_client_secret(self, secret: str) -> None:

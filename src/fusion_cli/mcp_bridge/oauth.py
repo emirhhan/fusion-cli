@@ -339,7 +339,7 @@ async def oauth_provider_for(
     )
     if not callback.redirect_uri:
         await callback.start()
-    storage = KeyringTokenStorage(config.url)
+    storage = KeyringTokenStorage(config.url, interactive=interactive)
     metadata = OAuthClientMetadata(
         redirect_uris=[AnyUrl(callback.redirect_uri)],
         token_endpoint_auth_method="none",
@@ -349,22 +349,38 @@ async def oauth_provider_for(
     from .pool import mcp_oauth_flows
 
     lock = mcp_oauth_flows().lock_for(storage.debug_identity())
-    async with lock:
-        kayitli = await storage.get_client_info()
-        if registration_is_stale(kayitli, callback.redirect_uri, config.client_id):
-            await storage.clear()
-            kayitli = None
-        if config.client_id and kayitli is None:
-            secret = await storage.get_client_secret()
-            fields = metadata.model_dump()
-            if secret:
-                # Gizli istemci: sır token isteğinde gönderilir (Claude Code `--client-secret`).
-                fields["token_endpoint_auth_method"] = "client_secret_post"
-            await storage.set_client_info(
-                OAuthClientInformationFull(
-                    **fields, client_id=config.client_id, client_secret=secret or None
+    try:
+        async with lock:
+            kayitli = await storage.get_client_info()
+            # A random callback for a silent connection is not a new login.
+            # Preserve usable cached tokens/refresh registration; only an explicit
+            # interactive login may replace a stale redirect registration.
+            if interactive and registration_is_stale(
+                kayitli, callback.redirect_uri, config.client_id
+            ):
+                await storage.clear()
+                kayitli = None
+            if (
+                not interactive
+                and kayitli
+                and config.client_id
+                and kayitli.client_id != config.client_id
+            ):
+                raise McpLoginRequiredError("MCP istemci kaydı değişti; açıkça yeniden bağlan.")
+            if config.client_id and kayitli is None:
+                secret = await storage.get_client_secret()
+                fields = metadata.model_dump()
+                if secret:
+                    # Gizli istemci: sır token isteğinde gönderilir (#248).
+                    fields["token_endpoint_auth_method"] = "client_secret_post"
+                await storage.set_client_info(
+                    OAuthClientInformationFull(
+                        **fields, client_id=config.client_id, client_secret=secret or None
+                    )
                 )
-            )
+    except BaseException:
+        await callback.close()
+        raise
 
     def fresh_provider() -> httpx.Auth:
         return OAuthClientProvider(

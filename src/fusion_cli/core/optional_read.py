@@ -33,13 +33,22 @@ class OptionalReadWorker:
         timeout_s: float,
         fallback: _T,
         still_owned: Callable[[], bool],
+        wait_for_slot: bool = False,
     ) -> _T:
         if not math.isfinite(timeout_s) or timeout_s <= 0 or not still_owned():
             return fallback
         loop = asyncio.get_running_loop()
-        if not self._slot.acquire(blocking=False):
-            return fallback
         deadline = time.monotonic() + timeout_s
+        # Optional context keeps immediate fallback. Credential reads may wait
+        # asynchronously for this same single worker, within their original cap.
+        while not self._slot.acquire(blocking=False):
+            remaining = deadline - time.monotonic()
+            if not wait_for_slot or remaining <= 0 or not still_owned():
+                return fallback
+            await asyncio.sleep(min(0.01, remaining))
+        if time.monotonic() >= deadline or not still_owned():
+            self._slot.release()
+            return fallback
         stopped = threading.Event()
         completed: asyncio.Future[_T] = loop.create_future()
 
