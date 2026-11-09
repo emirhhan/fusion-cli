@@ -244,6 +244,7 @@ def finish(context: ToolContext) -> bool:
     """
     turn = context.desktop.turn
     context.desktop.turn = None
+    context.desktop.ref_handles.clear()
     stopped = isinstance(turn, DesktopTurn) and turn.stopped_by_escape
     if isinstance(turn, DesktopTurn):
         try:

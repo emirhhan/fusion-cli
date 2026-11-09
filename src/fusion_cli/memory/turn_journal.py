@@ -5,17 +5,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import hashlib
 import json
 import logging
 import math
 import os
+import tempfile
 import threading
 import time
 import weakref
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +23,7 @@ from ..core.agent_runtime_state import AgentRunState
 from ..core.atomic_file import atomic_replace_text
 from ..core.clock import SystemClock
 from ..core.file_lease import FileLease
+from ..core.optional_mutation import OptionalMutationWorker
 from ..core.optional_read import OptionalReadWorker
 from ..core.original_trace import OriginalTraceRead, OriginalTraceScope
 from ..core.protocols import Clock
@@ -46,12 +47,16 @@ _MAX_JOURNAL_IMAGE_CHARS = 56 * 1024 * 1024
 _LOCK_ATTEMPTS = 12
 _LOCK_RETRY_S = 0.05
 ORIGINAL_READ_TIMEOUT_S = 1.0
+ORIGINAL_WRITE_TIMEOUT_S = 1.0
 _original_reader = OptionalReadWorker("fusion-original-read")
+_original_writer = OptionalMutationWorker("fusion-original-write")
 
 
 class _OriginalReadEpoch:
     def __init__(self) -> None:
         self.generation = 0
+        self.mutation_lock = threading.Lock()
+        self.generation_lock = threading.Lock()
 
 
 _read_epochs: weakref.WeakValueDictionary[str, _OriginalReadEpoch] = weakref.WeakValueDictionary()
@@ -175,8 +180,11 @@ class FileTurnJournal:
 
     def clear(self) -> None:
         # Pending optional reads lose ownership even if deletion cannot get the lease.
-        self._original_read_epoch.generation += 1
-        with self._transaction() as owned:
+        with self._original_read_epoch.generation_lock:
+            self._original_read_epoch.generation += 1
+        # Synchronous clear serializes with final publication, never with staging.
+        # If an OS replace is already in flight, clear must wait for it, then delete.
+        with self._original_read_epoch.mutation_lock, self._transaction() as owned:
             if owned:
                 for path in (self._path, self.original_path):
                     with contextlib.suppress(FileNotFoundError):
@@ -198,7 +206,18 @@ class FileTurnJournal:
             return False
         if not OriginalTraceRead(scope, "redacted_original", tuple(messages)).is_usable():
             return False
-        return await asyncio.to_thread(self._append_original, scope, tuple(messages))
+        epoch, path = self._original_read_epoch, self._path
+        generation = epoch.generation
+        return await _original_writer.run(
+            lambda valid: self._append_original(scope, tuple(messages), valid),
+            timeout_s=ORIGINAL_WRITE_TIMEOUT_S,
+            still_owned=lambda: (
+                self._owns_scope(scope)
+                and self._path == path
+                and self._original_read_epoch is epoch
+                and epoch.generation == generation
+            ),
+        )
 
     async def read_original(self, scope: OriginalTraceScope) -> OriginalTraceRead:
         """Sahibi doğrula, ardından yalnız istenen tur ve segment kapsamını döndür."""
@@ -219,7 +238,14 @@ class FileTurnJournal:
             and (scope.owner_id == self._original_owner_id)
         )
 
-    def _append_original(self, scope: OriginalTraceScope, messages: tuple[Message, ...]) -> bool:
+    def _append_original(
+        self,
+        scope: OriginalTraceScope,
+        messages: tuple[Message, ...],
+        valid: Callable[[], bool],
+    ) -> bool:
+        if not valid():
+            return False
         record = {
             "surum": _ORIGINAL_SCHEMA,
             "sahip": hashlib.sha256(scope.owner_id.encode()).hexdigest(),
@@ -234,10 +260,11 @@ class FileTurnJournal:
             or not OriginalTraceRead(scope, "redacted_original", published).is_usable()
         ):
             return False
-        with self._transaction() as owned:
-            if not owned:
-                return False
-            try:
+        staged: Path | None = None
+        try:
+            with self._transaction() as owned:
+                if not owned or not valid():
+                    return False
                 records = self._original_records()
                 if records is None:
                     return False
@@ -249,24 +276,48 @@ class FileTurnJournal:
                         return previous == record
                     if call_ids & _original_call_ids(previous):
                         return False
-                serialized = json.dumps(record, ensure_ascii=False) + "\n"
-                current = self.original_path.stat().st_size if self.original_path.exists() else 0
-                if current + len(serialized.encode()) > _ORIGINAL_FILE_BYTES:
-                    return False
-                descriptor = os.open(
-                    self.original_path,
-                    os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
-                    0o600,
-                )
-                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                    self.original_path.chmod(0o600)
-                    stream.write(serialized)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                return True
-            except (OSError, UnicodeError, ValueError) as error:
-                _LOG.warning("özgün segment yazılamadı", extra={"hata": type(error).__name__})
+            serialized = "".join(
+                json.dumps(row, ensure_ascii=False) + "\n" for row in [*records, record]
+            )
+            if len(serialized.encode()) > _ORIGINAL_FILE_BYTES or not valid():
                 return False
+            staged = self._stage_original(serialized)
+            if not valid():
+                return False
+            with self._original_read_epoch.mutation_lock, self._transaction() as owned:
+                if not owned or not valid():
+                    return False
+                # Another process may have appended while we staged. Do not overwrite
+                # its segment or retry with stale data; optional capture fails closed.
+                if self._original_records() != records or not valid():
+                    return False
+                staged.replace(self.original_path)
+                return True
+        except (OSError, UnicodeError, ValueError) as error:
+            _LOG.warning("özgün segment yazılamadı", extra={"hata": type(error).__name__})
+            return False
+        finally:
+            if staged is not None:
+                with contextlib.suppress(OSError):
+                    staged.unlink(missing_ok=True)
+
+    def _stage_original(self, serialized: str) -> Path:
+        """Write/fsync private staging outside the publication/clear critical section."""
+        self.original_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor, name = tempfile.mkstemp(
+            prefix=".fusion-original-", suffix=".tmp", dir=self.original_path.parent
+        )
+        staged = Path(name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(serialized)
+                stream.flush()
+                os.fsync(stream.fileno())
+            return staged
+        except BaseException:
+            with contextlib.suppress(OSError):
+                staged.unlink(missing_ok=True)
+            raise
 
     def _original_records(self) -> list[dict[str, object]] | None:
         try:

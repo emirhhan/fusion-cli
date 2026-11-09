@@ -162,7 +162,13 @@ async def test_native_inspect_preserves_empty_title_button_description_and_ident
     result = await desktop_background.desktop_background_inspect(
         {"window_id": 101, "pid": 42}, ToolContext(tmp_path)
     )
-    assert result.ok and json.loads(result.output)["elements"] == [element]
+    assert result.ok
+    presented = json.loads(result.output)["elements"][0]
+    assert presented["ref"].startswith("dref_")
+    assert {key: value for key, value in presented.items() if key != "ref"} == {
+        key: value for key, value in element.items() if key != "ref"
+    }
+    assert element["ref"] == "chosen-current-ref"
 
 
 async def test_unsupported_press_is_not_retried_with_another_reference(tmp_path, monkeypatch):
@@ -199,13 +205,18 @@ async def test_action_failure_preserves_only_boolean_guard_diagnostics(tmp_path,
         ToolContext(tmp_path),
     )
     assert not result.ok
-    assert result.structured == {
+    assert {key: value for key, value in result.structured.items() if key != "native_failure"} == {
         "ok": False,
         "metin": "Hedef öğe değişti veya kimliği belirsiz.",
         "action_checks": checks,
         "value_kinds": {"string": 4, "other": 2},
     }
-    assert json.loads(result.output) == result.structured
+    diagnostic = result.structured["native_failure"]
+    assert diagnostic["cause"] == "stale_tree"
+    assert set(diagnostic) == {"cause", "elapsed_ms", "operation", "pid", "window_id"}
+    assert json.loads(result.output) == {
+        key: value for key, value in result.structured.items() if key != "native_failure"
+    }
     assert "secret" not in result.output and "private" not in result.output
     assert invoke.await_count == 1
 

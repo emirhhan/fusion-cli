@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
 
+from ..core.desktop_ref_handles import canonical_arguments, context_scope
 from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
@@ -73,9 +75,45 @@ def _visible_windows(result: dict[str, object], settings: DesktopSettings) -> No
         ]
 
 
+def _failure_cause(result: dict[str, object]) -> str:
+    """Project fixed native diagnostics, never interpret element labels as advice."""
+    checks = result.get("action_checks")
+    keys = ("tree_complete", "identity_unique", "fingerprint_matches", "path_identity_matches")
+    if isinstance(checks, dict) and all(type(checks.get(key)) is bool for key in keys):
+        for key, cause in zip(
+            keys,
+            (
+                "tree_incomplete",
+                "identity_ambiguous",
+                "stale_tree",
+                "path_changed",
+            ),
+            strict=True,
+        ):
+            if checks[key] is False:
+                return cause
+    return {
+        "macOS Erişilebilirlik izni gerekli.": "permission_required",
+        "Hedef pencere kapandı veya kimliği değişti.": "window_missing",
+        "Hedef pencerenin erişilebilirlik kimliği doğrulanamadı.": "window_unverified",
+        "Öğe AXPress desteklemiyor.": "press_unsupported",
+        "Öğe AXValue değiştirmeyi desteklemiyor.": "value_unsupported",
+        "Alan değeri doğrulanamadı; işlem tekrarlanmadı.": "value_unverified",
+        "Hedef öğe AX işlemini reddetti.": "action_rejected",
+    }.get(str(result.get("metin", "")), "unknown")
+
+
 async def _invoke(
-    operation: str, args: ToolArgs, settings: DesktopSettings | None = None
+    operation: str,
+    args: ToolArgs,
+    settings: DesktopSettings | None = None,
+    context: ToolContext | None = None,
 ) -> ToolResult:
+    if operation == "action" and context is not None:
+        try:
+            args = canonical_arguments("desktop_background_action", args, context)
+        except ValueError as exc:
+            return ToolResult.failure(str(exc))
     target = {} if operation == "list" else _target(args)
     if target is None:
         return ToolResult.failure("Geçerli window_id ve pid gerekli.")
@@ -90,9 +128,32 @@ async def _invoke(
         if len(value) > 10_000:
             return ToolResult.failure("Alan değeri uzunluk sınırını aşıyor.")
         target["request"] = {"ref": ref, "action": action, "value": value}
+    if operation == "inspect" and context is not None:
+        scope = context_scope(context)
+        pid, window = coerce_int(target["pid"]), coerce_int(target["id"])
+        assert pid is not None and window is not None
+        try:
+            ticket = context.desktop.ref_handles.begin_inspection(scope, pid, window)
+        except ValueError as exc:
+            return ToolResult.failure(str(exc))
+    native_started = time.monotonic()
     result = await SwiftDesktop().invoke(operation, target)
+    native_elapsed_ms = min(600_000, max(0, round((time.monotonic() - native_started) * 1000)))
     if not result.get("ok"):
         message = str(result.get("metin", "Hedef pencereye erişilemedi."))
+        diagnostic = (
+            {
+                "native_failure": {
+                    "cause": _failure_cause(result),
+                    "operation": operation,
+                    "pid": target.get("pid"),
+                    "window_id": target.get("id"),
+                    "elapsed_ms": native_elapsed_ms,
+                }
+            }
+            if operation in {"inspect", "action"}
+            else {}
+        )
         checks = result.get("action_checks")
         if operation == "action" and isinstance(checks, dict):
             safe_checks = {
@@ -127,8 +188,39 @@ async def _invoke(
                 "action_checks": safe_checks,
                 "value_kinds": safe_kinds,
             }
-            return ToolResult.failure(json.dumps(payload, ensure_ascii=False), structured=payload)
-        return ToolResult.failure(message)
+            return ToolResult.failure(
+                json.dumps(payload, ensure_ascii=False),
+                structured={**payload, **diagnostic},
+            )
+        return ToolResult.failure(message, structured=diagnostic or None)
+    if operation == "inspect" and context is not None:
+        if context_scope(context) != scope:
+            return ToolResult.failure("Gözlem turu değişti; hedef pencereyi yeniden incele.")
+        assert pid is not None and window is not None
+        elements = result.get("elements")
+        if isinstance(elements, list):
+            rows = [
+                row for row in elements if isinstance(row, dict) and isinstance(row.get("ref"), str)
+            ]
+            try:
+                aliases = context.desktop.ref_handles.observe(
+                    scope,
+                    pid,
+                    window,
+                    [row["ref"] for row in rows],
+                    ticket=ticket,
+                )
+            except ValueError as exc:
+                return ToolResult.failure(str(exc))
+            # Never mutate the native response retained by diagnostics/test callers.
+            replacements = {id(row): alias for row, alias in zip(rows, aliases, strict=True)}
+            result = {
+                **result,
+                "elements": [
+                    {**row, "ref": replacements[id(row)]} if id(row) in replacements else row
+                    for row in elements
+                ],
+            }
     if settings is not None:
         _visible_windows(result, settings)
     windows = result.get("windows")
@@ -158,8 +250,7 @@ async def desktop_background_windows(args: ToolArgs, context: ToolContext) -> To
 
 async def desktop_background_inspect(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Pencereyi öne getirmeden AX ağacını ve eylem başvurularını oku."""
-    del context
-    return await _invoke("inspect", args)
+    return await _invoke("inspect", args, context=context)
 
 
 async def desktop_background_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -170,5 +261,4 @@ async def desktop_background_screenshot(args: ToolArgs, context: ToolContext) ->
 
 async def desktop_background_action(args: ToolArgs, context: ToolContext) -> ToolResult:
     """İncelenmiş tekil öğeye AXPress veya doğrulanan AXValue uygula."""
-    del context
-    return await _invoke("action", args)
+    return await _invoke("action", args, context=context)

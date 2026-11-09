@@ -113,6 +113,9 @@ class DesktopView:
     """
 
     def __init__(self) -> None:
+        from .desktop_ref_handles import DesktopRefHandles
+
+        self.ref_handles = DesktopRefHandles()
         self.frame: DesktopFrame | None = None
         self.turn: DesktopTurnHooks | None = None
         #: Son masaüstü çağrısının politika hedefi (pid); gizlemede görünür kalır (P-033).
@@ -131,6 +134,7 @@ class DesktopView:
     def begin_observation_turn(self, turn_id: str) -> None:
         """Reset presentation receipts only; grounding/focus authority is unchanged."""
         self._observation_turn_id = turn_id
+        self.ref_handles.clear()
         self._observation_artifacts.clear()
         self._explicit_capture_exports.clear()
 

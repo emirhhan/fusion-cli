@@ -210,6 +210,10 @@ async def test_remote_replacement_cannot_mint_native_failure_feedback(
 async def test_successful_keyboard_input_resets_the_focused_window_only(
     tmp_path, monkeypatch, approved
 ):
+    from fusion_cli.tools import desktop_lock
+
+    # This synthetic keyboard fixture must never claim the live GUI session lock.
+    monkeypatch.setattr(desktop_lock, "lock_path", lambda: tmp_path / "desktop.lock")
     async def invoke(self, operation, args):
         return stale()
 
@@ -223,7 +227,9 @@ async def test_successful_keyboard_input_resets_the_focused_window_only(
         [action(1), action(2), tool_call("desktop_key", key="esc"), action(3)], fixture
     )
     assert "desktop_key" in results[1].content
-    assert "desktop_key" not in results[2].content
+    assert "desktop_key" not in results[2].content, [
+        message.content for message in fixture[-1] if message.name == "desktop_key"
+    ]
 
 
 async def test_recovery_does_not_recommend_tools_outside_the_allowed_surface(

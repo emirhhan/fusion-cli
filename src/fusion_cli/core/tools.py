@@ -500,6 +500,9 @@ class ToolContext:
     #: Turun son masaüstü ekran görüntüsü çerçevesi: fare araçları görüntü pikselini ekran
     #: noktasına bununla çevirir (bkz. `core.desktop_frame`). Taşıyıcı nesnedir; paylaşılır.
     desktop: DesktopView = field(default_factory=DesktopView, kw_only=True)
+    # init=False gives dataclasses.replace children a fresh alias owner even if
+    # desktop state/job scope is deliberately shared with their parent.
+    desktop_ref_owner: object = field(default_factory=object, init=False, repr=False, compare=False)
     #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
     #: (`runtime.desktop_screenshot_max_width`).
     desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)

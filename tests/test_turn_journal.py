@@ -652,7 +652,9 @@ async def test_ozgun_segment_eszamanli_tekrar_yazimda_bir_kez_eklenir(tmp_path):
 
     scope = OriginalTraceScope("chat1", "turn1", ("s1",))
     journals = [FileTurnJournal(tmp_path / "j.json", original_owner_id="chat1") for _ in range(6)]
-    assert all(
+    # Optional writes have one actual worker and no queue. Busy captures may be
+    # skipped, while admitted duplicate segments remain idempotent.
+    assert any(
         await asyncio.gather(
             *(
                 journal.append_original(scope, [Message("assistant", "özgün")])

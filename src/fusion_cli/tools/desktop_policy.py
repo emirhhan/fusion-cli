@@ -27,6 +27,7 @@ import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
+from ..core.desktop_ref_handles import canonical_arguments
 from ..core.desktop_settings import DesktopLevel, DesktopSettings, DesktopTarget
 from ..core.tools import ToolArgs, ToolContext, ToolEffect
 from .args import coerce_int
@@ -349,6 +350,10 @@ async def assess(
     required = required_level(tool_name, args)
     if required is None:
         return None
+    try:
+        args = canonical_arguments(tool_name, args, context)
+    except ValueError as exc:
+        return DesktopAssessment(required, blocked=str(exc))
     context.desktop.target_pid = 0
     if tool_name in _INTERACTIVE_TOOLS and context.desktop.focus_required:
         return DesktopAssessment(required, blocked=UNVERIFIED_REASON)

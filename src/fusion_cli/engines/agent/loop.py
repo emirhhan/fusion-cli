@@ -52,6 +52,7 @@ from ...core.constants import (
     TOOL_CALL_BLOCKED_PREFIX,
     UNREACHABLE_RESOURCE_PREFIX,
 )
+from ...core.desktop_ref_handles import canonical_arguments as canonical_desktop_arguments
 from ...core.effects import EffectRecorder
 from ...core.errors import CleanupFailedError, ConfigError, FusionError
 from ...core.event_scope import TurnPublisher, new_trace_id
@@ -281,6 +282,7 @@ from .native_stale_recovery import (
     NativeRecoveryInvocation,
     NativeStaleRecovery,
     is_native_mutation,
+    is_native_recovery_observation,
 )
 from .native_stale_recovery import recovery_note as native_recovery_note
 from .nested_skills import discover_nested_skills
@@ -4973,6 +4975,7 @@ async def _run_tools(
             state.hook_halt = post_hook.halt
             budget.halt(BudgetStop.USER_DENIED)
         native_stale_count = None
+        native_cause_note = None
         if native_invocations:
             invocation = native_invocations[0]
             native_stale_count = state.native_stale_recovery.observe(
@@ -4983,10 +4986,20 @@ async def _run_tools(
                 deps.tool_context,
                 remote=False,
             )
+            native_cause_note = state.native_stale_recovery.failure_note(
+                invocation.tool,
+                invocation.arguments,
+                result,
+                outcome,
+                remote=False,
+            )
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
-            if native_stale_count is not None:
+            not_: str | None
+            if native_cause_note is not None:
+                not_ = native_cause_note
+            elif native_stale_count is not None:
                 available = (
                     _permitted(
                         None,
@@ -5159,6 +5172,14 @@ async def _execute(
     if hook_gate.blocked is not None:
         return hook_gate.failure(), (ToolOutcome.DENIED if hook_gate.halt else ToolOutcome.BLOCKED)
     args = hook_gate.arguments
+    desktop_presented_ref = args.get("ref")
+    # Resolve presentation aliases before approval, risk classification, and
+    # native stale-reference recovery. Hooks cannot inject a foreign alias.
+    try:
+        args = dict(canonical_desktop_arguments(call.name, args, deps.tool_context))
+    except ValueError as exc:
+        return ToolResult.failure(str(exc)), ToolOutcome.BLOCKED
+    desktop_canonical_ref = args.get("ref")
     # Değiştirmeyen ama etkisi ÇAĞRIYA bağlı araç da onaydan geçer: `browser_open`
     # çerezsiz okur (sorulmaz) ama profil yükleyecekse kullanıcının girişli oturumunu
     # ajana açar (sorulur). Ölçüldü (31 Ekim): yalnız `mutating` kapı olduğu için
@@ -5236,6 +5257,13 @@ async def _execute(
             # Onaylayan argümanı değiştirdi (`-p` onay aracı `updatedInput`): yeni argüman
             # kural/kök-dışı engelinden yeniden geçer, sonra çalışır.
             args = dict(verdict.arguments)
+            if args.get("ref") != desktop_canonical_ref:
+                desktop_presented_ref = args.get("ref")
+            try:
+                args = dict(canonical_desktop_arguments(call.name, args, deps.tool_context))
+            except ValueError as exc:
+                return ToolResult.failure(str(exc)), ToolOutcome.BLOCKED
+            desktop_canonical_ref = args.get("ref")
             request = await resolve_request(
                 tool,
                 deepcopy(args),
@@ -5320,12 +5348,28 @@ async def _execute(
         )
         if grounding_error is not None:
             return ToolResult.failure(grounding_error), ToolOutcome.BLOCKED
+    # Revalidate an alias lease after waiting for approval; turn changes,
+    # reinspection and expiry must reject it before dispatch as well.
+    final_desktop_args = args
+    if (
+        isinstance(desktop_presented_ref, str)
+        and desktop_presented_ref.startswith("dref_")
+        and args.get("ref") == desktop_canonical_ref
+    ):
+        final_desktop_args = {**args, "ref": desktop_presented_ref}
+    try:
+        args = dict(canonical_desktop_arguments(call.name, final_desktop_args, deps.tool_context))
+    except ValueError as exc:
+        return ToolResult.failure(str(exc)), ToolOutcome.BLOCKED
     # Hooks and approval can rewrite the target. Only dispatched, trusted native
     # inputs enter recovery feedback; original model arguments are not evidence.
     if (
         native_invocations is not None
         and tool is not None
-        and is_native_mutation(tool, remote=registry.is_remote(call.name))
+        and (
+            is_native_mutation(tool, remote=registry.is_remote(call.name))
+            or is_native_recovery_observation(tool, remote=registry.is_remote(call.name))
+        )
     ):
         native_invocations.append(NativeRecoveryInvocation(tool, deepcopy(args)))
     deps.publisher.publish(ToolStarted(name=call.name, args=args, call_id=call.id))

@@ -11,9 +11,67 @@ from dataclasses import dataclass, field
 from ...core.events import ToolOutcome
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...tools import desktop, desktop_background, desktop_inspect, desktop_mouse
+from ...tools.args import coerce_int
 
 _Scope = tuple[int, int]
 _Target = tuple[int, int, str]
+_CauseTarget = tuple[int, int, str, str]
+_CAUSE_ADVICE = {
+    "permission_required": (
+        "Erişilebilirlik izni yok. Aynı çağrıyı tekrarlama; kullanıcı izni düzeltene kadar "
+        "yerel eyleme geçme."
+    ),
+    "window_missing": (
+        "Hedef pencere kapandı veya kimliği değişti. Güncel PID ve pencere kimliğini "
+        "yeniden doğrulamadan eyleme geçme."
+    ),
+    "window_unverified": (
+        "Pencerenin AX kimliği doğrulanamadı. Hedefi yeniden doğrulamadan eyleme geçme; "
+        "koordinat yöntemi bu engeli kaldırmaz."
+    ),
+    "tree_incomplete": (
+        "AX ağacı tamamlanamadı. Benzersiz ve güncel hedef doğrulanmadan eyleme geçme."
+    ),
+    "identity_ambiguous": (
+        "AX öğesinin kimliği tekil değil. Yeni ref tekillik sağlamaz; benzersiz hedef "
+        "doğrulanmadan eyleme geçme."
+    ),
+    "path_changed": (
+        "AX öğesinin yolu kimliğiyle uyuşmuyor. Güncel inceleme ve benzersiz hedef "
+        "doğrulaması gerekli."
+    ),
+    "press_unsupported": (
+        "Öğe AXPress desteklemiyor. Aynı eylemi başka ref ile tekrarlama. Alternatif "
+        "yöntem için hedefi ve mevcut izinleri ayrıca doğrula."
+    ),
+    "value_unsupported": (
+        "Öğe AXValue yazmayı desteklemiyor. Aynı eylemi başka ref ile tekrarlama. "
+        "Alternatif yöntem için hedefi ve mevcut izinleri ayrıca doğrula."
+    ),
+    "value_unverified": (
+        "Yazma sonucu doğrulanamadı; işlem uygulanmış olabilir. Aynı yazmayı tekrarlama; "
+        "önce salt okunur gözlemle sonucu doğrula."
+    ),
+    "action_rejected": (
+        "AX işlemi başarısız döndü. Sonuç doğrulanmadan aynı eylemi tekrarlama; "
+        "önce salt okunur gözlem yap."
+    ),
+    "unknown": (
+        "Yerel başarısızlığın nedeni doğrulanamadı. Sonucu salt okunur gözlemle kontrol et; "
+        "aynı eylemi veya koordinat yöntemini körlemesine deneme."
+    ),
+    "stale_tree": "",
+}
+
+
+def is_native_recovery_observation(tool: Tool | None, *, remote: bool) -> bool:
+    return (
+        not remote
+        and tool is not None
+        and tool.run is desktop_background.desktop_background_inspect
+    )
+
+
 _FOREGROUND_INPUTS = (
     desktop.desktop_key,
     desktop.desktop_type,
@@ -123,6 +181,74 @@ class NativeStaleRecovery:
     """Per-drive rejected-target episodes; observations do not erase an episode."""
 
     _failures: dict[_Target, int] = field(default_factory=dict)
+    max_targets: int = 256
+    _causes: dict[_CauseTarget, tuple[int, int]] = field(default_factory=dict)
+
+    def cause_summary(self) -> tuple[dict[str, object], ...]:
+        """Bounded trusted attempts/native-boundary time; never success evidence."""
+        return tuple(
+            {
+                "pid": key[0],
+                "window_id": key[1],
+                "operation": key[2],
+                "cause": key[3],
+                "attempts": value[0],
+                "native_elapsed_ms": value[1],
+            }
+            for key, value in self._causes.items()
+        )
+
+    def failure_note(
+        self,
+        tool: Tool | None,
+        args: ToolArgs,
+        result: ToolResult,
+        outcome: ToolOutcome,
+        *,
+        remote: bool,
+    ) -> str | None:
+        if (
+            remote
+            or tool is None
+            or outcome is not ToolOutcome.FAILED
+            or tool.run
+            not in (
+                desktop_background.desktop_background_action,
+                desktop_background.desktop_background_inspect,
+            )
+        ):
+            return None
+        payload = (result.structured or {}).get("native_failure")
+        if not isinstance(payload, Mapping):
+            return None
+        pid, window = coerce_int(args.get("pid")), coerce_int(args.get("window_id"))
+        operation = (
+            "action" if tool.run is desktop_background.desktop_background_action else "inspect"
+        )
+        cause, elapsed = payload.get("cause"), payload.get("elapsed_ms")
+        if (
+            not _positive(pid)
+            or not _positive(window)
+            or type(payload.get("pid")) is not int
+            or type(payload.get("window_id")) is not int
+            or payload.get("pid") != pid
+            or payload.get("window_id") != window
+            or payload.get("operation") != operation
+            or not isinstance(cause, str)
+            or cause not in _CAUSE_ADVICE
+            or type(elapsed) is not int
+            or not 0 <= elapsed <= 600_000
+        ):
+            return None
+        assert isinstance(pid, int) and isinstance(window, int)
+        key = (pid, window, operation, cause)
+        if key not in self._causes and len(self._causes) >= max(1, self.max_targets):
+            del self._causes[next(iter(self._causes))]
+        count, total = self._causes.get(key, (0, 0))
+        self._causes[key] = (count + 1, total + elapsed)
+        if cause == "stale_tree":
+            return None
+        return "FUSION_AX: " + _CAUSE_ADVICE[cause] + " Bu bilgi izin veya eylem yetkisi vermez."
 
     def _clear_window(self, scope: _Scope) -> None:
         for key in tuple(self._failures):
@@ -149,6 +275,8 @@ class NativeStaleRecovery:
             if outcome is ToolOutcome.OK and not result.is_observation:
                 self._clear_window(target[:2])
             elif outcome is ToolOutcome.FAILED and _stale_guard(result):
+                if target not in self._failures and len(self._failures) >= max(1, self.max_targets):
+                    del self._failures[next(iter(self._failures))]
                 count = self._failures.get(target, 0) + 1
                 self._failures[target] = count
                 return count
