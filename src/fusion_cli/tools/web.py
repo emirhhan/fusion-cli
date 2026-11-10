@@ -34,7 +34,7 @@ from ..core.network_address import is_public_ip
 from ..core.protocols import Clock
 from ..core.research_grounding import SourceReceipt
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .args import require_str
+from .args import ArgumentError, require_str
 from .pinned_http import PinnedTransport
 from .url_input import has_explicit_scheme
 from .web_evidence import (
@@ -45,6 +45,7 @@ from .web_evidence import (
     search_date_filter,
     timestamp,
 )
+from .web_sections import MAX_SECTION_ID_CHARS, SectionError, access_wall_text, select_section
 
 _USER_AGENT = "Mozilla/5.0 (fusion-cli)"
 
@@ -79,6 +80,11 @@ _DDG_RESULT = re.compile(r'(?is)<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*
 
 
 def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = None) -> ToolResult:
+    section = require_str(args, "section") if "section" in args else ""
+    if len(section) > MAX_SECTION_ID_CHARS:
+        raise ArgumentError(f"'section' en fazla {MAX_SECTION_ID_CHARS} karakter olmalı.")
+    if section and context.cancelled.is_set():
+        return ToolResult.failure("Section read cancelled.")
     url = _normalize_url(require_str(args, "url"))
     reason = url_block_reason(url)
     if reason is not None:
@@ -91,6 +97,24 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
     except BlockedRedirectError as exc:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
+    selected_body = body
+    if section:
+        if context.cancelled.is_set():
+            return ToolResult.failure("Section read cancelled.")
+        if not _looks_like_html(content_type, body) or _is_binary_type(content_type):
+            return ToolResult.failure("Section selection requires HTML content.")
+        if getattr(body, "wire_capped", False) or len(body.encode("utf-8")) >= MAX_FETCH_BYTES:
+            return ToolResult.failure(
+                "Capped response cannot prove section uniqueness/completeness."
+            )
+        try:
+            # Probe visible page text before selection, without full-page regex rendering.
+            wall = access_wall_notice(access_wall_text(body, cancelled=context.cancelled.is_set))
+            if wall:
+                return ToolResult.failure(wall)
+            selected_body = select_section(body, section, cancelled=context.cancelled.is_set)
+        except (SectionError, AssertionError) as exc:
+            return ToolResult.failure(f"Section unavailable: {exc}")
     if _is_binary_type(content_type):
         return ToolResult.failure(
             f"{content_type.split(';', 1)[0]} ikili içerik, metne çevrilemez: {final_url}. "
@@ -98,11 +122,15 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
             "extract_archive ya da uygun araç)."
         )
     if _looks_like_html(content_type, body):
-        text, rendering_truncated = _page_text_with_truncation(body, final_url)
+        text, rendering_truncated = _page_text_with_truncation(selected_body, final_url)
     else:
         text, rendering_truncated = body, False
+    if section and (not text.strip() or context.cancelled.is_set()):
+        return ToolResult.failure("Section is empty or read cancelled.")
     govde = truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)"
     duvar = access_wall_notice(text)
+    if section and duvar:
+        return ToolResult.failure(duvar)
     fetched_at = timestamp(clock or SystemClock())
     dates = PageDates()
     if _looks_like_html(content_type, body):
@@ -117,6 +145,10 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
         "content_summary": text[:CONTENT_SUMMARY_CHARS],
     }
     provenance = f"Kaynak: {final_url}\nİstenen URL: {url}\nErişim zamanı: {fetched_at}"
+    if section:
+        provenance += (
+            f"\nReader metadata: scope=section; section={section!r}; completeness=truncated"
+        )
     output = f"{provenance}\n\n{govde}"
     if duvar:
         # Kısıt öneki başarı kararının protokolüdür; provenance bunun önüne geçemez.
@@ -129,12 +161,15 @@ def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = Non
         completeness="blocked"
         if duvar
         else "truncated"
-        if rendering_truncated
+        if section
+        or rendering_truncated
         or len(text) > MAX_OUTPUT_CHARS
         or len(body.encode("utf-8")) >= MAX_FETCH_BYTES
         else "complete",
         published_at=dates.published_at or "",
         updated_at=dates.updated_at or "",
+        scope="section" if section else "document",
+        section_id=section,
     )
     return ToolResult(output, structured={"source": source}, source_receipt=receipt)
 
@@ -239,6 +274,12 @@ def fetch_following_redirects(url: str) -> tuple[str, str, str]:
         raise BlockedRedirectError(f"en fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı")
 
 
+class _FetchedBody(str):
+    """Carry wire-cap knowledge without changing default string rendering."""
+
+    wire_capped: bool = False
+
+
 def _read_capped(response: httpx.Response) -> str:
     """Gövdeyi `MAX_FETCH_BYTES` ile sınırlı oku ve yanıtın kodlamasıyla çöz."""
     parts: list[bytes] = []
@@ -248,7 +289,9 @@ def _read_capped(response: httpx.Response) -> str:
         total += len(chunk)
         if total >= MAX_FETCH_BYTES:
             break
-    return b"".join(parts).decode(response.encoding or "utf-8", errors="replace")
+    body = _FetchedBody(b"".join(parts).decode(response.encoding or "utf-8", errors="replace"))
+    body.wire_capped = total >= MAX_FETCH_BYTES
+    return body
 
 
 def web_search(args: ToolArgs, context: ToolContext, *, clock: Clock | None = None) -> ToolResult:
