@@ -826,12 +826,14 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         description = await describe_image_data(deps.config, data_uri, question, mode=mode)
         if not owner_is_current():
             return ToolResult.failure(UNAVAILABLE)
+        described_foreground = False
         if (
             not description.can_ground
             and observation is not None
             and current_desktop_capture(context) is observation
         ):
             context.desktop.invalidate_capture()
+            described_foreground = mode == "describe"
         aciklama, sorun = description.text, description.error
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
@@ -855,6 +857,19 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
             observation = None
         if not owner_is_current():
             return ToolResult.failure(UNAVAILABLE)
+        if (
+            described_foreground
+            and observation is not None
+            and context.desktop.current_capture is None
+            and context.desktop.capture_is_current((observation.generation + 1, observation.focus))
+        ):
+            aciklama += (
+                "\nYalnız açıklama (mode=describe): tıklama koordinatı yetkisi vermez; "
+                "önceki ekran gözlemi geçersizleşti. Eylem amaçlanıyorsa önce yeni tam "
+                "desktop_screenshot al, ardından yeni dosyayı "
+                "view_image(path, mode='locate', question='<TEK kontrol>') ile incele; "
+                "eylemi sonraki model adımında yap."
+            )
         return ToolResult(
             f"{display_path(context, path)} — {aciklama}",
             visual_observation=observation

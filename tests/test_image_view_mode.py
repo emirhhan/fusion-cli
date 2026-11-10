@@ -121,3 +121,143 @@ async def test_invalid_internal_mode_does_not_decode_or_call_provider(monkeypatc
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", forbidden)
     result = await image_view.describe_image_observation(config, _uri(), "Read.", mode="auto")
     assert not result.usable and result.error and "mode" in result.error
+
+
+def test_blocked_click_recovery_requires_fresh_capture_and_explicit_single_target(tmp_path):
+    from .test_desktop_visual_grounding import _preflight, _setup
+
+    deps, state, _, _ = _setup(tmp_path)
+    result = _preflight(deps, state)
+    assert result.startswith("Güncel ekran gözlemi bu işlemden önce modele ulaşmadı.")
+    assert "yeni tam desktop_screenshot" in result
+    assert "view_image(path, mode='locate', question='<TEK kontrol>')" in result
+    assert "describe" in result and "yetkisi vermez" in result
+    assert "sonraki model adımında" in result
+    assert "izin veriyorsa" in result
+    assert "view_image(path, question)" not in result
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_foreground_describe_reports_revocation_without_authorizing_clicks(
+    tmp_path, monkeypatch, explicit
+):
+    from fusion_cli.engines.agent.image_coordinates import ImageObservation
+
+    from .test_desktop_visual_grounding import _capture, _preflight, _setup
+
+    deps, state, _, _ = _setup(tmp_path)
+    capture, _ = _capture(deps)
+
+    async def describe(*args, **kwargs):
+        assert kwargs["mode"] == "describe"
+        return ImageObservation("visible_text: 29")
+
+    monkeypatch.setattr(engine_tools, "describe_image_data", describe)
+    args = {"path": str(capture.path), "question": "Find the 2 button."}
+    if explicit:
+        args["mode"] = "describe"
+    result = await engine_tools._view_image_tool(deps).run(args, deps.tool_context)
+    assert result.ok and "visible_text: 29" in result.output
+    assert "Yalnız açıklama (mode=describe)" in result.output
+    assert "tıklama koordinatı yetkisi vermez" in result.output
+    assert "önceki ekran gözlemi geçersizleşti" in result.output
+    assert "yeni tam desktop_screenshot" in result.output
+    assert "view_image(path, mode='locate', question='<TEK kontrol>')" in result.output
+    assert result.visual_observation is None
+    assert deps.tool_context.desktop.current_capture is None
+    assert state.desktop_grounding.acknowledged is None
+    assert _preflight(deps, state) is not None
+
+
+@pytest.mark.parametrize(
+    "change", ["asset", "background", "capture", "file", "cancel", "root", "scope", "desktop"]
+)
+async def test_describe_does_not_mislabel_noncurrent_or_unowned_images(
+    tmp_path, monkeypatch, change
+):
+    import json
+
+    from fusion_cli.engines.agent.image_coordinates import ImageObservation
+
+    from .image_fixture import image_bytes
+    from .test_background_desktop_image_handoff import _snapshot
+    from .test_desktop_visual_grounding import _capture, _setup
+
+    deps, state, _, _ = _setup(tmp_path)
+    context = deps.tool_context
+    capture, _ = _capture(deps)
+    original_desktop = context.desktop
+    path = capture.path
+    if change == "asset":
+        path = tmp_path / "asset.png"
+        path.write_bytes(image_bytes("PNG"))
+    elif change == "background":
+        context.desktop.begin_observation_turn("owned-turn")
+        snapshot = await _snapshot(monkeypatch, context)
+        path = json.loads(snapshot.output)["image_path"]
+
+    async def describe(*args, **kwargs):
+        if change == "capture":
+            _capture(deps, name="new.png")
+        elif change == "file":
+            capture.path.write_bytes(image_bytes("PNG", (2, 2)))
+        elif change == "cancel":
+            context.cancelled.set()
+        elif change == "root":
+            object.__setattr__(context, "root", tmp_path / "other")
+        elif change == "scope":
+            object.__setattr__(context, "job_scope", "other")
+        elif change == "desktop":
+            object.__setattr__(
+                context, "desktop", _deps(tmp_path, RecordingSink()).tool_context.desktop
+            )
+        return ImageObservation("visible_text: 29")
+
+    monkeypatch.setattr(engine_tools, "describe_image_data", describe)
+    result = await engine_tools._view_image_tool(deps).run({"path": str(path)}, context)
+    assert "Yalnız açıklama (mode=describe)" not in result.output
+    assert "yeni tam desktop_screenshot" not in result.output
+    assert result.visual_observation is None
+    assert state.desktop_grounding.acknowledged is None
+    if change in {"asset", "background", "cancel", "root", "scope", "desktop"}:
+        assert original_desktop.current_capture is capture
+    if change in {"cancel", "root", "scope", "desktop"}:
+        assert not result.ok
+
+
+@pytest.mark.parametrize("change", ["capture", "generation", "focus", "cancel"])
+async def test_foreground_describe_status_rechecks_final_file_await(
+    tmp_path, monkeypatch, change
+):
+    from fusion_cli.engines.agent.image_coordinates import ImageObservation
+
+    from .test_desktop_visual_grounding import _capture, _setup
+
+    deps, state, _, _ = _setup(tmp_path)
+    context = deps.tool_context
+    capture, _ = _capture(deps)
+    original_matches = engine_tools.capture_file_matches
+
+    async def describe(*args, **kwargs):
+        return ImageObservation("visible_text: 29")
+
+    def matches(observation, tool_context):
+        matched = original_matches(observation, tool_context)
+        if change == "capture":
+            _capture(deps, name="new.png")
+        elif change == "generation":
+            context.desktop.invalidate_capture()
+        elif change == "focus":
+            context.desktop.focused_window_title = "Changed"
+        else:
+            context.cancelled.set()
+        return matched
+
+    monkeypatch.setattr(engine_tools, "describe_image_data", describe)
+    monkeypatch.setattr(engine_tools, "capture_file_matches", matches)
+    result = await engine_tools._view_image_tool(deps).run({"path": str(capture.path)}, context)
+    assert "Yalnız açıklama (mode=describe)" not in result.output
+    assert result.visual_observation is None
+    assert state.desktop_grounding.acknowledged is None
+    if change == "cancel":
+        assert not result.ok

@@ -16,10 +16,14 @@ from ...tools.files import resolve_path
 
 Owner = tuple[str, str, str, int, str]
 GROUNDING_REQUIRED = (
-    "Güncel ekran gözlemi bu işlemden önce modele ulaşmadı. Önce desktop_screenshot al; "
-    "model görsel okuyamıyorsa aynı dosyayı view_image(path, question) ile incele. "
+    "Güncel ekran gözlemi bu işlemden önce modele ulaşmadı. Önce yeni tam desktop_screenshot al; "
+    "model görsel okuyamıyorsa bu yeni dosyayı "
+    "view_image(path, mode='locate', question='<TEK kontrol>') ile incele. "
+    "Varsayılan mode=describe koordinat yetkisi vermez ve önceki ekran gözlemini "
+    "geçersizleştirir; ardından yeni tam desktop_screenshot gerekir. "
     "Gözlemi aldıktan sonraki model adımında koordinat seç; aynı araç grubunda görüntü "
-    "alıp görmeden tıklama. Erişilebilirlik başvuruları ve klavye araçları da kullanılabilir."
+    "alıp görmeden tıklama. Görev izin veriyorsa erişilebilirlik başvuruları ve klavye "
+    "araçları da kullanılabilir."
 )
 
 
