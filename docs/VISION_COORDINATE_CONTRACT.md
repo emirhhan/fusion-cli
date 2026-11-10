@@ -1,0 +1,39 @@
+# Görsel yardımcı konum sözleşmesi
+
+NVIDIA'nın [GUI-coordinate README](https://github.com/NVIDIA-NeMo/Gym/blob/main/resources_servers/gui_coordinate/README.md)
+ve [doğrulayıcı kodu](https://github.com/NVIDIA-NeMo/Gym/blob/main/resources_servers/gui_coordinate/app.py),
+tek bir noktanın görüntü genişlik/yüksekliğinin binde biri olarak yorumlandığını
+belgeler. Bu belge genel bir NIM yanıt birimi garantisi değildir; çoklu nokta
+listesi için de bir sözleşme sağlamaz.
+
+Fusion yalnız tam olarak yapılandırılmış
+`nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` ve aynı kimlikle dönen
+yanıt için kendi yüksek öncelikli isteğinde bu tek hedef sözleşmesini açıkça
+bildirir. Boyutlar kullanıcı sorusundan alınmaz; gönderilen değişmez görsel
+çözülür. Yalnız tam `<point>(x,y)</point>` biçimli tamsayı tek nokta kabul edilir.
+Görüntünün dış kenarına düşen sonuç kabul edilmez. Nokta açık `image_pixels`,
+görüntü boyutları ve piksel koordinatı olarak sunulur; pikselden ekran noktasına
+mevcut çerçeve dönüşümü aynen uygulanır. Başka sağlayıcı/modelin küçük sayıları
+bu birime benzetilerek yorumlanmaz.
+
+Gözlenen altı noktalı liste, çoklu/bozuk/negatif/sınır dışı veya tanımsız konum
+çıktısı ham koordinatlar eyleme taşınmadan reddedilir. Yeni ekran görüntüsü ve
+her `view_image` çağrısında tek bir kontrol istenir. Ek yardımcı çağrı, model
+seçimi, yeniden deneme veya yapılandırma değişikliği yapılmaz. Normal OCR ve
+görsel açıklaması kaynakla sınırlı kalır; hesap yapılmaz.
+
+İç sonuç tipli `ImageObservation`/`CoordinateStatus` taşır; mevcut
+`describe_image_data` çağıranları iki alanlı açıklama/hata sözleşmesini korur.
+Reddedilmiş konum yanıtı yalnız aynı sahip/kök/tur altında halen güncel olan
+dondurulmuş ön plan yakalamasını geçersiz kılar. Böylece aynı yakalamanın eski
+başarılı yardımcı onayı yeniden kullanılamaz. Başka yakalama veya arka plan
+yardımcısı ön plan yetkisini değiştiremez. Asenkron sınırlarından sonra sahiplik
+yeniden denetlenir.
+
+OCR/açıklama kullanılabilirliği (`usable`) ile koordinat yetkisi (`can_ground`)
+ayrıdır. Yalnız doğrulanmış `IMAGE_PIXELS` ve geçerli, sonlu, görüntü içi tipli
+nokta yardımcı koordinat kanıtı olabilir. Normal OCR metni sunulmaya devam eder;
+fakat önceki başarılı noktanın ardından gelen herhangi bir konum kanıtı olmayan
+yardımcı yanıtı aynı güncel ön plan yakalamasının eski yetkisini kaldırır.
+Tanımsız bir düzyazı konum biçimi tanıyıcıdan kaçsa bile yetki veremez veya eski
+yetkiyi koruyamaz. Metin biçimi tanıma, bu güvenlik sınırının yerine geçmez.

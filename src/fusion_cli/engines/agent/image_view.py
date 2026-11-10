@@ -25,6 +25,13 @@ from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.types import CompletionRequest, Message
 from ...providers.web_registry import web_registry_for
+from .image_coordinates import (
+    OMNI_COORDINATE_MODEL,
+    ImageObservation,
+    coordinate_request,
+    image_dimensions,
+    normalize_coordinates,
+)
 
 #: Tek bir görselin üst sınırı. Uygulamanın ek dosya sınırıyla aynı tutulur.
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -156,13 +163,27 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
 async def describe_image_data(
     config: Config, data_uri: str, question: str
 ) -> tuple[str, str | None]:
+    """Mevcut çağıranlar için iki alanlı açıklama/hata sözleşmesini koru."""
+    observation = await describe_image_observation(config, data_uri, question)
+    return observation.text, observation.error
+
+
+async def describe_image_observation(
+    config: Config, data_uri: str, question: str
+) -> ImageObservation:
     """Describe the already-authorized immutable image snapshot."""
     from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
 
     spec = config.vision
     if spec is None:  # pragma: no cover - araç yalnızca spec varken kaydedilir
-        return "", "Görsel modeli yapılandırılmamış."
+        return ImageObservation("", "Görsel modeli yapılandırılmamış.")
+    contract = (
+        await asyncio.to_thread(image_dimensions, data_uri)
+        if spec.model == OMNI_COORDINATE_MODEL
+        else None
+    )
+    system_prompt = VISION_GROUNDING_PROMPT + (coordinate_request(contract) if contract else "")
     try:
         provider = build_provider(
             spec,
@@ -182,7 +203,7 @@ async def describe_image_data(
                 result = await provider.complete(
                     CompletionRequest(
                         messages=(
-                            Message("system", VISION_GROUNDING_PROMPT),
+                            Message("system", system_prompt),
                             Message("user", question, images=(data_uri,)),
                         ),
                         temperature=config.runtime.utility_temperature,
@@ -194,21 +215,31 @@ async def describe_image_data(
                 if not result.truncated:
                     break
             else:
-                return "", (
-                    f"Görsel modeli ({spec.model}) {VISION_RECOVERY_MAX_TOKENS} tokenlık "
-                    "görsel açıklama bütçesinde de tamamlanmadı. "
-                    "Görseli veya soruyu daralt ya da başka bir görsel modeli seç."
+                return ImageObservation(
+                    "",
+                    (
+                        f"Görsel modeli ({spec.model}) {VISION_RECOVERY_MAX_TOKENS} tokenlık "
+                        "görsel açıklama bütçesinde de tamamlanmadı. "
+                        "Görseli veya soruyu daralt ya da başka bir görsel modeli seç."
+                    ),
                 )
     except TimeoutError:
-        return "", f"Görsel modeli ({spec.model}) için süre sınırı aşıldı."
+        return ImageObservation("", f"Görsel modeli ({spec.model}) için süre sınırı aşıldı.")
     except (ConfigError, ProviderError) as error:
         # Kurulamayan görsel sağlayıcısı aracı düşürmez, açıklayıcı hata döner.
-        return "", f"Görsel modeli ({spec.model}) kullanılamıyor: {error}"
+        return ImageObservation("", f"Görsel modeli ({spec.model}) kullanılamıyor: {error}")
     if not result.ok:
         # Asıl sebep YUTULMAZ. Ölçüldü: yapılandırılmış görsel modeli EOL olup
         # 410 Gone dönüyordu; "yanıt vermedi" demek hem modeli hem kullanıcıyı
         # boşuna yeniden denemeye iter — config değişmeden hiçbir deneme tutmaz.
-        return "", f"Görsel modeli ({spec.model}) başarısız: {result.error or 'bilinmeyen hata'}"
+        return ImageObservation(
+            "", f"Görsel modeli ({spec.model}) başarısız: {result.error or 'bilinmeyen hata'}"
+        )
     if not result.text.strip():
-        return "", f"Görsel modeli ({spec.model}) boş yanıt döndürdü."
-    return VISION_OBSERVATION_LABEL + collapse_repeats(result.text.strip()), None
+        return ImageObservation("", f"Görsel modeli ({spec.model}) boş yanıt döndürdü.")
+    return normalize_coordinates(
+        collapse_repeats(result.text.strip()),
+        configured_model=spec.model,
+        response_model=result.model,
+        contract=contract,
+    )

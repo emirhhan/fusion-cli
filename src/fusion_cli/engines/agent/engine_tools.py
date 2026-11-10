@@ -52,9 +52,11 @@ from .agent_task_tools import agent_task_tools
 from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
 from .desktop_grounding import capture_file_matches
+from .desktop_grounding import current_capture as current_desktop_capture
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
-from .image_view import DEFAULT_QUESTION, describe_image_data, load_image_data_uri
+from .image_view import DEFAULT_QUESTION, load_image_data_uri
+from .image_view import describe_image_observation as describe_image_data
 from .memory_tools import memory_read_tool, remember_tool
 from .orchestration_tools import register_orchestration_tools
 from .preview_log_tools import preview_log_tools
@@ -757,15 +759,22 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         background_root = context.root
         background_scope = context_scope(context)
         background_receipt = context.desktop.background_capture
+        desktop_view = context.desktop
+        foreground_capture = current_desktop_capture(context)
+
+        def owner_is_current() -> bool:
+            return (
+                not context.cancelled.is_set()
+                and context.desktop is desktop_view
+                and context.root == background_root
+                and context_scope(context) == background_scope
+            )
+
         try:
             is_background = await asyncio.to_thread(is_background_slot, background_root, path)
         except (OSError, RuntimeError):
             return ToolResult.failure(UNAVAILABLE)
-        if (
-            context.cancelled.is_set()
-            or context.root != background_root
-            or context_scope(context) != background_scope
-        ):
+        if not owner_is_current():
             return ToolResult.failure(UNAVAILABLE)
 
         def background_is_current() -> bool:
@@ -797,17 +806,29 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
             data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
-        capture = context.desktop.current_capture
+        if not owner_is_current():
+            return ToolResult.failure(UNAVAILABLE)
+        capture = foreground_capture
         observation = (
             capture
             if not is_background
             and capture is not None
+            and current_desktop_capture(context) is capture
             and capture.path == path
             and capture.payload_digest == image_payload_digest(data_uri)
             and capture.focus == context.desktop.focus_identity()
             else None
         )
-        aciklama, sorun = await describe_image_data(deps.config, data_uri, question)
+        description = await describe_image_data(deps.config, data_uri, question)
+        if not owner_is_current():
+            return ToolResult.failure(UNAVAILABLE)
+        if (
+            not description.can_ground
+            and observation is not None
+            and current_desktop_capture(context) is observation
+        ):
+            context.desktop.invalidate_capture()
+        aciklama, sorun = description.text, description.error
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
         if is_background:
@@ -828,10 +849,14 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
             capture_file_matches, observation, context
         ):
             observation = None
+        if not owner_is_current():
+            return ToolResult.failure(UNAVAILABLE)
         return ToolResult(
             f"{display_path(context, path)} — {aciklama}",
             visual_observation=observation
-            if context.desktop.current_capture is observation and not context.cancelled.is_set()
+            if description.can_ground
+            and current_desktop_capture(context) is observation
+            and not context.cancelled.is_set()
             else None,
         )
 
@@ -840,7 +865,8 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         description="Yerel bir GÖRSELE bak ve içinde ne olduğunu öğren. Dosya ADI içeriği "
         "anlatmaz: 'player.png' bir logo, 'arkaplan.jpg' bir ekran görüntüsü olabilir. "
         "Bir asseti kullanmadan ÖNCE bununla bak; uygun olup olmadığına ancak o zaman "
-        "karar verebilirsin. İsteğe bağlı 'question' ile ne öğrenmek istediğini sor.",
+        "karar verebilirsin. İsteğe bağlı 'question' ile ne öğrenmek istediğini sor. "
+        "Konum sorarken her çağrıda yalnız TEK bir kontrolü sor; çoklu koordinat listesi kullanma.",
         parameters={
             "type": "object",
             "properties": {

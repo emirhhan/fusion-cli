@@ -15,6 +15,7 @@ from fusion_cli.core.desktop_frame import DesktopFrame
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent import engine_tools
+from fusion_cli.engines.agent.image_coordinates import ImageObservation
 from fusion_cli.engines.agent.observation_delivery import internal_observation_paths
 from fusion_cli.tools import desktop_background, native_desktop
 
@@ -73,7 +74,7 @@ async def test_text_only_background_image_has_owned_path_and_no_foreground_autho
 
     async def describe(config, data, question, **kwargs):
         seen.append((config.vision, data, kwargs))
-        return "visible_text: 0; uncertainty: none", None
+        return ImageObservation("visible_text: 0; uncertainty: none", None)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     observation = await engine_tools._view_image_tool(deps).run({"path": str(path)}, context)
@@ -167,7 +168,7 @@ async def test_old_foreground_capture_of_same_slot_never_gets_coordinate_credit(
     deps = _deps(tmp_path, RecordingSink())
 
     async def describe(*args):
-        return "visible_text: 0", None
+        return ImageObservation("visible_text: 0", None)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run({"path": str(path)}, context)
@@ -193,7 +194,7 @@ async def test_helper_response_cannot_outlive_owned_observation(tmp_path, monkey
             context.cancelled.set()
         else:
             context.desktop.background_capture = None
-        return "visible_text: old", None
+        return ImageObservation("visible_text: old", None)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run({"path": str(path)}, context)
