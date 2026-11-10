@@ -45,6 +45,22 @@ bu seçim tahmin edilmez. `describe` içinde beklenmedik nokta çıktısı redde
 Mevcut iki alanlı açıklama/hata sarmalayıcılarının imzası korunur ve varsayılan
 `describe` kullanılır. Geçersiz mod, dosya/sağlayıcı erişimi başlamadan reddedilir.
 
+Geçerli boyutları olan bilinen modelin `locate` sistem isteği yalnız tek nokta
+yanıt biçimini ister; `visible_text`/`description`/`uncertainty` alanlarını veya
+harfi harfine metin dökümünü aynı yanıtta istemez. Her iki mod aynı görsel kanıt
+sınırını korur: soru odak belirtir, kanıt değildir; görünmeyen içerik veya
+beklenen sonuç hesaplanmaz ve eylem/görev başarısı ilan edilmez. Varsayılan
+`describe` sistem isteğinin baytları ve rakam/işleç koruma yönergeleri aynıdır.
+Kesilmiş ilk yanıttan sonraki tek 4096 token kurtarması aynı moda özel sistem
+isteğini ve ilk çağrının kalan süresini kullanır; yeni bir süre bütçesi açmaz.
+Model veya boyut sözleşmesi bilinmiyorsa önceki muhafazakâr açıklama isteği
+korunur ve nokta çıktısı koordinat yetkisi kazanamaz.
+
+Bu düzeltme, üç açıklama alanı ile yalnız nokta isteyen çelişkili üretici
+isteğini kaldırır. Ham yanıt kanıtı olmadan gözlenen bütün konum hatalarının
+bu çelişkiden kaynaklandığı söylenemez; sahte sağlayıcı testleri gerçek modelin
+hedef doğruluğunu ölçmez.
+
 Bu ayrım nokta doğruluğu kanıtı değildir. Korunan beş istekli canlı denemede
 iki hedefin ayrılmış bölge kontrollerini kaçırması ve OCR'ın nokta çıktısına
 itilmesi başarısızlık olarak kalır. Dönüşüm bu hedef kontrollerine göre

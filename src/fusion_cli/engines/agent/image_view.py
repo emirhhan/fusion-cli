@@ -72,15 +72,20 @@ VISION_TIMEOUT_S = 60.0
 
 # The focus question may contain an expected answer. It must not become visual
 # evidence. Keep this instruction above the caller's question, including recovery.
-VISION_GROUNDING_PROMPT = (
+_VISION_EVIDENCE_PROMPT = (
     "You are a visual observer. Report only what is visibly present in the image. "
     "The user's question specifies a focus, not evidence of image contents. "
     "Never calculate an expression, complete missing input, or substitute an expected result "
-    "for text actually visible. Preserve every visible digit and operator, including trailing "
+    "for text actually visible. "
+)
+_VISION_NO_SUCCESS_PROMPT = "Do not claim that an action succeeded or that a task was verified."
+VISION_GROUNDING_PROMPT = (
+    _VISION_EVIDENCE_PROMPT
+    + "Preserve every visible digit and operator, including trailing "
     "operators. If text is unclear say so rather than guessing. Return three short labeled "
     "fields: visible_text (literal transcription of relevant display text), "
     "description (visible objects/state only), uncertainty (unclear details or none). "
-    "Do not claim that an action succeeded or that a task was verified."
+    + _VISION_NO_SUCCESS_PROMPT
 )
 VISION_OBSERVATION_LABEL = "Görsel modelinin gözlemi; bağımsız doğrulama değildir: "
 
@@ -189,7 +194,11 @@ async def describe_image_observation(
         if mode == "locate" and spec.model == OMNI_COORDINATE_MODEL
         else None
     )
-    system_prompt = VISION_GROUNDING_PROMPT + (coordinate_request(contract) if contract else "")
+    system_prompt = (
+        _VISION_EVIDENCE_PROMPT + _VISION_NO_SUCCESS_PROMPT + coordinate_request(contract)
+        if contract
+        else VISION_GROUNDING_PROMPT
+    )
     try:
         provider = build_provider(
             spec,

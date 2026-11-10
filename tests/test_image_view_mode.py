@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import replace
 
 import pytest
@@ -39,6 +40,10 @@ async def test_describe_keeps_original_prompt_and_visible_digits(monkeypatch, ex
     assert observation.usable and not observation.can_ground and text in observation.text
     assert "391" not in observation.text
     assert provider.seen[0].messages[0].content == image_view.VISION_GROUNDING_PROMPT
+    # Prechange describe prompt, captured from base9e879b4e; independent of constants.
+    assert hashlib.sha256(provider.seen[0].messages[0].content.encode()).hexdigest() == (
+        "14fe082bdf51348af9e6ad110c95f5a0992bf015c32a63e6a72970bca6cbaac5"
+    )
 
 
 async def test_unexpected_point_in_default_describe_is_rejected(monkeypatch):
@@ -55,6 +60,63 @@ async def test_explicit_locate_has_typed_point_and_local_contract(monkeypatch):
     )
     assert observation.can_ground and observation.point.x == 684 and observation.point.y == 444.5
     assert "thousandths" in provider.seen[0].messages[0].content
+
+
+def _assert_locate_prompt(prompt):
+    assert prompt.count("Respond ONLY as <point>(x,y)</point>") == 1
+    for conflicting in (
+        "three short labeled", "visible_text", "description (", "literal transcription"
+    ):
+        assert conflicting not in prompt, prompt
+    for safeguard in (
+        "Report only what is visibly present in the image.",
+        "question specifies a focus, not evidence",
+        "Never calculate an expression, complete missing input, or substitute an expected result",
+        "Do not claim that an action succeeded or that a task was verified.",
+    ):
+        assert safeguard in prompt
+
+
+async def test_locate_outgoing_request_has_one_format_and_visual_safeguards(monkeypatch):
+    provider, config = _provider(monkeypatch, "<point>(500,500)</point>")
+    await image_view.describe_image_observation(config, _uri(), "Find 2.", mode="locate")
+    assert len(provider.seen) == 1
+    _assert_locate_prompt(provider.seen[0].messages[0].content)
+
+
+async def test_locate_recovery_keeps_same_prompt_and_remaining_deadline(monkeypatch):
+    provider = _Provider(
+        replace(_result(text="partial", truncated=True), model=OMNI),
+        replace(_result(text="<point>(500,500)</point>", ok=True), model=OMNI),
+        delay=0.01,
+    )
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
+    monkeypatch.setattr(image_view, "VISION_TIMEOUT_S", 1.0)
+    config = make_config(vision=ModelSpec("vision", OMNI))
+    observation = await image_view.describe_image_observation(
+        config, _uri(), "Find 2.", mode="locate"
+    )
+    assert observation.can_ground
+    assert [request.max_tokens for request in provider.seen] == [200, 4096]
+    assert all(request.max_retries == 0 for request in provider.seen)
+    assert provider.seen[0].messages == provider.seen[1].messages
+    assert 0 < provider.seen[1].timeout_s < provider.seen[0].timeout_s <= 1.0
+    _assert_locate_prompt(provider.seen[0].messages[0].content)
+
+
+@pytest.mark.parametrize("unknown_model", [False, True])
+async def test_locate_without_known_contract_never_gains_coordinate_authority(
+    monkeypatch, unknown_model
+):
+    provider, config = _provider(monkeypatch, "<point>(500,500)</point>")
+    if unknown_model:
+        config = replace(config, vision=ModelSpec("vision", "unknown/vision"))
+    observation = await image_view.describe_image_observation(
+        config, _uri() if unknown_model else "data:image/png;base64,broken", "Find 2.",
+        mode="locate",
+    )
+    assert not observation.can_ground and observation.coordinates is CoordinateStatus.REJECTED
+    assert provider.seen[0].messages[0].content == image_view.VISION_GROUNDING_PROMPT
 
 
 @pytest.mark.parametrize("mode", [None, "", "auto", 1, [], {}])
