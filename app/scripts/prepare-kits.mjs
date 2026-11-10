@@ -10,7 +10,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  opendirSync,
   readFileSync,
+  readlinkSync,
+  statSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -19,7 +22,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -32,6 +35,8 @@ const node = process.env.FUSION_KITS_NODE ?? process.execPath;
 const isWindows = process.platform === "win32";
 const nodeName = isWindows ? "node.exe" : "node";
 const DEPENDENCY_FILES = ["package.json", "package-lock.json"];
+const MAX_KITS_CONFIG_ENTRIES = 20_000;
+const MAX_KITS_CONFIG_DEPTH = 32;
 
 function fail(message, hint) {
   console.error(message);
@@ -127,6 +132,57 @@ function moveInto(source, destination) {
   }
 }
 
+function inside(root, path) {
+  const local = relative(root, path);
+  return !isAbsolute(local) && local !== ".." && !local.startsWith(`..${sep}`);
+}
+
+// Çözümleme döngüsü ve kendi/üst dizin hedefi reddedilir; bağlantı grafiği izlenmez.
+function checkPortableLink(path, root) {
+  const local = relative(root, path);
+  try {
+    const target = readlinkSync(path);
+    if (win32.isAbsolute(target) || !inside(root, resolve(dirname(path), target))) {
+      throw new Error("Paket dışı hedef");
+    }
+    // İşletim sisteminin bağlantı sınırı çözümlemeden önce uygulanır.
+    statSync(path);
+    const resolved = realpathSync(path);
+    if (!inside(root, resolved) || inside(resolved, dirname(path))) throw new Error("Paket dışı veya kendi/üst dizin hedefi");
+  } catch {
+    throw new Error(`Kits paketinde taşınamayan bağlantı var: ${local}`);
+  }
+}
+
+// Yalnız gerçek dizinler taranır; kardeş dizin bağlantıları yeniden kuyruğa alınmaz.
+function checkPrivateConfiguration(directory) {
+  const root = realpathSync(directory);
+  const pending = [[root, 0]];
+  let count = 0;
+  while (pending.length) {
+    const [path, depth] = pending.pop();
+    const entries = opendirSync(path);
+    try {
+      let entry;
+      while ((entry = entries.readSync()) !== null) {
+        count += 1;
+        if (count > MAX_KITS_CONFIG_ENTRIES) throw new Error("Kits yapılandırma denetiminin girdi sınırı aşıldı.");
+        const child = resolve(path, entry.name);
+        if (entry.name.toLowerCase().startsWith(".env") && !(entry.name === ".env.example" && entry.isFile())) {
+          throw new Error(`Kits paketinde özel yapılandırma dosyası var: ${relative(root, child)}`);
+        }
+        if (entry.isSymbolicLink()) checkPortableLink(child, root);
+        else if (entry.isDirectory()) {
+          if (depth >= MAX_KITS_CONFIG_DEPTH) throw new Error("Kits yapılandırma denetiminin derinlik sınırı aşıldı.");
+          pending.push([child, depth + 1]);
+        }
+      }
+    } finally {
+      entries.closeSync();
+    }
+  }
+}
+
 function packageFromHead(source, nodeVersion) {
   const workspace = mkdtempSync(resolve(tmpdir(), "fusion-kits-head-"));
   const tree = resolve(workspace, "kits");
@@ -157,6 +213,7 @@ function packageFromHead(source, nodeVersion) {
       platform: `${process.platform}-${process.arch}`,
     };
     writeFileSync(resolve(staging, "kits-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+    checkPrivateConfiguration(staging);
     moveInto(staging, target);
     return manifest;
   } finally {
