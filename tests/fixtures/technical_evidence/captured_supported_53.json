@@ -1,0 +1,2391 @@
+{
+  "description": "Saved genuine supported 53-target calibration; target/source span text and verdict claims retained, private metadata rebound in test. Only cited public source spans remain; uncited spans are synthetic whitespace retaining newline layout and IDs. Full diagnostic capture stays outside the repository.",
+  "targets": {
+    "answer:1": "On altı bölümlü rapor report.html dosyasındadır.",
+    "answer:2": " Sürüm tarihi, bakım sırası ve seri destek aşaması kaynak kapsamı ve okuma sınırlarıyla birlikte raporda ayrılmıştır.",
+    "file1:1": "<!doctype html>\n<html lang=\"tr\"><head><meta charset=\"utf-8\"><title>Python 3.12.2 kaynak raporu</title></head><body>\n",
+    "file1:2": "<h1>Python 3.12.2 ve 3.12 yaşam döngüsü</h1>\n<section><h2>1.",
+    "file1:3": " Kapsam</h2><p>Bu rapor Python 3.12.2 sürüm ayrıntı sayfası ile Python Developer’s Guide sürüm durumları sayfasındaki okunan metinleri karşılaştırır.",
+    "file1:4": " Mikro sürüm olayını seri yaşam döngüsünden ayrı ele alır.</p>",
+    "file1:5": "</section>\n<section><h2>2.",
+    "file1:6": " Mikro sürüm tarihi</h2><p>Python 3.12.2, 6 Şubat 2024 tarihinde yayımlandı.",
+    "file1:7": " Bu takvim tarihi sürüm sayfasındaki Release date alanının Türkçe karşılığıdır.</p>",
+    "file1:8": "</section>\n<section><h2>3.",
+    "file1:9": " Bakım sırası</h2><p>Python 3.12.2, Python 3.12 serisinin ikinci bakım sürümüdür.",
+    "file1:10": " Sıra bilgisi sürüm numarasından sayılarak çıkarılmamış, sürüm sayfasının açık bakım tanımına dayandırılmıştır.</p>",
+    "file1:11": "</section>\n<section><h2>4.",
+    "file1:12": " Değişiklik kapsamı</h2><p>Sürüm sayfası 3.12.1 sonrasındaki 350’den fazla hata düzeltmesi, derleme iyileştirmesi ve belge değişikliğinden söz eder.",
+    "file1:13": " Aşağıdaki büyük özellikler ise 3.11 ile karşılaştırılan 3.12 serisinin özellikleridir.</p>",
+    "file1:14": "</section>\n<section><h2>5.",
+    "file1:15": " F-string ayrıştırması</h2><p>PEP 701 daha esnek f-string ayrıştırmasıyla ilişkilendirilmiştir.",
+    "file1:16": " Sayfa, daha önce izin verilmeyen birçok kullanıma izin verildiğini belirtir.</p>",
+    "file1:17": "</section>\n<section><h2>6.",
+    "file1:18": " Tampon protokolü</h2><p>Python kodunda tampon protokolü desteği PEP 688 ile açıklanır.",
+    "file1:19": " Bu özellik kaynakta 3.12 serisinin yeni özellikleri arasında sunulur.</p>",
+    "file1:20": "</section>\n<section><h2>7.",
+    "file1:21": " Gözlem API’si</h2><p>Yeni hata ayıklama ve profil çıkarma API’si PEP 669 ile anılır.",
+    "file1:22": " Burada API’nin bütün ayrıntılarının ayrıca okunduğu iddia edilmez.</p>",
+    "file1:23": "</section>\n<section><h2>8.",
+    "file1:24": " Alt yorumlayıcılar</h2><p>PEP 684 ayrı Global Interpreter Lock kullanan yalıtılmış alt yorumlayıcı desteğini açıklar.",
+    "file1:25": " Bu rapor bu özelliğin her uygulamada belirli bir hız kazancı sağlayacağını iddia etmez.</p>",
+    "file1:26": "</section>\n<section><h2>9.",
+    "file1:27": " Tür açıklamaları</h2><p>PEP 695 jenerik sınıflar için yeni tür açıklama sözdizimini kapsar.",
+    "file1:28": " PEP 698 ise metotlar için yeni override dekoratörüyle ilişkilendirilmiştir.</p>",
+    "file1:29": "</section>\n<section><h2>10.",
+    "file1:30": " Kaldırılmış modüller</h2><p>Kullanımdan kaldırılmış smtpd ve distutils modülleri kaldırılmıştır.",
+    "file1:31": " Sürüm notu, setuptools paketinin distutils modülünü sağlamaya devam ettiğini de belirtir.</p>",
+    "file1:32": "</section>\n<section><h2>11.",
+    "file1:33": " Kaçış uyarıları</h2><p>Geçersiz ters eğik çizgi kaçışları artık DeprecationWarning yerine SyntaxWarning üretir.",
+    "file1:34": " Kaynak bu değişikliği uyarıların daha görünür olmasıyla açıklar.</p>",
+    "file1:35": "</section>\n<section><h2>12.",
+    "file1:36": " Seri ilk yayını</h2><p>Developer’s Guide tablosunda Python 3.12 serisinin ilk yayını 2 Ekim 2023 olarak listelenir.",
+    "file1:37": " Bu seri başlangıç tarihi, 3.12.2 mikro sürümünün 6 Şubat 2024 tarihini değiştirmez.</p>",
+    "file1:38": "</section>\n<section><h2>13.",
+    "file1:39": " Mevcut bakım aşaması</h2><p>Okunan destek tablosunda Python 3.12 serisinin durumu security olarak gösterilir.",
+    "file1:40": " Durum anahtarına göre bu aşamada yalnız güvenlik düzeltmeleri kabul edilir ve yeni ikili dağıtımlar yayımlanmaz.</p>",
+    "file1:41": "</section>\n<section><h2>14.",
+    "file1:42": " Yaşam döngüsü sınırı</h2><p>Okunan tabloda Python 3.12 serisi için toplam destek sonu Ekim 2028 olarak gösterilir.",
+    "file1:43": " Bu tarih, olağan hata düzeltme aşamasının o zamana kadar devam ettiği anlamına gelmez.</p>",
+    "file1:44": "</section>\n<section><h2>15.",
+    "file1:45": " Güncellik ve kaynak sınırı</h2><p>Sürüm sayfasının üst notu 3.12.2’nin 3.12.16 tarafından geçildiğini belirtir; tarihî tanıtım metnindeki latest ifadesi bugünün bütün sürümler listesi olarak kullanılmaz.",
+    "file1:46": " Bu iki sayfadan tüm Python sitelerinin eksiksiz tarandığı sonucu çıkarılmaz.</p>",
+    "file1:47": "</section>\n<section><h2>16.",
+    "file1:48": " Okuma ve atıflar</h2><p>İki kaynağın alınan metni de kırpılmıştır; bu nedenle bu sayfaların tamamının okunduğu iddia edilmez.",
+    "file1:49": " Destek tablosundaki Ekim 2028 bilgisi burada seri kapsamıyla aktarılır, belirli bir gün veya ek güvenlik uzatması uydurulmaz.</p>",
+    "file1:50": "</section>\n<p>Okunan kaynaklar: <a href=\"https://www.python.org/downloads/release/python-3122/\">Python 3.12.2 sürüm ayrıntıları</a>; <a href=\"https://devguide.python.org/versions/\">Python Developer’s Guide sürüm durumları</a>.</p>",
+    "file1:51": "\n</body></html>\n"
+  },
+  "sources": [
+    {
+      "url": "https://www.python.org/downloads/release/python-3122/",
+      "requested_url": "https://www.python.org/downloads/release/python-3122/",
+      "fetched_at": "2026-11-09T18:13:41.450380+00:00",
+      "published_at": "",
+      "updated_at": "",
+      "completeness": "truncated",
+      "parts": [
+        {
+          "omitted_chars": 211,
+          "newlines": [
+            42,
+            43,
+            210
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            0,
+            18,
+            19,
+            28,
+            29,
+            38,
+            39,
+            45,
+            46,
+            53,
+            54,
+            61,
+            62,
+            69,
+            70,
+            82,
+            83,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            9,
+            10,
+            19,
+            20,
+            39,
+            40,
+            44,
+            45,
+            51,
+            53,
+            63,
+            64,
+            73,
+            74,
+            82,
+            83,
+            95,
+            97,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            11,
+            12,
+            26,
+            27,
+            37,
+            38,
+            46,
+            47,
+            62,
+            63,
+            72,
+            73,
+            91,
+            92,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            0,
+            12,
+            13,
+            28,
+            29,
+            43,
+            44,
+            54,
+            55,
+            63,
+            64,
+            74,
+            75,
+            81,
+            82,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            10,
+            11,
+            41,
+            42,
+            58,
+            59,
+            66,
+            67,
+            88,
+            89,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            6,
+            7,
+            26,
+            27,
+            39,
+            40,
+            55,
+            56,
+            72,
+            73,
+            85,
+            86,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            15,
+            16,
+            22,
+            23,
+            32,
+            33,
+            60,
+            61,
+            82,
+            83,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            0,
+            14,
+            15,
+            29,
+            30,
+            48,
+            49,
+            68,
+            69,
+            84,
+            85,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            0,
+            18,
+            19,
+            26,
+            27,
+            38,
+            39,
+            51,
+            52,
+            66,
+            67,
+            80,
+            81,
+            94,
+            95,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            0,
+            7,
+            8,
+            22,
+            23,
+            40,
+            41,
+            52,
+            53,
+            69,
+            70,
+            87,
+            88,
+            114
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            9,
+            10,
+            26,
+            27,
+            47,
+            48,
+            72,
+            73,
+            101
+          ]
+        },
+        "\n Submit an Event \n\n Python 3.12.2\n\n Note: Python 3.12.2 has been superseded by Python 3.12.16 .\n\n Release date: Feb. 6, 2024\n",
+        "\n This is the second maintenance release of Python 3.12\n\n Python 3.12 is the newest major release of the Python programming language, and it contains many new features and optimizations. 3.12.2 is the latest maintenance release, containing more than 350 bugfixes, build improvements and documentation changes since 3.12.1.\n",
+        "\n Major new features of the 3.12 series, compared to 3.11\n\n New features\n\n More flexible f-string parsing , allowing many things previously disallowed ( PEP 701 ).\n",
+        "\n Support for the buffer protocol in Python code ( PEP 688 ).\n\n A new debugging/profiling API ( PEP 669 ).\n",
+        "\n Support for isolated subinterpreters with separate Global Interpreter Locks ( PEP 684 ).\n\n Even more improved error messages . More exceptions potentially caused by typos now make suggestions to the user.\n",
+        "\n Support for the Linux perf profiler to report Python function names in traces.\n\n Many large and small performance improvements (like PEP 709 and support for the BOLT binary optimizer), delivering an estimated 5% overall performance improvement.\n",
+        "\n Type annotations\n\n New type annotation syntax for generic classes ( PEP 695 ).\n\n New override decorator for methods ( PEP 698 ).\n",
+        {
+          "omitted_chars": 132,
+          "newlines": [
+            0,
+            14,
+            15,
+            131
+          ]
+        },
+        {
+          "omitted_chars": 140,
+          "newlines": [
+            0,
+            139
+          ]
+        },
+        "\n The deprecated smtpd and distutils modules have been removed (see PEP 594 and PEP 632 . The setuptools package continues to provide the distutils module.\n",
+        "\n A number of other old, broken and deprecated functions, classes and methods have been removed.\n\n Invalid backslash escape sequences in strings now warn with SyntaxWarning instead of DeprecationWarning , making them more visible. (They will become syntax errors in the future.)\n",
+        {
+          "omitted_chars": 217,
+          "newlines": [
+            0,
+            216
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            81,
+            82,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            23,
+            24,
+            69,
+            70,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            0,
+            87,
+            88,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            7,
+            8,
+            15,
+            16,
+            61,
+            62,
+            71,
+            72,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            16,
+            17,
+            57,
+            58,
+            68,
+            87,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            11,
+            13,
+            24,
+            25,
+            32,
+            33,
+            39,
+            40,
+            55,
+            56,
+            81,
+            98,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            9,
+            10,
+            22,
+            23,
+            30,
+            31,
+            37,
+            38,
+            74,
+            75,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 131,
+          "newlines": [
+            16,
+            18,
+            28,
+            29,
+            41,
+            42,
+            49,
+            50,
+            56,
+            57,
+            93,
+            94,
+            130
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            7,
+            34,
+            44,
+            45,
+            57,
+            58,
+            64,
+            65,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            0,
+            29,
+            39,
+            53,
+            63,
+            64,
+            76,
+            77,
+            83,
+            84,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            29,
+            39,
+            41,
+            51,
+            52,
+            64,
+            65,
+            71,
+            72,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            0,
+            28,
+            38,
+            53,
+            63,
+            64,
+            76,
+            77,
+            83,
+            84,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            0,
+            38,
+            48,
+            50,
+            60,
+            61,
+            73,
+            74,
+            80,
+            81,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 117,
+          "newlines": [
+            0,
+            38,
+            48,
+            50,
+            59,
+            60,
+            72,
+            73,
+            79,
+            80,
+            116
+          ]
+        },
+        {
+          "omitted_chars": 116,
+          "newlines": [
+            0,
+            37,
+            47,
+            49,
+            58,
+            59,
+            71,
+            72,
+            78,
+            79,
+            115
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            0,
+            16,
+            17,
+            25,
+            26,
+            41,
+            42,
+            51,
+            52,
+            70,
+            71,
+            78,
+            79,
+            91,
+            92,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 114,
+          "newlines": [
+            0,
+            14,
+            15,
+            25,
+            26,
+            34,
+            35,
+            45,
+            46,
+            52,
+            53,
+            71,
+            72,
+            82,
+            83,
+            113
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            16,
+            17,
+            24,
+            25,
+            46,
+            47,
+            66,
+            67,
+            73,
+            74,
+            93,
+            94,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            0,
+            15,
+            16,
+            32,
+            33,
+            45,
+            46,
+            58,
+            59,
+            75,
+            76,
+            82,
+            83,
+            92,
+            93,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            0,
+            21,
+            22,
+            48,
+            49,
+            63,
+            64,
+            78,
+            79,
+            97,
+            98,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            0,
+            15,
+            16,
+            33,
+            34,
+            52,
+            53,
+            60,
+            61,
+            72,
+            73,
+            85,
+            86,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            13,
+            14,
+            27,
+            28,
+            51,
+            52,
+            59,
+            60,
+            74,
+            75,
+            92,
+            93,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            16,
+            17,
+            34,
+            35,
+            61,
+            62,
+            71,
+            72,
+            88,
+            89,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            24,
+            25,
+            53,
+            54,
+            72,
+            73,
+            88,
+            89,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            16,
+            17,
+            35,
+            36,
+            54,
+            55,
+            81,
+            82,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            24,
+            25,
+            49,
+            50,
+            71,
+            72,
+            81,
+            82,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 116,
+          "newlines": [
+            30,
+            51,
+            70,
+            115
+          ]
+        },
+        {
+          "omitted_chars": 155,
+          "newlines": [
+            0,
+            23,
+            85,
+            154
+          ]
+        },
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            23,
+            51,
+            75,
+            93,
+            122
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            33,
+            91,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 117,
+          "newlines": [
+            62,
+            116
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            60,
+            90,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            26,
+            56,
+            91,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 114,
+          "newlines": [
+            44,
+            79,
+            113
+          ]
+        },
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            40,
+            82,
+            122
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            41,
+            79,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 112,
+          "newlines": [
+            38,
+            83,
+            111
+          ]
+        },
+        {
+          "omitted_chars": 128,
+          "newlines": [
+            29,
+            96,
+            127
+          ]
+        },
+        {
+          "omitted_chars": 133,
+          "newlines": [
+            32,
+            56,
+            97,
+            132
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            43,
+            83,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 130,
+          "newlines": [
+            46,
+            90,
+            129
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            39,
+            69,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            39,
+            80,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 152,
+          "newlines": [
+            39,
+            93,
+            151
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            58,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            59,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            69,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            38,
+            67,
+            95,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            25,
+            56,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 153,
+          "newlines": [
+            48,
+            98,
+            152
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            69,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            92,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            103
+          ]
+        },
+        {
+          "omitted_chars": 124,
+          "newlines": [
+            33,
+            123
+          ]
+        },
+        {
+          "omitted_chars": 112,
+          "newlines": [
+            33,
+            111
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            32
+          ]
+        }
+      ]
+    },
+    {
+      "url": "https://devguide.python.org/versions/",
+      "requested_url": "https://devguide.python.org/versions/",
+      "fetched_at": "2026-11-09T18:13:41.709714+00:00",
+      "published_at": "",
+      "updated_at": "2026-05-27T13:42:06+00:00",
+      "completeness": "truncated",
+      "parts": [
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            26,
+            27,
+            38,
+            39,
+            46,
+            47,
+            56,
+            57,
+            70,
+            71,
+            83,
+            84,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            32,
+            33,
+            51,
+            52,
+            78,
+            79,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 128,
+          "newlines": [
+            0,
+            18,
+            36,
+            37,
+            58,
+            59,
+            95,
+            96,
+            127
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            30,
+            31,
+            51,
+            52,
+            84,
+            85,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 135,
+          "newlines": [
+            32,
+            33,
+            51,
+            52,
+            72,
+            73,
+            96,
+            97,
+            134
+          ]
+        },
+        {
+          "omitted_chars": 112,
+          "newlines": [
+            0,
+            26,
+            27,
+            56,
+            57,
+            88,
+            89,
+            111
+          ]
+        },
+        {
+          "omitted_chars": 114,
+          "newlines": [
+            25,
+            26,
+            46,
+            47,
+            63,
+            64,
+            78,
+            79,
+            95,
+            113
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            29,
+            30,
+            44,
+            45,
+            71,
+            72,
+            87,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            15,
+            16,
+            53,
+            54,
+            78,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 116,
+          "newlines": [
+            0,
+            39,
+            40,
+            65,
+            66,
+            89,
+            90,
+            115
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            0,
+            23,
+            24,
+            44,
+            62,
+            73,
+            74,
+            90,
+            91,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            0,
+            13,
+            14,
+            53,
+            54,
+            66,
+            85,
+            86,
+            112
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            16,
+            17,
+            28,
+            29,
+            60,
+            61,
+            89,
+            90,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            11,
+            29,
+            30,
+            69,
+            70,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            0,
+            22,
+            23,
+            51,
+            52,
+            66,
+            67,
+            84,
+            85,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            30,
+            31,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            68,
+            112
+          ]
+        },
+        {
+          "omitted_chars": 112,
+          "newlines": [
+            0,
+            5,
+            6,
+            11,
+            12,
+            17,
+            18,
+            23,
+            24,
+            29,
+            30,
+            35,
+            36,
+            41,
+            42,
+            47,
+            48,
+            53,
+            54,
+            59,
+            60,
+            65,
+            66,
+            71,
+            72,
+            77,
+            78,
+            83,
+            84,
+            97,
+            98,
+            111
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            12,
+            13,
+            26,
+            27,
+            40,
+            41,
+            53,
+            54,
+            67,
+            68,
+            81,
+            82,
+            94,
+            95,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            13,
+            14,
+            26,
+            27,
+            40,
+            41,
+            54,
+            55,
+            68,
+            69,
+            79,
+            80,
+            90,
+            91,
+            104
+          ]
+        },
+        "\n security\n\n security\n\n Python 3.12\n\n security\n\n security\n\n Python 3.13\n\n bugfix\n\n bugfix\n\n Python 3.14\n",
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            0,
+            8,
+            9,
+            17,
+            18,
+            31,
+            32,
+            41,
+            42,
+            51,
+            52,
+            65,
+            67,
+            112
+          ]
+        },
+        {
+          "omitted_chars": 140,
+          "newlines": [
+            56,
+            57,
+            80,
+            81,
+            139
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            0,
+            8,
+            10,
+            20,
+            22,
+            30,
+            32,
+            47,
+            49,
+            62,
+            64,
+            81,
+            82,
+            88,
+            90,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            1,
+            10,
+            12,
+            25,
+            27,
+            37,
+            39,
+            59,
+            60,
+            66,
+            68,
+            78,
+            80,
+            88,
+            90,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            1,
+            11,
+            13,
+            32,
+            33,
+            39,
+            41,
+            51,
+            53,
+            61,
+            63,
+            75,
+            77,
+            87,
+            89,
+            108
+          ]
+        },
+        "\n 3.13\n \n PEP 719 \n \n security\n \n 2024-10-07\n \n 2029-10 \n \n Thomas Wouters\n\n 3.12\n \n PEP 693 \n \n security\n",
+        " \n 2023-10-02\n \n 2028-10 \n \n Thomas Wouters\n\n 3.11\n \n PEP 664 \n \n security\n \n 2022-10-24\n \n 2027-10 \n",
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            1,
+            24,
+            25,
+            50,
+            51,
+            59,
+            61,
+            71,
+            73,
+            81,
+            83,
+            98,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            12,
+            14,
+            31,
+            32,
+            38,
+            40,
+            50,
+            52,
+            65,
+            67,
+            79,
+            81,
+            93,
+            95,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            5,
+            7,
+            17,
+            19,
+            32,
+            34,
+            46,
+            48,
+            60,
+            62,
+            76,
+            77,
+            82,
+            84,
+            94,
+            96,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            1,
+            13,
+            15,
+            27,
+            29,
+            43,
+            44,
+            49,
+            51,
+            61,
+            63,
+            76,
+            78,
+            90,
+            92,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            1,
+            12,
+            13,
+            18,
+            20,
+            30,
+            32,
+            45,
+            47,
+            59,
+            61,
+            73,
+            75,
+            86,
+            87,
+            92,
+            94,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            1,
+            14,
+            16,
+            28,
+            30,
+            42,
+            44,
+            60,
+            61,
+            66,
+            68,
+            78,
+            80,
+            93,
+            95,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            1,
+            13,
+            15,
+            31,
+            32,
+            37,
+            39,
+            49,
+            51,
+            64,
+            66,
+            78,
+            80,
+            92,
+            94,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            5,
+            7,
+            17,
+            19,
+            32,
+            34,
+            46,
+            48,
+            60,
+            62,
+            76,
+            77,
+            82,
+            84,
+            94,
+            96,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            1,
+            13,
+            15,
+            27,
+            29,
+            48,
+            49,
+            54,
+            56,
+            66,
+            68,
+            81,
+            83,
+            95,
+            97,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            1,
+            15,
+            16,
+            21,
+            23,
+            33,
+            35,
+            48,
+            50,
+            62,
+            64,
+            76,
+            78,
+            97,
+            98,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            1,
+            11,
+            13,
+            26,
+            28,
+            40,
+            42,
+            54,
+            56,
+            70,
+            71,
+            86,
+            87,
+            92,
+            93,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            4,
+            5,
+            10,
+            11,
+            16,
+            17,
+            22,
+            23,
+            28,
+            29,
+            34,
+            35,
+            40,
+            41,
+            46,
+            47,
+            52,
+            53,
+            58,
+            59,
+            64,
+            65,
+            70,
+            71,
+            76,
+            77,
+            82,
+            83,
+            88,
+            89,
+            94,
+            95,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            5,
+            6,
+            11,
+            12,
+            17,
+            18,
+            23,
+            24,
+            29,
+            30,
+            35,
+            36,
+            49,
+            50,
+            63,
+            64,
+            76,
+            77,
+            90,
+            91,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            12,
+            13,
+            26,
+            27,
+            40,
+            41,
+            53,
+            54,
+            67,
+            68,
+            81,
+            82,
+            94,
+            95,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            13,
+            14,
+            26,
+            27,
+            40,
+            41,
+            54,
+            55,
+            67,
+            68,
+            81,
+            82,
+            95,
+            96,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            13,
+            14,
+            27,
+            28,
+            40,
+            41,
+            54,
+            55,
+            68,
+            69,
+            81,
+            82,
+            95,
+            96,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            12,
+            13,
+            26,
+            27,
+            40,
+            41,
+            53,
+            54,
+            67,
+            68,
+            81,
+            82,
+            94,
+            95,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            13,
+            14,
+            27,
+            28,
+            38,
+            39,
+            49,
+            50,
+            63,
+            64,
+            74,
+            75,
+            85,
+            86,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            10,
+            11,
+            21,
+            22,
+            35,
+            36,
+            44,
+            45,
+            53,
+            54,
+            67,
+            68,
+            76,
+            77,
+            85,
+            86,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 126,
+          "newlines": [
+            0,
+            9,
+            10,
+            19,
+            20,
+            33,
+            34,
+            49,
+            50,
+            125
+          ]
+        },
+        {
+          "omitted_chars": 130,
+          "newlines": [
+            45,
+            46,
+            58,
+            129
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            30,
+            31,
+            46,
+            114
+          ]
+        },
+        {
+          "omitted_chars": 126,
+          "newlines": [
+            78,
+            125
+          ]
+        },
+        {
+          "omitted_chars": 163,
+          "newlines": [
+            0,
+            11,
+            85,
+            162
+          ]
+        },
+        "phase is also called maintenance mode or stable release.\n\n security : \n After two years (18 months for versions before 3.13), only security\n",
+        "fixes are accepted and no more binaries are released. New source-only versions\ncan be released as needed.\n",
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            0,
+            16,
+            80,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            0,
+            90,
+            91,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            21,
+            22,
+            67,
+            68,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            1,
+            8,
+            10,
+            40,
+            41,
+            55,
+            56,
+            84,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 131,
+          "newlines": [
+            0,
+            23,
+            24,
+            37,
+            38,
+            50,
+            51,
+            74,
+            130
+          ]
+        },
+        {
+          "omitted_chars": 135,
+          "newlines": [
+            28,
+            73,
+            134
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            59,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            58,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 112,
+          "newlines": [
+            57,
+            111
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            47,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            60,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            54,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            53,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 142,
+          "newlines": [
+            55,
+            91,
+            141
+          ]
+        },
+        {
+          "omitted_chars": 136,
+          "newlines": [
+            44,
+            87,
+            135
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            42,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            59,
+            114
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            49,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 137,
+          "newlines": [
+            67,
+            136
+          ]
+        },
+        {
+          "omitted_chars": 142,
+          "newlines": [
+            51,
+            88,
+            141
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            53,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 150,
+          "newlines": [
+            45,
+            92,
+            149
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            46,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            62,
+            122
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            50,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 151,
+          "newlines": [
+            55,
+            94,
+            150
+          ]
+        },
+        {
+          "omitted_chars": 145,
+          "newlines": [
+            49,
+            96,
+            144
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            50,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 138,
+          "newlines": [
+            54,
+            92,
+            137
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            42,
+            85,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            37,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 122,
+          "newlines": [
+            57,
+            121
+          ]
+        },
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            33,
+            82,
+            112
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            56,
+            90,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            33,
+            67,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            33,
+            92,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            33,
+            67,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 33,
+          "newlines": []
+        }
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "targets": [
+        "file1:1",
+        "file1:2",
+        "file1:5",
+        "file1:8",
+        "file1:11",
+        "file1:14",
+        "file1:17",
+        "file1:20",
+        "file1:23",
+        "file1:26",
+        "file1:29",
+        "file1:32",
+        "file1:35",
+        "file1:38",
+        "file1:41",
+        "file1:44",
+        "file1:47",
+        "file1:50",
+        "file1:51"
+      ],
+      "sources": [],
+      "kind": "nonfactual",
+      "basis": "HTML structure, headings, section wrappers, navigation links, and closing tags; no factual propositions."
+    },
+    {
+      "targets": [
+        "answer:1",
+        "answer:2"
+      ],
+      "sources": [],
+      "kind": "nonfactual",
+      "basis": "Meta-statements about the report file and its contents; not verifiable against the two source documents."
+    },
+    {
+      "targets": [
+        "file1:3",
+        "file1:4"
+      ],
+      "sources": [
+        "s1:receipt",
+        "s2:receipt"
+      ],
+      "kind": "supported",
+      "basis": "Report states it compares the Python 3.12.2 release page and the Developer's Guide versions page, and treats the micro release separately from the series lifecycle. Both source receipts confirm the two URLs were fetched."
+    },
+    {
+      "targets": [
+        "file1:6",
+        "file1:7"
+      ],
+      "sources": [
+        "s1:13"
+      ],
+      "kind": "supported",
+      "basis": "s1:13 contains 'Release date: Feb. 6, 2024'; the report gives the Turkish equivalent and identifies it as the Release date field."
+    },
+    {
+      "targets": [
+        "file1:9",
+        "file1:10"
+      ],
+      "sources": [
+        "s1:14"
+      ],
+      "kind": "supported",
+      "basis": "s1:14 explicitly states 'This is the second maintenance release of Python 3.12'; the report cites this direct wording rather than inferring from the version number."
+    },
+    {
+      "targets": [
+        "file1:12",
+        "file1:13"
+      ],
+      "sources": [
+        "s1:14",
+        "s1:15",
+        "s1:16",
+        "s1:17",
+        "s1:18",
+        "s1:19"
+      ],
+      "kind": "supported",
+      "basis": "s1:14 mentions 'more than 350 bugfixes, build improvements and documentation changes since 3.12.1'; s1:15–s1:19 list the major new features of the 3.12 series compared to 3.11."
+    },
+    {
+      "targets": [
+        "file1:15",
+        "file1:16"
+      ],
+      "sources": [
+        "s1:15"
+      ],
+      "kind": "supported",
+      "basis": "s1:15: 'More flexible f-string parsing, allowing many things previously disallowed (PEP 701).'"
+    },
+    {
+      "targets": [
+        "file1:18",
+        "file1:19"
+      ],
+      "sources": [
+        "s1:16"
+      ],
+      "kind": "supported",
+      "basis": "s1:16: 'Support for the buffer protocol in Python code (PEP 688).' Presented as a new feature of the 3.12 series."
+    },
+    {
+      "targets": [
+        "file1:21",
+        "file1:22"
+      ],
+      "sources": [
+        "s1:16"
+      ],
+      "kind": "supported",
+      "basis": "s1:16: 'A new debugging/profiling API (PEP 669).' Report does not claim full details were read."
+    },
+    {
+      "targets": [
+        "file1:24",
+        "file1:25"
+      ],
+      "sources": [
+        "s1:17"
+      ],
+      "kind": "supported",
+      "basis": "s1:17: 'Support for isolated subinterpreters with separate Global Interpreter Locks (PEP 684).' Report makes no performance claim."
+    },
+    {
+      "targets": [
+        "file1:27",
+        "file1:28"
+      ],
+      "sources": [
+        "s1:19"
+      ],
+      "kind": "supported",
+      "basis": "s1:19: 'New type annotation syntax for generic classes (PEP 695). New override decorator for methods (PEP 698).'"
+    },
+    {
+      "targets": [
+        "file1:30",
+        "file1:31"
+      ],
+      "sources": [
+        "s1:22"
+      ],
+      "kind": "supported",
+      "basis": "s1:22: 'The deprecated smtpd and distutils modules have been removed… The setuptools package continues to provide the distutils module.'"
+    },
+    {
+      "targets": [
+        "file1:33",
+        "file1:34"
+      ],
+      "sources": [
+        "s1:23"
+      ],
+      "kind": "supported",
+      "basis": "s1:23: 'Invalid backslash escape sequences in strings now warn with SyntaxWarning instead of DeprecationWarning, making them more visible.'"
+    },
+    {
+      "targets": [
+        "file1:36",
+        "file1:37"
+      ],
+      "sources": [
+        "s2:27",
+        "s2:28"
+      ],
+      "kind": "supported",
+      "basis": "s2:27–s2:28 show the Supported versions table row for 3.12 with 'First release' 2023-10-02. Report notes this series start date does not alter the 3.12.2 micro release date."
+    },
+    {
+      "targets": [
+        "file1:39",
+        "file1:40"
+      ],
+      "sources": [
+        "s2:21",
+        "s2:27",
+        "s2:53",
+        "s2:54"
+      ],
+      "kind": "supported",
+      "basis": "s2:21 and s2:27 show Python 3.12 status as 'security'; s2:53–s2:54 define the security phase as accepting only security fixes and no more binary releases."
+    },
+    {
+      "targets": [
+        "file1:42",
+        "file1:43"
+      ],
+      "sources": [
+        "s2:27",
+        "s2:28"
+      ],
+      "kind": "supported",
+      "basis": "s2:27–s2:28 show 'End of life' 2028-10 for Python 3.12. Report correctly states this does not imply the regular bugfix phase lasts until then."
+    },
+    {
+      "targets": [
+        "file1:45",
+        "file1:46"
+      ],
+      "sources": [
+        "s1:13",
+        "s1:14"
+      ],
+      "kind": "supported",
+      "basis": "s1:13 notes 'Python 3.12.2 has been superseded by Python 3.12.16'; s1:14 calls 3.12.2 'the latest maintenance release' in historical context. Report does not claim exhaustive site crawl."
+    },
+    {
+      "targets": [
+        "file1:48",
+        "file1:49"
+      ],
+      "sources": [
+        "s1:receipt",
+        "s2:receipt"
+      ],
+      "kind": "supported",
+      "basis": "Both receipts have completeness='truncated'; report acknowledges truncation and transfers the Oct 2028 end-of-life value without inventing a specific day or extra security extension."
+    }
+  ]
+}

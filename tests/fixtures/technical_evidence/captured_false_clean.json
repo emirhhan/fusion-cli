@@ -1,0 +1,2640 @@
+{
+  "description": "Captured native 66-span clean second verdict, rebinding only private ownership/digest metadata in test. Actual cited span strings and claims retained; public reader output body includes tool-rendered footer as in diagnostic reconstruction, not a claim to recreate the original private receipt digest. Only cited public source spans remain; uncited spans are synthetic whitespace retaining newline layout and IDs. Full diagnostic capture stays outside the repository.",
+  "targets": {
+    "answer:1": "# Python 3.14.0 — 16 Bölümde Teknik Özet\n\n**Kaynaklar:** [python.org 3.14.0 sürüm sayfası](https://www.python.org/downloads/release/python-3140/) (erişim: 2026-11-10) · [docs.python.org 3.14 What's New](https://docs.python.org/3.14/whatsnew/3.14.html) (erişim: 2026-11-10)\n",
+    "answer:2": "\n---\n\n### 1.",
+    "answer:3": " Yayın Tarihi ve Genel Durum\nPython 3.14.0 **7 Ekim 2025** tarihinde kararlı sürüm olarak yayınlandı.",
+    "answer:4": " 3.14 serisi 3.13'e kıyasla dil, çalışma zamanı ve standart kütüphane 전반ında geniş değişiklikler içerir.",
+    "answer:5": " python.org sayfası not eder ki 3.14.0, 3.14.10 ile güncellenmiştir; bu rapor 3.14.0 temel sürümünü kapsar.\n",
+    "answer:6": "\n### 2.",
+    "answer:7": " Serbest İş Parçacığı (Free-Threaded) Resmi Desteği — PEP 779\n`--disable-gil` derleme seçeneği artık resmi olarak destekleniyor; GIL'siz çalışma üretimde kullanılabilir hale geldi.",
+    "answer:8": " PEP 779 bu özelliği \"resmi destek\" statüsüne kavuşturdu.",
+    "answer:9": " Windows ve macOS ikili sürümlerinde deneysel JIT derleyici de dahil edildi.\n",
+    "answer:10": "\n### 3.",
+    "answer:11": " Ertelenen Açıklama Değerlendirmesi — PEP 649 / PEP 749\nFonksiyon, sınıf ve modül açıklamaları (annotations) artık hemen değil, `annotationlib` modülü aracılığıyla talep edildiğinde değerlendiriliyor.",
+    "answer:12": " Bu, ileri referansları string'e sarmak zorunluluğunu kaldırıyor ve başlangıç performansını artırıyor.",
+    "answer:13": " `get_annotations(func, format=Format.VALUE|FORWARDREF|STRING)` ile üç biçimde erişim sağlanıyor.\n",
+    "answer:14": "\n### 4.",
+    "answer:15": " Şablon Dize Değişmezleri (t-strings) — PEP 750\n`t\"...\"` sözdizimi ile f-string benzeri görünümde ama çalışma zamanında işlenebilir şablon nesneleri oluşturuluyor.",
+    "answer:16": " Güvenli SQL sorguları, yerelleştirme ve DSL'ler için tasarlandı; `Template` nesnesi `interpolation` ve `strings` alanlarını sunuyor.\n",
+    "answer:17": "\n### 5.",
+    "answer:18": " Çoklu Yorumlayıcı (Subinterpreters) Stdlib'e Girdi — PEP 734\n`concurrent.interpreters` modülü ile bir süreç içinde izole yorumlayıcılar oluşturulabiliyor.",
+    "answer:19": " Her yorumlayıcının kendi GIL'i ve bellek alanı var; `interpreters.create()` ve `interpreters.run()` ile CSP/aktör modeli eşzamanlılığı mümkün.",
+    "answer:20": " `multiprocessing`'den daha hafif, iş parçacıklarından daha izole.\n",
+    "answer:21": "\n### 6.",
+    "answer:22": " Zstandard Sıkıştırma Desteği — PEP 784\nYeni `compression.zstd` modülü, Zstandard (zstd) algoritmasını standart kütüphaneye getiriyor.",
+    "answer:23": " `zstd.compress()`, `zstd.decompress()`, akış API'si ve `zstd.ZstdCompressor`/`ZstdDecompressor` sınıfları dahil.",
+    "answer:24": " Gzip/bz2/lzma alternatifi olarak daha hızlı sıkıştırma/sıkıştırma açma sunuyor.\n",
+    "answer:25": "\n### 7.",
+    "answer:26": " Parantezsiz `except` / `except*` İfadeleri — PEP 758\n`except Exception as e:` yerine `except Exception as e` (parantezsiz) yazılabiliyor.",
+    "answer:27": " `except*` (PEP 654 Exception Groups) için de geçerli.",
+    "answer:28": " Sadece sözdizimi kolaylığı; anlamsal değişiklik yok.\n",
+    "answer:29": "\n### 8.",
+    "answer:30": " `finally` Bloklarından Kontrol Akışı Yasaklandı — PEP 765\n`finally` bloğu içinde `return`, `break`, `continue` artık `SyntaxError` veriyor.",
+    "answer:31": " Bu, hata gizleme riskini ortadan kaldırıyor; kodun `try`/`finally` akışını netleştiriyor.\n",
+    "answer:32": "\n### 9.",
+    "answer:33": " Güvenli Harici Hata Ayıklayıcı Arayüzü — PEP 768\nSıfır ek maliyetli, C seviyesinde bir hata ayıklama protokolü eklendi.",
+    "answer:34": " IDE'ler ve hata ayıklayıcılar artık CPython çalışma zamanına müdahale etmeden kesme noktası, adım atma, değişken inceleme yapabiliyor.\n",
+    "answer:35": "\n### 10.",
+    "answer:36": " Yeni Yorumlayıcı Türü ve Artımlı Çöp Toplayıcı\nBelirli derleyicilerde (özellikle Clang/LLVM) önemli hız kazancı sağlayan yeni bir yorumlayıcı varyantı eklendi (kaynaktan derleme gerektirir, opt-in).",
+    "answer:37": " Çöp toplayıcı artık artımlı (incremental) çalışıyor; uzun duraklamalar azaltıldı, gecikme profili iyileşti.\n",
+    "answer:38": "\n### 11.",
+    "answer:39": " Hata Mesajları ve REPL Geliştirmeleri\n`SyntaxError`, `TypeError`, `AttributeError` mesajları daha açıklayıcı hale getirildi (ör.",
+    "answer:40": " \"Did you mean...?\" önerileri genişletildi).",
+    "answer:41": " Varsayılan etkileşimli kabuk (PyREPL) artık sözdizimi vurgulama ve çok satırlı düzenleme destekliyor.",
+    "answer:42": " `unittest`, `argparse`, `json.tool`, `calendar` CLI'larına renkli çıktı eklendi.\n",
+    "answer:43": "\n### 12.",
+    "answer:44": " `uuid` Modülü: v6–v8 Desteği ve Hız Artışı\nUUID sürüm 6, 7, 8 (zaman sıralı, kryptografik rastgele, özel) artık `uuid.uuid6()`, `uuid.uuid7()`, `uuid.uuid8()` ile üretiliyor.",
+    "answer:45": " v3–v5 üretimi %40'a kadar hızlandırıldı.\n",
+    "answer:46": "\n### 13.",
+    "answer:47": " `hmac` Modülü: HACL* ile Doğrulanmış Uygulama\nHMAC artık formel doğrulamadan geçmiş HACL* kütüphanesinin C uygulamasıyla sağlanıyor; yan kanal saldırılarına karşı dayanıklılık ve doğru uygulama garantisi artıyor.\n",
+    "answer:48": "\n### 14.",
+    "answer:49": " `asyncio` Gözlemlenebilirlik ve Eşzamanlı Güvenli Uyarılar\n`asyncio.get_running_loop().get_task()` / `all_tasks()` gibi introspection API'leri eklendi.",
+    "answer:50": " `warnings.catch_warnings()` artık iş parçacığı/görev güvenli; `warnings.warn()` eşzamanlı çağrılarda yarış durumu yaratmıyor.\n",
+    "answer:51": "\n### 15.",
+    "answer:52": " Standart Kütüphane Modül Geliştirmeleri (Seçme)\n- **argparse**: `BooleanOptionalAction` varsayılan davranış düzeltmeleri, renkli yardım.\n",
+    "answer:53": "- **datetime**: `datetime.fromisoformat()` performansı, `UTC` sabiti iyileştirmeleri.",
+    "answer:54": "\n- **pathlib**: `Path.walk()`/`rglob()` hızlandırıldı, `Path.is_junction()` (Windows) eklendi.\n",
+    "answer:55": "- **json**: `json.tool` CLI renkli çıktı; `json.dumps()` `ensure_ascii=False` varsayılanı tartışmaları.\n",
+    "answer:56": "- **ssl**: TLS 1.3 şifre paketleri, sertifika doğrulama iyileştirmeleri (3.14.10'da ek düzeltmeler).\n",
+    "answer:57": "- **tarfile**: `filter='data'` varsayılanı güvenlik için zorunlu hale geldi.",
+    "answer:58": "\n- **typing**: `TypeIs`, `Required`/`NotRequired` runtime davranışı, `typing.get_type_hints()` ertelenen açıklamayla uyumlu.\n",
+    "answer:59": "\n### 16.",
+    "answer:60": " Kaldırılanlar ve Kullanım Dışı Bırakılanlar\n**Kaldırılan (Removed):** `argparse` eski `FileType` davranışları, `ast` bazı düğüm alanları, `asyncio` `coroutine` dekoratörü (artık `iscoroutinefunction` yeterli), `email` `message_from_string`/`message_from_bytes` (yerine `EmailMessage`), `importlib.abc` eski soyut sınıflar, `itertools` `izip`/`imap` takma adları, `pathlib` `Path.link_to()`, `pkgutil` `ImpImporter`/`ImpLoader`, `pty` `fork()`/`spawn()` düşük seviye API'leri, `sqlite3` `enable_shared_cache`, `urllib` eski `URLopener`/`FancyURLopener`.\n",
+    "answer:61": "\n**Kullanım Dışı (Deprecated — 3.15/3.16/3.17/3.18/gelecekte kaldırılacak):** `configparser` `SafeConfigParser` takma adı, `ctypes` `c_buffer`, `curses` `window.igetstr()`, `datetime` `datetime.utcnow()`/`utcfromtimestamp()` (yerine `timezone.utc` kullanımı), `fractions` `Fraction.numerator`/`denominator` özellikleri (yine de kalıcı ama uyarı), `hmac` `new()` `digestmod` string argümanı, `os` `os.popen()` (yerine `subprocess`), `typing` `TypedDict` `total=False` varsayılanı değişimi, C API'de `PyObject_AsReadBuffer`/`PyObject_AsWriteBuffer` ve sınırlı API'deki bazı fonksiyonlar.\n",
+    "answer:62": "\n**Derleme Değişiklikleri:** PEP 761 ile PGP imzaları bırakıldı, Sigstore öneriliyor.",
+    "answer:63": " `build-details.json` üretimi eklendi.",
+    "answer:64": " Windows yükleyicisi yeni \"Python Install Manager\" ile değiştiriliyor (eski yükleyici 3.15'e kadar kalıcı).",
+    "answer:65": " Android için resmi ikili sürümler sağlanıyor.",
+    "answer:66": " Emscripten (WASM) Tier 3 resmi platform desteği (PEP 776)."
+  },
+  "sources": [
+    {
+      "url": "https://www.python.org/downloads/release/python-3140/",
+      "parts": [
+        {
+          "omitted_chars": 211,
+          "newlines": [
+            42,
+            43,
+            210
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            0,
+            18,
+            19,
+            28,
+            29,
+            38,
+            39,
+            45,
+            46,
+            53,
+            54,
+            61,
+            62,
+            69,
+            70,
+            82,
+            83,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            9,
+            10,
+            19,
+            20,
+            39,
+            40,
+            44,
+            45,
+            51,
+            53,
+            63,
+            64,
+            73,
+            74,
+            82,
+            83,
+            95,
+            97,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            11,
+            12,
+            26,
+            27,
+            37,
+            38,
+            46,
+            47,
+            62,
+            63,
+            72,
+            73,
+            91,
+            92,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            0,
+            12,
+            13,
+            28,
+            29,
+            43,
+            44,
+            54,
+            55,
+            63,
+            64,
+            74,
+            75,
+            81,
+            82,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            0,
+            10,
+            11,
+            41,
+            42,
+            58,
+            59,
+            66,
+            67,
+            88,
+            89,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            6,
+            7,
+            26,
+            27,
+            39,
+            40,
+            55,
+            56,
+            72,
+            73,
+            85,
+            86,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            15,
+            16,
+            22,
+            23,
+            32,
+            33,
+            60,
+            61,
+            82,
+            83,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            0,
+            14,
+            15,
+            29,
+            30,
+            48,
+            49,
+            68,
+            69,
+            84,
+            85,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            0,
+            18,
+            19,
+            26,
+            27,
+            38,
+            39,
+            51,
+            52,
+            66,
+            67,
+            80,
+            81,
+            94,
+            95,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            0,
+            7,
+            8,
+            22,
+            23,
+            40,
+            41,
+            52,
+            53,
+            69,
+            70,
+            87,
+            88,
+            114
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            9,
+            10,
+            26,
+            27,
+            47,
+            48,
+            72,
+            73,
+            101
+          ]
+        },
+        "\n Submit an Event \n\n Python 3.14.0\n\n Note: Python 3.14.0 has been superseded by Python 3.14.10 .\n\n Release date: Oct. 7, 2025\n",
+        "\n This is the stable release of Python 3.14.0\n\n Python 3.14.0 is the newest major release of the Python programming language, and it contains many new features and optimisations compared to Python 3.13.\n",
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            0,
+            57,
+            58,
+            122
+          ]
+        },
+        "\n New features\n\n PEP 779 : Free-threaded Python is officially supported\n\n PEP 649 : The evaluation of annotations is now deferred, improving the semantics of using annotations.\n",
+        "\n PEP 750 : Template string literals (t-strings) for custom string processing, using the familiar syntax of f-strings.\n",
+        "\n PEP 734 : Multiple interpreters in the stdlib.\n\n PEP 784 : A new module compression.zstd providing support for the Zstandard compression algorithm.\n",
+        "\n PEP 758 : except and except* expressions may now omit the brackets.\n\n Syntax highlighting in PyREPL , and support for color in unittest , argparse , json and calendar CLIs.\n",
+        "\n PEP 768 : A zero-overhead external debugger interface for CPython.\n\n UUID versions 6-8 are now supported by the uuid module, and generation of versions 3-5 are up to 40% faster.\n",
+        "\n PEP 765 : Disallow return / break / continue that exit a finally block.\n\n PEP 741 : An improved C API for configuring Python.\n",
+        "\n A new type of interpreter . For certain newer compilers, this interpreter provides significantly better performance. Opt-in for now, requires building from source.\n",
+        "\n Improved error messages. \n\n Builtin implementation of HMAC with formally verified code from the HACL* project.\n",
+        "\n A new command-line interface to inspect running Python processes using asynchronous tasks.\n\n The pdb module now supports remote attaching to a running Python process .\n",
+        "\n For more details on the changes to Python 3.14, see What’s new in Python 3.14 .\n\n Build changes\n\n PEP 761 : Python 3.14 and onwards no longer provides PGP signatures for release artifacts. Instead, Sigstore is recommended for verifiers.\n",
+        "\n Official macOS and Windows release binaries include an experimental JIT compiler .\n\n Official Android binary releases are now available.\n",
+        "\n Incompatible changes, removals and new deprecations\n\n Incompatible changes \n\n Python removals and deprecations \n",
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            34,
+            35,
+            74,
+            75,
+            99
+          ]
+        },
+        "\n The installer we offer for Windows is being replaced by our new install manager, which can be installed from the Windows Store or from its download page . See our documentation for more information. The JSON file available for download below contains the list of all the installable packages available as part of this release, including file URLs and hashes, but is not required to install the latest release. The traditional installer will remain available throughout the 3.14 and 3.15 releases.\n",
+        {
+          "omitted_chars": 126,
+          "newlines": [
+            0,
+            16,
+            17,
+            40,
+            41,
+            74,
+            75,
+            125
+          ]
+        },
+        {
+          "omitted_chars": 133,
+          "newlines": [
+            0,
+            87,
+            88,
+            132
+          ]
+        },
+        {
+          "omitted_chars": 264,
+          "newlines": [
+            0,
+            43,
+            44,
+            263
+          ]
+        },
+        {
+          "omitted_chars": 174,
+          "newlines": [
+            0,
+            173
+          ]
+        },
+        {
+          "omitted_chars": 151,
+          "newlines": [
+            0,
+            21,
+            22,
+            42,
+            43,
+            82,
+            83,
+            150
+          ]
+        },
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            0,
+            46,
+            47,
+            112
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            0,
+            49,
+            50,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 138,
+          "newlines": [
+            0,
+            79,
+            80,
+            137
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            0,
+            50,
+            51,
+            96,
+            97,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 239,
+          "newlines": [
+            0,
+            238
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            0,
+            17,
+            18,
+            25,
+            26,
+            33,
+            34,
+            79,
+            80,
+            89,
+            90,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            16,
+            17,
+            57,
+            58,
+            68,
+            87,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            11,
+            13,
+            24,
+            25,
+            32,
+            33,
+            48,
+            49,
+            74,
+            91,
+            93,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            12,
+            13,
+            20,
+            21,
+            57,
+            58,
+            89,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            1,
+            11,
+            12,
+            24,
+            25,
+            32,
+            33,
+            69,
+            70,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 111,
+          "newlines": [
+            9,
+            11,
+            21,
+            22,
+            34,
+            35,
+            71,
+            72,
+            110
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            9,
+            11,
+            21,
+            22,
+            34,
+            35,
+            71,
+            72,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 126,
+          "newlines": [
+            7,
+            35,
+            45,
+            46,
+            58,
+            59,
+            95,
+            96,
+            125
+          ]
+        },
+        {
+          "omitted_chars": 122,
+          "newlines": [
+            9,
+            23,
+            33,
+            34,
+            46,
+            47,
+            54,
+            55,
+            91,
+            92,
+            121
+          ]
+        },
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            9,
+            11,
+            21,
+            22,
+            34,
+            35,
+            42,
+            43,
+            79,
+            80,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 132,
+          "newlines": [
+            9,
+            24,
+            34,
+            35,
+            47,
+            48,
+            55,
+            56,
+            92,
+            93,
+            131
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            9,
+            11,
+            21,
+            22,
+            34,
+            35,
+            42,
+            43,
+            79,
+            80,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            9,
+            11,
+            21,
+            22,
+            34,
+            35,
+            42,
+            43,
+            79,
+            80,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            9,
+            11,
+            21,
+            22,
+            34,
+            35,
+            42,
+            43,
+            79,
+            80,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            9,
+            42,
+            52,
+            53,
+            65,
+            66,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            0,
+            16,
+            17,
+            25,
+            26,
+            41,
+            42,
+            51,
+            52,
+            70,
+            71,
+            78,
+            79,
+            91,
+            92,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 114,
+          "newlines": [
+            0,
+            14,
+            15,
+            25,
+            26,
+            34,
+            35,
+            45,
+            46,
+            52,
+            53,
+            71,
+            72,
+            82,
+            83,
+            113
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            16,
+            17,
+            24,
+            25,
+            46,
+            47,
+            66,
+            67,
+            73,
+            74,
+            93,
+            94,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            0,
+            15,
+            16,
+            32,
+            33,
+            45,
+            46,
+            58,
+            59,
+            75,
+            76,
+            82,
+            83,
+            92,
+            93,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            0,
+            21,
+            22,
+            48,
+            49,
+            63,
+            64,
+            78,
+            79,
+            97,
+            98,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            0,
+            15,
+            16,
+            33,
+            34,
+            52,
+            53,
+            60,
+            61,
+            72,
+            73,
+            85,
+            86,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            13,
+            14,
+            27,
+            28,
+            51,
+            52,
+            59,
+            60,
+            74,
+            75,
+            92,
+            93,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            16,
+            17,
+            34,
+            35,
+            61,
+            62,
+            71,
+            72,
+            88,
+            89,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            24,
+            25,
+            53,
+            54,
+            72,
+            73,
+            88,
+            89,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            16,
+            17,
+            35,
+            36,
+            54,
+            55,
+            81,
+            82,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            24,
+            25,
+            49,
+            50,
+            71,
+            72,
+            81,
+            82,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 116,
+          "newlines": [
+            30,
+            51,
+            70,
+            115
+          ]
+        },
+        {
+          "omitted_chars": 155,
+          "newlines": [
+            0,
+            23,
+            85,
+            154
+          ]
+        },
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            23,
+            51,
+            75,
+            93,
+            122
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            33,
+            91,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 117,
+          "newlines": [
+            62,
+            116
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            60,
+            90,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            26,
+            56,
+            91,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 114,
+          "newlines": [
+            44,
+            79,
+            113
+          ]
+        },
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            40,
+            82,
+            122
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            41,
+            79,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 112,
+          "newlines": [
+            38,
+            83,
+            111
+          ]
+        },
+        {
+          "omitted_chars": 128,
+          "newlines": [
+            29,
+            96,
+            127
+          ]
+        },
+        {
+          "omitted_chars": 133,
+          "newlines": [
+            32,
+            56,
+            97,
+            132
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            43,
+            83,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 130,
+          "newlines": [
+            46,
+            90,
+            129
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            39,
+            69,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            39,
+            80,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 152,
+          "newlines": [
+            39,
+            93,
+            151
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            58,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            59,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            69,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            38,
+            67,
+            95,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            25,
+            56,
+            101
+          ]
+        },
+        {
+          "omitted_chars": 153,
+          "newlines": [
+            48,
+            98,
+            152
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            69,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 134,
+          "newlines": [
+            66,
+            133
+          ]
+        },
+        {
+          "omitted_chars": 134,
+          "newlines": [
+            66,
+            133
+          ]
+        },
+        {
+          "omitted_chars": 134,
+          "newlines": [
+            66,
+            133
+          ]
+        },
+        {
+          "omitted_chars": 155,
+          "newlines": [
+            79,
+            154
+          ]
+        },
+        {
+          "omitted_chars": 74,
+          "newlines": []
+        }
+      ]
+    },
+    {
+      "url": "https://docs.python.org/3.14/whatsnew/3.14.html",
+      "parts": [
+        {
+          "omitted_chars": 111,
+          "newlines": [
+            57,
+            58,
+            65,
+            67,
+            74,
+            82,
+            89,
+            90,
+            110
+          ]
+        },
+        {
+          "omitted_chars": 133,
+          "newlines": [
+            0,
+            28,
+            59,
+            60,
+            75,
+            132
+          ]
+        },
+        "\n PEP 734 : Multiple interpreters in the standard library \n\n PEP 750 : Template string literals \n\n PEP 768 : Safe external debugger interface \n",
+        "\n A new type of interpreter \n\n Free-threaded mode improvements \n\n Improved error messages \n\n PEP 784 : Zstandard support in the standard library \n",
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            37,
+            38,
+            73,
+            74,
+            99
+          ]
+        },
+        " Built-ins \n\n Command line and environment \n\n PEP 758: Allow except and except* expressions without brackets \n",
+        "\n PEP 765: Control flow in finally blocks \n\n Garbage collection \n\n Default interactive shell \n\n New modules \n",
+        "\n Improved modules \n argparse \n\n ast \n\n asyncio \n\n calendar \n\n concurrent.futures \n\n configparser \n\n",
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            13,
+            14,
+            23,
+            24,
+            33,
+            34,
+            45,
+            46,
+            56,
+            57,
+            67,
+            68,
+            74,
+            75,
+            83,
+            84,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            0,
+            10,
+            11,
+            23,
+            24,
+            36,
+            37,
+            46,
+            47,
+            57,
+            58,
+            69,
+            70,
+            78,
+            79,
+            86,
+            87,
+            94,
+            95,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            10,
+            11,
+            16,
+            17,
+            24,
+            25,
+            37,
+            38,
+            57,
+            58,
+            65,
+            66,
+            78,
+            79,
+            97,
+            98,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            0,
+            5,
+            6,
+            16,
+            17,
+            27,
+            28,
+            34,
+            35,
+            44,
+            45,
+            56,
+            57,
+            65,
+            66,
+            71,
+            72,
+            81,
+            82,
+            88,
+            89,
+            98,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            10,
+            11,
+            17,
+            18,
+            35,
+            36,
+            48,
+            49,
+            59,
+            60,
+            72,
+            73,
+            83,
+            84,
+            93,
+            94,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            0,
+            9,
+            10,
+            24,
+            25,
+            36,
+            37,
+            46,
+            47,
+            54,
+            55,
+            68,
+            69,
+            79,
+            80,
+            96,
+            106
+          ]
+        },
+        "\n base64 \n\n bdb \n\n difflib \n\n gc \n\n io \n\n pathlib \n\n pdb \n\n textwrap \n\n uuid \n\n zlib \n\n Removed \n argparse \n",
+        "\n ast \n\n asyncio \n\n email \n\n importlib.abc \n\n itertools \n\n pathlib \n\n pkgutil \n\n pty \n\n sqlite3 \n\n urllib \n",
+        "\n Deprecated \n New deprecations \n\n Pending removal in Python 3.15 \n\n Pending removal in Python 3.16 \n",
+        "\n Pending removal in Python 3.17 \n\n Pending removal in Python 3.18 \n\n Pending removal in Python 3.19 \n",
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            37,
+            38,
+            65,
+            87,
+            88,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            28,
+            29,
+            57,
+            58,
+            82,
+            83,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 122,
+          "newlines": [
+            0,
+            20,
+            53,
+            54,
+            87,
+            88,
+            121
+          ]
+        },
+        "\n Pending removal in future versions \n\n Build changes \n build-details.json \n\n Discontinuation of PGP signatures \n",
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            0,
+            47,
+            48,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            0,
+            25,
+            53,
+            54,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 100,
+          "newlines": [
+            33,
+            34,
+            80,
+            81,
+            99
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            0,
+            37,
+            38,
+            61,
+            62,
+            90,
+            91,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 124,
+          "newlines": [
+            4,
+            5,
+            34,
+            40,
+            41,
+            57,
+            58,
+            81,
+            82,
+            94,
+            95,
+            123
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            0,
+            11,
+            12,
+            27,
+            28,
+            48,
+            49,
+            62,
+            63,
+            75,
+            76,
+            84,
+            85,
+            96,
+            97,
+            105
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            0,
+            12,
+            13,
+            23,
+            24,
+            49,
+            50,
+            74,
+            75,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            0,
+            3,
+            4,
+            11,
+            13,
+            20,
+            28,
+            35,
+            37,
+            40,
+            41,
+            71,
+            72,
+            84,
+            119
+          ]
+        },
+        "\n This article explains the new features in Python 3.14, compared to 3.13.\nPython 3.14 was released on 7 October 2025.\n",
+        {
+          "omitted_chars": 124,
+          "newlines": [
+            37,
+            38,
+            48,
+            49,
+            89,
+            90,
+            123
+          ]
+        },
+        {
+          "omitted_chars": 138,
+          "newlines": [
+            0,
+            68,
+            137
+          ]
+        },
+        {
+          "omitted_chars": 119,
+          "newlines": [
+            25,
+            80,
+            118
+          ]
+        },
+        {
+          "omitted_chars": 127,
+          "newlines": [
+            34,
+            56,
+            57,
+            126
+          ]
+        },
+        {
+          "omitted_chars": 120,
+          "newlines": [
+            27,
+            60,
+            119
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            47,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            0,
+            66,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            44,
+            75,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 124,
+          "newlines": [
+            76,
+            123
+          ]
+        },
+        {
+          "omitted_chars": 152,
+          "newlines": [
+            50,
+            93,
+            151
+          ]
+        },
+        {
+          "omitted_chars": 116,
+          "newlines": [
+            27,
+            28,
+            55,
+            56,
+            115
+          ]
+        },
+        {
+          "omitted_chars": 156,
+          "newlines": [
+            0,
+            58,
+            59,
+            88,
+            89,
+            155
+          ]
+        },
+        {
+          "omitted_chars": 102,
+          "newlines": [
+            0,
+            43,
+            44,
+            101
+          ]
+        },
+        "\n A new type of interpreter \n\n Free-threaded mode improvements \n\n Improved error messages \n\n Incremental garbage collection \n",
+        "\n Significant improvements in the standard library:\n\n PEP 784 : Zstandard support in the standard library \n",
+        "\n Asyncio introspection capabilities \n\n Concurrent safe warnings control \n\n Syntax highlighting in the default interactive shell , and color output in several\n",
+        "standard library CLIs\n\n C API improvements:\n\n PEP 741 : Python configuration C API \n\n Platform support:\n",
+        "\n PEP 776 : Emscripten is now an officially supported platform , at tier 3 .\n\n Release changes:\n\n PEP 779 : Free-threaded Python is officially supported \n",
+        "\n PEP 761 : PGP signatures have been discontinued for official releases \n\n Windows and macOS binary releases now support the experimental\n",
+        "just-in-time compiler \n\n Binary releases for Android are now provided \n\n New features ¶ \n\n PEP 649 & PEP 749 : Deferred evaluation of annotations ¶ \n",
+        "\n The annotations on functions, classes, and modules are no\nlonger evaluated eagerly. Instead, annotations are stored in special-purpose\n",
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            43,
+            109
+          ]
+        },
+        {
+          "omitted_chars": 156,
+          "newlines": [
+            0,
+            77,
+            155
+          ]
+        },
+        "minimized, but it remains possible to introspect annotations at runtime.\nIt is no longer necessary to enclose annotations in strings if they\n",
+        "contain forward references.\n\n The new annotationlib module provides tools for inspecting deferred\nannotations. Annotations may be evaluated in the VALUE \n",
+        "format (which evaluates annotations to runtime values, similar to the behavior in\nearlier Python versions), the FORWARDREF format\n",
+        "(which replaces undefined names with special markers), and the\n STRING format (which returns annotations as strings).\n",
+        {
+          "omitted_chars": 105,
+          "newlines": [
+            0,
+            46,
+            47,
+            104
+          ]
+        },
+        {
+          "omitted_chars": 104,
+          "newlines": [
+            35,
+            46,
+            103
+          ]
+        },
+        {
+          "omitted_chars": 151,
+          "newlines": [
+            36,
+            42,
+            88,
+            150
+          ]
+        },
+        {
+          "omitted_chars": 125,
+          "newlines": [
+            66,
+            124
+          ]
+        },
+        {
+          "omitted_chars": 141,
+          "newlines": [
+            22,
+            23,
+            62,
+            140
+          ]
+        },
+        {
+          "omitted_chars": 101,
+          "newlines": [
+            40,
+            41,
+            100
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            40,
+            41,
+            51,
+            52,
+            114
+          ]
+        },
+        "\n PEP 749 Implementing PEP 649\n\n PEP 734 : Multiple interpreters in the standard library ¶ \n\n The CPython runtime supports running multiple copies of Python in the\n",
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            62,
+            120
+          ]
+        },
+        "However, the feature had been available only through\nthe C-API .\n\n That limitation is removed in Python 3.14,\n",
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            44,
+            45,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 123,
+          "newlines": [
+            25,
+            26,
+            92,
+            93,
+            122
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            0,
+            69,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            79,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 116,
+          "newlines": [
+            67,
+            115
+          ]
+        },
+        "\n With multiple isolated interpreters, you can take advantage of a class\nof concurrency models, like Communicating Sequential Processes (CSP)\n",
+        "or the actor model, that have found\nsuccess in other programming languages, like Smalltalk, Erlang,\n",
+        {
+          "omitted_chars": 152,
+          "newlines": [
+            58,
+            83,
+            84,
+            151
+          ]
+        },
+        {
+          "omitted_chars": 136,
+          "newlines": [
+            69,
+            135
+          ]
+        },
+        {
+          "omitted_chars": 161,
+          "newlines": [
+            41,
+            42,
+            98,
+            160
+          ]
+        },
+        "“processes” that can run in parallel, with no sharing by default.\nHowever, when using multiple interpreters, an application will use\n",
+        "fewer system resources and will operate more efficiently (since it\nstays within the same process). Think of multiple interpreters as\n",
+        {
+          "omitted_chars": 137,
+          "newlines": [
+            65,
+            66,
+            136
+          ]
+        },
+        {
+          "omitted_chars": 133,
+          "newlines": [
+            65,
+            132
+          ]
+        },
+        {
+          "omitted_chars": 103,
+          "newlines": [
+            13,
+            14,
+            78,
+            79,
+            102
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            23,
+            66,
+            114
+          ]
+        },
+        {
+          "omitted_chars": 136,
+          "newlines": [
+            74,
+            135
+          ]
+        },
+        {
+          "omitted_chars": 201,
+          "newlines": [
+            98,
+            200
+          ]
+        },
+        {
+          "omitted_chars": 170,
+          "newlines": [
+            80,
+            169
+          ]
+        },
+        {
+          "omitted_chars": 154,
+          "newlines": [
+            73,
+            153
+          ]
+        },
+        {
+          "omitted_chars": 170,
+          "newlines": [
+            71,
+            169
+          ]
+        },
+        {
+          "omitted_chars": 164,
+          "newlines": [
+            82,
+            163
+          ]
+        },
+        {
+          "omitted_chars": 129,
+          "newlines": [
+            70,
+            128
+          ]
+        },
+        {
+          "omitted_chars": 186,
+          "newlines": [
+            76,
+            185
+          ]
+        },
+        {
+          "omitted_chars": 154,
+          "newlines": [
+            86,
+            153
+          ]
+        },
+        {
+          "omitted_chars": 134,
+          "newlines": [
+            73,
+            133
+          ]
+        },
+        {
+          "omitted_chars": 122,
+          "newlines": [
+            64,
+            121
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            51,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 124,
+          "newlines": [
+            56,
+            123
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            60,
+            120
+          ]
+        },
+        {
+          "omitted_chars": 110,
+          "newlines": [
+            54,
+            109
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#datetime\nhttps://docs.python.org/3.14/whatsnew/3.14.html#decimal\n",
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            55,
+            107
+          ]
+        },
+        {
+          "omitted_chars": 115,
+          "newlines": [
+            53,
+            114
+          ]
+        },
+        {
+          "omitted_chars": 114,
+          "newlines": [
+            55,
+            113
+          ]
+        },
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            57,
+            112
+          ]
+        },
+        {
+          "omitted_chars": 113,
+          "newlines": [
+            55,
+            112
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#heapq\nhttps://docs.python.org/3.14/whatsnew/3.14.html#hmac\n",
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            52,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            55,
+            106
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#json\nhttps://docs.python.org/3.14/whatsnew/3.14.html#linecache\n",
+        {
+          "omitted_chars": 118,
+          "newlines": [
+            64,
+            117
+          ]
+        },
+        {
+          "omitted_chars": 122,
+          "newlines": [
+            57,
+            121
+          ]
+        },
+        {
+          "omitted_chars": 108,
+          "newlines": [
+            56,
+            107
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#os-path\nhttps://docs.python.org/3.14/whatsnew/3.14.html#pathlib\n",
+        {
+          "omitted_chars": 107,
+          "newlines": [
+            51,
+            106
+          ]
+        },
+        {
+          "omitted_chars": 111,
+          "newlines": [
+            56,
+            110
+          ]
+        },
+        {
+          "omitted_chars": 106,
+          "newlines": [
+            50,
+            105
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#ssl\nhttps://docs.python.org/3.14/whatsnew/3.14.html#struct\n",
+        {
+          "omitted_chars": 109,
+          "newlines": [
+            56,
+            108
+          ]
+        },
+        {
+          "omitted_chars": 121,
+          "newlines": [
+            62,
+            120
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#tarfile\nhttps://docs.python.org/3.14/whatsnew/3.14.html#threading\n",
+        {
+          "omitted_chars": 111,
+          "newlines": [
+            55,
+            110
+          ]
+        },
+        "https://docs.python.org/3.14/whatsnew/3.14.html#types\nhttps://docs.python.org/3.14/whatsnew/3.14.html#typing\n",
+        {
+          "omitted_chars": 59,
+          "newlines": []
+        }
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "targets": [
+        "answer:1"
+      ],
+      "sources": [
+        "s1:13",
+        "s2:31"
+      ],
+      "basis": "Source spans confirm release date and URLs; access date is metadata.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:2"
+      ],
+      "sources": [],
+      "basis": "Formatting separator only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:3"
+      ],
+      "sources": [
+        "s1:13",
+        "s2:31"
+      ],
+      "basis": "Both sources state release date 7 October 2025.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:4"
+      ],
+      "sources": [
+        "s1:14"
+      ],
+      "basis": "Source says many new features and optimisations compared to 3.13.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:5"
+      ],
+      "sources": [
+        "s1:13"
+      ],
+      "basis": "Source notes Python 3.14.0 has been superseded by Python 3.14.10.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:6"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:7"
+      ],
+      "sources": [
+        "s1:16",
+        "s2:49"
+      ],
+      "basis": "Both sources list PEP 779 free-threaded Python officially supported.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:8"
+      ],
+      "sources": [
+        "s1:16",
+        "s2:49"
+      ],
+      "basis": "PEP 779 grants official support status.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:9"
+      ],
+      "sources": [
+        "s1:26",
+        "s2:50"
+      ],
+      "basis": "Both sources explicitly state official macOS and Windows binaries include experimental JIT compiler.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:10"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:11"
+      ],
+      "sources": [
+        "s1:16",
+        "s2:52"
+      ],
+      "basis": "Sources describe deferred evaluation of annotations via annotationlib.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:12"
+      ],
+      "sources": [
+        "s2:55"
+      ],
+      "basis": "Source says no longer necessary to enclose annotations in strings for forward references; performance improved.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:13"
+      ],
+      "sources": [
+        "s2:56",
+        "s2:57",
+        "s2:58"
+      ],
+      "basis": "Source details get_annotations with VALUE, FORWARDREF, STRING formats.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:14"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:15"
+      ],
+      "sources": [
+        "s1:17",
+        "s2:3"
+      ],
+      "basis": "Sources mention PEP 750 template string literals (t-strings).",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:16"
+      ],
+      "sources": [
+        "s2:3"
+      ],
+      "basis": "Source describes Template objects with interpolation and strings fields for safe SQL, localization, DSLs.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:17"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:18"
+      ],
+      "sources": [
+        "s1:18",
+        "s2:66"
+      ],
+      "basis": "Sources list PEP 734 multiple interpreters in stdlib via concurrent.interpreters.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:19"
+      ],
+      "sources": [
+        "s2:68",
+        "s2:74",
+        "s2:75"
+      ],
+      "basis": "Source explains each interpreter has own GIL and memory; create() and run() for CSP/actor model.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:20"
+      ],
+      "sources": [
+        "s2:79",
+        "s2:80"
+      ],
+      "basis": "Source compares to multiprocessing and threads: lighter than multiprocessing, more isolated than threads.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:21"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:22"
+      ],
+      "sources": [
+        "s1:18",
+        "s2:46"
+      ],
+      "basis": "Sources mention PEP 784 new compression.zstd module.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:23"
+      ],
+      "sources": [
+        "s2:46"
+      ],
+      "basis": "Source lists compress, decompress, streaming API, ZstdCompressor/Decompressor classes.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:24"
+      ],
+      "sources": [
+        "s2:46"
+      ],
+      "basis": "Source says faster compression/decompression alternative to gzip/bz2/lzma.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:25"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:26"
+      ],
+      "sources": [
+        "s1:19",
+        "s2:6"
+      ],
+      "basis": "Sources mention PEP 758 allow except and except* without brackets.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:27"
+      ],
+      "sources": [
+        "s1:19",
+        "s2:6"
+      ],
+      "basis": "Sources note applies to except* as well.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:28"
+      ],
+      "sources": [
+        "s1:19"
+      ],
+      "basis": "Source says syntax convenience only; no semantic change.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:29"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:30"
+      ],
+      "sources": [
+        "s1:21",
+        "s2:7"
+      ],
+      "basis": "Sources mention PEP 765 disallow return/break/continue exiting finally block.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:31"
+      ],
+      "sources": [
+        "s1:21"
+      ],
+      "basis": "Source says eliminates error hiding risk; clarifies try/finally flow.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:32"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:33"
+      ],
+      "sources": [
+        "s1:20",
+        "s2:3"
+      ],
+      "basis": "Sources mention PEP 768 zero-overhead external debugger interface.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:34"
+      ],
+      "sources": [
+        "s1:20",
+        "s2:3"
+      ],
+      "basis": "Source says IDEs/debuggers can set breakpoints, step, inspect variables without runtime interference.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:35"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:36"
+      ],
+      "sources": [
+        "s1:22",
+        "s2:4"
+      ],
+      "basis": "Sources describe new interpreter type for certain compilers (Clang/LLVM) with significant performance gains, opt-in, requires building from source.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:37"
+      ],
+      "sources": [
+        "s2:45"
+      ],
+      "basis": "Source mentions incremental garbage collection reducing long pauses, improving latency profile.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:38"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:39"
+      ],
+      "sources": [
+        "s1:23",
+        "s2:4"
+      ],
+      "basis": "Sources mention improved error messages for SyntaxError, TypeError, AttributeError.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:40"
+      ],
+      "sources": [
+        "s1:23",
+        "s2:4"
+      ],
+      "basis": "Source says 'Did you mean...?' suggestions expanded.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:41"
+      ],
+      "sources": [
+        "s1:19",
+        "s2:47"
+      ],
+      "basis": "Sources mention syntax highlighting in PyREPL/default interactive shell and multi-line editing.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:42"
+      ],
+      "sources": [
+        "s1:19",
+        "s2:47"
+      ],
+      "basis": "Sources list color output added to unittest, argparse, json.tool, calendar CLIs.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:43"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:44"
+      ],
+      "sources": [
+        "s1:20",
+        "s2:122"
+      ],
+      "basis": "Sources mention UUID versions 6-8 supported via uuid.uuid6(), uuid.uuid7(), uuid.uuid8().",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:45"
+      ],
+      "sources": [
+        "s1:20"
+      ],
+      "basis": "Source says generation of versions 3-5 up to 40% faster.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:46"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:47"
+      ],
+      "sources": [
+        "s1:23",
+        "s2:106"
+      ],
+      "basis": "Sources mention HMAC now uses formally verified HACL* C implementation.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:48"
+      ],
+      "sources": [
+        "s1:23"
+      ],
+      "basis": "Source says resistance to side-channel attacks and correct implementation guarantee.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:49"
+      ],
+      "sources": [
+        "s1:24",
+        "s2:47"
+      ],
+      "basis": "Sources mention asyncio introspection APIs get_task() and all_tasks().",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:50"
+      ],
+      "sources": [
+        "s2:47"
+      ],
+      "basis": "Source says warnings.catch_warnings() now thread/task safe; warnings.warn() no race conditions.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:51"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:52"
+      ],
+      "sources": [
+        "s2:8"
+      ],
+      "basis": "Source lists argparse improvements including BooleanOptionalAction fixes and color help.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:53"
+      ],
+      "sources": [
+        "s2:100"
+      ],
+      "basis": "Source mentions datetime.fromisoformat() performance and UTC constant improvements.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:54"
+      ],
+      "sources": [
+        "s2:113"
+      ],
+      "basis": "Source mentions pathlib Path.walk()/rglob() speedup and Path.is_junction() for Windows.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:55"
+      ],
+      "sources": [
+        "s2:109"
+      ],
+      "basis": "Source mentions json.tool CLI color output; json.dumps() ensure_ascii=False default discussions.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:56"
+      ],
+      "sources": [
+        "s2:117"
+      ],
+      "basis": "Source mentions ssl TLS 1.3 cipher suites, certificate verification improvements; notes 3.14.10 additional fixes.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:57"
+      ],
+      "sources": [
+        "s2:120"
+      ],
+      "basis": "Source mentions tarfile filter='data' default made mandatory for security.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:58"
+      ],
+      "sources": [
+        "s2:122"
+      ],
+      "basis": "Source mentions typing TypeIs, Required/NotRequired runtime behavior, get_type_hints() compatibility with deferred annotations.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:59"
+      ],
+      "sources": [],
+      "basis": "Section heading only.",
+      "kind": "nonfactual"
+    },
+    {
+      "targets": [
+        "answer:60"
+      ],
+      "sources": [
+        "s1:27",
+        "s2:15",
+        "s2:16"
+      ],
+      "basis": "Sources list removals: argparse old FileType, ast node fields, asyncio coroutine decorator, email message_from_string/bytes, importlib.abc old abstract classes, itertools izip/imap aliases, pathlib Path.link_to(), pkgutil ImpImporter/ImpLoader, pty fork/spawn low-level APIs, sqlite3 enable_shared_cache, urllib old URLopener/FancyURLopener.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:61"
+      ],
+      "sources": [
+        "s2:17",
+        "s2:18"
+      ],
+      "basis": "Sources list deprecations with pending removal versions: configparser SafeConfigParser alias, ctypes c_buffer, curses window.igetstr(), datetime utcnow/utcfromtimestamp, fractions Fraction.numerator/denominator, hmac new() digestmod string arg, os popen(), typing TypedDict total=False default change, C API PyObject_AsReadBuffer/AsWriteBuffer and limited API functions.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:62"
+      ],
+      "sources": [
+        "s1:25",
+        "s2:22"
+      ],
+      "basis": "Sources mention PEP 761 PGP signatures discontinued, Sigstore recommended.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:63"
+      ],
+      "sources": [
+        "s2:22"
+      ],
+      "basis": "Source mentions build-details.json production added.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:64"
+      ],
+      "sources": [
+        "s1:29",
+        "s2:49"
+      ],
+      "basis": "Sources state Windows installer replaced by Python Install Manager; traditional installer remains through 3.14 and 3.15.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:65"
+      ],
+      "sources": [
+        "s1:26",
+        "s2:51"
+      ],
+      "basis": "Sources state official Android binary releases now provided.",
+      "kind": "supported"
+    },
+    {
+      "targets": [
+        "answer:66"
+      ],
+      "sources": [
+        "s2:48"
+      ],
+      "basis": "Source mentions PEP 776 Emscripten (WASM) Tier 3 officially supported platform.",
+      "kind": "supported"
+    }
+  ]
+}
