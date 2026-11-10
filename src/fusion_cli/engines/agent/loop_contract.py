@@ -280,12 +280,16 @@ def _verification_correction_task(verification: VerificationResult) -> str:
     ):
         return (
             f"{CORRECTION_NOTE_PREFIX} Kaynak tutarlılığı denetimi somut iddia sorunları buldu. "
-            "Asıl kullanıcı görevi ve kabul edilen rapor yolu geçerlidir. Eksik resmi kaynakları "
+            "Asıl kullanıcı görevi ve kabul edilen rapor yolu geçerlidir. "
+            "Yalnız kullanıcının izin verdiği kaynak kapsamı içinde eksik resmi kaynakları "
             "oku; iddiaları düzelt, isteğe bağlı kanıtsız ekleri kaldır veya "
             "belirsizliği açıkça belirt. "
             "İstenen bilgileri (önsürüm ayrımı dahil) sessizce silme. "
             "Metin yanıtını düzeltmek için "
             "dosya yazmak gerekmez; rapor varsa aynı kabul edilen dosyayı düzelt. "
+            "Rapor metin yanıtı olarak istenmişse güncellenmiş raporun tamamını tek yanıtta sun; "
+            "değişmeyen bölümleri de koru, yalnız değişen bölümleri veya değişiklik özeti verme. "
+            "Diğer bölümlerin doğru olduğunu söylemek bu bölümleri teslim etmenin yerine geçmez. "
             "Salt CSS değişikliği olgusal bulguyu gidermez.\n\n" + "\n".join(verification.findings)
         )
     # Bulgu yoksa özet tek başına talimat olur: elde bundan fazlası yok, ama
