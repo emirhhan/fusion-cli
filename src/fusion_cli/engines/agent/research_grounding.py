@@ -280,8 +280,19 @@ def _owned_sources(
         for source in sources
         if (source.accepted_id, source.root, source.owner)
         == (target.accepted_id, target.root, target.owner)
-        and source.receipt.scope == "document"
-        and source.receipt.completeness in {"complete", "truncated"}
+        and (
+            (
+                source.receipt.scope == "document"
+                and not source.receipt.section_id
+                and source.receipt.completeness in {"complete", "truncated"}
+            )
+            or (
+                source.receipt.scope == "section"
+                and bool(source.receipt.section_id.strip())
+                and len(source.receipt.section_id) <= 512
+                and source.receipt.completeness == "truncated"
+            )
+        )
         and source.receipt.text
         and source.digest == _digest(asdict(source.receipt))
         and bool(source.call_id)
@@ -326,6 +337,7 @@ def request_payload(
                             "fetched_at": source.receipt.fetched_at,
                             "completeness": source.receipt.completeness,
                             "scope": source.receipt.scope,
+                            "section_id": source.receipt.section_id,
                         },
                         ensure_ascii=False,
                         sort_keys=True,

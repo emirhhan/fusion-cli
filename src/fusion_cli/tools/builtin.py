@@ -781,7 +781,22 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="web_fetch",
         description="URL içeriğini metin olarak oku. Girişli/formlu sayfada browser_open kullan.",
-        parameters=_schema({"url": _STRING}, ["url"]),
+        parameters=_schema(
+            {
+                "url": _STRING,
+                "section": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": (
+                        "Exact decoded HTML id (no leading #), not a URL fragment. "
+                        "Reads only that element subtree as an incomplete excerpt; "
+                        "a heading id selects only the heading."
+                    ),
+                },
+            },
+            ["url"],
+        ),
         run=web.web_fetch,
         evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).

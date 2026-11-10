@@ -20,6 +20,7 @@ class SourceReceipt:
     scope: str = "document"
     published_at: str = ""
     updated_at: str = ""
+    section_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
