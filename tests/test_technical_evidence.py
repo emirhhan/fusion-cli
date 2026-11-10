@@ -241,13 +241,15 @@ def test_literal_presence_does_not_clear_a_semantic_failure(tmp_path):
     assert verdict.claims[0].basis == "The same API has the opposite lifecycle claim."
 
 
-def test_cannot_borrow_literal_from_uncited_owned_span_or_judge_basis(tmp_path):
-    _, target, sources = target_sources(tmp_path, "`erase_item` was removed.")
-    receipt = replace(sources[0].receipt, text="Module contents.\n" * 40 + "erase_item removed.")
+@pytest.mark.parametrize("name", ["erase_item", "SyntaxError"])
+def test_cannot_borrow_literal_from_uncited_owned_span_or_judge_basis(tmp_path, name):
+    text = "`erase_item` was removed." if name == "erase_item" else "It raises SyntaxError."
+    _, target, sources = target_sources(tmp_path, text)
+    receipt = replace(sources[0].receipt, text="Module contents.\n" * 40 + name + " mentioned.")
     sources = (replace(sources[0], receipt=receipt, digest=_digest(asdict(receipt))),)
     payload = request_payload(target, sources)
     spans = payload["sources"][0]["spans"]
-    assert "erase_item" not in spans["s1:1"]
+    assert name not in spans["s1:1"]
     raw = {
         "target_digest": target.digest,
         "source_digest": payload["source_digest"],
@@ -256,7 +258,7 @@ def test_cannot_borrow_literal_from_uncited_owned_span_or_judge_basis(tmp_path):
                 "targets": list(payload["target"]),
                 "sources": ["s1:1"],
                 "kind": "supported",
-                "basis": "The source contains erase_item.",
+                "basis": f"The source contains {name}.",
             }
         ],
     }
@@ -264,15 +266,17 @@ def test_cannot_borrow_literal_from_uncited_owned_span_or_judge_basis(tmp_path):
     verdict = parse_verdict(json.dumps(raw), target, sources)
 
     assert verdict.status == "issues"
-    assert "erase_item" in verdict.claims[0].basis
+    assert name in verdict.claims[0].basis
 
 
-def test_reader_receipt_url_cannot_supply_page_api_evidence(tmp_path):
-    _, target, sources = target_sources(tmp_path, "`read_record` was removed.")
+@pytest.mark.parametrize("name", ["read_record", "SyntaxError"])
+def test_reader_receipt_url_cannot_supply_page_api_evidence(tmp_path, name):
+    text = "`read_record` was removed." if name == "read_record" else "It raises SyntaxError."
+    _, target, sources = target_sources(tmp_path, text)
     receipt = replace(
         sources[0].receipt,
-        requested_url="https://example.test/api/read_record",
-        final_url="https://example.test/api/read_record",
+        requested_url=f"https://example.test/api/{name}",
+        final_url=f"https://example.test/api/{name}",
         text="Module overview.",
     )
     sources = (replace(sources[0], receipt=receipt, digest=_digest(asdict(receipt))),)
@@ -293,7 +297,7 @@ def test_reader_receipt_url_cannot_supply_page_api_evidence(tmp_path):
     verdict = parse_verdict(json.dumps(raw), target, sources)
 
     assert verdict.status == "issues"
-    assert "read_record" in verdict.claims[0].basis
+    assert name in verdict.claims[0].basis
 
 
 def test_import_alias_cannot_be_borrowed_from_uncited_span_or_judge_basis(tmp_path):
@@ -322,3 +326,76 @@ def test_import_alias_cannot_be_borrowed_from_uncited_span_or_judge_basis(tmp_pa
 
     assert verdict.status == "issues"
     assert "np.asarray" in verdict.claims[0].basis
+
+
+@pytest.mark.parametrize(
+    ("target", "source", "missing"),
+    [
+        (
+            "finally çıkışı artık yasaktır (SyntaxError).",
+            "PEP 765: Disallow control flow that exits a finally block.",
+            "SyntaxError",
+        ),
+        ("It raises SyntaxError.", "It emits SyntaxWarning.", "SyntaxError"),
+        ("It raises ValueError.", "A value warning is emitted.", "ValueError"),
+        ("It emits RuntimeWarning.", "RuntimeError is raised.", "RuntimeWarning"),
+        ("It raises CustomException.", "An exception is raised.", "CustomException"),
+        ("It raises <strong>SyntaxError</strong>.", "SyntaxWarning.", "SyntaxError"),
+    ],
+)
+def test_plain_error_type_requires_its_own_cited_evidence(tmp_path, target, source, missing):
+    verdict = _review(tmp_path, target, source, basis=f"The answer contains {missing}.")
+
+    assert verdict.status == "issues"
+    assert verdict.claims[0].kind == "unsupported"
+    assert missing in verdict.claims[0].basis
+
+
+@pytest.mark.parametrize(
+    ("target", "source"),
+    [
+        ("It raises SyntaxError.", "It raises SyntaxError."),
+        ("It emits SyntaxWarning.", "A syntax warning is emitted."),
+        ("It raises ValueError.", "A value error is raised."),
+        ("It emits RuntimeWarning.", "A runtime warning is emitted."),
+        ("It raises CustomException.", "A custom exception is raised."),
+    ],
+)
+def test_plain_error_type_accepts_existing_source_spelling_semantics(tmp_path, target, source):
+    assert _review(tmp_path, target, source).status == "supported"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "Error, Warning and Exception describe ordinary categories.",
+        "A SyntaxErrorish or mySyntaxErrorHandler label is ordinary text.",
+        "An example uses CustomException.",
+        "CustomException is an example variable.",
+        "Örnek değişkenimiz CustomException olsun.",
+        "Report saved as SyntaxError.custom.",
+        "Read SyntaxError.md.",
+        "Read src/SyntaxError or C:\\temp\\SyntaxError.",
+        "See https://example.test/SyntaxError for details.",
+        "See https://SyntaxError.example.test for details.",
+        "Example:\n```python\nraise SyntaxError\n```",
+        "<pre>raise SyntaxError</pre>",
+        "<script>SyntaxError</script><style>RuntimeWarning</style>",
+        "<!-- SyntaxError -->Ordinary text.",
+        "The attribute <span title='SyntaxError'>is ordinary text</span>.",
+        "Use `raise SyntaxError`.",
+    ],
+)
+def test_plain_error_names_preserve_conservative_nonclaim_exclusions(tmp_path, target):
+    assert _review(tmp_path, target, "Related ordinary source statement.").status == "supported"
+
+
+def test_authored_occurrence_does_not_hide_later_plain_factual_occurrence(tmp_path):
+    verdict = _review(
+        tmp_path,
+        "Our example uses CustomException. It now raises CustomException.",
+        "Module overview.",
+    )
+
+    assert verdict.status == "issues"
+    assert "CustomException" in verdict.claims[0].basis
