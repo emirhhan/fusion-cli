@@ -747,13 +747,61 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         soru = args.get("question")
         question = soru.strip() if isinstance(soru, str) and soru.strip() else DEFAULT_QUESTION
         path = resolve_path(context, raw_path)
-        data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
+        from ...core.desktop_ref_handles import context_scope
+        from ...tools.desktop_capture_io import (
+            UNAVAILABLE,
+            is_background_slot,
+            read_background_image,
+        )
+
+        background_root = context.root
+        background_scope = context_scope(context)
+        background_receipt = context.desktop.background_capture
+        try:
+            is_background = await asyncio.to_thread(is_background_slot, background_root, path)
+        except (OSError, RuntimeError):
+            return ToolResult.failure(UNAVAILABLE)
+        if (
+            context.cancelled.is_set()
+            or context.root != background_root
+            or context_scope(context) != background_scope
+        ):
+            return ToolResult.failure(UNAVAILABLE)
+
+        def background_is_current() -> bool:
+            return (
+                background_receipt is not None
+                and not context.cancelled.is_set()
+                and context_scope(context) == background_scope
+                and context.desktop.background_capture is background_receipt
+                and context.root == background_root == background_receipt.root
+            )
+
+        if is_background:
+            if (
+                not background_is_current()
+                or background_receipt is None
+                or path != background_receipt.path
+            ):
+                return ToolResult.failure(UNAVAILABLE)
+            try:
+                data_uri = await asyncio.to_thread(
+                    read_background_image, background_receipt, context.root, background_scope
+                )
+            except (OSError, ValueError):
+                return ToolResult.failure(UNAVAILABLE)
+            if not background_is_current():
+                return ToolResult.failure(UNAVAILABLE)
+            sorun = None
+        else:
+            data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
         capture = context.desktop.current_capture
         observation = (
             capture
-            if capture is not None
+            if not is_background
+            and capture is not None
             and capture.path == path
             and capture.payload_digest == image_payload_digest(data_uri)
             and capture.focus == context.desktop.focus_identity()
@@ -762,6 +810,18 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         aciklama, sorun = await describe_image_data(deps.config, data_uri, question)
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
+        if is_background:
+            if not background_is_current():
+                return ToolResult.failure(UNAVAILABLE)
+            assert background_receipt is not None
+            try:
+                await asyncio.to_thread(
+                    read_background_image, background_receipt, context.root, background_scope
+                )
+            except (OSError, ValueError):
+                return ToolResult.failure(UNAVAILABLE)
+            if not background_is_current():
+                return ToolResult.failure(UNAVAILABLE)
         if not aciklama.strip():
             return ToolResult.failure("Görsel modeli boş gözlem döndürdü.")
         if observation is not None and not await asyncio.to_thread(

@@ -78,7 +78,9 @@ async def test_pencere_yakalama_gorseli_modele_aktarir(
         ToolContext(tmp_path),
     )
     assert result.ok and result.images
-    assert json.loads(result.output) == {"ok": True, "id": 2, "pid": 20}
+    payload = json.loads(result.output)
+    assert payload.pop("image_path_warning")
+    assert payload == {"ok": True, "id": 2, "pid": 20}
     invoke.assert_awaited_once_with("snapshot", {"kind": "window", "id": 2, "pid": 20})
 
 

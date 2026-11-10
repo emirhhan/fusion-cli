@@ -12,10 +12,14 @@ Retina pikseli veriyordu; model 2x kaymış noktaya tıklıyordu.
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from .desktop_ref_handles import Scope
 
 #: Eski `runtime.desktop_screenshot_max_width` varsayılanı (kullanımdan kalktı, #448).
 DESKTOP_SCREENSHOT_MAX_WIDTH = 1568
@@ -23,6 +27,8 @@ DESKTOP_SCREENSHOT_MAX_WIDTH = 1568
 #: downscales to roughly 1372×887, preserving aspect ratio. There is no setting to change the
 #: target size." (#453). Hedef: en-boy oranı korunur, alan bu piksel bütçesini aşmaz.
 SCREENSHOT_TARGET_PIXELS = 1_218_000
+MAX_BACKGROUND_IMAGE_BYTES = 5 * 1024 * 1024
+_BACKGROUND_READ_ERROR = "Arka plan gözlemi değişti veya erişilemiyor."
 
 
 def screenshot_target_width(width: float, height: float) -> int:
@@ -94,6 +100,75 @@ class DesktopCapture:
     focus: tuple[object, ...]
 
 
+class ObservationArtifact(Protocol):
+    """Sunum için yalnız dosya kimliğini taşıyan ortak sözleşme."""
+
+    @property
+    def path(self) -> Path: ...
+    @property
+    def file_digest(self) -> str: ...
+    @property
+    def byte_size(self) -> int: ...
+
+
+def capture_file_generation(info: os.stat_result) -> tuple[int, int, int, int]:
+    """Atomik yayından önce açık dosyadan alınan değişmez nesil alanları."""
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundCapture:
+    """Pencere pikseli gözlemi; ekran koordinatı veya odak yetkisi taşımaz."""
+
+    root: Path
+    scope: Scope
+    path: Path
+    file_digest: str
+    byte_size: int
+    pid: int
+    window_id: int
+    image_width: int
+    image_height: int
+    file_generation: tuple[int, int, int, int]
+
+    def read_bytes(self) -> bytes:
+        """Sunum ve görsel yardımcı aynı sınırlı, bağlantısız fiş okumasını kullanır."""
+        if os.name != "posix" or not hasattr(os, "O_NOFOLLOW"):
+            raise OSError(_BACKGROUND_READ_ERROR)
+        relative = self.path.relative_to(self.root)
+        if ".." in relative.parts or not 0 < self.byte_size <= MAX_BACKGROUND_IMAGE_BYTES:
+            raise ValueError(_BACKGROUND_READ_ERROR)
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directories = [os.open(self.root, flags)]
+        try:
+            for part in relative.parts[:-1]:
+                directories.append(os.open(part, flags, dir_fd=directories[-1]))
+            descriptor = os.open(
+                relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directories[-1]
+            )
+            with os.fdopen(descriptor, "rb") as handle:
+                before = os.fstat(handle.fileno())
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or stat.S_IMODE(before.st_mode) != 0o600
+                    or before.st_uid != os.getuid()
+                    or capture_file_generation(before) != self.file_generation
+                ):
+                    raise ValueError(_BACKGROUND_READ_ERROR)
+                payload = handle.read(self.byte_size + 1)
+                after = os.stat(relative.name, dir_fd=directories[-1], follow_symlinks=False)
+                if (
+                    capture_file_generation(os.fstat(handle.fileno())) != self.file_generation
+                    or capture_file_generation(after) != self.file_generation
+                    or hashlib.sha256(payload).hexdigest() != self.file_digest
+                ):
+                    raise ValueError(_BACKGROUND_READ_ERROR)
+            return payload
+        finally:
+            for descriptor in reversed(directories):
+                os.close(descriptor)
+
+
 @dataclass(frozen=True, slots=True)
 class DesktopMouseAction:
     point: tuple[float, float]
@@ -128,7 +203,8 @@ class DesktopView:
         self.current_capture: DesktopCapture | None = None
         self._capture_generation = 0
         self._observation_turn_id = ""
-        self._observation_artifacts: dict[Path, DesktopCapture] = {}
+        self._observation_artifacts: dict[Path, ObservationArtifact] = {}
+        self.background_capture: BackgroundCapture | None = None
         self._explicit_capture_exports: set[Path] = set()
 
     def begin_observation_turn(self, turn_id: str) -> None:
@@ -143,7 +219,7 @@ class DesktopView:
         return self._observation_turn_id
 
     def record_observation_artifact(
-        self, capture: DesktopCapture, *, turn_id: str, implicit: bool
+        self, capture: ObservationArtifact, *, turn_id: str, implicit: bool
     ) -> None:
         """Trusted implicit captures are internal; explicit exports revoke that label."""
         if turn_id and turn_id == self._observation_turn_id:
@@ -153,18 +229,35 @@ class DesktopView:
             elif capture.path not in self._explicit_capture_exports:
                 self._observation_artifacts[capture.path] = capture
 
-    def observation_artifact_paths(self, turn_id: str) -> tuple[Path, ...]:
+    def observation_artifact_paths(
+        self,
+        turn_id: str,
+        *,
+        background_root: Path | None = None,
+        background_scope: Scope | None = None,
+    ) -> tuple[Path, ...]:
         """Return this turn's unchanged captured bytes, never filename lookalikes."""
         if not turn_id or turn_id != self._observation_turn_id:
             return ()
         paths: list[Path] = []
         for path, capture in self._observation_artifacts.items():
             try:
-                if path.is_symlink() or path.stat().st_size != capture.byte_size:
+                if isinstance(capture, BackgroundCapture):
+                    if (
+                        capture is not self.background_capture
+                        or background_root != capture.root
+                        or background_scope != capture.scope
+                    ):
+                        continue
+                    capture.read_bytes()
+                    paths.append(path)
+                    continue
+                info = path.stat()
+                if path.is_symlink() or info.st_size != capture.byte_size:
                     continue
                 with path.open("rb") as handle:
                     data = handle.read(capture.byte_size + 1)
-            except OSError:
+            except (OSError, ValueError):
                 continue
             if hashlib.sha256(data).hexdigest() == capture.file_digest:
                 paths.append(path)

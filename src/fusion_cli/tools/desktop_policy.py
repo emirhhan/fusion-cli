@@ -47,7 +47,7 @@ FUSION_REASON = "Fusion kendi penceresini yönetemez (kendi onay kartını onayl
 LEVEL_REASON = "{app} için kademe '{level}', bu eylem '{required}' ister. {hint}"
 #: Arka plan aracının hedefi (pid) doğrulanamadı: ret listesi denetlenemez, çağrı kapanır.
 UNVERIFIED_REASON = (
-    "hedef uygulama doğrulanamadı (geçerli window_id ve pid gerekli; pencere kapanmış olabilir)"
+    "hedef uygulamanın güncel pencere kimliği doğrulanamadı veya önceki hedefle eşleşmedi"
 )
 
 
