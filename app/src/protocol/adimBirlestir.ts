@@ -1,8 +1,14 @@
 import type { OlayAdimi } from "./olayMetni";
 
 export function ayniAracCagrisi(left: OlayAdimi, right: OlayAdimi): boolean {
-  return !!left.callId && left.callId === right.callId && left.arac === right.arac &&
-    left.sessionId === right.sessionId && left.turnId === right.turnId && left.attemptId === right.attemptId;
+  if (!left.callId || left.callId !== right.callId ||
+      left.sessionId !== right.sessionId || left.turnId !== right.turnId || left.attemptId !== right.attemptId) {
+    return false;
+  }
+  // Tam tel kimliği aynı çağrıyı taşır; yürütücü araç adını yeniden yazabilir.
+  // Eksik/eski kimlikte yalnız aynı ad eşleşir.
+  const tamKimlik = [left.callId, left.sessionId, left.turnId, left.attemptId].every(value => !!value?.trim());
+  return left.arac === right.arac || (!!left.arac && !!right.arac && tamKimlik);
 }
 
 export function bitenAracAdimi(started: OlayAdimi, finished: OlayAdimi): OlayAdimi {
@@ -20,8 +26,8 @@ function kimliksiz(adim: OlayAdimi): boolean {
  */
 export function adimiEkle(adimlar: OlayAdimi[], adim: OlayAdimi): OlayAdimi[] {
   const son = adimlar[adimlar.length - 1];
-  if (adim.arac && !adim.basladi && son?.basladi && son.arac === adim.arac &&
-      (ayniAracCagrisi(son, adim) || (kimliksiz(son) && kimliksiz(adim)))) {
+  if (adim.arac && !adim.basladi && son?.basladi &&
+      (ayniAracCagrisi(son, adim) || (son.arac === adim.arac && kimliksiz(son) && kimliksiz(adim)))) {
     const birlesik = bitenAracAdimi(son, adim);
     return [...adimlar.slice(0, -1), birlesik];
   }
