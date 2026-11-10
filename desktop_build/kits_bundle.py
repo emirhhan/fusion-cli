@@ -15,6 +15,7 @@ Beklenen düzen (`app/scripts/prepare-kits.mjs` üretir, Tauri `kits/` altına k
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import re
 import subprocess
@@ -37,6 +38,8 @@ _MACH_O_MAGIC = {
 }
 _SYSTEM_LIBRARY_PREFIXES = ("/usr/lib/", "/System/")
 _OTOOL_TIMEOUT_SECONDS = 30
+MAX_KITS_CONFIG_ENTRIES = 20_000
+MAX_KITS_CONFIG_DEPTH = 32
 
 Otool = Callable[[Path], str]
 
@@ -106,6 +109,52 @@ def _load_manifest(kits_dir: Path) -> dict[str, Any]:
     return data
 
 
+def _check_portable_link(path: Path, root: Path) -> None:
+    """Çözümleme döngüsünü ve kendi/üst dizin hedefini reddet; grafiği izleme."""
+    relative = path.relative_to(root)
+    try:
+        target = path.readlink()
+        lexical = Path(os.path.normpath(path.parent / target))
+        if ntpath.isabs(target) or not lexical.is_relative_to(root):
+            raise ValueError("paket dışı hedef")
+        # İşletim sisteminin bağlantı sınırı çözümlemeden önce uygulanır.
+        path.stat()
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(root) or path.parent.is_relative_to(resolved):
+            raise ValueError("paket dışı veya kendi/üst dizin hedefi")
+    except (OSError, RuntimeError, ValueError) as error:
+        raise KitsBundleError(f"Kits paketinde taşınamayan bağlantı var: {relative}") from error
+
+
+def _check_private_configuration(kits_dir: Path) -> None:
+    """Yalnız gerçek dizinleri tara; kardeş dizin bağlantı grafikleri izlenmez."""
+    root = kits_dir.resolve(strict=True)
+    pending = [(root, 0)]
+    count = 0
+    while pending:
+        directory, depth = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                count += 1
+                if count > MAX_KITS_CONFIG_ENTRIES:
+                    raise KitsBundleError("Kits yapılandırma denetiminin girdi sınırı aşıldı.")
+                path = Path(entry.path)
+                if entry.name.casefold().startswith(".env") and not (
+                    entry.name == ".env.example" and entry.is_file(follow_symlinks=False)
+                ):
+                    raise KitsBundleError(
+                        f"Kits paketinde özel yapılandırma dosyası var: {path.relative_to(root)}"
+                    )
+                if entry.is_symlink():
+                    _check_portable_link(path, root)
+                elif entry.is_dir(follow_symlinks=False):
+                    if depth >= MAX_KITS_CONFIG_DEPTH:
+                        raise KitsBundleError(
+                            "Kits yapılandırma denetiminin derinlik sınırı aşıldı."
+                        )
+                    pending.append((path, depth + 1))
+
+
 def inspect_kits(
     kits_dir: Path,
     *,
@@ -116,6 +165,7 @@ def inspect_kits(
     """Kits paketini doğrula ve manifestini döndür; eksikse `KitsBundleError`."""
     if not kits_dir.is_dir():
         raise KitsBundleError(f"Pakette Kits bileşeni yok: {kits_dir}")
+    _check_private_configuration(kits_dir)
     _require_file(kits_dir / SERVER_ENTRY, "Kits sunucusu")
     _require_file(kits_dir / CLIENT_INDEX, "Kits istemcisi")
     _check_node(kits_dir / node_name, macos=macos, otool=otool or _run_otool)
