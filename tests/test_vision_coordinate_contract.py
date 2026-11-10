@@ -36,10 +36,10 @@ async def _describe(monkeypatch, text, *, model=OMNI, uri=None):
     provider = _Provider(replace(_result(text=text, ok=True), model=model))
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     config = make_config(vision=ModelSpec("vision", model))
-    result = await image_view.describe_image_data(
-        config, uri or _uri(), "Tek bir düğmenin yerini bul."
+    observation = await image_view.describe_image_observation(
+        config, uri or _uri(), "Tek bir düğmenin yerini bul.", mode="locate"
     )
-    return result, provider
+    return (observation.text, observation.error), provider
 
 
 async def test_observed_six_point_list_is_not_actionable(monkeypatch):
@@ -78,7 +78,7 @@ async def test_ambiguous_reply_revokes_prior_ack_on_same_foreground_capture(
     provider = _Provider(replace(_result(text=reply, ok=True), model=OMNI))
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     result = await engine_tools._view_image_tool(deps).run(
-        {"path": str(capture.path)}, deps.tool_context
+        {"path": str(capture.path), "mode": "locate"}, deps.tool_context
     )
     assert not result.ok and result.visual_observation is None
     assert deps.tool_context.desktop.current_capture is None
@@ -114,7 +114,7 @@ async def test_crop_size_is_decoded_and_user_dimension_claim_has_no_authority(mo
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     config = make_config(vision=ModelSpec("vision", OMNI))
     result = await image_view.describe_image_observation(
-        config, _uri((200, 80)), "1000x1000 görüntüde düğme?"
+        config, _uri((200, 80)), "1000x1000 görüntüde düğme?", mode="locate"
     )
     assert result.point.x == 100 and result.point.y == 20
     assert result.point.dimensions.width == 200 and result.point.dimensions.height == 80
@@ -125,7 +125,9 @@ async def test_fallback_model_cannot_inherit_coordinate_contract(monkeypatch):
     provider = _Provider(_result(text="<point>(500,250)</point>", ok=True))
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     config = make_config(vision=ModelSpec("vision", OMNI))
-    result = await image_view.describe_image_observation(config, _uri(), "Tek düğme?")
+    result = await image_view.describe_image_observation(
+        config, _uri(), "Tek düğme?", mode="locate"
+    )
     assert not result.usable and not result.text
 
 
@@ -151,7 +153,7 @@ async def test_helper_cannot_grant_or_revoke_other_foreground_ownership(
     context = deps.tool_context
     capture, _ = _capture(deps)
 
-    async def describe(*args):
+    async def describe(*args, **kwargs):
         if change == "turn":
             context.desktop.begin_observation_turn("another-turn")
         elif change == "owner":
@@ -173,7 +175,9 @@ async def test_helper_cannot_grant_or_revoke_other_foreground_ownership(
         )
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
-    result = await engine_tools._view_image_tool(deps).run({"path": str(capture.path)}, context)
+    result = await engine_tools._view_image_tool(deps).run(
+        {"path": str(capture.path), "mode": "locate"}, context
+    )
     assert result.visual_observation is None
     assert context.desktop.current_capture is not None
     if change != "capture":
@@ -195,12 +199,12 @@ async def test_background_ambiguous_reply_never_revokes_foreground_capture(tmp_p
     capture, _ = _capture(deps)
     snapshot = await _snapshot(monkeypatch, context)
 
-    async def describe(*args):
+    async def describe(*args, **kwargs):
         return ImageObservation("", "ambiguous", CoordinateStatus.REJECTED)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run(
-        {"path": json.loads(snapshot.output)["image_path"]}, context
+        {"path": json.loads(snapshot.output)["image_path"], "mode": "locate"}, context
     )
     assert not result.ok and result.visual_observation is None
     assert context.desktop.current_capture is capture
@@ -215,7 +219,9 @@ async def test_unsupported_coordinate_declarations_are_rejected_without_raw_valu
     provider = _Provider(replace(_result(text=reply, ok=True), model=OMNI))
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     config = make_config(vision=ModelSpec("vision", OMNI))
-    result = await image_view.describe_image_observation(config, _uri(), "Tek kontrol?")
+    result = await image_view.describe_image_observation(
+        config, _uri(), "Tek kontrol?", mode="locate"
+    )
     assert result.coordinates is CoordinateStatus.REJECTED
     assert not result.usable and not result.text and result.error
     assert reply not in result.error
@@ -241,7 +247,7 @@ async def test_descriptive_reply_does_not_keep_prior_valid_point_authority(
     provider = _Provider(replace(_result(text="<point>(500,500)</point>", ok=True), model=OMNI))
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     first = await engine_tools._view_image_tool(deps).run(
-        {"path": str(capture.path)}, deps.tool_context
+        {"path": str(capture.path), "mode": "locate"}, deps.tool_context
     )
     assert first.ok and first.visual_observation is capture
     await _actor(monkeypatch, deps, state, [_helper_message(deps, state, capture)])
@@ -249,7 +255,7 @@ async def test_descriptive_reply_does_not_keep_prior_valid_point_authority(
     provider = _Provider(replace(_result(text=reply, ok=True), model=OMNI))
     monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda *_a, **_kw: provider)
     second = await engine_tools._view_image_tool(deps).run(
-        {"path": str(capture.path)}, deps.tool_context
+        {"path": str(capture.path), "mode": "describe"}, deps.tool_context
     )
     assert second.ok and reply in second.output
     assert second.visual_observation is None

@@ -415,13 +415,14 @@ async def test_matching_immutable_helper_metadata_and_no_outside_root_read(tmp_p
     capture, uri = _capture(deps)
     seen = []
 
-    async def describe(config, data, question):
+    async def describe(config, data, question, **kwargs):
+        assert kwargs["mode"] == "locate"
         seen.append(data)
         return _point_observation()
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     tool = engine_tools._view_image_tool(deps)
-    result = await tool.run({"path": str(capture.path)}, deps.tool_context)
+    result = await tool.run({"path": str(capture.path), "mode": "locate"}, deps.tool_context)
     assert result.visual_observation is capture and seen == [uri]
     from fusion_cli.core.errors import PathAccessError
 
@@ -435,14 +436,15 @@ async def test_helper_cannot_bind_a_newer_capture_during_await(tmp_path, monkeyp
     deps.config = replace(deps.config, vision=ModelSpec("vision", "test/vision"))
     capture, uri = _capture(deps)
 
-    async def describe(config, data, question):
+    async def describe(config, data, question, **kwargs):
+        assert kwargs["mode"] == "locate"
         assert data == uri
         _capture(deps, data=image_bytes("PNG", (2, 2)))
         return _point_observation("old image observation; image_pixels; point=(0.5,0.5)")
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run(
-        {"path": str(capture.path)}, deps.tool_context
+        {"path": str(capture.path), "mode": "locate"}, deps.tool_context
     )
     assert result.ok and result.visual_observation is None
 
@@ -567,7 +569,7 @@ async def test_failed_or_empty_helper_never_returns_frame_receipt(
     deps.config = replace(deps.config, vision=ModelSpec("vision", "test/vision"))
     capture, _ = _capture(deps)
 
-    async def describe(*_):
+    async def describe(*_, **kwargs):
         return ImageObservation(observation, error)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
@@ -582,14 +584,15 @@ async def test_file_change_during_helper_await_has_no_frame_receipt(tmp_path, mo
     deps.config = replace(deps.config, vision=ModelSpec("vision", "test/vision"))
     capture, uri = _capture(deps)
 
-    async def describe(_config, data, _question):
+    async def describe(_config, data, _question, **kwargs):
+        assert kwargs["mode"] == "locate"
         assert data == uri
         capture.path.write_bytes(image_bytes("PNG", (2, 2)))
         return _point_observation("old immutable image; image_pixels; point=(0.5,0.5)")
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run(
-        {"path": str(capture.path)}, deps.tool_context
+        {"path": str(capture.path), "mode": "locate"}, deps.tool_context
     )
     assert result.visual_observation is None
 

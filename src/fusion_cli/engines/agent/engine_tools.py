@@ -55,7 +55,7 @@ from .desktop_grounding import capture_file_matches
 from .desktop_grounding import current_capture as current_desktop_capture
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
-from .image_view import DEFAULT_QUESTION, load_image_data_uri
+from .image_view import DEFAULT_QUESTION, IMAGE_MODE_ERROR, ImageMode, load_image_data_uri
 from .image_view import describe_image_observation as describe_image_data
 from .memory_tools import memory_read_tool, remember_tool
 from .orchestration_tools import register_orchestration_tools
@@ -743,6 +743,10 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
     """Diskteki bir görsele bakıp ne olduğunu öğrenmeyi sağlar."""
 
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        raw_mode = args.get("mode", "describe")
+        if not isinstance(raw_mode, str) or raw_mode not in ("describe", "locate"):
+            return ToolResult.failure(IMAGE_MODE_ERROR)
+        mode: ImageMode = "locate" if raw_mode == "locate" else "describe"
         raw_path = args.get("path")
         if not isinstance(raw_path, str) or not raw_path.strip():
             return ToolResult.failure("'path' alanı boş olmayan bir metin olmalı.")
@@ -819,7 +823,7 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
             and capture.focus == context.desktop.focus_identity()
             else None
         )
-        description = await describe_image_data(deps.config, data_uri, question)
+        description = await describe_image_data(deps.config, data_uri, question, mode=mode)
         if not owner_is_current():
             return ToolResult.failure(UNAVAILABLE)
         if (
@@ -866,12 +870,19 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         "anlatmaz: 'player.png' bir logo, 'arkaplan.jpg' bir ekran görüntüsü olabilir. "
         "Bir asseti kullanmadan ÖNCE bununla bak; uygun olup olmadığına ancak o zaman "
         "karar verebilirsin. İsteğe bağlı 'question' ile ne öğrenmek istediğini sor. "
-        "Konum sorarken her çağrıda yalnız TEK bir kontrolü sor; çoklu koordinat listesi kullanma.",
+        "Varsayılan mode=describe görseli okur. Konum için açıkça mode=locate seç ve "
+        "her çağrıda yalnız TEK bir kontrolü sor; çoklu koordinat listesi kullanma.",
         parameters={
             "type": "object",
             "properties": {
                 "path": {**_STRING, "description": "görselin yolu (png/jpg/gif/webp/bmp)"},
                 "question": {**_STRING, "description": "görsel hakkında sorulacak soru"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["describe", "locate"],
+                    "default": "describe",
+                    "description": "describe: oku/açıkla; locate: tek kontrolün konumunu bul.",
+                },
             },
             "required": ["path"],
         },

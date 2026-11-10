@@ -167,7 +167,7 @@ async def test_old_foreground_capture_of_same_slot_never_gets_coordinate_credit(
     foreground = context.desktop.record_capture(path, uri, payload, (0, 0, 100, 100))
     deps = _deps(tmp_path, RecordingSink())
 
-    async def describe(*args):
+    async def describe(*args, **kwargs):
         return ImageObservation("visible_text: 0", None)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
@@ -183,7 +183,7 @@ async def test_helper_response_cannot_outlive_owned_observation(tmp_path, monkey
     path = Path(json.loads(result.output)["image_path"])
     deps = _deps(tmp_path, RecordingSink())
 
-    async def describe(*args):
+    async def describe(*args, **kwargs):
         if change == "turn":
             context.desktop.begin_observation_turn("next-turn")
         elif change == "owner":

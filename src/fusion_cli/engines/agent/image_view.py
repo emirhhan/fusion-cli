@@ -20,6 +20,7 @@ import asyncio
 import base64
 import re
 from pathlib import Path
+from typing import Literal
 
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
@@ -32,6 +33,9 @@ from .image_coordinates import (
     image_dimensions,
     normalize_coordinates,
 )
+
+ImageMode = Literal["describe", "locate"]
+IMAGE_MODE_ERROR = "'mode' alanı describe (görseli oku) veya locate (tek kontrol bul) olmalı."
 
 #: Tek bir görselin üst sınırı. Uygulamanın ek dosya sınırıyla aynı tutulur.
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -169,18 +173,20 @@ async def describe_image_data(
 
 
 async def describe_image_observation(
-    config: Config, data_uri: str, question: str
+    config: Config, data_uri: str, question: str, *, mode: ImageMode = "describe"
 ) -> ImageObservation:
     """Describe the already-authorized immutable image snapshot."""
     from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
 
+    if mode not in ("describe", "locate"):
+        return ImageObservation("", IMAGE_MODE_ERROR)
     spec = config.vision
     if spec is None:  # pragma: no cover - araç yalnızca spec varken kaydedilir
         return ImageObservation("", "Görsel modeli yapılandırılmamış.")
     contract = (
         await asyncio.to_thread(image_dimensions, data_uri)
-        if spec.model == OMNI_COORDINATE_MODEL
+        if mode == "locate" and spec.model == OMNI_COORDINATE_MODEL
         else None
     )
     system_prompt = VISION_GROUNDING_PROMPT + (coordinate_request(contract) if contract else "")

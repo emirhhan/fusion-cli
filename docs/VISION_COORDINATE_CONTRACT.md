@@ -6,7 +6,7 @@ tek bir noktanın görüntü genişlik/yüksekliğinin binde biri olarak yorumla
 belgeler. Bu belge genel bir NIM yanıt birimi garantisi değildir; çoklu nokta
 listesi için de bir sözleşme sağlamaz.
 
-Fusion yalnız tam olarak yapılandırılmış
+Fusion yalnız `mode=locate` açıkça istendiğinde, tam olarak yapılandırılmış
 `nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` ve aynı kimlikle dönen
 yanıt için kendi yüksek öncelikli isteğinde bu tek hedef sözleşmesini açıkça
 bildirir. Boyutlar kullanıcı sorusundan alınmaz; gönderilen değişmez görsel
@@ -37,3 +37,15 @@ fakat önceki başarılı noktanın ardından gelen herhangi bir konum kanıtı 
 yardımcı yanıtı aynı güncel ön plan yakalamasının eski yetkisini kaldırır.
 Tanımsız bir düzyazı konum biçimi tanıyıcıdan kaçsa bile yetki veremez veya eski
 yetkiyi koruyamaz. Metin biçimi tanıma, bu güvenlik sınırının yerine geçmez.
+
+`view_image` niyeti açık `mode` alanıyla ayırır: varsayılan `describe`, metin ve
+görsel açıklamasıdır; koordinat boyut çözümlemesi veya konum istemi eklenmez.
+`locate`, yalnız tek bir kontrolün konumunu ister. Soru metnindeki kelimelerden
+bu seçim tahmin edilmez. `describe` içinde beklenmedik nokta çıktısı reddedilir.
+Mevcut iki alanlı açıklama/hata sarmalayıcılarının imzası korunur ve varsayılan
+`describe` kullanılır. Geçersiz mod, dosya/sağlayıcı erişimi başlamadan reddedilir.
+
+Bu ayrım nokta doğruluğu kanıtı değildir. Korunan beş istekli canlı denemede
+iki hedefin ayrılmış bölge kontrollerini kaçırması ve OCR'ın nokta çıktısına
+itilmesi başarısızlık olarak kalır. Dönüşüm bu hedef kontrollerine göre
+ayarlanmamıştır; hedef konum doğruluğu ayrıca kanıtlanmayı bekler.
