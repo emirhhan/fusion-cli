@@ -34,19 +34,17 @@ from ...core.types import ModelResult
 from ...core.verification import VerificationResult
 from . import review
 from .ordinal_evidence import unbacked_ordinals
+from .technical_evidence import technical_support_basis, unbacked_technical_literals
+from .technical_markup import non_prose_text
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
 LIMIT = 60_000
+_BASIS_LIMIT = 600
 ISSUES = frozenset({"unsupported", "contradicted", "date_role", "coverage", "unread_citation"})
 KINDS = ISSUES | {"supported", "uncertain", "nonfactual"}
 TEXT_FORMATS = frozenset({".html", ".htm", ".md", ".txt", ".csv", ".tsv", ".json", ".xml"})
-_TARGET_NON_PROSE = re.compile(
-    r"<!--[\s\S]*?-->|<(?P<opaque>style|script)\b[^>]*>[\s\S]*?</(?P=opaque)\s*>|"
-    r"""<(?:"[^"]*"|'[^']*'|[^'">])*>""",
-    re.I,
-)
 _SENTENCE_END = re.compile(r"[.!?](?=\s+\S)")
 _ORDINAL_SUPPORT_MISSING = (
     "Gösterilen kaynak bölümlerinde açık sıra desteği yok. Liste satırları "
@@ -80,6 +78,10 @@ _PROMPT = (
     "conclusions. Resolve conflicting sources or require honest uncertainty. A supported\n"
     "assertion\n"
     "requires actual entailment, not merely a related page.\n"
+    "Bileşik listelerin HER üyesini, her API ve teknik ad dahil, ayrı denetle.\n"
+    "İçindekiler satırı veya modül başlığı bir API'nin davranışını, kaldırıldığını\n"
+    "ya da kullanım dışı bırakıldığını kanıtlamaz. Olgu iddiası içeren başlıklar da\n"
+    "iddiadır; yalnız salt yapısal başlıklar nonfactual olabilir.\n"
     "Assess propositions actually asserted by the target, not stylistic or lexical\n"
     "preferences. Faithful paraphrases and translations need not repeat source wording.\n"
     "A contradiction requires incompatible factual assertions about the same entity,\n"
@@ -206,7 +208,7 @@ def capture_source(
 
 def _target_spans(text: str, prefix: str, location: str) -> tuple[TextSpan, ...]:
     """Ayrı cümleleri ayrı kapsam hedefi yap; özgün bayt ve konumları koru."""
-    prose = _TARGET_NON_PROSE.sub(lambda match: " " * len(match.group()), text)
+    prose = non_prose_text(text, preserve_offsets=True)
     sentence_ends = tuple(match.end() for match in _SENTENCE_END.finditer(prose))
     spans: list[TextSpan] = []
     for block in _spans(text, prefix, location):
@@ -358,7 +360,7 @@ def _response_schema(payload: GroundingPayload) -> dict[str, object]:
         "sources": {"type": "array", "items": {"type": "string", "enum": source_ids}}
         if source_ids
         else {"type": "array", "maxItems": 0},
-        "basis": {"type": "string", "minLength": 1, "maxLength": 600},
+        "basis": {"type": "string", "minLength": 1, "maxLength": _BASIS_LIMIT},
     }
     variants: list[dict[str, object]] = [
         {
@@ -469,11 +471,19 @@ def parse_verdict(
             if kind == "supported" and not refs:
                 return incomplete
             if kind == "supported" and unbacked_ordinals(
-                " ".join(_TARGET_NON_PROSE.sub(" ", target_texts[key]) for key in targets),
+                " ".join(non_prose_text(target_texts[key]) for key in targets),
                 (source_texts[key] for key in refs),
             ):
                 kind = "unsupported"
                 basis = _ORDINAL_SUPPORT_MISSING
+            if kind == "supported" and (
+                missing_literals := unbacked_technical_literals(
+                    "\n".join(target_texts[key] for key in targets),
+                    (source_texts[key] for key in refs if not key.endswith(":receipt")),
+                )
+            ):
+                kind = "unsupported"
+                basis = technical_support_basis(missing_literals, _BASIS_LIMIT)
             covered.update(targets)
             findings.append(ClaimFinding(tuple(targets), kind, tuple(refs), basis))
         has_issues = any(f.kind in ISSUES for f in findings)
@@ -530,7 +540,7 @@ def _strict_recheck(
                 not isinstance(claim, dict)
                 or set(claim) != {"targets", "sources", "kind", "basis"}
                 or not isinstance(claim["basis"], str)
-                or not 1 <= len(claim["basis"]) <= 600
+                or not 1 <= len(claim["basis"]) <= _BASIS_LIMIT
             ):
                 return None
         clean = parse_verdict(text, target, sources)
