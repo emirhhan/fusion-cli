@@ -1,14 +1,15 @@
-"""Kodla belirtilen teknik adlar için gerekli, tek başına yeterli olmayan metin kanıtı."""
+"""Tanınan teknik adlar için gerekli, tek başına yeterli olmayan metin kanıtı."""
 
 from __future__ import annotations
 
 import html
 import re
 from bisect import bisect_left
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from itertools import chain
 from typing import NamedTuple
 
-from .technical_markup import plain_markup, target_code_fragments
+from .technical_markup import CodeFragment, plain_markup, target_code_fragments
 
 _COMPACT_PARTS = re.compile(r"(\s+|::|[._()=])")
 _COMPACT_PUNCTUATION = frozenset({"::", ".", "_", "(", ")", "="})
@@ -18,6 +19,8 @@ _IDENTIFIER = r"[A-Za-z_][A-Za-z_0-9]*"
 _QUALIFIED = re.compile(_IDENTIFIER + r"(?:(?:\.|::)" + _IDENTIFIER + r")+")
 _CALL = re.compile(_IDENTIFIER + r"\(\)")
 _SNAKE = re.compile(r"[A-Za-z][A-Za-z0-9]*_[A-Za-z_0-9]+")
+_PROSE_CHUNK = re.compile(r"\S+")
+_PROSE_IDENTIFIER = re.compile(r"\b" + _IDENTIFIER + r"\b")
 _ERROR_TYPE = re.compile(r"[A-Z][A-Za-z0-9]*(?:Error|Warning|Exception)")
 _FLAG = re.compile(r"--[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?==|$)")
 _FILE_SUFFIX = re.compile(
@@ -94,6 +97,34 @@ def _literal_shape(literal: str) -> str | None:
     return None
 
 
+def _prose_error_types(prose: str, fragments: tuple[CodeFragment, ...]) -> Iterator[CodeFragment]:
+    """Tam tanımlayıcıları bir kez tara; URL/yol ve mevcut kod aralıklarını ödünç alma."""
+    fragment_index = 0
+    for chunk in _PROSE_CHUNK.finditer(prose):
+        text = chunk.group()
+        if "://" in text or "/" in text or "\\" in text:
+            continue
+        for token in _PROSE_IDENTIFIER.finditer(prose, chunk.start(), chunk.end()):
+            while (
+                fragment_index < len(fragments)
+                and fragments[fragment_index].end <= token.start()
+            ):
+                fragment_index += 1
+            if fragment_index < len(fragments) and fragments[fragment_index].start < token.end():
+                continue
+            name = token.group()
+            if not _ERROR_TYPE.fullmatch(name):
+                continue
+            # Noktalı yerel dosya/domain adlarından veya nitelikli koddan tür çıkarma.
+            if (token.start() > chunk.start() and prose[token.start() - 1] in ".:") or (
+                token.end() + 1 < chunk.end()
+                and prose[token.end()] == "."
+                and (prose[token.end() + 1].isalnum() or prose[token.end() + 1] == "_")
+            ):
+                continue
+            yield CodeFragment(token.start(), token.end(), name)
+
+
 def _technical_literals(target: str) -> tuple[str, ...]:
     prose, fragments = target_code_fragments(target)
     boundaries = tuple(row.start() for row in re.finditer(r"[.!?\n]", prose))
@@ -102,7 +133,7 @@ def _technical_literals(target: str) -> tuple[str, ...]:
     normalized: dict[str, str] = {}
     shapes: dict[str, str | None] = {}
     literals: dict[str, None] = {}
-    for fragment in fragments:
+    for fragment in chain(fragments, _prose_error_types(prose, fragments)):
         before = bisect_left(boundaries, fragment.start) - 1
         after = bisect_left(boundaries, fragment.end)
         prefix_start = boundaries[before] + 1 if before >= 0 else 0

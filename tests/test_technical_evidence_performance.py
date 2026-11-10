@@ -41,7 +41,10 @@ def test_integrated_target_snapshot_and_verdict_do_not_rescan_unclosed_script_su
     assert elapsed < 0.75, f"Entegre kaynak kapısı {elapsed:.3f} saniye bloke etti"
 
 
-def test_unique_names_keep_bounded_actionable_feedback_and_exact_omitted_count(tmp_path):
+@pytest.mark.parametrize("plain_types", [False, True], ids=["code-api", "plain-types"])
+def test_unique_names_keep_bounded_actionable_feedback_and_exact_omitted_count(
+    tmp_path, plain_types
+):
     import json
     import re
     from dataclasses import replace
@@ -52,7 +55,9 @@ def test_unique_names_keep_bounded_actionable_feedback_and_exact_omitted_count(t
     from .test_research_grounding import target_sources
 
     _, target, sources = target_sources(tmp_path, "Technical API list.")
-    text = " ".join(f"`erase_item_{index}`" for index in range(2500))
+    text = " ".join(
+        f"Custom{index}Error" if plain_types else f"`erase_item_{index}`" for index in range(2500)
+    )
     target = replace(
         target, spans=(TextSpan("answer:1", 0, len(text), text, "answer"),), digest=_digest(text)
     )
@@ -76,8 +81,8 @@ def test_unique_names_keep_bounded_actionable_feedback_and_exact_omitted_count(t
     assert verdict.status == "issues"
     feedback = verdict.claims[0].basis
     assert len(feedback) <= 600
-    assert "erase_item_0" in feedback
-    shown = len(re.findall(r"erase_item_\d+", feedback))
+    assert ("Custom0Error" if plain_types else "erase_item_0") in feedback
+    shown = len(re.findall(r"Custom\d+Error" if plain_types else r"erase_item_\d+", feedback))
     omitted = re.search(r"(\d+) ad daha", feedback)
     assert omitted is not None and int(omitted[1]) == 2500 - shown
     assert elapsed < 0.75, f"Benzersiz ad denetimi {elapsed:.3f} saniye bloke etti"
@@ -91,3 +96,22 @@ def test_long_source_whitespace_does_not_create_a_quadratic_normalization_path()
 
     assert missing == ("erase_item",)
     assert elapsed < 0.75, f"Kaynak boşluk normalizasyonu {elapsed:.3f} saniye bloke etti"
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "A" * 120000,
+        "A " * 40000,
+        "<code>" * 8000,
+        "<script>" * 6000,
+    ],
+    ids=["single-long-uppercase-identifier", "dense-uppercase", "unclosed-code", "unclosed-script"],
+)
+def test_plain_error_type_scan_is_bounded_on_dense_or_malformed_input(prefix):
+    started = perf_counter()
+    missing = unbacked_technical_literals(prefix + " SyntaxError.", ("Module overview.",))
+    elapsed = perf_counter() - started
+
+    assert missing == ("SyntaxError",)
+    assert elapsed < 0.75, f"Düz yazı tür taraması {elapsed:.3f} saniye bloke etti"
