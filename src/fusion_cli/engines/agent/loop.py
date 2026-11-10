@@ -5697,6 +5697,10 @@ async def _self_review(
         _correction_task(feedback),
         deps,
         history=outcome.messages,
+        # A repair rebuilds the registry, including lazy MCP admission. Retain
+        # the caller's ceiling; None is unrestricted, an empty set permits none.
+        allowed_tools=set(deps.runtime_tool_cap) if deps.runtime_tool_cap is not None else None,
+        denied_tools=deps.denied_tools,
         self_review=False,
         internal=True,
         # Kapı bu turda çalışmaz: dış döngü zaten doğrulayacak. Aksi halde iç içe
@@ -5874,6 +5878,8 @@ async def _run_verification_correction_attempt(
         task,
         deps,
         history=history,
+        allowed_tools=set(deps.runtime_tool_cap) if deps.runtime_tool_cap is not None else None,
+        denied_tools=deps.denied_tools,
         self_review=False,
         internal=True,
         require_local_mutation=not task.startswith(CORRECTION_NOTE_PREFIX + " Kaynak"),
