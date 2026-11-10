@@ -129,6 +129,12 @@ end tell
 _MAX_OUTPUT_CHARS = 12_000
 _APP_PREFIX = "Uygulama: "
 _BUNDLE_PREFIX = "Paket: "
+_WINDOW_PREFIX = "Pencere: "
+_EMPTY_ACCESSIBILITY_MESSAGE = (
+    "Kontrol ağacı alınamadı; başarıyla serileştirilmiş kontrol veya eylem ref'i yok. "
+    "Bu çıktıdan düğme koordinatı ya da eylem yetkisi çıkarılamaz. "
+    "Neden bu sonuçtan belirlenemez."
+)
 #: Öndeki uygulama engelliyse ağaç modele verilmez (P-007).
 HIDDEN_FRONT_MESSAGE = (
     "Öndeki uygulama ({app}) reddedilen ya da engelli; erişilebilirlik ağacı gösterilmez "
@@ -330,6 +336,20 @@ def _front_app(output: str) -> tuple[str, str]:
     return app, bundle
 
 
+def _has_only_accessibility_metadata(output: str) -> bool:
+    """Yalnız bilinen başlık biçimini tanı; kontrol satırlarını değiştirme."""
+    if output == "Öğe bulunamadı.":
+        return True
+    lines = output.splitlines()
+    prefixes: tuple[str, ...] = (_APP_PREFIX, _BUNDLE_PREFIX, _WINDOW_PREFIX)
+    if len(lines) == 2:
+        prefixes = (_APP_PREFIX, _WINDOW_PREFIX)
+    return len(lines) == len(prefixes) and all(
+        "\t" not in line and (line == prefix.rstrip() or line.startswith(prefix))
+        for line, prefix in zip(lines, prefixes, strict=True)
+    )
+
+
 def desktop_accessibility(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Öndeki pencerenin erişilebilir öğelerinin rol ve adlarını oku.
 
@@ -343,4 +363,6 @@ def desktop_accessibility(args: ToolArgs, context: ToolContext) -> ToolResult:
     app, bundle = _front_app(result.output)
     if is_hidden_app(context.desktop_settings, app, bundle):
         return ToolResult.failure(HIDDEN_FRONT_MESSAGE.format(app=app or bundle))
+    if _has_only_accessibility_metadata(result.output):
+        return ToolResult(result.output + "\n[" + _EMPTY_ACCESSIBILITY_MESSAGE + "]")
     return result
