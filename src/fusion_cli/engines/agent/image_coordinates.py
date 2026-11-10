@@ -14,7 +14,7 @@ MAX_COORDINATE_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_COORDINATE_IMAGE_PIXELS = 32_000_000
 COORDINATE_ERROR = (
     "Görsel koordinat yanıtı tek hedefli doğrulanmış sözleşmeye uymuyor; "
-    "yeni bir ekran görüntüsü al ve her view_image çağrısında yalnız tek bir kontrolü sor. "
+    "yeni bir ekran görüntüsü al ve view_image(mode=locate) ile yalnız tek bir kontrolü sor. "
     "Bu yanıttan konum veya tıklama yetkisi çıkarma."
 )
 OBSERVATION_LABEL = "Görsel modelinin gözlemi; bağımsız doğrulama değildir: "
@@ -109,11 +109,11 @@ def coordinate_request(dimensions: ImageDimensions) -> str:
     """Yerel yüksek öncelikli istek; modelin kendi birim iddiasına güvenmez."""
     return (
         f" Image dimensions decoded by the caller: {dimensions.width}x{dimensions.height} pixels. "
-        "For a location question, locate exactly ONE control per request. "
+        "This is an explicit locate request. Locate exactly ONE control per request. "
         "Respond ONLY as <point>(x,y)</point> with integer x,y in 0..1000, "
         "in thousandths of the image width and height (NVIDIA GUI-coordinate convention). "
         "Never return a list, multiple points or screen coordinates. If unsure, return uncertainty "
-        "without coordinates. For OCR/description questions keep the visible-text fields above."
+        "without coordinates."
     )
 
 

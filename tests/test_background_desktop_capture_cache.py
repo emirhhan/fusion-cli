@@ -198,7 +198,7 @@ async def test_read_await_cannot_lend_new_owner_a_stale_description(
                 context.desktop.background_capture = None
         return uri
 
-    async def describe(*args):
+    async def describe(*args, **kwargs):
         calls.append(True)
         return ImageObservation("old-observation", None)
 
@@ -255,7 +255,7 @@ async def test_classification_await_never_adopts_a_new_capture_owner(
         assert release.wait(5)
         return True
 
-    async def describe(*args):
+    async def describe(*args, **kwargs):
         calls.append(True)
         return ImageObservation("new-owner-pixels", None)
 
