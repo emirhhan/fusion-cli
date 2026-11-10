@@ -83,10 +83,15 @@ async def test_masaustu_sohbet_kipinde_chat_mode_gecer(tmp_path: Path, monkeypat
     """Masaüstü 'sohbet' kipinde turu sohbet turu olarak başlatmalı."""
     from fusion_cli.cli import session as cli_session
 
+    from .agent_harness import web_deps
+    from .fakes import RecordingSink
+
+    expected_deps = web_deps(tmp_path, RecordingSink())
     yakalanan: dict[str, object] = {}
 
     async def sahte_run_agent(task: str, deps: object, **kwargs: object) -> object:
         yakalanan.update(kwargs)
+        yakalanan["deps"] = deps
 
         from fusion_cli.engines.agent.loop import AgentOutcome
 
@@ -95,8 +100,8 @@ async def test_masaustu_sohbet_kipinde_chat_mode_gecer(tmp_path: Path, monkeypat
     monkeypatch.setattr(cli_session, "run_agent", sahte_run_agent)
     await cli_session._run_agent_with_mcp(
         "merhaba",
-        deps=None,
-        config=_bos_config(),
+        deps=expected_deps,
+        config=expected_deps.config,
         bus=_SessizVeriyolu(),
         history=None,
         mode=cli_session.ApprovalMode.AUTO,
@@ -106,12 +111,7 @@ async def test_masaustu_sohbet_kipinde_chat_mode_gecer(tmp_path: Path, monkeypat
     )
 
     assert yakalanan["chat_mode"] is True
-
-
-def _bos_config():
-    from .fakes import make_config
-
-    return make_config()
+    assert yakalanan["deps"] is expected_deps
 
 
 class _SessizVeriyolu:

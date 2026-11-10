@@ -46,7 +46,8 @@ FOCUSED_ENTER_REASON = "{app} içinde Enter odaktaki {element} düğmesine basar
 #: Öğe okunamadı (Windows UI Automation zaman aşımı/engeli): riskli düğme denetimi yapılamaz.
 UNVERIFIED_ELEMENT = "(öğe doğrulanamadı)"
 UNVERIFIED_CLICK_REASON = (
-    "{app} içinde tıklanan öğe doğrulanamadı (UI Automation yanıt vermedi); gönder/sil/öde "
+    "{app} içinde tıklanan öğe doğrulanamadı (güncel hedef öğenin kimliği eşleşmedi veya "
+    "alınamadı); gönder/sil/öde "
     "düğmesi olabileceği için her tıklama sorulur"
 )
 

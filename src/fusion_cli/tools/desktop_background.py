@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import binascii
 import json
+import threading
 import time
 
 from ..core.desktop_ref_handles import canonical_arguments, context_scope
@@ -10,6 +13,7 @@ from ..core.desktop_settings import DesktopSettings
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import coerce_int
+from .desktop_capture_io import UNAVAILABLE, publish_background_image
 from .desktop_visibility import is_hidden_app
 from .native_desktop import SwiftDesktop
 
@@ -136,6 +140,8 @@ async def _invoke(
             ticket = context.desktop.ref_handles.begin_inspection(scope, pid, window)
         except ValueError as exc:
             return ToolResult.failure(str(exc))
+    snapshot_scope = context_scope(context) if context is not None else None
+    snapshot_root = context.root if context is not None else None
     native_started = time.monotonic()
     result = await SwiftDesktop().invoke(operation, target)
     native_elapsed_ms = min(600_000, max(0, round((time.monotonic() - native_started) * 1000)))
@@ -236,7 +242,57 @@ async def _invoke(
                 for row in windows
             ],
         }
+    result = dict(result)
     image = result.pop("image", None)
+    if operation == "snapshot" and context is not None and isinstance(image, str):
+        revoked = threading.Event()
+
+        def current() -> bool:
+            return (
+                bool(snapshot_scope and snapshot_scope[2])
+                and not revoked.is_set()
+                and not context.cancelled.is_set()
+                and context_scope(context) == snapshot_scope
+                and context.root == snapshot_root
+            )
+
+        if (
+            not current()
+            or result.get("kind") != "window"
+            or type(result.get("id")) is not int
+            or result.get("id") != target.get("id")
+            or type(result.get("pid")) is not int
+            or result.get("pid") != target.get("pid")
+        ):
+            result["image_path_warning"] = UNAVAILABLE
+        else:
+            assert snapshot_scope is not None
+            try:
+                receipt = await asyncio.to_thread(
+                    publish_background_image,
+                    context.root,
+                    snapshot_scope,
+                    image,
+                    int(str(target["pid"])),
+                    int(str(target["id"])),
+                    current,
+                )
+            except asyncio.CancelledError:
+                revoked.set()
+                raise
+            except (OSError, ValueError, SyntaxError, binascii.Error):
+                result["image_path_warning"] = UNAVAILABLE
+            else:
+                if current():
+                    context.desktop.background_capture = receipt
+                    context.desktop.record_observation_artifact(
+                        receipt, turn_id=context.desktop.observation_turn_id, implicit=True
+                    )
+                    result["image_path"] = str(receipt.path)
+                    result["image_width"] = receipt.image_width
+                    result["image_height"] = receipt.image_height
+                else:
+                    result["image_path_warning"] = UNAVAILABLE
     content: tuple[ToolContent, ...] = ()
     if isinstance(image, str) and image.startswith("data:image/png;base64,"):
         content = (ToolContent.image("image/png", image.split(",", 1)[1]),)
@@ -255,8 +311,7 @@ async def desktop_background_inspect(args: ToolArgs, context: ToolContext) -> To
 
 async def desktop_background_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Belirli pencereyi ScreenCaptureKit ile öne getirmeden yakala."""
-    del context
-    return await _invoke("snapshot", args)
+    return await _invoke("snapshot", args, context=context)
 
 
 async def desktop_background_action(args: ToolArgs, context: ToolContext) -> ToolResult:
