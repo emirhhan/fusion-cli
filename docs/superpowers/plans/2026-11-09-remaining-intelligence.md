@@ -8,7 +8,7 @@
 
 **Architecture:** Extend existing prompt measurement, context projection and acceptance infrastructure; do not add another agent framework. Keep code tests, live model results and installed/native acceptance separate.
 
-**Constraints:** Preserve model, thinking preferences, global rules, authority/receipt guards and independent oracle. No publishing, external messages, platform distribution or unapproved service access. Never turn unknown into passed. No live retry without a changed cause. Existing daily 16/global and 8/goal limits remain.
+**Constraints:** Preserve model, thinking preferences, global rules, authority/receipt guards and independent oracle. No publishing, external messages, platform distribution or unapproved service access. Never turn unknown into passed. No live retry without a changed cause. Existing daily 16/global and 8/goal limits remain specific to Kits background followups; they do not cap ordinary Core acceptance tasks.
 
 ## Tasks
 
@@ -22,3 +22,7 @@
 ## Review focus
 
 Legacy manifests must retain their original fields; instructions can occupy mixed roles; pending optional reads must not accumulate workers; a new task in one chat must not inherit an old plan; modified source/config or actor-authored pass flags must not satisfy a release gate.
+
+## Nov10 reviewed continuation
+
+Reviewed source now includes private Kits configuration admission, explicit describe/locate image modes with typed pixel authority, and necessary cited technical-literal evidence. The previous 35c8 candidate remains rejected for bundled local configuration and a native factual false pass; its 15-task actor/oracle success binds only to that revision. Final acceptance requires the next exact source freeze and sanitized resources. A small optional exact-HTML-id reader addresses the measured inability to access later content of long authorized pages; excerpts remain partial source evidence. Current ledger and current-status.json contain evidence and external platform limits.
