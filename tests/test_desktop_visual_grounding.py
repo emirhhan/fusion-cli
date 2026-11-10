@@ -16,6 +16,12 @@ from fusion_cli.core.types import Message, ModelSpec
 from fusion_cli.engines.agent import engine_tools, loop
 from fusion_cli.engines.agent.approval import ApprovalRequest
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+from fusion_cli.engines.agent.image_coordinates import (
+    CoordinateStatus,
+    ImageDimensions,
+    ImageObservation,
+    ImagePoint,
+)
 from fusion_cli.tools import desktop_mouse
 from fusion_cli.tools.registry import ToolRegistry
 
@@ -97,6 +103,14 @@ async def test_view_image_reexecutes_after_same_path_is_overwritten(tmp_path, mo
         )
     assert executed == ["one", "two", "three"]
     assert messages[-1].content == "three"
+
+
+def _point_observation(text="image_pixels; point=(0.5,0.5)"):
+    return ImageObservation(
+        text,
+        coordinates=CoordinateStatus.IMAGE_PIXELS,
+        point=ImagePoint(0.5, 0.5, ImageDimensions(1, 1)),
+    )
 
 
 def _capture(deps, *, bounds=(0, 0, 100, 100), name="screen.png", data=None):
@@ -403,7 +417,7 @@ async def test_matching_immutable_helper_metadata_and_no_outside_root_read(tmp_p
 
     async def describe(config, data, question):
         seen.append(data)
-        return "visible_text: 0; description: calculator; uncertainty: none", None
+        return _point_observation()
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     tool = engine_tools._view_image_tool(deps)
@@ -424,7 +438,7 @@ async def test_helper_cannot_bind_a_newer_capture_during_await(tmp_path, monkeyp
     async def describe(config, data, question):
         assert data == uri
         _capture(deps, data=image_bytes("PNG", (2, 2)))
-        return "old image observation", None
+        return _point_observation("old image observation; image_pixels; point=(0.5,0.5)")
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run(
@@ -554,7 +568,7 @@ async def test_failed_or_empty_helper_never_returns_frame_receipt(
     capture, _ = _capture(deps)
 
     async def describe(*_):
-        return observation, error
+        return ImageObservation(observation, error)
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run(
@@ -571,7 +585,7 @@ async def test_file_change_during_helper_await_has_no_frame_receipt(tmp_path, mo
     async def describe(_config, data, _question):
         assert data == uri
         capture.path.write_bytes(image_bytes("PNG", (2, 2)))
-        return "observation of the old immutable image", None
+        return _point_observation("old immutable image; image_pixels; point=(0.5,0.5)")
 
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
     result = await engine_tools._view_image_tool(deps).run(

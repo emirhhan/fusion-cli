@@ -10,6 +10,7 @@ import pytest
 
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import engine_tools
+from fusion_cli.engines.agent.image_coordinates import ImageObservation
 from fusion_cli.engines.agent.observation_delivery import internal_observation_paths
 
 from .fakes import RecordingSink
@@ -199,7 +200,7 @@ async def test_read_await_cannot_lend_new_owner_a_stale_description(
 
     async def describe(*args):
         calls.append(True)
-        return "old-observation", None
+        return ImageObservation("old-observation", None)
 
     monkeypatch.setattr(desktop_capture_io, "read_background_image", read)
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
@@ -256,7 +257,7 @@ async def test_classification_await_never_adopts_a_new_capture_owner(
 
     async def describe(*args):
         calls.append(True)
-        return "new-owner-pixels", None
+        return ImageObservation("new-owner-pixels", None)
 
     monkeypatch.setattr(desktop_capture_io, "is_background_slot", classify)
     monkeypatch.setattr(engine_tools, "describe_image_data", describe)
