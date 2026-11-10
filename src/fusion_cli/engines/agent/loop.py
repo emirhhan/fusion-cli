@@ -2263,6 +2263,12 @@ async def _drive_loop(
             return _halt_local(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
         local_calls += 1
         time_stop = budget.time_stop_reason()
+        if time_stop is BudgetStop.INACTIVITY and budget.model_calls == 0 and budget.stop is None:
+            # Yalnız ortak turun ilk model çağrısının hazırlığı idle sayılmaz.
+            # İç/düzeltici turlar harcanmış veya durmuş bütçeyi yenileyemez;
+            # hazırlık kredisi sırasında dolan mutlak sınır da korunur.
+            budget.record_progress()
+            time_stop = budget.time_stop_reason()
         if time_stop is not None:
             return _halt(final_text, messages, state, budget, time_stop, deps)
         if not await _compact_before_call(
