@@ -11,6 +11,7 @@ from fusion_cli.core.events import ToolExecuted, ToolOutcome
 from fusion_cli.core.tools import ToolResult
 from fusion_cli.engines.agent import loop
 from fusion_cli.engines.agent.expertise import is_desktop_task
+from fusion_cli.engines.agent.tool_constraints import NATIVE_METHOD_BLOCKED
 from fusion_cli.mcp_bridge.discovery import McpDiscovery
 from fusion_cli.tools import desktop_policy
 
@@ -35,6 +36,9 @@ WINDOW = {"pid": 20, "window_id": 2}
 FOCUS = "desktop_window_focus"
 INSPECT = "desktop_background_inspect"
 ACTION = "desktop_background_action"
+CLICK = "desktop_click"
+MOUSE = "desktop_mouse"
+SCROLL = "desktop_scroll"
 
 
 def _calculator_deps(tmp_path, monkeypatch):
@@ -60,6 +64,9 @@ def _calculator_deps(tmp_path, monkeypatch):
         (FOCUS, ToolResult("Calculator", structured={"target": WINDOW})),
         (INSPECT, ToolResult("Calculator: AXButton 2 (current-ref)")),
         (ACTION, ToolResult("AXPress tamamlandı")),
+        (CLICK, None),
+        (MOUSE, None),
+        (SCROLL, ToolResult("Kaydırıldı")),
         ("desktop_type", None),
         ("desktop_key", None),
         ("run_shell", None),
@@ -102,6 +109,8 @@ async def test_calculator_turn_exposes_and_dispatches_native_inspect_and_press(
     assert executions == {FOCUS: ToolOutcome.OK, INSPECT: ToolOutcome.OK, ACTION: ToolOutcome.OK}
     assert {FOCUS, INSPECT, ACTION} <= schemas
     assert not schemas & {"run_shell", "bash", "desktop_type", "desktop_key"}
+    assert (schemas & {CLICK, MOUSE}) == (set() if task == GUIDED else {CLICK, MOUSE})
+    assert SCROLL in schemas
     assert handlers[INSPECT].await_args.args[0] == WINDOW
     assert handlers[ACTION].await_args.args[0] == action
 
@@ -138,6 +147,70 @@ async def test_calculator_turn_blocks_prohibited_method_routes_before_dispatch(
     ]
     for name, _ in executed:
         handlers[name].assert_not_awaited()
+
+
+async def test_guided_turn_blocks_coordinate_routes_but_preserves_relative_scroll(
+    tmp_path, monkeypatch
+):
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call(CLICK, x=10, y=10)]),
+            model_result(tool_calls=[tool_call(MOUSE, action="hover", x=10, y=10)]),
+            model_result(tool_calls=[tool_call(SCROLL, lines=1, x=10, y=10)]),
+            model_result(tool_calls=[tool_call(SCROLL, lines=1)]),
+            model_result("Koordinat gerektirmeyen kaydırma çalıştı."),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps, sink, handlers = _calculator_deps(tmp_path, monkeypatch)
+
+    await loop.run_agent(GUIDED, deps, self_review=False, verify=False)
+
+    events = [event for event in sink.events if isinstance(event, ToolExecuted)]
+    assert [(event.name, event.outcome) for event in events] == [
+        (CLICK, ToolOutcome.BLOCKED),
+        (MOUSE, ToolOutcome.BLOCKED),
+        (SCROLL, ToolOutcome.BLOCKED),
+        (SCROLL, ToolOutcome.OK),
+    ]
+    assert events[2].output == NATIVE_METHOD_BLOCKED
+    handlers[CLICK].assert_not_awaited()
+    handlers[MOUSE].assert_not_awaited()
+    assert [call.args[0] for call in handlers[SCROLL].await_args_list] == [{"lines": 1}]
+
+
+@pytest.mark.parametrize("prohibition", ["Do not use `set_value`.", "set_value kullanma."])
+async def test_direct_set_value_prohibition_preserves_press_schema_and_dispatch(
+    tmp_path, monkeypatch, prohibition
+):
+    press = {**WINDOW, "ref": "current-ref", "action": "press"}
+    provider = ScriptedProvider(
+        [
+            model_result(
+                tool_calls=[tool_call(ACTION, **{**press, "action": "set_value", "value": "77"})]
+            ),
+            model_result(tool_calls=[tool_call(ACTION, **press)]),
+            model_result("Düğmeye basıldı."),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps, sink, handlers = _calculator_deps(tmp_path, monkeypatch)
+
+    await loop.run_agent(
+        f"Call desktop_background_action on Calculator. {prohibition}",
+        deps,
+        self_review=False,
+        verify=False,
+    )
+
+    assert ACTION in {schema["function"]["name"] for schema in provider.seen_requests[0]}
+    events = [event for event in sink.events if isinstance(event, ToolExecuted)]
+    assert [(event.name, event.outcome) for event in events] == [
+        (ACTION, ToolOutcome.BLOCKED),
+        (ACTION, ToolOutcome.OK),
+    ]
+    assert events[0].output == NATIVE_METHOD_BLOCKED
+    assert [call.args[0] for call in handlers[ACTION].await_args_list] == [press]
 
 
 @pytest.mark.parametrize(

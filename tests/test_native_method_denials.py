@@ -87,12 +87,32 @@ def test_paste_only_restriction_preserves_other_keys(args, blocked):
         "Klavye kullanma demedim, fare kullanma.",
         "Python dosyasını düzenle. Kod kullanma.",
         "Klavye kullan; AXPress başarısızsa klavyeyle devam et.",
+        'Masaüstünde devam et. Açıklama: "Koordinat ve set_value kullanma".',
+        'Masaüstünde devam et. "Do not use `set_value`" metnini açıkla.',
+        "Masaüstünde devam et. Örnek: koordinat ve set_value kullanma.",
+        "Masaüstünde devam et. Koordinat ve set_value kullanma demedim.",
+        "GeoJSON dosyasını düzenle. Koordinat ve set_value kullanma.",
     ],
 )
 def test_examples_meta_negations_and_unrelated_code_do_not_derive_denials(task):
     from fusion_cli.engines.agent.tool_constraints import native_method_denials
 
     assert not native_method_denials(task)
+
+
+@pytest.mark.parametrize("prohibition", ["No coordinates.", "Koordinatları kullanma, devam et."])
+def test_native_coordinate_prohibition_distinguishes_positioned_scroll(prohibition):
+    from fusion_cli.engines.agent.tool_constraints import (
+        native_method_blocked,
+        native_method_denials,
+    )
+
+    denied = native_method_denials(f"Call desktop_background_inspect. {prohibition}")
+    assert {"desktop_click", "desktop_mouse"} <= denied
+    assert "desktop_scroll" not in denied
+    assert native_method_blocked("desktop_scroll", {"x": 0}, denied)
+    assert native_method_blocked("desktop_scroll", {"y": 0}, denied)
+    assert not native_method_blocked("desktop_scroll", {"lines": 1}, denied)
 
 
 async def test_fake_real_engine_cannot_execute_explicitly_prohibited_key(tmp_path, monkeypatch):
