@@ -31,6 +31,7 @@ from ...core.tools import ToolContext, ToolEffect
 from ...tools.args import coerce_int
 from ...tools.desktop_policy import UNVERIFIED_REASON, DesktopAssessment, _probe_request, assess
 from ...tools.desktop_risk import _CALCULATOR_MATH_IDS, _bound_calculator_identity, _split_element
+from .desktop_grounding import current_capture
 
 if TYPE_CHECKING:
     from .approval import ApprovalRequest
@@ -192,19 +193,19 @@ def _click_evidence(
     if context is None or role != "Button" or not label.strip():
         return None
     view = context.desktop
-    focus = view.focus_identity()
+    capture = current_capture(context)
     if (
-        view.focus_required
+        capture is None
+        or view.focus_required
         or view.focused_window_id <= 0
         or view.focused_window is None
         or view.focused_window[0] != target.pid
         or "point" not in _probe_request(name, args, context)
     ):
         return None
-    frame = view.frame
 
     async def recheck() -> bool:
-        if view.focus_identity() != focus or view.frame != frame:
+        if current_capture(context) is not capture:
             return False
         current = await assess(name, args, context)
         return (
@@ -212,8 +213,7 @@ def _click_evidence(
             and current.blocked is None
             and current.risky is None
             and current.target == target
-            and view.focus_identity() == focus
-            and view.frame == frame
+            and current_capture(context) is capture
         )
 
     return DesktopClickEvidence(view.focused_window_id, recheck)

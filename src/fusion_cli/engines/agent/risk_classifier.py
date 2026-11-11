@@ -141,15 +141,17 @@ async def review_auto_request(request: ApprovalRequest, deps: ReviewDeps) -> App
         if not promptless and request.desktop_click_evidence is not None
         else request
     )
-    key = cache_key(review_request, intent)
-    cached = state.cached(key)
+    # Aynı etiket ve koordinat sonraki ekran görüntüsünde başka bir hedefi gösterebilir.
+    key = None if needs_click_review else cache_key(review_request, intent)
+    cached = state.cached(key) if key is not None else None
     if cached is not None:
         outcome = replace(cached, source=ReviewSource.CACHE)
     else:
         outcome = await classify(
             review_request, intent, deps.config, deps.publisher, root=root, kind=kind, state=state
         )
-        state.remember(key, outcome)
+        if key is not None:
+            state.remember(key, outcome)
     if outcome.source is ReviewSource.RULE and kind is ReviewKind.ESCALATE:
         # Model bakmadı, kural zaten geçiriyordu: olay/kayıt gürültüdür ("denetçi onayladı"
         # yanıltır). Ölçüldü (31 Ekim): `on` + anahtarsız kurulumda her yazan komutta çıkıyordu.

@@ -360,43 +360,23 @@ async def test_promptless_auto_blocks_grounded_click_when_native_hit_is_sil(
     dispatch.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    ("label", "review", "changed", "expected"),
-    [
-        ("Arşivle", "safe", None, Decision.ALLOW),
-        ("Arşivle", "risky", None, Decision.BLOCKED),
-        ("Arşivle", "unavailable", None, Decision.BLOCKED),
-        ("Arşivle", "safe", "Sil", Decision.BLOCKED),
-        ("", "safe", None, Decision.BLOCKED),
-        ("Sil", "safe", None, Decision.BLOCKED),
-    ],
-)
-async def test_promptless_auto_reviewed_click_checks_native_target(
-    tmp_path, monkeypatch, probe, label, review, changed, expected
-):
+@pytest.fixture
+def desktop_click_review(tmp_path, probe):
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock, Mock
+    from unittest.mock import Mock
 
-    from fusion_cli.core.auto_review import (
-        AutoClassifierMode,
-        ReviewOutcome,
-        ReviewSource,
-        ReviewVerdict,
-    )
+    from fusion_cli.core.auto_review import AutoClassifierMode
     from fusion_cli.core.types import Message
-    from fusion_cli.engines.agent import risk_classifier
+    from tests.test_desktop_visual_grounding import _capture
 
     context = _context(tmp_path)
     context.desktop.focused_window = (9, 0, 0, 1000, 600)
     context.desktop.focused_window_id = 100
     context.desktop.focused_window_title = "Mail"
     probe["answer"] = {
-        **_answer("Mail", "com.apple.mail", label),
+        **_answer("Mail", "com.apple.mail", "Arşivle"),
         "window": {"id": 100, "title": "Mail", "bounds": [0, 0, 1000, 600]},
     }
-    request = await resolve_request(
-        _REGISTRY.get("desktop_click"), {"x": 5, "y": 5}, context=context
-    )
     memory = ApprovalMemory()
     deps = SimpleNamespace(
         config=SimpleNamespace(
@@ -410,6 +390,40 @@ async def test_promptless_auto_reviewed_click_checks_native_target(
         live_history=lambda: [Message("user", "Mail'de Arşivle düğmesine tıkla.")],
         publisher=Mock(),
     )
+    _capture(deps)
+    prompter = _Prompter()
+    policy = build_policy(ApprovalMode.AUTO, prompter, memory, interaction_prompts=False)
+    return deps, policy, prompter
+
+
+async def _desktop_click_request(deps):
+    return await resolve_request(
+        _REGISTRY.get("desktop_click"), {"x": 5, "y": 5}, context=deps.tool_context
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "review", "changed", "expected"),
+    [
+        ("Arşivle", "safe", None, Decision.ALLOW),
+        ("Arşivle", "risky", None, Decision.BLOCKED),
+        ("Arşivle", "unavailable", None, Decision.BLOCKED),
+        ("Arşivle", "safe", "Sil", Decision.BLOCKED),
+        ("", "safe", None, Decision.BLOCKED),
+        ("Sil", "safe", None, Decision.BLOCKED),
+    ],
+)
+async def test_promptless_auto_reviewed_click_checks_native_target(
+    desktop_click_review, monkeypatch, probe, label, review, changed, expected
+):
+    from unittest.mock import AsyncMock
+
+    from fusion_cli.core.auto_review import ReviewOutcome, ReviewSource, ReviewVerdict
+    from fusion_cli.engines.agent import risk_classifier
+
+    deps, policy, prompter = desktop_click_review
+    probe["answer"] = {**probe["answer"], **_answer("Mail", "com.apple.mail", label)}
+    request = await _desktop_click_request(deps)
     outcome = ReviewOutcome(
         "desktop_click",
         ReviewVerdict.RISKY if review == "risky" else ReviewVerdict.SAFE,
@@ -422,9 +436,56 @@ async def test_promptless_auto_reviewed_click_checks_native_target(
     reviewed = await risk_classifier.review_auto_request(request, deps)
     if changed is not None:
         probe["answer"] = {**probe["answer"], "element": {"role": "AXButton", "title": changed}}
-    prompter = _Prompter()
-    policy = build_policy(ApprovalMode.AUTO, prompter, memory, interaction_prompts=False)
     assert await policy.decide(reviewed) is expected
+    assert not prompter.asked
+
+
+async def test_promptless_click_reviews_same_label_in_new_capture_again(
+    desktop_click_review, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from fusion_cli.core.auto_review import ReviewOutcome, ReviewSource, ReviewVerdict
+    from fusion_cli.engines.agent import risk_classifier
+    from tests.test_desktop_visual_grounding import _capture
+
+    deps, policy, prompter = desktop_click_review
+    classify = AsyncMock(
+        side_effect=[
+            ReviewOutcome(
+                "desktop_click", ReviewVerdict.SAFE, "first", ReviewSource.MODEL, "fixture"
+            ),
+            ReviewOutcome(
+                "desktop_click", ReviewVerdict.RISKY, "second", ReviewSource.MODEL, "fixture"
+            ),
+        ]
+    )
+    monkeypatch.setattr(risk_classifier, "classify", classify)
+    first = await risk_classifier.review_auto_request(await _desktop_click_request(deps), deps)
+    assert await policy.decide(first) is Decision.ALLOW
+    _capture(deps, name="second.png")
+    second = await risk_classifier.review_auto_request(await _desktop_click_request(deps), deps)
+    assert classify.await_count == 2
+    assert await policy.decide(second) is Decision.BLOCKED
+    assert not prompter.asked
+
+
+async def test_promptless_click_rejects_recapture_during_review(desktop_click_review, monkeypatch):
+    from fusion_cli.core.auto_review import ReviewOutcome, ReviewSource, ReviewVerdict
+    from fusion_cli.engines.agent import risk_classifier
+    from tests.test_desktop_visual_grounding import _capture
+
+    deps, policy, prompter = desktop_click_review
+
+    async def classify(*_args, **_kwargs):
+        _capture(deps, name="during-review.png")
+        return ReviewOutcome(
+            "desktop_click", ReviewVerdict.SAFE, "old", ReviewSource.MODEL, "fixture"
+        )
+
+    monkeypatch.setattr(risk_classifier, "classify", classify)
+    reviewed = await risk_classifier.review_auto_request(await _desktop_click_request(deps), deps)
+    assert await policy.decide(reviewed) is Decision.BLOCKED
     assert not prompter.asked
 
 
