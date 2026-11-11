@@ -575,7 +575,12 @@ class SecurityApproval(_AskingApproval):
 class DontAskApproval:
     """Açık izinleri ve okumayı koru; kullanıcı etkileşimi gereken çağrıyı reddet."""
 
+    def __init__(self, *, block_interaction_required: bool = False) -> None:
+        self._block_interaction_required = block_interaction_required
+
     async def decide(self, request: ApprovalRequest) -> Verdict:
+        if self._block_interaction_required and _requires_interaction(request):
+            return Decision.BLOCKED
         if request.pre_denied is None and request.rule_opens:
             return Decision.ALLOW
         if (
@@ -675,7 +680,7 @@ def build_policy(
     """
     selected_prompter = prompter if interaction_prompts else None
     if mode is ApprovalMode.DONT_ASK:
-        return DontAskApproval()
+        return DontAskApproval(block_interaction_required=not interaction_prompts)
     if mode is ApprovalMode.PLAN:
         plan_type = PlanApproval if interaction_prompts else _PromptlessPlanApproval
         return plan_type(

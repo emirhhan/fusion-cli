@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from fusion_cli.config.permission_rules import PermissionDecision, PermissionRule, PermissionRuleSet
 from fusion_cli.core.tools import Tool, ToolEffect
 from fusion_cli.engines.agent.approval import (
     REMOTE_DESTRUCTIVE_REASON,
@@ -98,6 +99,26 @@ async def test_bypass_without_prompter_preserves_required_remote_approval():
     policy = BypassApproval(None)
     request = build_request(_arac("mcp__example__erase", effect=ToolEffect.REMOTE_DESTRUCTIVE), {})
     assert await policy.decide(request) is Decision.BLOCKED
+
+
+@pytest.mark.parametrize(
+    ("effect", "expected"),
+    [
+        (ToolEffect.REMOTE_DESTRUCTIVE, Decision.BLOCKED),
+        (ToolEffect.REMOTE_SESSION, Decision.BLOCKED),
+        (ToolEffect.REMOTE_WRITE, Decision.ALLOW),
+    ],
+)
+async def test_dont_ask_opt_out_keeps_remote_interaction_above_allow_rules(effect, expected):
+    name = "mcp__example__perform"
+    rules = PermissionRuleSet(rules=(PermissionRule(name, None, PermissionDecision.ALLOW),))
+    request = build_request(_arac(name, effect=effect), {}, rules=rules)
+    assert request.rule_opens
+    prompter = AsyncMock()
+    assert await build_policy(ApprovalMode.DONT_ASK, prompter).decide(request) is Decision.ALLOW
+    policy = build_policy(ApprovalMode.DONT_ASK, prompter, interaction_prompts=False)
+    assert await policy.decide(request) is expected
+    prompter.confirm.assert_not_awaited()
 
 
 async def test_auto_modda_proje_ici_sade_silme_cope_gittigi_icin_sorulmaz(tmp_path):
