@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from unittest.mock import AsyncMock
+
 import pytest
 
 from fusion_cli.core.tools import Tool, ToolEffect
 from fusion_cli.engines.agent.approval import (
     REMOTE_DESTRUCTIVE_REASON,
     ApprovalAnswer,
+    ApprovalMemory,
     ApprovalMode,
+    BypassApproval,
     Decision,
     build_policy,
     build_request,
@@ -48,6 +53,51 @@ async def test_auto_modda_yikici_komut_yine_de_sorulur():
     )
 
     assert karar is Decision.DENIED
+
+
+async def test_auto_without_interaction_keeps_routine_work_and_blocks_unresolved_calls():
+    prompter = AsyncMock()
+    policy = build_policy(ApprovalMode.AUTO, prompter, interaction_prompts=False)
+    routine = build_request(_arac(), {"path": "a.txt"})
+    assert await policy.decide(routine) is Decision.ALLOW
+    for request in (
+        replace(routine, pre_denied="deny"),
+        replace(routine, pre_ask="ask"),
+        replace(routine, danger="danger", pre_allowed=True),
+        replace(routine, risk="unresolved"),
+        replace(routine, effect=ToolEffect.REMOTE_DESTRUCTIVE),
+    ):
+        assert await policy.decide(request) is Decision.BLOCKED
+    prompter.confirm.assert_not_awaited()
+
+
+async def test_promptless_auto_trip_survives_policy_reconstruction():
+    memory = ApprovalMemory()
+    memory.auto_review.on_fallback = lambda: None
+    memory.auto_review.fell_back = True
+    prompter = AsyncMock()
+    policy = build_policy(ApprovalMode.AUTO, prompter, memory, interaction_prompts=False)
+    assert await policy.decide(build_request(_arac(), {"path": "a.txt"})) is Decision.BLOCKED
+    assert memory.auto_review.fell_back
+    prompter.confirm.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [ApprovalMode.SECURITY, ApprovalMode.ACCEPT_EDITS, ApprovalMode.PLAN, ApprovalMode.BYPASS],
+)
+async def test_interaction_opt_out_blocks_explicit_ask_across_other_modes(mode):
+    prompter = AsyncMock()
+    policy = build_policy(mode, prompter, interaction_prompts=False)
+    request = replace(build_request(_arac(), {"path": "a.txt"}), pre_ask="ask", rule="Write")
+    assert await policy.decide(request) is Decision.BLOCKED
+    prompter.confirm.assert_not_awaited()
+
+
+async def test_bypass_without_prompter_preserves_required_remote_approval():
+    policy = BypassApproval(None)
+    request = build_request(_arac("mcp__example__erase", effect=ToolEffect.REMOTE_DESTRUCTIVE), {})
+    assert await policy.decide(request) is Decision.BLOCKED
 
 
 async def test_auto_modda_proje_ici_sade_silme_cope_gittigi_icin_sorulmaz(tmp_path):

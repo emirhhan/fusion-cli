@@ -94,7 +94,12 @@ from .chrome_site_approval import (
 )
 from .claude_dir_session import claude_dir_key, claude_dir_label
 from .desktop_access import ACCESS_TOOL, apply_access
-from .desktop_approval import apply_desktop, consent_description, is_desktop_consent
+from .desktop_approval import (
+    DesktopClickEvidence,
+    apply_desktop,
+    consent_description,
+    is_desktop_consent,
+)
 from .plan_approval import PlanApproval
 from .read_approval import mark_outside_read
 from .sandbox_approval import apply_sandbox_policy
@@ -256,6 +261,10 @@ class ApprovalRequest:
     consent_alias: str | None = None
     #: `pre_denied` masaüstü politikasından geliyor (modele masaüstü engel metni döner).
     desktop_blocked: bool = False
+    #: Doğrulanmış odak penceresinde yerel Hesap Makinesi'nin sıradan düğme eylemi.
+    desktop_verified_press: bool = False
+    #: Denetçinin kararından sonra yeniden doğrulanacak yerel düğme tıklaması.
+    desktop_click_evidence: DesktopClickEvidence | None = None
     #: Modelin araç çağrısı kimliği (`tool_use_id`); döngü onaydan önce doldurur.
     call_id: str = ""
     #: Tanınan kritik yol `rm`/`rmdir` silmesi (#42): bypass dahil hiçbir kip sormadan geçirmez.
@@ -453,7 +462,7 @@ class _AskingApproval:
     #: Kart "Evet, ve auto kipine geç" sunar mı (#82; Claude: yalnız Manuel ve acceptEdits).
     _offers_auto = False
 
-    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
+    def __init__(self, prompter: Prompter | None, memory: ApprovalMemory | None = None) -> None:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
@@ -469,12 +478,16 @@ class _AskingApproval:
         if request.pre_denied is not None:
             # `deny` kuralı / kök-dışı engel: kimseye sorulmaz, model gerekçeyi görür.
             return Decision.BLOCKED
+        if self._prompter is None and _requires_interaction(request):
+            return Decision.BLOCKED
         if request.rule_opens or (
             request.danger is None and request.pre_ask is None and self._allows(request)
         ):
             return Decision.ALLOW
         if request.pre_ask is None and self._memory.is_remembered(request):
             return Decision.ALLOW
+        if self._prompter is None:
+            return Decision.BLOCKED
         return await _ask_and_remember(
             self._prompter, request, self._memory, offer_auto=self._offers_auto
         )
@@ -488,23 +501,44 @@ class AutoApproval(_AskingApproval):
     soruyor, sormasın" dedi. Beyaz liste artık "Düzenlemeleri kabul et" kipidir.
     """
 
-    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
+    def __init__(self, prompter: Prompter | None, memory: ApprovalMemory | None = None) -> None:
         super().__init__(prompter, memory)
         guard = self._memory.auto_review
         #: Kurulduğu andaki düşüş sayısı; tur ortasında denetçi kipi düşürürse (P-011) bu
         #: politika kalan çağrılarda Manuel gibi davranır.
         self._trips = guard.trips
-        if guard.on_fallback is not None:
+        if prompter is not None and guard.on_fallback is not None:
             # Sahip düşüşte kipi Manuel'e çeker; Otomatik politika kuruluyorsa kip yeniden
             # seçilmiştir. Sahipsiz (`fusion run`) düşüş kalıcıdır: alt ajanın yeni
             # politikası onu silmemeli (ölçüldü, 31 Ekim).
             guard.acknowledge_auto()
 
-    def _allows(self, request: ApprovalRequest) -> bool:
+    def _fell_back(self) -> bool:
         guard = self._memory.auto_review
-        if guard.trips != self._trips or (guard.fell_back and guard.on_fallback is None):
+        return guard.trips != self._trips or (
+            guard.fell_back and (self._prompter is None or guard.on_fallback is None)
+        )
+
+    async def decide(self, request: ApprovalRequest) -> Verdict:
+        if self._prompter is None:
+            if self._fell_back() and not request.read_only:
+                return Decision.BLOCKED
+            if is_desktop_consent(request) and not request.desktop_verified_press:
+                evidence = request.desktop_click_evidence
+                if (
+                    request.pre_denied is not None
+                    or _requires_interaction(request)
+                    or (request.risk is not None and not request.rule_opens)
+                    or evidence is None
+                    or not await evidence.recheck()
+                ):
+                    return Decision.BLOCKED
+        return await super().decide(request)
+
+    def _allows(self, request: ApprovalRequest) -> bool:
+        if self._fell_back():
             return request.read_only
-        return request.risk is None
+        return request.risk is None or (self._prompter is None and request.desktop_verified_press)
 
 
 class AcceptEditsApproval(_AskingApproval):
@@ -573,6 +607,11 @@ class BypassApproval:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
+    @property
+    def prompter(self) -> Prompter | None:
+        """Sandbox ağ kararı için kullanılabilir onaycı."""
+        return self._prompter
+
     async def decide(self, request: ApprovalRequest) -> Verdict:
         if request.pre_denied is not None:
             return Decision.BLOCKED
@@ -586,7 +625,11 @@ class BypassApproval:
         # time Claude needs a specific app in a session, a prompt appears").
         is_app_consent = is_desktop_consent(request) or is_site_consent(request)
         if self._prompter is None:
-            return Decision.BLOCKED if must_ask else Decision.ALLOW
+            if _requires_interaction(request) or (
+                is_app_consent and not self._memory.is_remembered(request)
+            ):
+                return Decision.BLOCKED
+            return Decision.ALLOW
         if (
             not must_ask
             and not is_app_consent
@@ -598,6 +641,24 @@ class BypassApproval:
         return await _ask_and_remember(self._prompter, request, self._memory)
 
 
+def _requires_interaction(request: ApprovalRequest) -> bool:
+    """Onaycı yoksa açık soru ve yüksek risk koşullarını izinle aşma."""
+    return (
+        request.pre_ask is not None
+        or request.danger is not None
+        or request.critical is not None
+        or request.protected is not None
+        or request.effect in {ToolEffect.REMOTE_DESTRUCTIVE, ToolEffect.REMOTE_SESSION}
+    )
+
+
+class _PromptlessPlanApproval(PlanApproval):
+    async def decide(self, request: ApprovalRequest) -> Verdict:
+        if request.plan_prompt or _requires_interaction(request):
+            return Decision.BLOCKED
+        return await super().decide(request)
+
+
 def build_policy(
     mode: ApprovalMode,
     prompter: Prompter,
@@ -605,28 +666,31 @@ def build_policy(
     *,
     use_auto_mode_during_plan: bool = True,
     bypass_available: bool = False,
+    interaction_prompts: bool = True,
 ) -> ApprovalPolicy:
     """Moda karşılık gelen politikayı üret.
 
     `memory` verilmezse tek turluk taze hafıza kurulur; sohbet boyunca yaşayan
     çağıranlar kendi hafızalarını her turda aynı nesneyle geçirir.
     """
+    selected_prompter = prompter if interaction_prompts else None
     if mode is ApprovalMode.DONT_ASK:
         return DontAskApproval()
     if mode is ApprovalMode.PLAN:
-        return PlanApproval(
-            prompter,
+        plan_type = PlanApproval if interaction_prompts else _PromptlessPlanApproval
+        return plan_type(
+            selected_prompter,
             memory,
             use_auto_mode=use_auto_mode_during_plan,
             bypass_available=bypass_available,
         )
     if mode is ApprovalMode.BYPASS:
-        return BypassApproval(prompter, memory)
+        return BypassApproval(selected_prompter, memory)
     if mode is ApprovalMode.SECURITY:
-        return SecurityApproval(prompter, memory)
+        return SecurityApproval(selected_prompter, memory)
     if mode is ApprovalMode.ACCEPT_EDITS:
-        return AcceptEditsApproval(prompter, memory)
-    return AutoApproval(prompter, memory)
+        return AcceptEditsApproval(selected_prompter, memory)
+    return AutoApproval(selected_prompter, memory)
 
 
 async def resolve_request(
@@ -688,7 +752,7 @@ async def resolve_request(
         return apply_access(request, args, context)
     # Masaüstü: hedef uygulama, kademe, oturum onayı ve riskli eylem (P-007, P-008).
     assessment = await desktop_policy.assess(tool.name, args, context)
-    return apply_desktop(request, assessment)
+    return apply_desktop(request, assessment, context)
 
 
 def build_request(

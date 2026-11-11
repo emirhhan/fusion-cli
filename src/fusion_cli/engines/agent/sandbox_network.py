@@ -61,15 +61,15 @@ class NetworkChoice(Enum):
 
 def network_choice(policy: ApprovalPolicy) -> NetworkChoice:
     """Kipin liste dışı ana makine kararı (Claude tablosu)."""
+    if getattr(policy, "prompter", None) is None:
+        return NetworkChoice.DENY
     if isinstance(policy, BypassApproval):
         return NetworkChoice.ALLOW
     if isinstance(policy, PlanApproval):
         return NetworkChoice.ALLOW if policy.bypass_available else NetworkChoice.ASK
     if isinstance(policy, (AutoApproval, DontAskApproval)):
         return NetworkChoice.DENY
-    return (
-        NetworkChoice.ASK if getattr(policy, "prompter", None) is not None else NetworkChoice.DENY
-    )
+    return NetworkChoice.ASK
 
 
 def _no_run(_args: object, _context: ToolContext) -> ToolResult:

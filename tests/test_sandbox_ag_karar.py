@@ -70,6 +70,11 @@ def test_kip_tablosu_claude_ile_ayni():
     assert network_choice(DontAskApproval()) is NetworkChoice.DENY
 
 
+def test_bypass_without_prompter_denies_unknown_network_hosts():
+    assert network_choice(BypassApproval(None)) is NetworkChoice.DENY
+    assert network_choice(PlanApproval(None, bypass_available=True)) is NetworkChoice.DENY
+
+
 def test_varsayilan_ag_proxyli_ve_auto_allow_acik():
     config = SandboxConfig()
     assert config.network == "allowlist" and config.auto_allow is True

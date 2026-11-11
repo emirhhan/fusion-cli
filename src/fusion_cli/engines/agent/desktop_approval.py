@@ -21,12 +21,16 @@ için `denied_apps=["1Password"]` ya da Fusion'ın onay kartı korumasız kalıy
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from ...core.desktop_ref_handles import canonical_arguments
 from ...core.desktop_settings import DesktopLevel, DesktopTarget
-from ...core.tools import ToolEffect
-from ...tools.desktop_policy import UNVERIFIED_REASON, DesktopAssessment
+from ...core.tools import ToolContext, ToolEffect
+from ...tools.args import coerce_int
+from ...tools.desktop_policy import UNVERIFIED_REASON, DesktopAssessment, _probe_request, assess
+from ...tools.desktop_risk import _CALCULATOR_MATH_IDS, _bound_calculator_identity, _split_element
 
 if TYPE_CHECKING:
     from .approval import ApprovalRequest
@@ -48,6 +52,14 @@ DESKTOP_BLOCKED_RESULT = (
     "Masaüstü eylemi engellendi, kullanıcıya sorulmadı: {reason}. Bu uygulamada bu eylemi "
     "deneme; önerilen yolu kullan ya da kullanıcıya Ayarlar › Bu bilgisayar'ı söyle."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopClickEvidence:
+    """Odaklı pencere ve değerlendirmeden sonra tekrar yoklanacak yerel tıklama."""
+
+    window_id: int
+    recheck: Callable[[], Awaitable[bool]]
 
 
 def blocked_result(request: ApprovalRequest) -> str:
@@ -76,7 +88,9 @@ def consent_key(app_key: str) -> str:
 
 
 def apply_desktop(
-    request: ApprovalRequest, assessment: DesktopAssessment | None
+    request: ApprovalRequest,
+    assessment: DesktopAssessment | None,
+    context: ToolContext | None = None,
 ) -> ApprovalRequest:
     """İsteği masaüstü kararıyla güncelle; karar yoksa olduğu gibi döndür.
 
@@ -132,7 +146,77 @@ def apply_desktop(
         consent_key=consent_key(target.key),
         consent_alias=_name_alias(target),
         desktop_target=target,
+        desktop_verified_press=_verified_calculator_press(request, target, context),
+        desktop_click_evidence=_click_evidence(request, target, context),
     )
+
+
+def _verified_calculator_press(
+    request: ApprovalRequest, target: DesktopTarget, context: ToolContext | None
+) -> bool:
+    """Yerel uygulama kanıtı, odak kimliği ve doğrulanabilir düğme başvurusu birlikte gerekir."""
+    if (
+        request.tool.name != "desktop_background_action"
+        or request.args.get("action") != "press"
+        or not target.system_calculator
+        or target.bundle != "com.apple.calculator"
+        or context is None
+        or context.desktop.focus_required
+        or context.desktop.focused_window is None
+        or context.desktop.focused_window[0] != target.pid
+        or coerce_int(request.args.get("window_id")) != context.desktop.focused_window_id
+    ):
+        return False
+    try:
+        args = canonical_arguments(request.tool.name, request.args, context)
+    except ValueError:
+        return False
+    identity = _bound_calculator_identity(args, target)
+    return (
+        identity is not None and identity[0] == "AXButton" and identity[2] in _CALCULATOR_MATH_IDS
+    )
+
+
+def _click_evidence(
+    request: ApprovalRequest, target: DesktopTarget, context: ToolContext | None
+) -> DesktopClickEvidence | None:
+    name, args = request.tool.name, dict(request.args)
+    if name != "desktop_click" and not (
+        name == "desktop_mouse"
+        and args.get("action", "click") == "click"
+        and args.get("button", "left") == "left"
+        and not args.get("modifiers")
+    ):
+        return None
+    role, label = _split_element(target.element)
+    if context is None or role != "Button" or not label.strip():
+        return None
+    view = context.desktop
+    focus = view.focus_identity()
+    if (
+        view.focus_required
+        or view.focused_window_id <= 0
+        or view.focused_window is None
+        or view.focused_window[0] != target.pid
+        or "point" not in _probe_request(name, args, context)
+    ):
+        return None
+    frame = view.frame
+
+    async def recheck() -> bool:
+        if view.focus_identity() != focus or view.frame != frame:
+            return False
+        current = await assess(name, args, context)
+        return (
+            current is not None
+            and current.blocked is None
+            and current.risky is None
+            and current.target == target
+            and view.focus_identity() == focus
+            and view.frame == frame
+        )
+
+    return DesktopClickEvidence(view.focused_window_id, recheck)
 
 
 def _name_alias(target: DesktopTarget) -> str | None:

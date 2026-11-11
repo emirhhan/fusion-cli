@@ -277,6 +277,157 @@ def _calculator_ref(**changes):
     return base64.b64encode(json.dumps(token).encode()).decode()
 
 
+@pytest.mark.parametrize(
+    ("native_proof", "window", "identifier", "verdict"),
+    [
+        (True, 100, "Four", Decision.ALLOW),
+        (False, 100, "Four", Decision.BLOCKED),
+        (True, 101, "Four", Decision.BLOCKED),
+        (True, 100, "ClearHistory", Decision.BLOCKED),
+        (True, 100, "Unrecognized", Decision.BLOCKED),
+    ],
+)
+async def test_promptless_auto_calculator_press_requires_typed_same_window_proof(
+    tmp_path, probe, native_proof, window, identifier, verdict
+):
+    context = _context(tmp_path)
+    context.desktop.focused_window = (9, 0, 0, 100, 100)
+    context.desktop.focused_window_id = 100
+    probe["answer"] = {
+        **_answer("Hesap Makinesi", "com.apple.calculator"),
+        "system_calculator": native_proof,
+    }
+    args = {
+        "action": "press",
+        "pid": 9,
+        "window_id": window,
+        "ref": _calculator_ref(id=window, identity=f"AXButton\x1f\x1f{identifier}\x1f"),
+    }
+    request = await resolve_request(
+        _REGISTRY.get("desktop_background_action"), args, context=context
+    )
+    prompter = _Prompter()
+    policy = build_policy(ApprovalMode.AUTO, prompter, interaction_prompts=False)
+    assert await policy.decide(request) is verdict
+    assert prompter.asked == []
+
+
+async def test_promptless_auto_blocks_grounded_click_when_native_hit_is_sil(
+    tmp_path, monkeypatch, probe
+):
+    from unittest.mock import AsyncMock
+
+    from fusion_cli.core.events import ToolOutcome
+    from fusion_cli.engines.agent import loop
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from tests.fakes import tool_call
+    from tests.test_desktop_visual_grounding import _actor, _capture, _helper_message, _setup
+
+    deps, state, _, _ = _setup(tmp_path)
+    desktop = deps.tool_context.desktop
+    desktop.focused_window = (9, 0, 0, 100, 100)
+    desktop.focused_window_id = 100
+    desktop.focused_window_title = "Hesap Makinesi"
+    probe["answer"] = {
+        **_answer("Hesap Makinesi", "com.apple.calculator", "Sil"),
+        "system_calculator": True,
+        "window": {"id": 100, "title": "Hesap Makinesi", "bounds": [0, 0, 100, 100]},
+    }
+    capture, _ = _capture(deps)
+    await _actor(monkeypatch, deps, state, [_helper_message(deps, state, capture, "4 is at 10,10")])
+    prompter = _Prompter()
+    deps.policy = build_policy(ApprovalMode.AUTO, prompter, interaction_prompts=False)
+    dispatch = AsyncMock(side_effect=AssertionError("Sil should not dispatch"))
+    monkeypatch.setattr(loop, "_execute_registered_tool", dispatch)
+    args = {"x": 10, "y": 10}
+    assert (
+        state.desktop_grounding.preflight(
+            "desktop_click", args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        is None
+    )
+    _, outcome = await loop._execute(
+        tool_call("desktop_click", **args),
+        args,
+        deps,
+        _REGISTRY,
+        execution=ExecutionPolicy(is_web=False),
+        state=state,
+    )
+    assert outcome is ToolOutcome.BLOCKED
+    assert desktop.target_pid == 9
+    assert not prompter.asked
+    dispatch.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("label", "review", "changed", "expected"),
+    [
+        ("Arşivle", "safe", None, Decision.ALLOW),
+        ("Arşivle", "risky", None, Decision.BLOCKED),
+        ("Arşivle", "unavailable", None, Decision.BLOCKED),
+        ("Arşivle", "safe", "Sil", Decision.BLOCKED),
+        ("", "safe", None, Decision.BLOCKED),
+        ("Sil", "safe", None, Decision.BLOCKED),
+    ],
+)
+async def test_promptless_auto_reviewed_click_checks_native_target(
+    tmp_path, monkeypatch, probe, label, review, changed, expected
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from fusion_cli.core.auto_review import (
+        AutoClassifierMode,
+        ReviewOutcome,
+        ReviewSource,
+        ReviewVerdict,
+    )
+    from fusion_cli.core.types import Message
+    from fusion_cli.engines.agent import risk_classifier
+
+    context = _context(tmp_path)
+    context.desktop.focused_window = (9, 0, 0, 1000, 600)
+    context.desktop.focused_window_id = 100
+    context.desktop.focused_window_title = "Mail"
+    probe["answer"] = {
+        **_answer("Mail", "com.apple.mail", label),
+        "window": {"id": 100, "title": "Mail", "bounds": [0, 0, 1000, 600]},
+    }
+    request = await resolve_request(
+        _REGISTRY.get("desktop_click"), {"x": 5, "y": 5}, context=context
+    )
+    memory = ApprovalMemory()
+    deps = SimpleNamespace(
+        config=SimpleNamespace(
+            runtime=SimpleNamespace(
+                auto_classifier=AutoClassifierMode.ON, interaction_prompts=False
+            )
+        ),
+        auto_review=memory.auto_review,
+        approval_mode=lambda: ApprovalMode.AUTO,
+        tool_context=context,
+        live_history=lambda: [Message("user", "Mail'de Arşivle düğmesine tıkla.")],
+        publisher=Mock(),
+    )
+    outcome = ReviewOutcome(
+        "desktop_click",
+        ReviewVerdict.RISKY if review == "risky" else ReviewVerdict.SAFE,
+        "fixture",
+        ReviewSource.RULE if review == "unavailable" else ReviewSource.MODEL,
+        "fixture",
+    )
+    classify = AsyncMock(return_value=outcome)
+    monkeypatch.setattr(risk_classifier, "classify", classify)
+    reviewed = await risk_classifier.review_auto_request(request, deps)
+    if changed is not None:
+        probe["answer"] = {**probe["answer"], "element": {"role": "AXButton", "title": changed}}
+    prompter = _Prompter()
+    policy = build_policy(ApprovalMode.AUTO, prompter, memory, interaction_prompts=False)
+    assert await policy.decide(reviewed) is expected
+    assert not prompter.asked
+
+
 async def _calculator_session(tmp_path, probe, *, native=None):
     answer = _answer("Hesap Makinesi", "com.apple.calculator", "7")
     answer["system_calculator"] = True
