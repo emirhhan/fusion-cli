@@ -11,8 +11,9 @@ Kompozisyondaki yeri en içtedir (tek bir model ya da tek bir anahtar):
    sürede doluyorsa beklenir; uzunsa çağrı yapılmadan "hız sınırı" sonucu döner
    ve zincir hemen yedeğe geçer. Paralel alt ajanlar ve birden çok sekme aynı
    kovayı paylaştığı için sınır, kimse 429 almadan korunur.
-2. **Paylaşılan soğuma.** 429 alan model bütün süreçlerde `cooldown_s` boyunca
-   çağrılmadan atlanır; öteki sekme aynı duvara tekrar çarpmaz.
+2. **Paylaşılan soğuma.** 429 bekleme süresi bütün süreçler için kaydedilir.
+   Tam model girdilerinde sunucu süre belirtmezse soğuma aralıklı gönderim süresinden
+   başlayıp `cooldown_s` sınırına kadar artar.
 
 Defter erişilemezse kapı hiçbir şey yapmaz (bkz. `rate_ledger`); çağrı yine olur.
 """
@@ -27,8 +28,14 @@ from dataclasses import replace
 from ..core.clock import SystemClock, SystemSleeper
 from ..core.protocols import Clock, LlmProvider, RateLedger, Sleeper
 from ..core.provider_diagnostics import observe_phase
-from ..core.rate_control import RateControl, rate_wait_fits
-from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
+from ..core.rate_control import RateControl, model_pacing_rate, rate_wait_fits
+from ..core.types import (
+    CompletionRequest,
+    ModelResult,
+    StreamDone,
+    StreamItem,
+    is_daily_quota_error,
+)
 from .stream_cleanup import closing_stream
 
 #: Kapının ürettiği sonucun hata öneki. "rate limit" içerir: `is_rate_limit_error`
@@ -59,6 +66,9 @@ class RateGatedProvider:
         self._pace_max_wait_s = pace_max_wait_s
         self._cooldown_s = cooldown_s
         self._smooth = smooth
+        self._backoff_base_s = (
+            60.0 / per_minute if smooth and per_minute and cooldown_s > 0.0 else None
+        )
         self._pace_key = inner.label if smooth else key
         self._clock = clock or SystemClock()
         self._sleeper = sleeper or SystemSleeper()
@@ -73,8 +83,9 @@ class RateGatedProvider:
         observe_phase(request, "rate_rejected" if blocked is not None else "rate_admitted")
         if blocked is not None:
             return blocked
+        dispatched_at = self._clock.now() if self._backoff_base_s is not None else None
         result = await self._inner.complete(request)
-        return self._record(result)
+        return self._record(result, dispatched_at)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         observe_phase(request, "rate_admission_enter")
@@ -83,10 +94,11 @@ class RateGatedProvider:
         if blocked is not None:
             yield StreamDone(blocked)
             return
+        dispatched_at = self._clock.now() if self._backoff_base_s is not None else None
         async with closing_stream(self._inner.stream(request)) as stream:
             async for item in stream:
                 if isinstance(item, StreamDone):
-                    item = StreamDone(self._record(item.result))
+                    item = StreamDone(self._record(item.result, dispatched_at))
                 yield item
 
     async def _admit(self, request: CompletionRequest) -> ModelResult | None:
@@ -158,20 +170,30 @@ class RateGatedProvider:
             f"başka bir çağrı 429 aldı; {remaining:.0f} sn soğumada", retry_after_s=remaining
         )
 
-    def _record(self, result: ModelResult) -> ModelResult:
+    def _record(self, result: ModelResult, dispatched_at: float | None) -> ModelResult:
         """429'u deftere yaz ve sonuca soğuma süresini `retry_after_s` olarak işle.
 
         Yeniden deneme katmanı bu alanı görür ve kısa sabit gecikme yerine soğuma
         bitene dek bekler; yoksa ilk deneme kapıdan anında "soğumada" döner (P1-07).
         """
+        if result.ok and dispatched_at is not None:
+            self._ledger.reset_backoff(self._key, dispatched_at)
         if not result.is_rate_limited:
             return result
         hint = result.retry_after_s
-        valid_hint = hint is not None and math.isfinite(hint) and hint >= 0
-        wait_s = hint if valid_hint else max(0.0, self._cooldown_s)
-        if wait_s is not None and wait_s > 0:
+        if hint is not None and math.isfinite(hint) and hint >= 0:
+            if hint > 0.0:
+                self._ledger.cool(self._key, self._clock.now() + hint)
+            return result
+
+        wait_s = max(0.0, self._cooldown_s)
+        if self._backoff_base_s is not None and not is_daily_quota_error(result.error):
+            remaining = self._ledger.record_backoff(self._key, self._backoff_base_s, wait_s)
+            if remaining is not None:
+                return replace(result, retry_after_s=remaining)
+        if wait_s > 0.0:
             self._ledger.cool(self._key, self._clock.now() + wait_s)
-        return result if valid_hint else replace(result, retry_after_s=wait_s or None)
+        return replace(result, retry_after_s=wait_s or None)
 
     def _blocked(self, reason: str, *, retry_after_s: float | None = None) -> ModelResult:
         return ModelResult(
@@ -201,16 +223,12 @@ def gate(
     sleeper: Sleeper | None = None,
 ) -> RateGatedProvider:
     """`RateControl` ayarlarıyla bir yaprağı kapıya bağla."""
-    model_rate = rate.per_minute.get(inner.label)
-    provider_rate = rate.per_minute.get(provider_id)
-    limit = provider_rate
-    if model_rate is not None:
-        limit = model_rate if provider_rate is None else min(model_rate, provider_rate)
+    model_rate = model_pacing_rate(rate.per_minute, inner.label, provider_id)
     return RateGatedProvider(
         inner,
         ledger=rate.ledger,
         key=key,
-        per_minute=limit,
+        per_minute=rate.per_minute.get(provider_id) if model_rate is None else model_rate,
         pace_max_wait_s=rate.pace_max_wait_s,
         cooldown_s=rate.cooldown_s,
         smooth=model_rate is not None,
