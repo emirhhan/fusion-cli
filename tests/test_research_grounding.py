@@ -361,8 +361,12 @@ def test_owned_numbered_browser_answer_keeps_markers_with_menu_items(tmp_path):
     context, target, _ = target_sources(tmp_path, draft)
 
     assert target.complete
+    menu_spans = set()
     for item in ("1. Ana Sayfa", "2. Hakkımızda", "3. Hizmetler", "4. Projeler", "5. İletişim"):
-        assert any(item in span.text for span in target.spans), item
+        matching_spans = [span.id for span in target.spans if item in span.text]
+        assert len(matching_spans) == 1, item
+        menu_spans.add(matching_spans[0])
+    assert len(menu_spans) == 5
     assert any(span.text.endswith("Bu bir demo formdur.") for span in target.spans)
     assert any(span.text.endswith("çalışması gösterilmektedir.") for span in target.spans)
     end = 0
@@ -374,6 +378,25 @@ def test_owned_numbered_browser_answer_keeps_markers_with_menu_items(tmp_path):
     assert snapshot_target(context, draft.replace("4. Projeler", "6. Projeler")).digest != (
         target.digest
     )
+
+
+def test_supported_first_ordered_item_does_not_cover_unreviewed_second_item(tmp_path):
+    import json
+
+    from fusion_cli.engines.agent.research_grounding import parse_verdict, request_payload
+
+    text = "1. Orion released October 25\n2. Vega won the national award"
+    _, target, sources = target_sources(tmp_path, text)
+    payload = request_payload(target, sources)
+    response = json.loads(typed_clean("\nDATA\n" + json.dumps(payload)))
+    response["claims"][0]["targets"] = [target.spans[0].id]
+    response["claims"][0]["basis"] = "The read release page gives October 25 for Orion."
+
+    assert parse_verdict(json.dumps(response), target, sources).status == "incomplete"
+    assert [span.text for span in target.spans] == [
+        "1. Orion released October 25\n",
+        "2. Vega won the national award",
+    ]
 
 
 @pytest.mark.parametrize("location", ["answer", "report.md"])
@@ -409,6 +432,13 @@ def test_non_markdown_marker_period_remains_a_sentence_boundary(text, location):
     assert len(spans) == 2
     assert spans[0].end == text.index(".") + 1
     assert "".join(span.text for span in spans) == text
+
+
+def test_ordered_marker_hidden_inside_html_does_not_split_surrounding_prose():
+    from fusion_cli.engines.agent.research_grounding import _target_spans
+
+    text = "Orion <!--\n1. Gizli içerik\n--> released October 25."
+    assert [span.text for span in _target_spans(text, "target", "answer")] == [text]
 
 
 @pytest.mark.parametrize("field", ["accepted_id", "root", "owner"])

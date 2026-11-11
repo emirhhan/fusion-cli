@@ -210,19 +210,24 @@ def capture_source(
 def _target_spans(text: str, prefix: str, location: str) -> tuple[TextSpan, ...]:
     """Ayrı cümleleri ayrı kapsam hedefi yap; özgün bayt ve konumları koru."""
     prose = non_prose_text(text, preserve_offsets=True)
-    marker_ends = set()
+    markers: tuple[re.Match[str], ...] = ()
     if location == "answer" or Path(location).suffix.lower() == ".md":
         # Özgün satır başını kullan; maskelenmiş HTML etiketleri girinti sayılmamalı.
-        marker_ends = {
-            match.end() for match in _ORDERED_LIST_MARKER.finditer(_without_fences(text))
-        }
-    sentence_ends = tuple(
+        markers = tuple(
+            marker
+            for marker in _ORDERED_LIST_MARKER.finditer(_without_fences(text))
+            if prose[marker.end() - 1] == "."
+        )
+    marker_ends = {marker.end() for marker in markers}
+    item_starts = {marker.start() for marker in markers}
+    sentence_ends = {
         match.end() for match in _SENTENCE_END.finditer(prose) if match.end() not in marker_ends
-    )
+    }
+    boundaries = sorted(item_starts | sentence_ends)
     spans: list[TextSpan] = []
     for block in _spans(text, prefix, location):
         start = block.start
-        for end in sentence_ends:
+        for end in boundaries:
             if (
                 start < end < block.end
                 and prose[start:end].strip()
