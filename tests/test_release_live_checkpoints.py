@@ -129,6 +129,46 @@ async def test_success_checkpoints_all_rows_and_keeps_exact_profile_bytes(tmp_pa
     assert args.config.read_bytes() == before
 
 
+async def test_timing_is_retained_for_each_failed_case_without_changing_its_verdict(
+    tmp_path, monkeypatch
+):
+    args, _ = _fake_run(tmp_path, monkeypatch)
+    run_count = 0
+
+    async def driver(options, stderr, events):
+        nonlocal run_count
+        run_count += 1
+        turn = f"attempt-{run_count}"
+        events.write(
+            (
+                json.dumps({"tip": "olay", "veri": {"olay": "ModelCallAbandoned", "turn_id": turn}})
+                + "\n"
+            ).encode()
+        )
+        traces = Path(options.runtime_env["HOME"]) / ".local/share/fusion-cli/memory/traces"
+        traces.mkdir(parents=True, exist_ok=True)
+        provider = {"event": "ProviderCallDiagnostic", "turn_id": turn, "call_id": "private"}
+        (traces / f"trace-{run_count}.jsonl").write_text(
+            "\n".join(
+                json.dumps({**provider, "phase": phase, "elapsed_ms": elapsed})
+                for phase, elapsed in (("call_enter", 0), ("call_cancelled", run_count * 10))
+            ),
+            encoding="utf-8",
+        )
+        assert options.sure == 180
+        return {"sonuc": {"ok": False}}
+
+    monkeypatch.setattr(release_live, "drive", driver)
+    result = await release_live.run(args)
+    rows = result["observations"]
+    assert all(row["driver"]["sonuc"]["ok"] is False for row in rows)
+    assert [row["phase_timing"]["provider"]["terminal_elapsed_ms"] for row in rows] == [10, 20, 30]
+    assert (
+        json.loads((args.out / "observations.partial.json").read_text())["acceptance_eligible"]
+        is False
+    )
+
+
 async def test_integrity_guard_stops_before_model_turn_request(tmp_path):
     from evals.live_drive import drive
 
