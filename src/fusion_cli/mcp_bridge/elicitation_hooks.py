@@ -93,10 +93,14 @@ class ElicitationScopes:
 
     def __init__(self) -> None:
         self._active: dict[str, _ActiveCalls] = {}
+        self._quiet_connections: set[str] = set()
 
     @contextlib.contextmanager
     def bind(self, server: str, hooks: ElicitationHooks | None) -> Iterator[None]:
         owner = _Owner(hooks, registered_elicitation_asker())
+        if owner.asker is None:
+            # İptal edilen çağrının gecikmiş isteği daha sonraki çağrıdan ayırt edilemez.
+            self._quiet_connections.add(server)
         calls = self._active.setdefault(server, _ActiveCalls())
         if calls.owners:
             first = calls.owners[0]
@@ -113,7 +117,16 @@ class ElicitationScopes:
 
     def owner(self, server: str) -> _Owner | None:
         calls = self._active.get(server)
-        return calls.owners[0] if calls is not None and not calls.ambiguous else None
+        if calls is None or calls.ambiguous:
+            return None
+        owner = calls.owners[0]
+        if owner.asker is not None and server in self._quiet_connections:
+            return None
+        return owner
+
+    def should_replace_for_prompt(self, server: str) -> bool:
+        """Sessiz bağlantıyı yalnız üzerindeki çağrılar bittiyse değiştir."""
+        return server in self._quiet_connections and server not in self._active
 
 
 _CURRENT: ContextVar[ElicitationHooks | None] = ContextVar("fusion_elicitation_hooks", default=None)
