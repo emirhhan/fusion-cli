@@ -135,6 +135,35 @@ async def test_model_pacing_is_shared_by_keys_and_respects_stricter_provider_rat
     assert clock.value == 1030
 
 
+async def test_smoothed_gate_rechecks_deadline_after_final_cooldown_read(tmp_path):
+    clock = _Clock()
+
+    class SlowLedger(SqliteRateLedger):
+        reads = 0
+
+        def cooled_until(self, key):
+            self.reads += 1
+            if self.reads == 3:
+                clock.value += 2
+            return super().cooled_until(key)
+
+    name = "nvidia_nim/model"
+    model = FakeProvider(name, chunks=("tamam",))
+    wrapped = gate(
+        model,
+        RateControl(SlowLedger(tmp_path / "slow.sqlite", clock=clock), {name: 5}),
+        key=name,
+        provider_id="nvidia_nim",
+        clock=clock,
+        sleeper=_Sleeper(clock),
+    )
+    result = await wrapped.complete(
+        replace(_REQUEST, rate_retry_deadline=TurnDeadline(clock, 1001))
+    )
+    assert result.is_rate_limited
+    assert not model.started
+
+
 @pytest.mark.parametrize("deadline", ["request", "opening", "turn"])
 async def test_smoothed_gate_does_not_sleep_past_available_time(tmp_path, deadline):
     clock = _Clock()

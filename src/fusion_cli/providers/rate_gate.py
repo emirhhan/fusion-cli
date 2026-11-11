@@ -129,9 +129,13 @@ class RateGatedProvider:
             wait_s = self._ledger.take_token(self._pace_key, per_minute, burst=1.0)
             elapsed = self._clock.monotonic() - started
             if wait_s == 0.0:
-                if elapsed >= request.timeout_s or not rate_wait_fits(request, 0.0):
+                if (blocked := self._cooldown_result()) is not None:
+                    return blocked
+                if self._clock.monotonic() - started >= request.timeout_s or not rate_wait_fits(
+                    request, 0.0
+                ):
                     return self._blocked("çağrı süresi doldu")
-                return self._cooldown_result()
+                return None
             if (
                 wait_s > pace - elapsed
                 or wait_s >= request.timeout_s - elapsed
