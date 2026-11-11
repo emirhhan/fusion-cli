@@ -162,7 +162,11 @@ def desktop_open(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Uygulama açılamadı: {exc}")
     if result.returncode:
         return ToolResult.failure(f"Uygulama açılamadı: {result.stderr.strip()}")
-    return ToolResult(f"Uygulama açıldı: {name}")
+    return ToolResult(
+        f"Uygulama açıldı: {name}. "
+        "Adı belli bir düğmeye basacaksan önce desktop_window_focus ile pencereyi doğrula. "
+        "Sonra aynı pencerenin kontrollerini desktop_background_inspect ile incele."
+    )
 
 
 def _open_windows(name: str) -> ToolResult:
