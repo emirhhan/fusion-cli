@@ -14,11 +14,29 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from fusion_cli.core.tool_emulation import CALL_OPEN
 from fusion_cli.core.types import StreamDone
-from fusion_cli.providers.litellm_provider import LiteLlmProvider
+from fusion_cli.providers.litellm_provider import LiteLlmProvider, _retry_after
 
 from .fakes import request
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "expected"),
+    [
+        (429, {"rEtRy-AfTeR": "Thu, 01 Jan 1970 00:00:11 GMT"}, 1.0),
+        (429, {"Retry-After": "Thu, 01 Jan 1970 00:00:09 GMT"}, 0.0),
+        (429, {"Retry-After": "not a date"}, None),
+        (429, {}, None),
+        (503, {"Retry-After": "7"}, None),
+    ],
+)
+def test_retry_after_uses_only_valid_http_429_hints(status, headers, expected):
+    error = RuntimeError()
+    error.response = SimpleNamespace(status_code=status, headers=headers)
+    assert _retry_after(error, now=10.0) == expected
 
 
 def test_disable_thinking_is_forwarded_to_ollama():

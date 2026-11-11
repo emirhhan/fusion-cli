@@ -7,6 +7,10 @@ kılardı — soyutlamanın var olma sebebi budur.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from fusion_cli.core.constants import RETRY_AFTER_MAX_WAIT_S
 from fusion_cli.core.types import CompletionRequest, Message, ModelResult, StreamDone, TextChunk
 from fusion_cli.providers.retrying import RetryingProvider, wrap
@@ -104,6 +108,43 @@ async def test_gecici_hatada_ayni_model_tekrar_denenir():
     assert sonuc.ok and sonuc.text == "nihayet"
     assert inner.cagri_sayisi == 2
     assert uyutucu.beklemeler == [34.0]
+
+
+@pytest.mark.parametrize(("remaining", "expected_timeouts"), [(6, [5]), (7, [5]), (10, [5, 3])])
+async def test_helper_retry_requires_time_after_provider_hint(remaining, expected_timeouts):
+    class Clock:
+        value = 100.0
+
+        def monotonic(self):
+            return self.value
+
+    clock = Clock()
+    timeouts = []
+
+    class RecordingProvider(ScriptliProvider):
+        async def complete(self, request):
+            timeouts.append(request.timeout_s)
+            return await super().complete(request)
+
+    class AdvancingSleeper(SahteUyutucu):
+        async def sleep(self, seconds):
+            await super().sleep(seconds)
+            clock.value += seconds
+
+    failure = replace(_hata("429 Too Many Requests"), retry_after_s=7.0)
+    inner = RecordingProvider(failure, _basarili())
+    sleeper = AdvancingSleeper()
+    provider = RetryingProvider(
+        inner,
+        delays_s=(1.0,),
+        sleeper=sleeper,
+        clock=clock,
+        completion_deadline_s=100.0 + remaining,
+    )
+    result = await provider.complete(_istek())
+    assert timeouts == expected_timeouts
+    assert sleeper.beklemeler == ([7.0] if remaining > 7 else [])
+    assert result.ok is (remaining > 7)
 
 
 async def test_gecikme_sayisi_kadar_yeniden_denenir():

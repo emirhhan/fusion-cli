@@ -3,20 +3,68 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
-from fusion_cli.core.events import SelfReviewFinished, TurnAnswered
+from fusion_cli.core.events import ModelCallFinished, SelfReviewFinished, TurnAnswered
 from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
 from fusion_cli.core.execution_plan import VerificationCheckKind
+from fusion_cli.core.rate_control import RateControl
 from fusion_cli.core.turn_deadline import TurnDeadline
 from fusion_cli.core.types import StreamDone
 from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent import loop, review
+from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+from fusion_cli.providers import factory
+from fusion_cli.providers.rate_ledger import SqliteRateLedger
 
 from .fakes import ScriptedProvider, model_result, tool_call
 from .test_agent_external_deadline import deps_for
 from .test_turn_deadline import FakeClock
+
+
+async def test_cosmetic_intro_and_review_share_the_actor_rate_gate(tmp_path, monkeypatch):
+    deps = deps_for(tmp_path, TurnDeadline.from_duration(3, FakeClock()))
+    deps.config = replace(
+        deps.config,
+        judge=replace(deps.config.judge, model=deps.config.agent.model),
+        runtime=replace(deps.config.runtime, retry_delays_s=(0.1,)),
+    )
+    deps.active_model_override = deps.config.agent
+    rate = RateControl(SqliteRateLedger(tmp_path / "rate.sqlite3"), {}, 0.0, 60.0)
+    deps.health = SimpleNamespace(rate_control=rate)
+    leaf_calls = []
+
+    class RateLimitedLeaf:
+        def __init__(self, model, **_kwargs):
+            self.label = model
+
+        async def complete(self, request):
+            leaf_calls.append((self.label, request.max_retries))
+            return replace(
+                model_result(ok=False, error="429 Too Many Requests"),
+                model=self.label,
+                retry_after_s=7,
+            )
+
+    monkeypatch.setattr(factory, "LiteLlmProvider", RateLimitedLeaf)
+    monkeypatch.setattr(factory, "configure_litellm", lambda: None)
+    task = "a.py dosyasını oluştur ve içine x değişkenini yaz"
+    await loop._publish_intro(task, [], deps, ExecutionPolicy(is_web=False, complex_task=True), ())
+    assert leaf_calls == [(deps.config.agent.model, 0)]
+    outcome = loop.AgentOutcome("Hazır dosya", [])
+    async with asyncio.timeout(1.0):
+        assert await loop._self_review(task, outcome, deps) is outcome
+    assert leaf_calls == [(deps.config.agent.model, 0)]
+    assert rate.ledger.cooled_until(deps.config.agent.model) > 0
+    calls = [
+        event.result for event in deps.publisher.sink.events if isinstance(event, ModelCallFinished)
+    ]
+    assert len(calls) == 2
+    assert calls[0].retry_after_s == 7
+    assert calls[1].retry_after_s is not None and 0 < calls[1].retry_after_s <= 7
 
 
 async def test_finished_measured_task_survives_near_deadline_optional_review(tmp_path, monkeypatch):

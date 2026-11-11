@@ -196,6 +196,14 @@ class FallbackProvider:
         kesmek yerine `ok=False` sonuç taşınır (bkz. `core.errors` notu).
         """
         errors = "; ".join(failure.error or "bilinmeyen hata" for failure in failures)
+        retry_after = next(
+            (
+                failure.retry_after_s
+                for failure in failures
+                if failure.model == self.label and failure.is_rate_limited
+            ),
+            None,
+        )
         return ModelResult(
             name=self._role,
             model=self.label,
@@ -203,6 +211,7 @@ class FallbackProvider:
             latency_ms=max((failure.latency_ms for failure in failures), default=0),
             ok=False,
             error=errors or "tüm sağlayıcılar yanıt veremedi",
+            retry_after_s=retry_after,
             # Düşünme bütçeyi yediyse bu bilgi taşınmalı: motor ancak bu bayrakla
             # bütçeyi büyütüp düşünmeyi kapatarak kurtarır. Ölçüldü (4 Ekim taban
             # koşusu): bayrak burada düşüyordu, aynı bütçeyle 3 kez denendi ve

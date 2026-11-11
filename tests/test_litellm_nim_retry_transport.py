@@ -19,6 +19,24 @@ from .fakes import request
 )
 def test_nim_retry_limit_reaches_sdk_transport(tmp_path, retries, mode, attempts, ok):
     """500/500/200 exposes SDK retries hidden behind a single leaf call."""
+    receipt = _nim_receipt(tmp_path, str(retries), mode)
+    assert receipt["http_requests"] == attempts
+    assert receipt["ok"] is ok
+    assert receipt["text"] == ("ok" if ok else "")
+    assert all(bool(item["stream"]) is (mode == "stream") for item in receipt["requests"])
+    assert all(item["max_tokens"] == 16 for item in receipt["requests"])
+    assert not any(item["max_retries_in_body"] for item in receipt["requests"])
+
+
+@pytest.mark.parametrize("mode", ["complete", "stream"])
+def test_nim_retry_after_reaches_fusion_leaf(tmp_path, mode):
+    receipt = _nim_receipt(tmp_path, "0", mode, "7")
+    assert receipt["http_requests"] == 1
+    assert receipt["ok"] is False
+    assert receipt["retry_after_s"] == 7.0
+
+
+def _nim_receipt(tmp_path, *args):
     root = Path(__file__).resolve().parents[1]
     env = {
         "HOME": str(tmp_path),
@@ -33,7 +51,7 @@ def test_nim_retry_limit_reaches_sdk_transport(tmp_path, retries, mode, attempts
         "NVIDIA_NIM_API_KEY": "synthetic-not-a-real-key",
     }
     result = subprocess.run(
-        [sys.executable, str(root / "tests/fixtures/nim_retry_transport.py"), str(retries), mode],
+        [sys.executable, str(root / "tests/fixtures/nim_retry_transport.py"), *args],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -41,13 +59,7 @@ def test_nim_retry_limit_reaches_sdk_transport(tmp_path, retries, mode, attempts
         timeout=30,
         check=True,
     )
-    receipt = json.loads(result.stdout)
-    assert receipt["http_requests"] == attempts
-    assert receipt["ok"] is ok
-    assert receipt["text"] == ("ok" if ok else "")
-    assert all(bool(item["stream"]) is (mode == "stream") for item in receipt["requests"])
-    assert all(item["max_tokens"] == 16 for item in receipt["requests"])
-    assert not any(item["max_retries_in_body"] for item in receipt["requests"])
+    return json.loads(result.stdout)
 
 
 def test_retry_override_is_not_added_to_other_transports(monkeypatch):

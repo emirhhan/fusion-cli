@@ -20,6 +20,7 @@ from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
+from ...core.rate_control import RateControl
 from ...core.tool_emulation import CALL_OPEN, PAYLOAD_OPEN
 from ...core.tools import TodoItem, TodoStatus
 from ...core.types import CompletionRequest, Message, ModelSpec
@@ -62,6 +63,8 @@ async def intro_paragraph(
     config: Config,
     publisher: EventPublisher | None,
     tool_names: tuple[str, ...] = (),
+    *,
+    rate_control: RateControl | None = None,
 ) -> str:
     """Araçsız kısa giriş metni; üretilemezse boş döner (iş beklemeden başlar).
 
@@ -85,6 +88,7 @@ async def intro_paragraph(
             spec,
             publisher=publisher,
             retry_delays_s=(),
+            rate_control=rate_control,
             background=True,
             web_sessions=web_registry_for(config),
             model_specs=configured_model_specs(config),

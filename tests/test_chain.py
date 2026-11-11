@@ -88,6 +88,23 @@ async def test_basarisiz_saglayiciyi_atlar():
     assert sonuc.ok and sonuc.model == "saglam"
 
 
+@pytest.mark.parametrize("primary_hint", [None, 7.0])
+async def test_failed_chain_carries_only_selected_model_retry_after(primary_hint):
+    selected = SabitProvider(
+        ModelResult(
+            "primary", "primary", "", 1, False, error="429 rate limit", retry_after_s=primary_hint
+        )
+    )
+    fallback = SabitProvider(
+        ModelResult(
+            "fallback", "fallback", "", 1, False, error="429 rate limit", retry_after_s=31.0
+        )
+    )
+    result = await FallbackProvider([selected, fallback], role="agent").complete(request())
+    assert fallback.cagrildi and not result.ok and result.model == "primary"
+    assert result.retry_after_s == primary_hint
+
+
 async def test_fallback_devreye_girdiginde_nedeni_olay_olarak_yayinlar():
     publisher = _Publisher()
     bozuk = FakeProvider("gemini_web/main/auto", ok=False, error="web oturumu timeout")

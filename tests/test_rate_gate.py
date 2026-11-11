@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import multiprocessing
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from fusion_cli.core.rate_control import RateControl
 from fusion_cli.core.types import CompletionRequest, Message, ModelResult, StreamDone
@@ -289,6 +292,19 @@ def _sonuc(*, ok: bool, error: str | None = None) -> ModelResult:
         name="r", model="nvidia_nim/model", text="tamam" if ok else "", latency_ms=1, ok=ok,
         error=error,
     )  # fmt: skip
+
+
+@pytest.mark.parametrize("hint", [0.0, 7.0, 90.0])
+async def test_rate_gate_records_provider_retry_after_for_other_calls(tmp_path, hint):
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    result = replace(_sonuc(ok=False, error="429 Too Many Requests"), retry_after_s=hint)
+    first = _gate(_Sirali(result), ledger, clock)
+    assert (await first.complete(_REQUEST)).retry_after_s == hint
+    next_leaf = _Sirali(_sonuc(ok=True))
+    second = await _gate(next_leaf, ledger, clock).complete(_REQUEST)
+    assert next_leaf.cagri_sayisi == (1 if hint == 0 else 0)
+    assert second.retry_after_s == (hint or None)
 
 
 async def test_kapi_soguma_blogu_kalan_sureyi_retry_after_olarak_tasir(tmp_path):

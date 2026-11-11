@@ -29,11 +29,13 @@ gördüğü cevabı ikinci kez baştan yazdırırdı.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import replace
 
-from ..core.clock import SystemSleeper
+from ..core.clock import SystemClock, SystemSleeper
 from ..core.constants import RETRY_AFTER_MAX_WAIT_S
-from ..core.protocols import LlmProvider, Sleeper
+from ..core.protocols import Clock, LlmProvider, Sleeper
 from ..core.provider_diagnostics import observe_phase
 from ..core.types import (
     CompletionRequest,
@@ -56,6 +58,8 @@ class RetryingProvider:
         delays_s: Sequence[float],
         sleeper: Sleeper | None = None,
         yield_on_rate_limit: bool = False,
+        clock: Clock | None = None,
+        completion_deadline_s: float | None = None,
     ) -> None:
         #: Gecikme listesi deneme sayısını da TANIMLAR: n gecikme → n+1 deneme.
         #: Ayrı bir "max_attempts" ayarı olsaydı ikisi birbiriyle çelişebilirdi.
@@ -66,6 +70,8 @@ class RetryingProvider:
         self._yield_on_rate_limit = yield_on_rate_limit
         self._inner = inner
         self._sleeper = sleeper or SystemSleeper()
+        self._clock = clock or SystemClock()
+        self._completion_deadline_s = completion_deadline_s
 
     @property
     def label(self) -> str:
@@ -77,6 +83,12 @@ class RetryingProvider:
             if not self._should_retry(result):
                 return result
             wait_s = _wait_s(delay, result)
+            deadline = self._completion_deadline_s
+            if deadline is not None and (
+                (result.retry_after_s is not None and result.retry_after_s > RETRY_AFTER_MAX_WAIT_S)
+                or wait_s >= deadline - self._clock.monotonic()
+            ):
+                return result
             observe_phase(
                 request,
                 "provider_retry_wait",
@@ -85,7 +97,18 @@ class RetryingProvider:
             )
             await self._sleeper.sleep(wait_s)
             observe_phase(request, "provider_retry_wait_end")
-            result = await self._inner.complete(request)
+            if deadline is not None:
+                remaining = deadline - self._clock.monotonic()
+                if remaining <= 0:
+                    return result
+                request = replace(request, timeout_s=min(request.timeout_s, remaining))
+                try:
+                    async with asyncio.timeout(remaining):
+                        result = await self._inner.complete(request)
+                except TimeoutError:
+                    return result
+            else:
+                result = await self._inner.complete(request)
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
@@ -176,6 +199,8 @@ def wrap(
     *,
     delays_s: Sequence[float],
     sleeper: Sleeper | None = None,
+    clock: Clock | None = None,
+    completion_deadline_s: float | None = None,
 ) -> tuple[LlmProvider, ...]:
     """Her sağlayıcıyı ayrı ayrı yeniden deneme katmanıyla sar.
 
@@ -190,6 +215,8 @@ def wrap(
             provider,
             delays_s=delays_s,
             sleeper=sleeper,
+            clock=clock,
+            completion_deadline_s=completion_deadline_s,
             # Yalnız ardından yedek gelen halka hız sınırında beklemeden bırakır.
             yield_on_rate_limit=index < son,
         )

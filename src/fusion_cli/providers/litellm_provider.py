@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import replace
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from ..core.clock import SystemClock
@@ -43,6 +46,48 @@ from .stream_cleanup import closing_stream
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
 _NIM_BUDGET_MODEL = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
+
+
+def _retry_after(error: Exception, now: float) -> float | None:
+    """HTTP 429'daki Retry-After saniyesini veya HTTP tarihini taşı."""
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    # NIM eşleyicisi üst 429 yanıtını sentetik olarak kurabiliyor; gerçek başlık
+    # OpenAI/httpx istisna zincirinde kalıyor. Yalnız doğrulanmış 429'u oku.
+    while pending and len(seen) < 8:
+        cause = pending.pop()
+        if id(cause) in seen:
+            continue
+        seen.add(id(cause))
+        response = getattr(cause, "response", None)
+        if getattr(response, "status_code", getattr(cause, "status_code", None)) == 429:
+            for headers in (getattr(response, "headers", None), getattr(cause, "headers", None)):
+                if (seconds := _retry_after_header(headers, now)) is not None:
+                    return seconds
+        pending.extend(parent for parent in (cause.__context__, cause.__cause__) if parent)
+    return None
+
+
+def _retry_after_header(headers: object, now: float) -> float | None:
+    if not isinstance(headers, Mapping):
+        return None
+    value = next(
+        (value for key, value in headers.items() if str(key).lower() == "retry-after"), None
+    )
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdecimal():
+        seconds = float(value)
+        return seconds if math.isfinite(seconds) else None
+    try:
+        date = parsedate_to_datetime(value)
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=UTC)
+        return max(0.0, date.timestamp() - now)
+    except (ValueError, OverflowError, OSError):
+        return None
+
 
 #: Çıktı bütçesi düşünme sırasında dolduğunda kullanıcıya dönen açıklama.
 TRUNCATED_ERROR = (
@@ -305,6 +350,7 @@ class LiteLlmProvider:
             latency_ms=self._elapsed_ms(started),
             ok=False,
             error=redact(f"{type(exc).__name__}: {exc}"),
+            retry_after_s=_retry_after(exc, self._clock.now()),
         )
 
     def _success(self, response: Any, started: float) -> ModelResult:

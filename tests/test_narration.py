@@ -341,7 +341,7 @@ async def test_giris_paragrafi_ogretmen_ve_platform_isinden_once_gelir(
     _patch(monkeypatch, provider)
     sira: list[str] = []
 
-    async def giris(*_args):
+    async def giris(*_args, **_kwargs):
         sira.append("giris")
         return "İsteğini aldım; dosyayı ekleyip doğrulayacağım."
 
