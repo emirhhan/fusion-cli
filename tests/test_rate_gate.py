@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import multiprocessing
 from dataclasses import replace
 from pathlib import Path
@@ -9,9 +10,10 @@ from pathlib import Path
 import pytest
 
 from fusion_cli.core.rate_control import RateControl
+from fusion_cli.core.turn_deadline import TurnDeadline
 from fusion_cli.core.types import CompletionRequest, Message, ModelResult, StreamDone
 from fusion_cli.providers.key_pool import ledger_key_pool
-from fusion_cli.providers.rate_gate import GATE_ERROR_PREFIX, RateGatedProvider, keyed_label
+from fusion_cli.providers.rate_gate import GATE_ERROR_PREFIX, RateGatedProvider, gate, keyed_label
 from fusion_cli.providers.rate_ledger import SqliteRateLedger
 from tests.fakes import FakeProvider
 
@@ -78,6 +80,88 @@ def test_defter_kovasi_zamanla_dolar(tmp_path):
     clock.value += 1.5
 
     assert ledger.take_token("m", 40) == 0.0
+
+
+def test_paced_bucket_does_not_rewind_on_wall_clock_change(tmp_path):
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    assert ledger.take_token("m", 5, burst=1) == 0
+    clock.value -= 12
+    assert ledger.take_token("m", 5, burst=1) == 12
+    clock.value += 12
+    assert ledger.take_token("m", 5, burst=1) == 12
+
+
+@pytest.mark.parametrize("warm_bucket", [False, True])
+async def test_model_rate_spaces_calls_across_processes(tmp_path, warm_bucket):
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    name = "nvidia_nim/model"
+    if warm_bucket:
+        assert ledger.take_token(name, 40) == 0.0
+    request = replace(_REQUEST, timeout_s=20)
+    model = FakeProvider(name, chunks=("tamam",))
+
+    def make_gate(shared):
+        return gate(
+            model,
+            RateControl(shared, {"nvidia_nim": 40, name: 5}, 3.0, 60.0),
+            key=name,
+            provider_id="nvidia_nim",
+            clock=clock,
+            sleeper=_Sleeper(clock),
+        )
+
+    assert (await make_gate(ledger).complete(request)).ok
+    assert (await make_gate(_ledger(tmp_path, clock)).complete(request)).ok
+    assert clock.value == 1012.0
+
+
+async def test_model_pacing_is_shared_by_keys_and_respects_stricter_provider_rate(tmp_path):
+    clock = _Clock()
+    name = "nvidia_nim/model"
+    rate = RateControl(_ledger(tmp_path, clock), {"nvidia_nim": 2, name: 5}, 3.0, 60.0)
+    request = replace(_REQUEST, timeout_s=40)
+    for api_key in ("a", "b"):
+        wrapped = gate(
+            FakeProvider(name, chunks=("tamam",)),
+            rate,
+            key=keyed_label(name, api_key),
+            provider_id="nvidia_nim",
+            clock=clock,
+            sleeper=_Sleeper(clock),
+        )
+        assert (await wrapped.complete(request)).ok
+    assert clock.value == 1030
+
+
+@pytest.mark.parametrize("deadline", ["request", "opening", "turn"])
+async def test_smoothed_gate_does_not_sleep_past_available_time(tmp_path, deadline):
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    name = "nvidia_nim/model"
+    first = FakeProvider(name, chunks=("tamam",))
+    second = FakeProvider(name, chunks=("tamam",))
+    rate = RateControl(ledger, {name: 5}, 3.0, 60.0)
+
+    def wrap(model):
+        return gate(
+            model, rate, key=name, provider_id="nvidia_nim", clock=clock, sleeper=_Sleeper(clock)
+        )
+
+    assert (await wrap(first).complete(_REQUEST)).ok
+    request = _REQUEST
+    if deadline == "opening":
+        request = replace(
+            request,
+            timeout_s=20,
+            rate_retry_opening_at=asyncio.get_running_loop().time() + 5,
+        )
+    elif deadline == "turn":
+        request = replace(request, timeout_s=20, rate_retry_deadline=TurnDeadline(clock, 1005))
+    result = await wrap(second).complete(request)
+    assert result.is_rate_limited and result.retry_after_s == 12
+    assert clock.value == 1000.0 and not second.started
 
 
 def test_defter_soguma_daha_gec_kaydi_kisaltmaz(tmp_path):

@@ -6,8 +6,8 @@ Kompozisyondaki yeri en içtedir (tek bir model ya da tek bir anahtar):
 
 İki iş yapar:
 
-1. **Önden ayar.** Sağlayıcının dakikalık sınırı biliniyorsa (NIM: model başına
-   40 istek/60 sn, bkz. `defaults.yaml`) çağrı ortak kovadan hak alır. Hak kısa
+1. **Önden ayar.** Dakikalık sınır yapılandırılmışsa çağrı ortak kovadan hak
+   alır. Tam model girdisi kovada bir hak tutar ve çağrıları aralıklı gönderir. Hak kısa
    sürede doluyorsa beklenir; uzunsa çağrı yapılmadan "hız sınırı" sonucu döner
    ve zincir hemen yedeğe geçer. Paralel alt ajanlar ve birden çok sekme aynı
    kovayı paylaştığı için sınır, kimse 429 almadan korunur.
@@ -27,7 +27,7 @@ from dataclasses import replace
 from ..core.clock import SystemClock, SystemSleeper
 from ..core.protocols import Clock, LlmProvider, RateLedger, Sleeper
 from ..core.provider_diagnostics import observe_phase
-from ..core.rate_control import RateControl
+from ..core.rate_control import RateControl, rate_wait_fits
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
 from .stream_cleanup import closing_stream
 
@@ -48,6 +48,7 @@ class RateGatedProvider:
         per_minute: float | None,
         pace_max_wait_s: float,
         cooldown_s: float,
+        smooth: bool = False,
         clock: Clock | None = None,
         sleeper: Sleeper | None = None,
     ) -> None:
@@ -57,6 +58,8 @@ class RateGatedProvider:
         self._per_minute = per_minute
         self._pace_max_wait_s = pace_max_wait_s
         self._cooldown_s = cooldown_s
+        self._smooth = smooth
+        self._pace_key = inner.label if smooth else key
         self._clock = clock or SystemClock()
         self._sleeper = sleeper or SystemSleeper()
 
@@ -88,14 +91,12 @@ class RateGatedProvider:
 
     async def _admit(self, request: CompletionRequest) -> ModelResult | None:
         """Çağrıya izin ver ya da çağrı yapmadan dönülecek sonucu üret."""
-        until = self._ledger.cooled_until(self._key)
-        if until:
-            remaining = max(0.0, until - self._clock.now())
-            return self._blocked(
-                f"başka bir çağrı 429 aldı; {remaining:.0f} sn soğumada", retry_after_s=remaining
-            )
+        if (blocked := self._cooldown_result()) is not None:
+            return blocked
         if not self._per_minute:
             return None
+        if self._smooth:
+            return await self._admit_smoothed(request, self._per_minute)
         wait_s = self._ledger.take_token(self._key, self._per_minute)
         if wait_s == 0.0:
             return None
@@ -106,10 +107,52 @@ class RateGatedProvider:
         observe_phase(request, "rate_wait", wait_s=wait_s)
         await self._sleeper.sleep(wait_s)
         observe_phase(request, "rate_wait_end")
+        if (blocked := self._cooldown_result()) is not None:
+            return blocked
         # Beklerken hakkı başka süreç almış olabilir: ikinci kez de dolu ise yedeğe bırak.
         if self._ledger.take_token(self._key, self._per_minute) == 0.0:
             return None
         return self._blocked("dakikalık sınır dolu; yedeğe bırakılıyor")
+
+    async def _admit_smoothed(
+        self, request: CompletionRequest, per_minute: float
+    ) -> ModelResult | None:
+        # A model-specific setting needs at least one slot interval. A caller
+        # that explicitly disables pacing can still request an immediate result.
+        pace = max(self._pace_max_wait_s, 60.0 / per_minute) if self._pace_max_wait_s > 0 else 0.0
+        started = self._clock.monotonic()
+        while True:
+            if (blocked := self._cooldown_result()) is not None:
+                return blocked
+            if not rate_wait_fits(request, 0.0):
+                return self._blocked("çağrı süresi doldu")
+            wait_s = self._ledger.take_token(self._pace_key, per_minute, burst=1.0)
+            elapsed = self._clock.monotonic() - started
+            if wait_s == 0.0:
+                if elapsed >= request.timeout_s or not rate_wait_fits(request, 0.0):
+                    return self._blocked("çağrı süresi doldu")
+                return self._cooldown_result()
+            if (
+                wait_s > pace - elapsed
+                or wait_s >= request.timeout_s - elapsed
+                or not rate_wait_fits(request, wait_s)
+            ):
+                return self._blocked(
+                    f"dakikalık sınır dolu; {wait_s:.1f} sn sonra hak açılıyor",
+                    retry_after_s=wait_s,
+                )
+            observe_phase(request, "rate_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "rate_wait_end")
+
+    def _cooldown_result(self) -> ModelResult | None:
+        until = self._ledger.cooled_until(self._key)
+        if not until:
+            return None
+        remaining = max(0.0, until - self._clock.now())
+        return self._blocked(
+            f"başka bir çağrı 429 aldı; {remaining:.0f} sn soğumada", retry_after_s=remaining
+        )
 
     def _record(self, result: ModelResult) -> ModelResult:
         """429'u deftere yaz ve sonuca soğuma süresini `retry_after_s` olarak işle.
@@ -154,13 +197,19 @@ def gate(
     sleeper: Sleeper | None = None,
 ) -> RateGatedProvider:
     """`RateControl` ayarlarıyla bir yaprağı kapıya bağla."""
+    model_rate = rate.per_minute.get(inner.label)
+    provider_rate = rate.per_minute.get(provider_id)
+    limit = provider_rate
+    if model_rate is not None:
+        limit = model_rate if provider_rate is None else min(model_rate, provider_rate)
     return RateGatedProvider(
         inner,
         ledger=rate.ledger,
         key=key,
-        per_minute=rate.per_minute.get(provider_id),
+        per_minute=limit,
         pace_max_wait_s=rate.pace_max_wait_s,
         cooldown_s=rate.cooldown_s,
+        smooth=model_rate is not None,
         clock=clock,
         sleeper=sleeper,
     )

@@ -125,10 +125,11 @@ runtime:
   # Sağlayıcı başına MODEL başı dakikalık istek sınırı; önden korunur ki 429 hiç
   # gelmesin. Masaüstünde her sekme ayrı süreçtir ve paralel alt ajanlar aynı modeli
   # aynı anda çağırır: kova bütün süreçlerde ORTAKTIR (bkz. providers/rate_gate.py).
-  # NIM: 40 istek / 60 sn, model başına (ölçüldü; bkz. providers/retrying.py).
-  # Ölçülmemiş sağlayıcı buraya yazılmaz: yalnız 429'u sekmeler arası paylaşılır.
+  # Tam model girdisi birikmiş haklarla peş peşe gönderimi önler. Ultra'nın
+  # paylaşılan uç noktası için bu, yerel bir trafik ayarıdır.
   rate_limit_per_minute:
     nvidia_nim: 40
+    nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b: 5
   # Kovadan hak için en fazla beklenecek süre. 40/dk'da bir hak 1,5 sn'de dolar;
   # 3 sn iki hak aralığıdır. Daha uzun bekleme gerekiyorsa çağrı yedeğe bırakılır.
   rate_pace_max_wait_s: 3.0

@@ -279,7 +279,8 @@ class RuntimeConfig:
     #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 4: 429'da
     #: yedeğe beklemeden geçilir (bkz. `loop.MAX_TRANSIENT_RETRIES`, Z1-35).
     model_retry_attempts: int = 4
-    #: Sağlayıcı kimliği → MODEL başına dakikalık istek sınırı. Bilinen sınır önden
+    #: Sağlayıcı veya tam model kimliği → dakikalık istek sınırı. Tam model girdisi
+    #: çağrıları tek hakla aralıklı gönderir. Bilinen sınır önden
     #: korunur (paralel ajanlar ve sekmeler ortak kovadan hak alır) ki 429 hiç
     #: gelmesin. Listede olmayan sağlayıcı yavaşlatılmaz; yalnız 429'u paylaşılır.
     rate_limit_per_minute: dict[str, float] = field(default_factory=dict)

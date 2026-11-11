@@ -13,6 +13,7 @@ import re
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import asdict, replace
+from functools import partial
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, TypedDict
@@ -644,6 +645,8 @@ async def review_grounding(
         return min(expires_at - monotonic(), shared_remaining())
 
     schema = _response_schema(payload)
+    rate = deps.health.rate_control if deps.health is not None else None
+    request_review = partial(review._ask, rate_control=rate) if rate is not None else review._ask
 
     async def ask(text: str, remaining_s: float) -> ModelResult:
         config = replace(
@@ -657,7 +660,7 @@ async def review_grounding(
         call = (
             judge(text)
             if judge
-            else review._ask(
+            else request_review(
                 text,
                 config,
                 deps.publisher,

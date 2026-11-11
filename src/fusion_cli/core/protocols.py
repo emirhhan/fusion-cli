@@ -74,7 +74,7 @@ class RateLedger(Protocol):
         """Anahtarı `until` anına kadar soğumaya al (daha geç kayıt kısaltılmaz)."""
         ...
 
-    def take_token(self, key: str, per_minute: float) -> float:
+    def take_token(self, key: str, per_minute: float, *, burst: float | None = None) -> float:
         """Dakikalık kovadan bir hak al: alındıysa 0, alınamadıysa beklenecek sn."""
         ...
 

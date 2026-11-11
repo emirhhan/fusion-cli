@@ -84,20 +84,21 @@ class SqliteRateLedger:
         except sqlite3.Error as error:
             _LOG.warning("hız defterine yazılamadı", extra={"hata": str(error)})
 
-    def take_token(self, key: str, per_minute: float) -> float:
+    def take_token(self, key: str, per_minute: float, *, burst: float | None = None) -> float:
         if per_minute <= 0:
             return 0.0
-        now = self._clock.now()
         refill_per_s = per_minute / _SECONDS_PER_MINUTE
+        capacity = per_minute if burst is None else burst
         try:
             with closing(self._connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                now = self._clock.now()
                 row = connection.execute(
                     "SELECT tokens, updated FROM bucket WHERE key = ?", (key,)
                 ).fetchone()
-                tokens = per_minute if row is None else float(row[0])
+                tokens = capacity if row is None else min(capacity, float(row[0]))
                 updated = now if row is None else float(row[1])
-                tokens = min(per_minute, tokens + max(0.0, now - updated) * refill_per_s)
+                tokens = min(capacity, tokens + max(0.0, now - updated) * refill_per_s)
                 wait_s = 0.0 if tokens >= 1.0 else (1.0 - tokens) / refill_per_s
                 if wait_s == 0.0:
                     tokens -= 1.0
@@ -105,7 +106,7 @@ class SqliteRateLedger:
                     "INSERT INTO bucket (key, tokens, updated) VALUES (?, ?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET tokens = excluded.tokens, "
                     "updated = excluded.updated",
-                    (key, tokens, now),
+                    (key, tokens, max(now, updated)),
                 )
                 connection.execute("COMMIT")
         except sqlite3.Error as error:
