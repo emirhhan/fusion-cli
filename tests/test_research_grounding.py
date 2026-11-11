@@ -399,6 +399,64 @@ def test_supported_first_ordered_item_does_not_cover_unreviewed_second_item(tmp_
     ]
 
 
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "complete",
+        "still_missing",
+        "invalid_digest",
+        "expired",
+        "legacy_issues",
+        "extra_field",
+        "long_basis",
+    ],
+)
+async def test_review_rechecks_missing_target_once_without_accepting_partial(
+    monkeypatch, tmp_path, outcome
+):
+    import json
+
+    from fusion_cli.engines.agent import research_grounding
+
+    _, target, sources = target_sources(
+        tmp_path, "1. Orion released October 25\n2. Orion release date is October 25"
+    )
+    deps = _deps(tmp_path, RecordingSink(), runtime={"request_timeout_s": 10})
+    payloads = []
+    now = 0.0
+    monkeypatch.setattr(research_grounding, "monotonic", lambda: now)
+
+    async def judge(prompt):
+        nonlocal now
+        payload = json.loads(prompt.split("\nDATA\n", 1)[1])
+        payloads.append(payload)
+        response = json.loads(typed_clean(prompt))
+        if len(payloads) == 1 or outcome == "still_missing":
+            response["claims"][0]["targets"] = [target.spans[0].id] * 2
+        if outcome == "invalid_digest":
+            response["source_digest"] = "incorrect"
+        if outcome == "expired":
+            now = 10.0
+        if outcome == "legacy_issues":
+            response["status"] = "issues"
+            response["reviewed"] = [target.spans[0].id]
+        if len(payloads) == 2:
+            if outcome == "extra_field":
+                response["claims"][0]["extra"] = "unexpected"
+            if outcome == "long_basis":
+                response["claims"][0]["basis"] = "a" * (research_grounding._BASIS_LIMIT + 1)
+        return model_result(json.dumps(response))
+
+    verdict = await research_grounding.review_grounding(target, sources, deps, judge=judge)
+
+    if outcome in {"complete", "still_missing", "extra_field", "long_basis"}:
+        assert len(payloads) == 2
+        assert payloads[1] == {**payloads[0], "missing_targets": [target.spans[1].id]}
+    else:
+        assert len(payloads) == 1
+    assert verdict.status == ("supported" if outcome == "complete" else "incomplete")
+
+
 @pytest.mark.parametrize("location", ["answer", "report.md"])
 def test_markdown_ordered_marker_preserves_item_sentence_boundaries(location):
     from fusion_cli.engines.agent.research_grounding import _target_spans
