@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from types import SimpleNamespace
 
 import pytest
 
@@ -20,12 +19,14 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message, ToolCall
 from fusion_cli.engines.agent.approval import Decision
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
-from fusion_cli.engines.agent.loop import _run_tools, _State
+from fusion_cli.engines.agent.loop import AgentDeps, _run_tools, _State
 from fusion_cli.engines.effects.detect import required_effect_for
 from fusion_cli.providers.web_browser import format_browser_prompt
 from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 from fusion_cli.tools import build_registry
 from fusion_cli.tools.emulation import validate_arguments
+
+from .fakes import make_config
 
 
 class _Publisher:
@@ -41,22 +42,13 @@ class _Allow:
         return Decision.ALLOW
 
 
-def _deps(tmp_path, *, budget: TurnBudget | None = None):
-    turn_budget = budget or _budget()
-    return SimpleNamespace(
-        steering=None,
-        conversation_id="",
-        attempt_id="",
-        mutation_blocked_by_pending_input=lambda: False,
-        approval_revision=None,
-        policy_factory=None,
+def _deps(tmp_path, *, budget: TurnBudget | None = None) -> AgentDeps:
+    return AgentDeps(
+        config=make_config(),
         publisher=_Publisher(),
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),
-        allowed_commands=frozenset(),
-        turn_forbidden_families=frozenset(),
-        budget=turn_budget,
-        require_budget=lambda: turn_budget,
+        budget=budget or _budget(),
     )
 
 

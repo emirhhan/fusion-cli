@@ -2,6 +2,8 @@
 
 import pytest
 
+from fusion_cli.core.events import ToolOutcome
+from fusion_cli.core.steering import SteeringQueue
 from fusion_cli.core.tools import AuthorizationScope, Tool, ToolEffect, ToolResult
 from fusion_cli.core.types import ToolCall
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
@@ -51,12 +53,12 @@ async def test_external_write_records_intent_before_executor(tmp_path):
 
 async def test_new_input_during_intent_save_blocks_external_executor(tmp_path):
     order = []
-    pending = {"value": False}
+    steering = SteeringQueue()
 
     class Recorder:
         async def prepare(self, *args):
             order.append("intent")
-            pending["value"] = True
+            steering.push("Dış işlemi başlatma.")
 
         async def finish(self, *args):
             order.append("response")
@@ -70,8 +72,8 @@ async def test_new_input_during_intent_save_blocks_external_executor(tmp_path):
     registry.register(Tool("remote", "", {}, write, mutating=True, effect=ToolEffect.REMOTE_WRITE))
     deps = _deps(tmp_path)
     deps.effect_recorder = Recorder()
-    deps.mutation_blocked_by_pending_input = lambda: pending["value"]
-    result, _ = await _execute(
+    deps.steering = steering
+    result, outcome = await _execute(
         ToolCall("call", "remote", "{}"),
         {},
         deps,
@@ -79,6 +81,7 @@ async def test_new_input_during_intent_save_blocks_external_executor(tmp_path):
         execution=ExecutionPolicy(is_web=False),
     )
     assert not result.ok
+    assert outcome is ToolOutcome.BLOCKED
     assert order == ["intent"]
 
 
