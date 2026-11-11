@@ -250,7 +250,19 @@ async def test_focus_exposes_verified_identity_consumable_by_background_inspect(
     )
     _fake_focus_probe(monkeypatch, "Calculator", [350.0, 260.0, 210.0, 380.0])
     result = desktop_inspect.desktop_window_focus({"app": "Calculator"}, context)
-    assert result.ok and "window_id=101" in result.output and "pid=42" in result.output
+    assert result.ok
+    assert result.output == (
+        "Öne getirildi ve doğrulandı: Calculator — Calculator; window_id=101, pid=42, "
+        "sınırlar=(350,260,210,380) ekran noktası. "
+        "İşlemden önce bu window_id ve pid ile desktop_background_inspect çağır; "
+        "pencerenin güncel durumunu ve varsa display.value değerini oku. "
+        "Kullanıcının yöntem sınırlarına uy. "
+        "Adı belli düğmenin güncel ve tekil ref'i varsa aynı window_id, pid ve ref ile "
+        "desktop_background_action (action=press) kullan. "
+        "Sonucu aynı pencereyi yeniden inceleyerek doğrula. "
+        "Koordinat gerekiyorsa ve kullanıcı izin veriyorsa yeni tam desktop_screenshot al; "
+        "hedefin koordinatını görüntü modele ulaştıktan sonraki adımda seç."
+    )
     assert result.structured is not None
     target = result.structured["target"]
     assert target == {"window_id": 101, "pid": 42}
