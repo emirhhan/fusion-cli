@@ -7,7 +7,12 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from .events import ModelCallPurpose, ProviderCallDiagnostic, ProviderDiagnosticPhase
+from .events import (
+    ModelCallPurpose,
+    ProviderCallDiagnostic,
+    ProviderDiagnosticPhase,
+    ProviderWaitReason,
+)
 
 if TYPE_CHECKING:
     from .types import CompletionRequest
@@ -51,7 +56,13 @@ class ProviderCallObserver:
         self._closed = False
         self._disabled = False
 
-    def phase(self, phase: ProviderDiagnosticPhase, *, wait_s: float | None = None) -> None:
+    def phase(
+        self,
+        phase: ProviderDiagnosticPhase,
+        *,
+        wait_s: float | None = None,
+        wait_reason: ProviderWaitReason | None = None,
+    ) -> None:
         if self._closed or self._disabled:
             return
         try:
@@ -74,6 +85,7 @@ class ProviderCallObserver:
                 purpose=self._purpose,
                 background=self._background,
                 wait_ms=None if wait_s is None else min(_COUNTER_MAX, max(0, int(wait_s * 1000))),
+                wait_reason=wait_reason,
             )
             self._previous = phase
             self._closed = phase in _TERMINAL
@@ -103,7 +115,11 @@ class ProviderCallObserver:
 
 
 def observe_phase(
-    request: CompletionRequest, phase: ProviderDiagnosticPhase, *, wait_s: float | None = None
+    request: CompletionRequest,
+    phase: ProviderDiagnosticPhase,
+    *,
+    wait_s: float | None = None,
+    wait_reason: ProviderWaitReason | None = None,
 ) -> None:
     if request.provider_observer is not None:
-        request.provider_observer.phase(phase, wait_s=wait_s)
+        request.provider_observer.phase(phase, wait_s=wait_s, wait_reason=wait_reason)

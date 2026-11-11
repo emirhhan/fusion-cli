@@ -92,6 +92,7 @@ ProviderDiagnosticPhase = Literal[
     "call_cancelled",
     "call_error",
 ]
+ProviderWaitReason = Literal["rate_limit"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +114,7 @@ class ProviderCallDiagnostic(Event):
     purpose: ModelCallPurpose
     background: bool
     wait_ms: int | None = None
+    wait_reason: ProviderWaitReason | None = None
 
 
 @dataclass(frozen=True, slots=True)

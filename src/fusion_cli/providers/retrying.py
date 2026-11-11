@@ -77,7 +77,12 @@ class RetryingProvider:
             if not self._should_retry(result):
                 return result
             wait_s = _wait_s(delay, result)
-            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            observe_phase(
+                request,
+                "provider_retry_wait",
+                wait_s=wait_s,
+                wait_reason="rate_limit" if result.is_rate_limited else None,
+            )
             await self._sleeper.sleep(wait_s)
             observe_phase(request, "provider_retry_wait_end")
             result = await self._inner.complete(request)
@@ -110,7 +115,12 @@ class RetryingProvider:
                 yield StreamDone(erken)
                 return
             wait_s = _wait_s(delay, erken)
-            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            observe_phase(
+                request,
+                "provider_retry_wait",
+                wait_s=wait_s,
+                wait_reason="rate_limit" if erken.is_rate_limited else None,
+            )
             await self._sleeper.sleep(wait_s)
             observe_phase(request, "provider_retry_wait_end")
 

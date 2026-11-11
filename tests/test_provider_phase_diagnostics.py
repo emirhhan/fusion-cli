@@ -219,7 +219,11 @@ async def test_rate_wait_has_no_leaf_until_admission(monkeypatch, cancel):
         )
 
 
-async def test_retry_wait_counts_real_leaf_invocations(monkeypatch):
+@pytest.mark.parametrize(
+    ("error_text", "wait_reason"),
+    [("synthetic private provider error", None), ("429: Too Many Requests", "rate_limit")],
+)
+async def test_retry_wait_counts_real_leaf_invocations(monkeypatch, error_text, wait_reason):
     from fusion_cli.providers.retrying import RetryingProvider
 
     recorder = Recorder()
@@ -231,7 +235,7 @@ async def test_retry_wait_counts_real_leaf_invocations(monkeypatch):
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise RuntimeError("synthetic private provider error")
+            raise RuntimeError(error_text)
         return await original(**kwargs)
 
     sdk.acompletion = fail_once
@@ -241,6 +245,7 @@ async def test_retry_wait_counts_real_leaf_invocations(monkeypatch):
     task = asyncio.create_task(consume(wrapped, request()))
     await sleeper.entered.wait()
     assert diagnostics(recorder)[-1].phase == "provider_retry_wait"
+    assert diagnostics(recorder)[-1].wait_reason == wait_reason
     assert diagnostics(recorder)[-1].leaf_attempts == 1
     sleeper.release.set()
     await task
@@ -323,6 +328,7 @@ async def test_diagnostic_is_trace_only_and_replayable_with_correlation(monkeypa
         "purpose",
         "background",
         "wait_ms",
+        "wait_reason",
     }
     assert all(set(p) <= allowed for p in diag)
     assert all(
