@@ -176,6 +176,22 @@ _UI_CONTROL_LABEL_VERB = re.compile(
     r"\s+(?:bas|tıkla|tikla|press|click)\b)",
     re.IGNORECASE,
 )
+# Cümlecik ayırıcı, "koru" listesindeki yalın düğme adlarını kabuk komutu sanabilir.
+# Yalnızca arayüz kontrolleriyle devam eden listenin başındaki etiketleri eşleştir.
+_START_CONTROL_LABEL = r"(?:(?:yeniden[ \t]+)?ba[şs]lat|restart)"
+_PRESERVED_START_CONTROL_LABELS = re.compile(
+    rf"""
+    (?P<boundary>^|\.(?=\s|$)|[!?;\n])[ \t]*
+    {_START_CONTROL_LABEL}(?:[ \t]*(?:,|\bve\b)[ \t]*{_START_CONTROL_LABEL})+
+    (?=
+        (?:[ \t]*,[ \t]*|[ \t]+(?:ve[ \t]+)?)
+        (?:(?:klavye(?:[ \t]+ve[ \t]+dokunmatik)?|dokunmatik|oyun)[ \t]+)?
+        (?:düğme|dugme|buton|kontrol)[a-zçğıöşü]*\b
+        (?:[ \t]*(?:,|\bve\b)[^.!?;\n]*|[ \t]+)\bkoru(?=[ \t]*(?:[.!?;,\n]|$))
+    )
+    """,
+    re.VERBOSE,
+)
 
 #: Kod üretimi istendiği ANLAŞILAN nesneler. "dosya" demeyen ama dosya yazdıran
 #: istekler ("spor sitesi yap", "açılış sayfası hazırla") buradan yakalanır.
@@ -580,16 +596,18 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     """İstek gerçek bir araç etkisi istiyorsa kararlı effect kimliğini döndür."""
 
     del kind  # Eski çağrı imzasıyla uyumluluk; karar tamamen metinden çıkarılır.
+    task_text = lower_tr_aware(task)
+    action_text = _PRESERVED_START_CONTROL_LABELS.sub(r"\g<boundary> ", task_text)
     # Preserve sentence/newline/conjunction boundaries for object→verb binding.
     # External-effect priority still consumes the complete positive request.
     clauses = tuple(
         _ANSWER_FORMAT_PATTERN.sub(" ", _REPLY_LINE_FORMAT_PATTERN.sub(" ", clause))
-        for clause in _positive_action_parts(_UI_CONTROL_LABEL_VERB.sub("", lower_tr_aware(task)))
+        for clause in _positive_action_parts(_UI_CONTROL_LABEL_VERB.sub("", action_text))
     )
     lowered = " ".join(clauses)
     if not lowered:
         return None
-    research_clauses = _positive_action_parts(current_fact_text(lower_tr_aware(task)))
+    research_clauses = _positive_action_parts(current_fact_text(task_text))
     current_fact = any(needs_current_lookup(clause) for clause in research_clauses)
     explicit_web = any(_matches(clause, _WEB_LOOKUP_PATTERNS) for clause in research_clauses)
     if not (current_fact or explicit_web) and any(
@@ -615,7 +633,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         any(_matches(clause, _EN_FILE_MUTATION_PATTERNS) for clause in clauses)
         or any(
             _DIRECT_EN_FILE_MUTATION.search(clause) or _DESTINATION_EN_FILE_MUTATION.search(clause)
-            for clause in _positive_action_parts(_request_prose(lower_tr_aware(task)))
+            for clause in _positive_action_parts(_request_prose(task_text))
         )
     ):
         return EffectKind.WORKSPACE_MUTATION.value

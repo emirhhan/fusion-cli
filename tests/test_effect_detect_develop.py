@@ -10,9 +10,91 @@ from __future__ import annotations
 
 import pytest
 
+from fusion_cli.engines.agent.loop import run_agent
+from fusion_cli.engines.agent.tool_constraints import forbidden_families, prohibited_tool
 from fusion_cli.engines.effects.detect import required_effect_for
 
+from .agent_harness import install_provider, web_deps
+from .fakes import RecordingSink, ScriptedProvider, model_result, tool_call
+
 MUTASYON = "workspace_mutation"
+
+GAME_PAUSE_REPAIR_TASK = (
+    "Bu klasördeki index.html blok yakalama oyununda, oyun oynanırken görünen ve etkin bir "
+    "Duraklat düğmesi ekle. Bu düğme oyunu dondursun. Duraklatılmışken görünen Devam Et "
+    "düğmesi, skoru, kalan canları, oyuncu konumunu ve mevcut düşen blokları sıfırlamadan "
+    "aynı oyunu sürdürsün. Başlat, yeniden başlat, klavye ve dokunmatik kontrolleri, skor ve "
+    "üç can döngüsünü, Türkçe arayüzü ve mobil uyumu koru. Yalnızca index.html dosyasını "
+    "değiştir. Harici bağımlılık ekleme, shell komutu çalıştırma, sunucu başlatma, uygulama "
+    "veya tarayıcı açma. Sonucu kısa yaz."
+)
+
+
+def test_game_pause_repair_preserves_start_controls_with_shell_forbidden():
+    denied = forbidden_families(GAME_PAUSE_REPAIR_TASK)
+    assert prohibited_tool("run_shell", denied)
+    assert prohibited_tool("browser_open", denied)
+    assert required_effect_for(GAME_PAUSE_REPAIR_TASK) == MUTASYON
+
+
+@pytest.mark.parametrize("with_edit", [True, False], ids=["edited", "missing-edit"])
+async def test_game_pause_repair_closes_only_with_file_mutation(monkeypatch, tmp_path, with_edit):
+    page = tmp_path / "index.html"
+    original = '<button id="start">Başlat</button>\n'
+    edited = original + '<button id="pause">Duraklat</button>\n'
+    page.write_text(original, encoding="utf-8")
+    reply = model_result("Duraklat düğmesini index.html dosyasına ekledim.")
+    edit = tool_call("edit_file", path="index.html", old=original, new=edited)
+    script = [model_result(tool_calls=(edit,)), reply] if with_edit else [reply] * 4
+    install_provider(monkeypatch, ScriptedProvider(script))
+
+    outcome = await run_agent(
+        GAME_PAUSE_REPAIR_TASK,
+        web_deps(tmp_path, RecordingSink()),
+        allowed_tools={"read_file", "write_file", "edit_file", "list_dir", "search_code"},
+        verify=False,
+        self_review=False,
+    )
+
+    assert page.read_text(encoding="utf-8") == (edited if with_edit else original)
+    assert outcome.mutating_tool_calls_made == int(with_edit)
+    assert outcome.ok is with_edit, outcome.final_text
+
+
+@pytest.mark.parametrize(
+    "preservation",
+    [
+        "Başlat, Yeniden Başlat, klavye kontrollerini koru.",
+        "Başlat ve Yeniden Başlat düğmelerini koru.",
+    ],
+)
+def test_preserved_start_control_labels_do_not_require_shell_without_a_prohibition(preservation):
+    assert required_effect_for(f"index.html dosyasını değiştir. {preservation}") == MUTASYON
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Başlat, yeniden başlat.",
+        "Sunucuyu başlat, yeniden başlat, klavye kontrollerini koru.",
+        "Başlat. Yeniden başlat, klavye kontrollerini koru.",
+        "Başlat, yeniden başlat, klavye kontrollerini ayarla, verileri koru.",
+        (
+            "Başlat, yeniden başlat, klavye kontrollerini koru. "
+            "index.html dosyasını değiştir ve test sunucusunu yeniden başlat."
+        ),
+        "Prod sunucusunu başlatma ama yerel test sunucusunu başlat.",
+    ],
+)
+def test_explicit_shell_commands_keep_shell_completion_requirement(task):
+    assert required_effect_for(task) == "shell_action"
+
+
+def test_shell_prohibition_does_not_erase_contradictory_shell_request():
+    task = "Shell kullanma. index.html dosyasını değiştir ve test sunucusunu yeniden başlat."
+
+    assert prohibited_tool("run_shell", forbidden_families(task))
+    assert required_effect_for(task) == "shell_action"
 
 
 @pytest.mark.parametrize(
