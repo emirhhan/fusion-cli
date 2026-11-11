@@ -164,12 +164,14 @@ async def _ask(
     rate_control: RateControl | None = None,
     task_deadline_s: float | None = None,
 ) -> ModelResult:
-    now = SystemClock().monotonic()
+    clock = SystemClock()
+    now = clock.monotonic()
     timeout = config.runtime.judge_timeout_s
     if task_deadline_s is not None:
         timeout = min(timeout, task_deadline_s - now)
     if timeout <= 0:
         raise TimeoutError
+    deadline = now + timeout
     structured_nim = (
         response_schema is not None
         and config.judge.model == "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
@@ -194,13 +196,20 @@ async def _ask(
         config.judge,
         publisher=publisher,
         retry_delays_s=config.runtime.retry_delays_s,
-        retry_deadline_s=now + timeout,
+        retry_deadline_s=deadline,
         rate_control=rate_control,
         background=True,
         web_sessions=web_registry_for(config),
         model_specs=configured_model_specs(config),
     )
-    return await provider.complete(request)
+    remaining = deadline - clock.monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    async with asyncio.timeout(remaining) as call_timeout:
+        result = await provider.complete(request)
+    if call_timeout.expired() or clock.monotonic() >= deadline:
+        raise TimeoutError
+    return result
 
 
 def _diff_feedback(text: str, diff: str) -> str:

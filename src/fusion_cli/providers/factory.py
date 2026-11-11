@@ -165,6 +165,8 @@ def build_provider(
         publisher=publisher,
         background=background,
         only_when_unavailable=spec.strict,
+        clock=clock,
+        completion_deadline_s=retry_deadline_s,
     )
     if publisher is None:
         return inner
