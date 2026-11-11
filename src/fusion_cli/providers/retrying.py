@@ -149,9 +149,8 @@ class RetryingProvider:
                 return
             wait_s = _wait_s(delay, erken)
             rate_hint = erken.retry_after_s if erken.is_rate_limited else None
-            deadline = request.rate_retry_deadline if rate_hint is not None else None
-            if (rate_hint is not None and rate_hint > RETRY_AFTER_MAX_WAIT_S) or (
-                deadline is not None and wait_s >= deadline.remaining_s()
+            if rate_hint is not None and (
+                rate_hint > RETRY_AFTER_MAX_WAIT_S or not _rate_wait_fits(request, wait_s)
             ):
                 yield StreamDone(erken)
                 return
@@ -163,7 +162,7 @@ class RetryingProvider:
             )
             await self._sleeper.sleep(wait_s)
             observe_phase(request, "provider_retry_wait_end")
-            if deadline is not None and deadline.remaining_s() <= 0:
+            if rate_hint is not None and not _rate_wait_fits(request, 0.0):
                 yield StreamDone(erken)
                 return
 
@@ -183,6 +182,15 @@ class RetryingProvider:
             # gecikme ve maliyet harcar (ölçüldü 30 Ekim). Kurtarma üst katmanda.
             return False
         return not result.is_usable and not is_permanent_error(result.error)
+
+
+def _rate_wait_fits(request: CompletionRequest, wait_s: float) -> bool:
+    """Bekleme, hem açılış sessizliğinden hem mutlak tur süresinden kısa olmalı."""
+    opening_at = request.rate_retry_opening_at
+    if opening_at is not None and wait_s >= opening_at - asyncio.get_running_loop().time():
+        return False
+    deadline = request.rate_retry_deadline
+    return deadline is None or wait_s < deadline.remaining_s()
 
 
 def _wait_s(delay_s: float, result: ModelResult) -> float:

@@ -3314,7 +3314,9 @@ async def _call_with_retries(
         ):
             delay = max(delay, result.retry_after_s)
             deadline = _rate_retry_deadline(deps)
-            if deadline is not None and delay >= deadline.remaining_s():
+            if (deadline is None and delay > RETRY_MAX_DELAY_S) or (
+                deadline is not None and delay >= deadline.remaining_s()
+            ):
                 return result
         attempt += 1
         if result is None and not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
@@ -3587,7 +3589,8 @@ async def _call_model(
     async def _consume() -> None:
         nonlocal result
         async with asyncio.timeout(inactivity_s) as silence:
-            async for item in provider.stream(request):
+            stream_request = replace(request, rate_retry_opening_at=silence.when())
+            async for item in provider.stream(stream_request):
                 if isinstance(item, StreamDone) or (
                     isinstance(item, TextChunk) and item.text and not item.provisional
                 ):
