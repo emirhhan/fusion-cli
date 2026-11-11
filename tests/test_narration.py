@@ -14,6 +14,7 @@ import pytest
 
 from fusion_cli.core.events import NarrationPublished, ToolStarted
 from fusion_cli.core.tools import TodoItem, TodoStatus, ToolContext
+from fusion_cli.core.turn_deadline import TurnDeadline
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
@@ -110,6 +111,37 @@ async def test_karmasik_iste_once_giris_paragrafi_yazilir(monkeypatch, tmp_path)
     # Ama hangi araçların gerçekten var olduğunu bilir: olmayan eklentiyi vaat etmez.
     giris_istemi = provider.seen_messages[0][0].content
     assert "write_file" in giris_istemi and "listede olmayan" in giris_istemi
+
+
+async def test_bounded_turn_reserves_paced_model_for_task_calls(monkeypatch, tmp_path):
+    from fusion_cli.engines.agent import narration
+
+    deps, sink = _deps(tmp_path)
+    deps.config = replace(
+        deps.config,
+        runtime=replace(
+            deps.config.runtime,
+            rate_limit_per_minute={deps.config.agent.model: 5},
+        ),
+    )
+    deps.deadline = TurnDeadline.from_duration(180, deps.clock)
+    actor = ScriptedProvider(
+        [
+            model_result(tool_calls=(tool_call("write_file", path="a.py", content="x = 1\n"),)),
+            model_result("Modül eklendi."),
+        ]
+    )
+    _patch(monkeypatch, actor)
+
+    def forbidden_intro(*args, **kwargs):
+        pytest.fail("The first paced provider slot must be available to the task actor")
+
+    monkeypatch.setattr(narration, "build_provider", forbidden_intro)
+    outcome = await run_agent("a.py dosyasını oluştur ve içine x değişkenini yaz", deps)
+
+    assert outcome.ok and (tmp_path / "a.py").read_text() == "x = 1\n"
+    assert actor.calls == 2
+    assert not any(isinstance(event, NarrationPublished) for event in sink.events)
 
 
 async def test_basit_sohbette_giris_paragrafi_istenmez(monkeypatch, tmp_path) -> None:

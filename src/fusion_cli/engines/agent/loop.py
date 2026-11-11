@@ -138,6 +138,7 @@ from ...providers.capabilities import (
 from ...providers.context_window import input_window_tokens
 from ...providers.factory import build_provider
 from ...providers.fallback_plan import live_fallbacks
+from ...providers.registry import provider_for_model
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.auto_policy import is_read_only_command
@@ -3076,9 +3077,19 @@ async def _publish_intro(
         or classify_teacher_task(task).size == "basit"
     ):
         return
+    spec = _active_spec(deps, execution)
+    bounded = deps.deadline is not None or (
+        deps.budget is not None and deps.budget.total_timeout_s is not None
+    )
+    limits = deps.config.runtime.rate_limit_per_minute
+    provider = provider_for_model(spec.model)
+    provider_enabled = provider is None or limits.get(provider.id, 1) > 0
+    if bounded and provider_enabled and limits.get(spec.model, 0) > 0:
+        # Reserve the paced provider's first slot for the task itself.
+        return
     intro = await intro_paragraph(
         task,
-        _active_spec(deps, execution),
+        spec,
         deps.config,
         deps.publisher,
         tool_names,
