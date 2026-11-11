@@ -386,6 +386,10 @@ class CompletionRequest:
     rate_retry_deadline: TurnDeadline | None = field(
         default=None, kw_only=True, repr=False, compare=False
     )
+    #: Akışın açılış sessizliği bitişi, etkin event loop saatinde.
+    rate_retry_opening_at: float | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
     messages: tuple[Message, ...]
     temperature: float
     max_tokens: int

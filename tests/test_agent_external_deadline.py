@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 
 import pytest
@@ -133,7 +134,9 @@ async def test_actor_rate_limit_wait_must_fit_actual_task_deadline(
     monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: chain)
     monkeypatch.setattr(loop, "_retry_sleep", actor_sleep)
     deps = deps_for(
-        tmp_path, TurnDeadline.from_duration(remaining, clock), runtime={"model_retry_attempts": 2}
+        tmp_path,
+        TurnDeadline.from_duration(remaining, clock),
+        runtime={"request_timeout_s": 200, "model_retry_attempts": 2},
     )
 
     result = await run_agent("merhaba", deps, self_review=False, verify=False)
@@ -148,6 +151,68 @@ async def test_actor_rate_limit_wait_must_fit_actual_task_deadline(
         assert result.model_error == failure.error and result.stop_reason != "deadline"
         assert "hız sınırına takıldı" in result.final_text
         assert "yeniden denemelere rağmen" not in result.final_text
+
+
+@pytest.mark.parametrize("request_timeout,outer_retries", [(0.03, 0), (0.03, 1), (8.0, 1)])
+async def test_actor_rate_limit_wait_also_fits_opening_silence(
+    tmp_path, monkeypatch, request_timeout, outer_retries
+):
+    clock = FakeClock()
+    failure = replace(
+        model_result(ok=False, error="429 Too Many Requests"), model="scripted", retry_after_s=7
+    )
+    leaf = ScriptedProvider([failure, model_result("Tamamlandı.")])
+    waits = []
+
+    class ProviderSleeper:
+        async def sleep(self, seconds):
+            waits.append(("provider", seconds))
+            if request_timeout < seconds:
+                await asyncio.sleep(0.1)
+            clock.value += seconds
+
+    async def actor_sleep(seconds):
+        waits.append(("actor", seconds))
+        clock.value += seconds
+
+    provider = RetryingProvider(leaf, delays_s=(1,), sleeper=ProviderSleeper())
+    chain = FallbackProvider([provider], role="agent")
+    monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: chain)
+    monkeypatch.setattr(loop, "_retry_sleep", actor_sleep)
+    deps = deps_for(
+        tmp_path,
+        TurnDeadline.from_duration(180, clock),
+        runtime={"request_timeout_s": request_timeout, "model_retry_attempts": outer_retries},
+    )
+    result = await run_agent("merhaba", deps, self_review=False, verify=False)
+
+    if request_timeout > 7:
+        assert waits == [("provider", 7)] and result.ok and leaf.calls == 2
+    elif outer_retries:
+        assert waits == [("actor", 10)] and result.ok and leaf.calls == 2
+    else:
+        assert waits == [] and not result.ok and leaf.calls == 1
+        assert result.model_error == failure.error
+
+
+async def test_actor_without_task_deadline_does_not_sleep_for_unbounded_rate_hint(
+    tmp_path, monkeypatch
+):
+    failure = replace(model_result(ok=False, error="429 Too Many Requests"), retry_after_s=10_000)
+    provider = ScriptedProvider([failure, model_result("olmamalı")])
+    monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: provider)
+    waits = []
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(loop, "_retry_sleep", sleep)
+    deps = deps_for(tmp_path, None, runtime={"model_retry_attempts": 2})
+
+    result = await run_agent("merhaba", deps, self_review=False, verify=False)
+
+    assert waits == [] and provider.calls == 1 and not result.ok
+    assert result.model_error == failure.error
 
 
 async def test_nested_agent_uses_original_deadline_and_shared_budget(tmp_path, monkeypatch):
