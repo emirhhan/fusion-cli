@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import re
 import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
@@ -2321,7 +2322,13 @@ async def _drive_loop(
         )
         state.model_calls_made += 1
         if (remaining := budget.remaining_s()) is not None and remaining <= 0:
-            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
+            rate_message = _model_failure_message(result.error) if result.is_rate_limited else ""
+            stopped = _halt(
+                final_text or rate_message, messages, state, budget, BudgetStop.DEADLINE, deps
+            )
+            if result.is_rate_limited:
+                stopped.model_error = result.error
+            return stopped
         # USD tavanı (`--max-budget-usd`, P-026): bilinen maliyet tavana ulaştıysa tur
         # burada kapanır; modelin bu çağrıdaki cevabı korunur, yeni çağrı yapılmaz.
         if budget.cost_exhausted:
@@ -3191,6 +3198,15 @@ def retry_delay_s(attempt: int, *, rate_limited: bool = False) -> float:
     return min(base * float(2**attempt), RETRY_MAX_DELAY_S)
 
 
+def _rate_retry_deadline(deps: AgentDeps) -> TurnDeadline | None:
+    budget_deadline = deps.budget.hard_deadline if deps.budget is not None else None
+    return min(
+        (deadline for deadline in (deps.deadline, budget_deadline) if deadline is not None),
+        key=TurnDeadline.remaining_s,
+        default=None,
+    )
+
+
 async def _call_with_retries(
     messages: list[Message],
     deps: AgentDeps,
@@ -3288,6 +3304,18 @@ async def _call_with_retries(
         delay = retry_delay_s(
             attempt, rate_limited=result is not None and is_rate_limit_error(result.error)
         )
+        deadline = None
+        if (
+            result is not None
+            and result.is_rate_limited
+            and result.retry_after_s is not None
+            and math.isfinite(result.retry_after_s)
+            and result.retry_after_s >= 0
+        ):
+            delay = max(delay, result.retry_after_s)
+            deadline = _rate_retry_deadline(deps)
+            if deadline is not None and delay >= deadline.remaining_s():
+                return result
         attempt += 1
         if result is None and not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
             messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))
@@ -3304,7 +3332,14 @@ async def _call_with_retries(
             )
         )
         remaining = budget.remaining_s()
-        await _retry_sleep(min(delay, max(0.0, remaining)) if remaining is not None else delay)
+        if result is not None and deadline is not None and delay >= deadline.remaining_s():
+            return result
+        wait_s = (
+            delay if deadline is not None or remaining is None else min(delay, max(0.0, remaining))
+        )
+        await _retry_sleep(wait_s)
+        if result is not None and deadline is not None and deadline.remaining_s() <= 0:
+            return result
 
 
 async def _retry_sleep(delay_s: float) -> None:
@@ -3344,6 +3379,11 @@ def _model_failure_message(error: str | None) -> str:
         return (
             f"Model kullanılamıyor ({_short_reason(error)}). "
             "Farklı bir model seçip yeniden deneyebilirsin."
+        )
+    if is_rate_limit_error(error):
+        return (
+            "Model hız sınırına takıldı. Biraz sonra “devam et” yazarak kaldığın yerden "
+            "sürdürebilir ya da farklı bir model seçebilirsin."
         )
     if _short_reason(error) == "yanıt veremedi":
         # Tanınmayan hata: sebebi saklamak kullanıcıyı çaresiz bırakır; ayrıntı eklenir.
@@ -3522,6 +3562,7 @@ async def _call_model(
             tool_names(offered_tools), has_todos=bool(deps.tool_context.todos.items)
         ),
         prompt_cache_ttl=getattr(deps, "prompt_cache_ttl", "") or "",
+        rate_retry_deadline=_rate_retry_deadline(deps),
     )
     desktop_observation = state.desktop_grounding.for_request(
         request.messages, deps.tool_context, deps.conversation_id, deps.attempt_id

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
+from fusion_cli.core.constants import RETRY_AFTER_MAX_WAIT_S
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.turn_deadline import TurnDeadline
 from fusion_cli.engines.agent import loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+from fusion_cli.providers.chain import FallbackProvider
+from fusion_cli.providers.retrying import RetryingProvider
 
 from .fakes import (
     AlwaysApprove,
@@ -73,13 +80,12 @@ async def test_late_provider_tool_result_does_not_mutate_after_external_deadline
     assert not (tmp_path / "late.txt").exists()
 
 
+@pytest.mark.parametrize("error", ["temporary 503", "429 Too Many Requests"])
 async def test_retry_wait_respects_remaining_deadline_without_next_provider_call(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, error
 ):
     clock = FakeClock()
-    provider = ScriptedProvider(
-        [model_result(ok=False, error="temporary 503"), model_result("olmamalı")]
-    )
+    provider = ScriptedProvider([model_result(ok=False, error=error), model_result("olmamalı")])
     monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: provider)
     waits = []
 
@@ -95,6 +101,53 @@ async def test_retry_wait_respects_remaining_deadline_without_next_provider_call
     assert waits == [1]
     assert provider.calls == 1
     assert not result.ok and result.stop_reason == "deadline"
+
+
+@pytest.mark.parametrize("remaining,hint", [(12, 15), (15, 15), (30, 15), (50, 60), (180, 150)])
+@pytest.mark.parametrize("provider_retries", [False, True])
+async def test_actor_rate_limit_wait_must_fit_actual_task_deadline(
+    tmp_path, monkeypatch, remaining, hint, provider_retries
+):
+    clock = FakeClock()
+    failure = replace(
+        model_result(ok=False, error="429 Too Many Requests"), model="scripted", retry_after_s=hint
+    )
+    leaf = ScriptedProvider([failure, model_result("Tamamlandı.")])
+    sleeps: list[tuple[str, float]] = []
+
+    class ProviderSleeper:
+        async def sleep(self, seconds):
+            sleeps.append(("provider", seconds))
+            clock.value += seconds
+
+    async def actor_sleep(seconds):
+        sleeps.append(("actor", seconds))
+        clock.value += seconds
+
+    provider = (
+        RetryingProvider(leaf, delays_s=(1,), sleeper=ProviderSleeper())
+        if provider_retries
+        else leaf
+    )
+    chain = FallbackProvider([provider], role="agent")
+    monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: chain)
+    monkeypatch.setattr(loop, "_retry_sleep", actor_sleep)
+    deps = deps_for(
+        tmp_path, TurnDeadline.from_duration(remaining, clock), runtime={"model_retry_attempts": 2}
+    )
+
+    result = await run_agent("merhaba", deps, self_review=False, verify=False)
+
+    if remaining > hint:
+        layer = "provider" if provider_retries and hint <= RETRY_AFTER_MAX_WAIT_S else "actor"
+        assert sleeps == [(layer, hint)]
+        assert leaf.calls == 2 and result.ok
+    else:
+        assert sleeps == []
+        assert leaf.calls == 1 and not result.ok
+        assert result.model_error == failure.error and result.stop_reason != "deadline"
+        assert "hız sınırına takıldı" in result.final_text
+        assert "yeniden denemelere rağmen" not in result.final_text
 
 
 async def test_nested_agent_uses_original_deadline_and_shared_budget(tmp_path, monkeypatch):
