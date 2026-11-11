@@ -35,7 +35,7 @@ from ...core.verification import VerificationResult
 from . import review
 from .ordinal_evidence import unbacked_ordinals
 from .technical_evidence import technical_support_basis, unbacked_technical_literals
-from .technical_markup import non_prose_text
+from .technical_markup import _without_fences, non_prose_text
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -46,6 +46,7 @@ ISSUES = frozenset({"unsupported", "contradicted", "date_role", "coverage", "unr
 KINDS = ISSUES | {"supported", "uncertain", "nonfactual"}
 TEXT_FORMATS = frozenset({".html", ".htm", ".md", ".txt", ".csv", ".tsv", ".json", ".xml"})
 _SENTENCE_END = re.compile(r"[.!?](?=\s+\S)")
+_ORDERED_LIST_MARKER = re.compile(r"^ {0,3}[0-9]{1,9}\.(?=[ \t]+\S)", re.MULTILINE)
 _ORDINAL_SUPPORT_MISSING = (
     "Gösterilen kaynak bölümlerinde açık sıra desteği yok. Liste satırları "
     "tek başına bu türdeki olayın sırasını kanıtlamaz. Bu ek sıra iddiasını "
@@ -209,7 +210,15 @@ def capture_source(
 def _target_spans(text: str, prefix: str, location: str) -> tuple[TextSpan, ...]:
     """Ayrı cümleleri ayrı kapsam hedefi yap; özgün bayt ve konumları koru."""
     prose = non_prose_text(text, preserve_offsets=True)
-    sentence_ends = tuple(match.end() for match in _SENTENCE_END.finditer(prose))
+    marker_ends = set()
+    if location == "answer" or Path(location).suffix.lower() == ".md":
+        # Özgün satır başını kullan; maskelenmiş HTML etiketleri girinti sayılmamalı.
+        marker_ends = {
+            match.end() for match in _ORDERED_LIST_MARKER.finditer(_without_fences(text))
+        }
+    sentence_ends = tuple(
+        match.end() for match in _SENTENCE_END.finditer(prose) if match.end() not in marker_ends
+    )
     spans: list[TextSpan] = []
     for block in _spans(text, prefix, location):
         start = block.start

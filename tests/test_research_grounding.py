@@ -348,6 +348,69 @@ def target_sources(tmp_path, text="Orion released October 25."):
     return context, snapshot_target(context, text), (source,)
 
 
+def test_owned_numbered_browser_answer_keeps_markers_with_menu_items(tmp_path):
+    from fusion_cli.engines.agent.research_grounding import snapshot_target
+
+    draft = (
+        "**Sayfa Başlığı:** Arkiteka Mimarlık Stüdyosu\n\n"
+        "**Üst Menü (5 Bölüm):**\n1. Ana Sayfa\n2. Hakkımızda\n3. Hizmetler\n"
+        "4. Projeler\n5. İletişim\n\n**Form Demo Uyarısı:**\n"
+        "> Bu bir demo formdur. Mesajlarınız gerçekten gönderilmez; yalnızca arayüzün "
+        "çalışması gösterilmektedir. Gerçek iletişim için yukarıdaki bilgileri kullanın."
+    )
+    context, target, _ = target_sources(tmp_path, draft)
+
+    assert target.complete
+    for item in ("1. Ana Sayfa", "2. Hakkımızda", "3. Hizmetler", "4. Projeler", "5. İletişim"):
+        assert any(item in span.text for span in target.spans), item
+    assert any(span.text.endswith("Bu bir demo formdur.") for span in target.spans)
+    assert any(span.text.endswith("çalışması gösterilmektedir.") for span in target.spans)
+    end = 0
+    for span in target.spans:
+        assert span.start == end
+        assert span.text == draft[span.start : span.end]
+        end = span.end
+    assert end == len(draft)
+    assert snapshot_target(context, draft.replace("4. Projeler", "6. Projeler")).digest != (
+        target.digest
+    )
+
+
+@pytest.mark.parametrize("location", ["answer", "report.md"])
+def test_markdown_ordered_marker_preserves_item_sentence_boundaries(location):
+    from fusion_cli.engines.agent.research_grounding import _target_spans
+
+    text = "   123456789.\tSürüm 4.2 çıktı. Takip sürümü planlandı."
+    spans = _target_spans(text, "target", location)
+    assert [span.text for span in spans] == [
+        "   123456789.\tSürüm 4.2 çıktı.",
+        " Takip sürümü planlandı.",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "location"),
+    [
+        ("Sürüm 4. Takip sürümü planlandı.", "answer"),
+        ("<p>4. Takip sürümü planlandı.</p>", "answer"),
+        ("4. Takip sürümü planlandı.", "report.html"),
+        ("```text\n4. Takip sürümü planlandı\n```", "answer"),
+        ("    4. Takip sürümü planlandı.", "answer"),
+        ("1234567890. Takip sürümü planlandı.", "answer"),
+        ("١. Takip sürümü planlandı.", "answer"),
+        ("4.\u00a0Takip sürümü planlandı.", "answer"),
+        ("4. \r\nTakip sürümü planlandı.", "answer"),
+    ],
+)
+def test_non_markdown_marker_period_remains_a_sentence_boundary(text, location):
+    from fusion_cli.engines.agent.research_grounding import _target_spans
+
+    spans = _target_spans(text, "target", location)
+    assert len(spans) == 2
+    assert spans[0].end == text.index(".") + 1
+    assert "".join(span.text for span in spans) == text
+
+
 @pytest.mark.parametrize("field", ["accepted_id", "root", "owner"])
 def test_other_task_owner_sources_are_not_admitted(tmp_path, field):
     from dataclasses import replace
