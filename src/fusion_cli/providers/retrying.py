@@ -78,12 +78,16 @@ class RetryingProvider:
         return self._inner.label
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
-        result = await self._inner.complete(request)
+        deadline = self._completion_deadline_s
+        result = (
+            await self._inner.complete(request)
+            if deadline is None
+            else await self._complete_before(request, deadline)
+        )
         for delay in self._delays_s:
             if not self._should_retry(result):
                 return result
             wait_s = _wait_s(delay, result)
-            deadline = self._completion_deadline_s
             if deadline is not None and (
                 (result.retry_after_s is not None and result.retry_after_s > RETRY_AFTER_MAX_WAIT_S)
                 or wait_s >= deadline - self._clock.monotonic()
@@ -98,17 +102,23 @@ class RetryingProvider:
             await self._sleeper.sleep(wait_s)
             observe_phase(request, "provider_retry_wait_end")
             if deadline is not None:
-                remaining = deadline - self._clock.monotonic()
-                if remaining <= 0:
-                    return result
-                request = replace(request, timeout_s=min(request.timeout_s, remaining))
                 try:
-                    async with asyncio.timeout(remaining):
-                        result = await self._inner.complete(request)
+                    result = await self._complete_before(request, deadline)
                 except TimeoutError:
                     return result
             else:
                 result = await self._inner.complete(request)
+        return result
+
+    async def _complete_before(self, request: CompletionRequest, deadline: float) -> ModelResult:
+        remaining = deadline - self._clock.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        attempt = replace(request, timeout_s=min(request.timeout_s, remaining))
+        async with asyncio.timeout(remaining) as timeout:
+            result = await self._inner.complete(attempt)
+        if timeout.expired() or self._clock.monotonic() >= deadline:
+            raise TimeoutError
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:

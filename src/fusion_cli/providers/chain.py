@@ -30,11 +30,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Sequence
+from dataclasses import replace
 from typing import TypeVar
 
+from ..core.clock import SystemClock
 from ..core.errors import ProviderError
 from ..core.events import EventPublisher, ModelFallbackActivated
-from ..core.protocols import LlmProvider
+from ..core.protocols import Clock, LlmProvider
 from ..core.types import (
     CompletionRequest,
     ModelResult,
@@ -62,6 +64,8 @@ class FallbackProvider:
         publisher: EventPublisher | None = None,
         background: bool = False,
         only_when_unavailable: bool = False,
+        clock: Clock | None = None,
+        completion_deadline_s: float | None = None,
     ) -> None:
         if not providers:
             raise ProviderError(f"'{role}' için tanımlı model yok.")
@@ -72,6 +76,8 @@ class FallbackProvider:
         #: Kullanıcı modeli açıkça seçtiyse (strict) zincir YALNIZCA model hiç
         #: cevap veremediğinde ilerler; kötü cevap yedeğe geçiş sebebi değildir.
         self._only_when_unavailable = only_when_unavailable
+        self._clock = clock or SystemClock()
+        self._completion_deadline_s = completion_deadline_s
         #: Yedeğe geçişi duyurulan (model, yedek) çiftleri: aynı geçişin "devre açık"
         #: tekrarı bu zincirde bir kez duyurulur. Ölçüldü (30 Ekim): açık devre her model
         #: çağrısında aynı satırı basıyor, ekranı ve asıl iş çıktısını boğuyordu.
@@ -91,12 +97,20 @@ class FallbackProvider:
         failures: list[ModelResult] = []
         for index, provider in enumerate(self._providers):
             if index and failures:
+                self._remaining_completion_s()
                 self._publish_fallback(provider.label, failures[-1])
+            remaining = self._remaining_completion_s()
+            attempt = (
+                request
+                if remaining is None
+                else replace(request, timeout_s=min(request.timeout_s, remaining))
+            )
             try:
-                result = await self._bounded(index, provider.complete(request), request)
+                result = await self._bounded(index, provider.complete(attempt), attempt)
             except TimeoutError:
-                failures.append(self._timed_out(provider, request))
+                failures.append(self._timed_out(provider, attempt))
                 continue
+            self._remaining_completion_s()  # Geç dönen başarı da kullanılamaz.
             # Ölçüt `ok` DEĞİL `is_usable`: model bazen boş cevap döndürüyor
             # (metin yok, araç çağrısı yok) ve bu teknik olarak başarılı bir
             # yanıttır — turu hiçbir iş yapmadan bitiriyordu.
@@ -106,6 +120,14 @@ class FallbackProvider:
             if self._only_when_unavailable and not _no_answer_available(result):
                 break
         return self._all_failed(failures)
+
+    def _remaining_completion_s(self) -> float | None:
+        if self._completion_deadline_s is None:
+            return None
+        remaining = self._completion_deadline_s - self._clock.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return remaining
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         failures: list[ModelResult] = []
@@ -151,6 +173,12 @@ class FallbackProvider:
         turun dış süresiydi ve o dolunca yedek hiç denenmeden tur düştü. Son model
         sınırlanmaz: onun süresini turun dış sınırı zaten tutar.
         """
+        if self._completion_deadline_s is not None:
+            async with asyncio.timeout(request.timeout_s) as timeout:
+                result = await work
+            if timeout.expired():
+                raise TimeoutError
+            return result
         if index >= len(self._providers) - 1:
             return await work
         return await asyncio.wait_for(work, request.timeout_s)

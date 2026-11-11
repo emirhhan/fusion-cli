@@ -25,6 +25,67 @@ from .test_agent_external_deadline import deps_for
 from .test_turn_deadline import FakeClock
 
 
+@pytest.mark.parametrize("suppress_cancellation", [False, True])
+async def test_review_deadline_stops_the_whole_configured_chain(
+    tmp_path, monkeypatch, suppress_cancellation
+):
+    deps = deps_for(tmp_path, None)
+    config = replace(
+        deps.config,
+        judge=replace(deps.config.judge, model="fixture/primary", fallback=("fixture/fallback",)),
+        runtime=replace(deps.config.runtime, judge_timeout_s=0.03, retry_delays_s=(0.01,)),
+    )
+    calls = []
+
+    class Leaf:
+        def __init__(self, model, **_kwargs):
+            self.label = model
+
+        async def complete(self, request):
+            calls.append(self.label)
+            if self.label == "fixture/primary":
+                try:
+                    await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    if not suppress_cancellation:
+                        raise
+            return replace(model_result("TAMAM"), model=self.label)
+
+    monkeypatch.setattr(factory, "LiteLlmProvider", Leaf)
+    monkeypatch.setattr(factory, "configure_litellm", lambda: None)
+    with pytest.raises(TimeoutError):
+        await review._ask("Sınırdaki isteği denetle.", config, None)
+    assert calls == ["fixture/primary"]
+
+
+async def test_review_fallback_gets_only_remaining_time(tmp_path, monkeypatch):
+    deps = deps_for(tmp_path, None)
+    config = replace(
+        deps.config,
+        judge=replace(deps.config.judge, model="fixture/primary", fallback=("fixture/fallback",)),
+        runtime=replace(deps.config.runtime, judge_timeout_s=0.5, retry_delays_s=()),
+    )
+    timeouts = []
+
+    class Leaf:
+        def __init__(self, model, **_kwargs):
+            self.label = model
+
+        async def complete(self, request):
+            timeouts.append((self.label, request.timeout_s))
+            if self.label == "fixture/primary":
+                await asyncio.sleep(0.01)
+                return replace(model_result(ok=False, error="503 unavailable"), model=self.label)
+            return replace(model_result("TAMAM"), model=self.label)
+
+    monkeypatch.setattr(factory, "LiteLlmProvider", Leaf)
+    monkeypatch.setattr(factory, "configure_litellm", lambda: None)
+    result = await review._ask("Gerektiğinde yapılandırılmış yedeği dene.", config, None)
+    assert result.ok and result.model == "fixture/fallback"
+    assert [model for model, _ in timeouts] == ["fixture/primary", "fixture/fallback"]
+    assert 0 < timeouts[1][1] < timeouts[0][1] <= config.runtime.judge_timeout_s
+
+
 async def test_cosmetic_intro_and_review_share_the_actor_rate_gate(tmp_path, monkeypatch):
     deps = deps_for(tmp_path, TurnDeadline.from_duration(3, FakeClock()))
     deps.config = replace(
