@@ -31,6 +31,13 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS bucket (key TEXT PRIMARY KEY, tokens REAL NOT NULL, "
     "updated REAL NOT NULL)",
     "CREATE TABLE IF NOT EXISTS counter (key TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS rate_backoff (key TEXT PRIMARY KEY, delay REAL NOT NULL, "
+    "failed_at REAL NOT NULL)",
+)
+
+_COOL = (
+    "INSERT INTO cooldown (key, until) VALUES (?, ?) "
+    "ON CONFLICT(key) DO UPDATE SET until = MAX(until, excluded.until)"
 )
 
 #: Kova dakikalık sınırın TAMAMIYLA dolu başlar: normal kullanım hiç beklemez,
@@ -76,13 +83,49 @@ class SqliteRateLedger:
     def cool(self, key: str, until: float) -> None:
         try:
             with closing(self._connect()) as connection:
-                connection.execute(
-                    "INSERT INTO cooldown (key, until) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET until = MAX(until, excluded.until)",
-                    (key, until),
-                )
+                connection.execute(_COOL, (key, until))
         except sqlite3.Error as error:
             _LOG.warning("hız defterine yazılamadı", extra={"hata": str(error)})
+
+    def record_backoff(self, key: str, base_s: float, max_s: float) -> float | None:
+        try:
+            with closing(self._connect()) as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                now = self._clock.now()
+                previous = connection.execute(
+                    "SELECT delay, failed_at FROM rate_backoff WHERE key = ?", (key,)
+                ).fetchone()
+                delay = min(base_s, max_s)
+                failed_at = now
+                if previous is not None:
+                    previous_delay, previous_failure = previous
+                    # Keep the streak through its cooldown and one further ceiling interval.
+                    if now < previous_failure + previous_delay + max_s:
+                        delay = min(max(base_s, 2.0 * previous_delay), max_s)
+                        failed_at = max(now, previous_failure)
+                connection.execute(
+                    "INSERT INTO rate_backoff (key, delay, failed_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET delay = excluded.delay, "
+                    "failed_at = excluded.failed_at",
+                    (key, delay, failed_at),
+                )
+                (until,) = connection.execute(
+                    _COOL + " RETURNING until", (key, failed_at + delay)
+                ).fetchone()
+                connection.execute("COMMIT")
+                return until - now
+        except sqlite3.Error as error:
+            _LOG.warning("hız defterine soğuma yazılamadı", extra={"hata": str(error)})
+            return None
+
+    def reset_backoff(self, key: str, dispatched_at: float) -> None:
+        try:
+            with closing(self._connect()) as connection:
+                connection.execute(
+                    "DELETE FROM rate_backoff WHERE key = ? AND failed_at < ?", (key, dispatched_at)
+                )
+        except sqlite3.Error as error:
+            _LOG.warning("hız defteri soğuması sıfırlanamadı", extra={"hata": str(error)})
 
     def take_token(self, key: str, per_minute: float, *, burst: float | None = None) -> float:
         if per_minute <= 0:

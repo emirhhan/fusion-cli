@@ -462,3 +462,166 @@ async def test_kapi_yedeksiz_modelde_retry_soguma_bitene_kadar_bekler_sonra_dene
     assert result.ok
     assert model.cagri_sayisi == 2  # gerçek ikinci çağrı yapıldı
     assert sleeper.slept == [60.0]  # max(1,5; kalan soğuma)
+
+
+def _smoothed_gate(inner, tmp_path, clock, *, credential="shared", **limits):
+    rate = RateControl(
+        ledger=_ledger(tmp_path, clock),
+        per_minute={inner.label: 5.0, **limits},
+        pace_max_wait_s=3.0,
+        cooldown_s=60.0,
+    )
+    return gate(
+        inner,
+        rate,
+        key=keyed_label(inner.label, credential),
+        provider_id="nvidia_nim",
+        clock=clock,
+        sleeper=_Sleeper(clock),
+    )
+
+
+@pytest.mark.parametrize("method", ["complete", "stream"])
+async def test_smoothed_backoff_shared_by_credential_and_capped(tmp_path, method):
+    clock = _Clock()
+    error = _sonuc(ok=False, error="429 Too Many Requests")
+
+    async def result_from(provider):
+        if method == "complete":
+            return await provider.complete(_REQUEST)
+        (done,) = [item async for item in provider.stream(_REQUEST)]
+        return done.result
+
+    for wait_s in (12.0, 24.0, 48.0, 60.0, 60.0):
+        leaf = _Sirali(error)
+        result = await result_from(_smoothed_gate(leaf, tmp_path, clock))
+        assert (leaf.cagri_sayisi, result.error, result.retry_after_s) == (1, error.error, wait_s)
+        blocked_leaf = _Sirali(error)
+        blocked = await result_from(_smoothed_gate(blocked_leaf, tmp_path, clock))
+        assert (blocked_leaf.cagri_sayisi, blocked.retry_after_s) == (0, wait_s)
+        clock.value += wait_s
+
+    other = _Sirali(error)
+    result = await result_from(_smoothed_gate(other, tmp_path, clock, credential="other"))
+    assert (other.cagri_sayisi, result.retry_after_s) == (1, 12.0)
+
+
+@pytest.mark.parametrize("idle", [False, True])
+async def test_smoothed_backoff_resets_after_healthy_response_or_idle(tmp_path, idle):
+    clock = _Clock()
+    error = _sonuc(ok=False, error="429 Too Many Requests")
+    provider = _smoothed_gate(_Sirali(error, error, _sonuc(ok=True), error), tmp_path, clock)
+    assert (await provider.complete(_REQUEST)).retry_after_s == 12.0
+    clock.value += 12.0
+    assert (await provider.complete(_REQUEST)).retry_after_s == 24.0
+    clock.value += 24.0
+    if idle:
+        clock.value += 60.0
+        provider = _smoothed_gate(_Sirali(error), tmp_path, clock)
+    else:
+        assert (await provider.complete(_REQUEST)).ok
+        clock.value += 12.0
+    assert (await provider.complete(_REQUEST)).retry_after_s == 12.0
+
+
+@pytest.mark.parametrize("hint", [0.0, 7.0, 90.0])
+async def test_smoothed_backoff_honors_server_hint_and_excludes_it_from_streak(tmp_path, hint):
+    clock = _Clock()
+    error = _sonuc(ok=False, error="429 Too Many Requests")
+    hinted = replace(error, retry_after_s=hint)
+    leaf = _Sirali(hinted, error)
+    provider = _smoothed_gate(leaf, tmp_path, clock)
+
+    assert (await provider.complete(_REQUEST)).retry_after_s == hint
+    if hint > 0:
+        clock.value += hint / 2
+        blocked = await provider.complete(_REQUEST)
+        assert (leaf.cagri_sayisi, blocked.retry_after_s) == (1, hint / 2)
+        clock.value += hint / 2
+    clock.value += max(0.0, 12.0 - hint)
+    assert (await provider.complete(_REQUEST)).retry_after_s == 12.0
+
+
+async def test_older_healthy_response_cannot_reset_newer_backoff(tmp_path):
+    clock = _Clock()
+    started = asyncio.Event()
+    finish = asyncio.Event()
+    error = _sonuc(ok=False, error="429 Too Many Requests")
+
+    class SlowHealthy(_Sirali):
+        async def complete(self, request):
+            started.set()
+            await finish.wait()
+            return await super().complete(request)
+
+    healthy = _smoothed_gate(SlowHealthy(_sonuc(ok=True)), tmp_path, clock)
+    failing = _smoothed_gate(_Sirali(error), tmp_path, clock)
+    task = asyncio.create_task(healthy.complete(_REQUEST))
+    await started.wait()
+    clock.value += 12.0
+    first = await failing.complete(_REQUEST)
+    finish.set()
+    assert (await task).ok
+    clock.value += 12.0
+
+    assert first.retry_after_s == 12.0
+    assert (await failing.complete(_REQUEST)).retry_after_s == 24.0
+
+
+@pytest.mark.parametrize("provider_limit, expected", [(3.0, 20.0), (0.0, 60.0)])
+async def test_smoothed_backoff_uses_effective_model_pacing_interval(
+    tmp_path, provider_limit, expected
+):
+    clock = _Clock()
+    error = _sonuc(ok=False, error="429 Too Many Requests")
+    provider = _smoothed_gate(_Sirali(error), tmp_path, clock, nvidia_nim=provider_limit)
+    assert (await provider.complete(_REQUEST)).retry_after_s == expected
+
+
+async def test_smoothed_backoff_keeps_explicit_daily_quota_handling(tmp_path):
+    clock = _Clock()
+    error = _sonuc(ok=False, error="429 daily limit exceeded")
+    provider = _smoothed_gate(_Sirali(error), tmp_path, clock)
+    assert (await provider.complete(_REQUEST)).retry_after_s == 60.0
+
+
+def _record_process_backoff(path: Path, started, ready, results) -> None:
+    ledger = SqliteRateLedger(path, clock=_Clock())
+    ready.put(None)
+    started.wait(timeout=15)
+    results.put(ledger.record_backoff("shared", 12.0, 60.0))
+
+
+def test_backoff_increments_are_atomic_across_processes(tmp_path):
+    ctx = multiprocessing.get_context("spawn")
+    started, ready, results = ctx.Event(), ctx.Queue(), ctx.Queue()
+    path = tmp_path / "backoff.sqlite3"
+    workers = [
+        ctx.Process(target=_record_process_backoff, args=(path, started, ready, results))
+        for _ in range(2)
+    ]
+    for worker in workers:
+        worker.start()
+    try:
+        for _ in workers:
+            ready.get(timeout=15)
+        started.set()
+        for worker in workers:
+            worker.join(timeout=15)
+            assert worker.exitcode == 0
+        assert sorted(results.get(timeout=1) for _ in workers) == [12.0, 24.0]
+        assert SqliteRateLedger(path, clock=_Clock()).cooled_until("shared") == 1024.0
+    finally:
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join()
+
+
+def test_backoff_cannot_shorten_server_cooldown(tmp_path):
+    clock = _Clock()
+    ledger = _ledger(tmp_path, clock)
+    ledger.cool("shared", clock.now() + 90.0)
+
+    assert ledger.record_backoff("shared", 12.0, 60.0) == 90.0
+    assert ledger.cooled_until("shared") == 1090.0

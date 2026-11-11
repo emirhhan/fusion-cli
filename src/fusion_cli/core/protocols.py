@@ -74,6 +74,14 @@ class RateLedger(Protocol):
         """Anahtarı `until` anına kadar soğumaya al (daha geç kayıt kısaltılmaz)."""
         ...
 
+    def record_backoff(self, key: str, base_s: float, max_s: float) -> float | None:
+        """Advance unhinted rate-limit backoff and return remaining cooldown."""
+        ...
+
+    def reset_backoff(self, key: str, dispatched_at: float) -> None:
+        """Clear backoff history older than a healthy call without changing cooldown."""
+        ...
+
     def take_token(self, key: str, per_minute: float, *, burst: float | None = None) -> float:
         """Dakikalık kovadan bir hak al: alındıysa 0, alınamadıysa beklenecek sn."""
         ...

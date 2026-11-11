@@ -18,6 +18,17 @@ if TYPE_CHECKING:
     from .types import CompletionRequest
 
 
+def model_pacing_rate(
+    per_minute: Mapping[str, float], model: str, provider_id: str
+) -> float | None:
+    """Get the exact model pacing rate with any stricter provider cap applied."""
+    model_rate = per_minute.get(model)
+    if model_rate is None:
+        return None
+    provider_rate = per_minute.get(provider_id)
+    return model_rate if provider_rate is None else min(model_rate, provider_rate)
+
+
 def rate_wait_fits(request: CompletionRequest, wait_s: float) -> bool:
     """Check the opening and task deadlines against their own clocks."""
     opening_at = request.rate_retry_opening_at
