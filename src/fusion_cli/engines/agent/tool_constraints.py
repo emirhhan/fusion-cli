@@ -90,6 +90,11 @@ _PASTE_WORDS = re.compile(r"\b(?:yapistir\w*|paste|pasting)\b")
 _NATIVE_CONTEXT = re.compile(
     r"\b(?:fareyle|mouse|axpress|masaustu|desktop|native|computer use|keyboard input)\b"
 )
+_NATIVE_ROUTE_CONTEXT = re.compile(
+    r"^\s*(?:(?:lutfen|simdi|yalniz|sadece)\s+)*"
+    r"(?:masaustunde\s+devam\s+et|(?:hesap makinesi|calculator)\s+uygulamasini\s+ac)"
+    r"(?:\s+lutfen)?\s*$"
+)
 _CODE_WORDS = re.compile(r"\b(?:kod|code|shell|kabuk|terminal|komut satiri)\b")
 _COORDINATE_WORDS = re.compile(r"\b(?:koordinat(?:lar)?i?|coordinates?)\b")
 _SET_VALUE_WORD = re.compile(r"\bset_value\b")
@@ -100,8 +105,10 @@ def native_method_denials(task: str) -> frozenset[str]:
     prose = _NATIVE_QUOTED.sub(lambda match: match["method"] or " ", task)
     prose = fold_tr(prose).translate(str.maketrans("çğıöşü", "cgiosu"))
     native_context = _NATIVE_CONTEXT.search(prose) is not None or has_native_desktop_request(task)
+    clauses = _CLAUSE.split(prose)
+    route_context = native_context or any(_NATIVE_ROUTE_CONTEXT.match(clause) for clause in clauses)
     denied: set[str] = set()
-    for clause in _CLAUSE.split(prose):
+    for clause in clauses:
         if _NATIVE_META.search(clause) or not _NATIVE_NEGATIVE.search(clause):
             continue
         if _KEYBOARD_WORDS.search(clause):
@@ -111,13 +118,11 @@ def native_method_denials(task: str) -> frozenset[str]:
             denied.update(("desktop_type", _SET_VALUE, _KEY_TEXT, _KEY_PASTE))
         if _PASTE_WORDS.search(clause):
             denied.add(_KEY_PASTE)
-        if not native_context:
-            continue
-        if _CODE_WORDS.search(clause):
+        if native_context and _CODE_WORDS.search(clause):
             denied.add("run_shell")
-        if _COORDINATE_WORDS.search(clause):
+        if route_context and _COORDINATE_WORDS.search(clause):
             denied.update(("desktop_click", "desktop_mouse", _SCROLL_POSITION))
-        if _SET_VALUE_WORD.search(clause):
+        if route_context and _SET_VALUE_WORD.search(clause):
             denied.add(_SET_VALUE)
     return frozenset(denied)
 

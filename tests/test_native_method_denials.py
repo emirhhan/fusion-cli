@@ -89,6 +89,8 @@ def test_paste_only_restriction_preserves_other_keys(args, blocked):
         "Klavye kullan; AXPress başarısızsa klavyeyle devam et.",
         'Masaüstünde devam et. Açıklama: "Koordinat ve set_value kullanma".',
         'Masaüstünde devam et. "Do not use `set_value`" metnini açıkla.',
+        'Hesap Makinesi uygulamasını aç. "Koordinat ve set_value kullanma" ifadesini açıkla.',
+        '"Hesap Makinesi uygulamasını aç." ifadesini açıkla. Koordinat ve set_value kullanma.',
         "Masaüstünde devam et. Örnek: koordinat ve set_value kullanma.",
         "Masaüstünde devam et. Koordinat ve set_value kullanma demedim.",
         "GeoJSON dosyasını düzenle. Koordinat ve set_value kullanma.",
@@ -113,6 +115,21 @@ def test_native_coordinate_prohibition_distinguishes_positioned_scroll(prohibiti
     assert native_method_blocked("desktop_scroll", {"x": 0}, denied)
     assert native_method_blocked("desktop_scroll", {"y": 0}, denied)
     assert not native_method_blocked("desktop_scroll", {"lines": 1}, denied)
+
+
+@pytest.mark.parametrize("context", ["Hesap Makinesi uygulamasını aç.", "Masaüstünde devam et."])
+def test_direct_native_context_projects_route_denials_without_extending_shell_denial(context):
+    from fusion_cli.engines.agent.tool_constraints import (
+        native_method_blocked,
+        native_method_denials,
+    )
+
+    denied = native_method_denials(f"{context} Koordinat, set_value ve kod kullanma.")
+    assert {"desktop_click", "desktop_mouse"} <= denied
+    assert "run_shell" not in denied
+    assert native_method_blocked("desktop_scroll", {"x": 0, "y": 0}, denied)
+    assert native_method_blocked("desktop_background_action", {"action": "set_value"}, denied)
+    assert not native_method_blocked("desktop_background_action", {"action": "press"}, denied)
 
 
 async def test_fake_real_engine_cannot_execute_explicitly_prohibited_key(tmp_path, monkeypatch):
