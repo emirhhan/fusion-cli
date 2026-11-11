@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 
 def _write(path, rows):
@@ -151,3 +152,49 @@ def test_case_does_not_read_foreign_or_ambiguous_trace(tmp_path):
         [{"tip": "olay", "veri": {"olay": "ToolStarted", "turn_id": key}} for key in ("a", "b")],
     )
     assert case_timing(events, tmp_path, set())["private_trace"] == "unbound"
+
+
+def test_tool_timing_correlates_turn_agent_candidate_and_call(tmp_path):
+    from evals.release_phase_timing import case_timing
+
+    def tool(kind, stamp, **scope):
+        return {
+            "tip": "olay",
+            "ts": stamp,
+            "veri": {
+                "olay": kind,
+                "call_id": "shared",
+                "name": "read_file",
+                "outcome": "ok",
+                **scope,
+            },
+        }
+
+    a = {"turn_id": "case", "agent_id": "agent-a", "candidate_id": "candidate-a"}
+    b = {**a, "agent_id": "agent-b"}
+    c = {**a, "candidate_id": "candidate-b"}
+    events = _write(
+        tmp_path / "events.jsonl",
+        [
+            tool("ToolStarted", 100, **a),
+            tool("ToolStarted", 101, **b),
+            tool("ToolStarted", 101.5, **c),
+            tool("ToolExecuted", 101.75, agent_id="agent-a", candidate_id="candidate-a"),
+            tool("ToolExecuted", 102, **a),
+            tool("ToolExecuted", 105, **b),
+            tool("ToolExecuted", 106, **c),
+        ],
+    )
+    timings = case_timing(events, None, set())["tools"]
+    assert [sample["wire_elapsed_ms"] for sample in timings] == [2000, 4000, 4500]
+
+
+def test_private_trace_default_on_windows_is_runner_owned(monkeypatch, tmp_path):
+    from evals import release_phase_timing
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    home = tmp_path / "home"
+    assert release_phase_timing.private_trace_dir(home, {}) == (
+        home / "AppData/Local/fusion-cli/memory/traces"
+    )
+    assert release_phase_timing.private_trace_dir(home, {"LOCALAPPDATA": str(tmp_path)}) is None
