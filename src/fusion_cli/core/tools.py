@@ -99,6 +99,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "list_dir": ToolFamily.FILES,
     "list_files": ToolFamily.FILES,
     "create_file": ToolFamily.FILES,
+    "add_godot_sprite": ToolFamily.FILES,
     "glob": ToolFamily.FILES,
     "scaffold_web": ToolFamily.FILES,
     "scaffold_remotion": ToolFamily.FILES,

@@ -50,7 +50,15 @@ WIDENED_KIND = "profil_genisledi"
 _CLASSIFY_CHARS = 6_000
 
 _WRITE = frozenset(
-    {"edit_file", "multi_edit", "write_file", "make_tool", "scaffold_web", "extract_archive"}
+    {
+        "edit_file",
+        "multi_edit",
+        "write_file",
+        "make_tool",
+        "scaffold_web",
+        "extract_archive",
+        "add_godot_sprite",
+    }
 )
 _PREVIEW = frozenset({"start_preview", "preview_console", "preview_network", "preview_screenshot"})
 _BROWSER = frozenset(

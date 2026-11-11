@@ -1347,6 +1347,22 @@ def _parse_mode(raw: str) -> ApprovalMode:
         raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=raw, valid=valid)) from None
 
 
+@app.command(name="godot-sprite")
+def godot_sprite(
+    project: Annotated[Path, typer.Option("--project", help="Godot proje kökü.")] = Path(),
+    path: Annotated[str, typer.Option("--path", help="Proje içindeki PNG hedefi.")] = (
+        "assets/player.png"
+    ),
+) -> None:
+    """Yerel CC0 oyuncu görselini lisans kaydıyla birlikte ekle."""
+    from ..tools.godot_sprite import add_godot_sprite
+
+    result = add_godot_sprite({"path": path}, ToolContext(root=project, restrict_to_root=True))
+    typer.echo(result.output, err=not result.ok)
+    if not result.ok:
+        raise typer.Exit(1)
+
+
 @app.command()
 def models(
     fetch: bool = typer.Option(

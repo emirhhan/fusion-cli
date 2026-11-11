@@ -13,7 +13,7 @@ Araç katmanında bu yollar zaten `files.writable_path` kapısından geçer (kö
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import PurePosixPath
+from pathlib import PurePath, PurePosixPath
 
 #: Araç adı → hedef yolu taşıyan argüman adları (sırayla ilk dolu olan alınır).
 WRITE_PATH_ARGS: dict[str, tuple[str, ...]] = {
@@ -21,6 +21,7 @@ WRITE_PATH_ARGS: dict[str, tuple[str, ...]] = {
     "edit_file": ("path",),
     "multi_edit": ("path",),
     "create_file": ("path",),
+    "add_godot_sprite": ("path",),
     "download_file": ("path",),
     "extract_archive": ("dest",),
     "generate_image": ("path",),
@@ -45,6 +46,11 @@ def write_targets(tool_name: str, args: Mapping[str, object]) -> tuple[str, ...]
     keys = WRITE_PATH_ARGS.get(tool_name)
     if keys is None:
         return ()
+    if tool_name == "add_godot_sprite":
+        image = _text(args.get("path"))
+        if not image or PurePath(image).suffix.casefold() != ".png":
+            return ()
+        return (image, str(PurePath(image).with_name("ASSETS.json")))
     found = tuple(_text(args.get(key)) for key in keys if _text(args.get(key)))
     if found or tool_name not in _DEFAULTS_TO_SOURCE_DIR:
         return found

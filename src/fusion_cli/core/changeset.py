@@ -87,6 +87,11 @@ class ChangeSet:
         """Gözlenen değişimin ajan sahipliği kanıtlanamıyorsa son kimliği kaldır."""
         self._applied.pop(path, None)
 
+    def record_written(self, path: Path, before: bytes | None, after: bytes) -> None:
+        """Record a write whose bytes were captured by the publishing tool."""
+        self._snapshots.setdefault(path, Snapshot(path=path, content=before))
+        self._applied[path] = sha256(after).hexdigest()
+
     def record(self, path: Path) -> bool:
         """Yazmadan önce çağrılır. Aynı yol için ikinci çağrı yok sayılır."""
         if path in self._snapshots:

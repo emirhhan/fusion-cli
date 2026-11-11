@@ -216,7 +216,9 @@ OBSERVE_NOTE = (
 # yazdı, hiç indirme yapmadı ve "manifest oluşturuldu" diye bildirdi. Manifest
 # doğrulaması dosyaları bulamayınca adım düştü. Sıra, kapı düşmeden ÖNCE söylenir.
 ASSET_ORDER_NOTE = (
-    "ASSET SIRASI (bu adımda zorunlu): 1) `web_search` ile lisansı açık (CC0/MIT) "
+    "Godot için paketli CC0 oyuncu görseli yeterliyse `add_godot_sprite` PNG ve "
+    "lisans kaydını birlikte ekler. Dış kaynak gerekiyorsa ASSET SIRASI: "
+    "1) `web_search` ile lisansı açık (CC0/MIT) "
     "kaynak SAYFASINI bul, 2) sayfayı `web_fetch` ile aç ve GERÇEK dosya/arşiv "
     "bağlantısını oradan al — arama sonucu genellikle liste sayfasıdır ve adresi "
     "ezberden üretmek çalışmaz, 3) `download_file` ile indir, 4) arşivse "

@@ -592,6 +592,7 @@ class _PlanRun:
                     "web_fetch",
                     "read_url_content",
                     "download_file",
+                    "add_godot_sprite",
                     # Arşiv açmadan indirilen paket kullanılamaz: asset paketleri
                     # ZIP gelir. Ölçüldü (13 Eylül, Godot koşusu): onarım turunda
                     # `download_file` açıktı ama `extract_archive` kapalıydı; model

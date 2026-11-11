@@ -58,7 +58,9 @@ Yapılmamış işi yapılmış, doğrulanmamış işi başarılı gösterme.
 - Yorumu yalnız neden bilgisi değer katıyorsa ekle.
 
 # Dış varlıklar
-- Hazır varlık (grafik, ses, yazı tipi, veri) isteniyorsa yer tutucuyla geçiştirme:
+- Godot'ta hazır CC0 oyuncu PNG'si yeterliyse `add_godot_sprite` kullan. Araç PNG'yi
+  ve kaynak/lisans kaydını birlikte ekler.
+- Dışarıdan hazır varlık (grafik, ses, yazı tipi, veri) gerekiyorsa yer tutucuyla geçiştirme:
   ara, indir, arşivi `extract_archive` ile aç, dosyaları doğrula, koddan referans
   ver; yalnız lisansı açık olanı (CC0/MIT) al, lisansı belirt; indirilemeyeni söyle.
 

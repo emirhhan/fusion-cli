@@ -28,6 +28,7 @@ from . import (
     download,
     files,
     github_cli,
+    godot_sprite,
     jobs,
     kits,
     plan_tools,
@@ -526,6 +527,16 @@ _TOOLS: tuple[Tool, ...] = (
             ["path", "edits"],
         ),
         run=files.multi_edit,
+        mutating=True,
+    ),
+    Tool(
+        name="add_godot_sprite",
+        description="Godot projesine hazır Kenney CC0 oyuncu PNG'si ve yanına "
+        "ASSETS.json kaynak kaydı ekle. Basit oyuncu görseli için tek çağrı kullan.",
+        parameters=_schema(
+            {"path": {**_STRING, "description": "Proje içindeki PNG yolu"}}, ["path"]
+        ),
+        run=godot_sprite.add_godot_sprite,
         mutating=True,
     ),
     Tool(
