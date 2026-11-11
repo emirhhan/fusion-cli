@@ -25,6 +25,7 @@ from ..tools import ToolRegistry
 from ..tools.mcp_background import cancel_mcp_background_calls
 from .backoff import McpBackoff
 from .client import McpClient, McpConnectionStatus, failure_status
+from .elicitation import registered_elicitation_asker
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
 from .hosted import AskSession, HostedConnectorClient
 from .identity import duplicate_of, hosted_duplicate_of, unique_configs, unique_hosted_configs
@@ -200,10 +201,15 @@ class McpToolPool:
             None if selected_names is None else {aliases.get(name, name) for name in selected_names}
         )
         admitted = tuple(c for c in wanted if selected is None or c.name in selected)
+        prompt_servers = (
+            {config.name for config in admitted}
+            if registered_elicitation_asker() is not None
+            else set()
+        )
         loop = asyncio.get_running_loop()
         async with self._lock:
             self._configurations = wanted
-            await self._discard_stale(wanted, loop)
+            await self._discard_stale(wanted, loop, prompt_servers)
             # Başka (kapanmış) döngünün açılışı burada beklenemez; yeniden açılır.
             for name, task in tuple(self._connecting.items()):
                 if task.get_loop() is not loop:
@@ -315,7 +321,10 @@ class McpToolPool:
         return True
 
     async def _discard_stale(
-        self, wanted: tuple[McpServerConfig, ...], loop: asyncio.AbstractEventLoop
+        self,
+        wanted: tuple[McpServerConfig, ...],
+        loop: asyncio.AbstractEventLoop,
+        prompt_servers: set[str],
     ) -> None:
         """İstenmeyen, değişmiş ya da ölü girdileri kapat."""
         by_name = {config.name: config for config in wanted}
@@ -334,7 +343,7 @@ class McpToolPool:
         for name, entry in tuple(self._entries.items()):
             if (
                 by_name.get(name) == entry.config
-                and self._is_alive(entry, loop)
+                and self._is_alive(entry, loop, for_prompt=name in prompt_servers)
                 and name not in self._reconnect_requested
             ):
                 continue
@@ -344,10 +353,12 @@ class McpToolPool:
         self._reconnect_requested.difference_update(by_name)
 
     @staticmethod
-    def _is_alive(entry: _Entry, loop: asyncio.AbstractEventLoop) -> bool:
+    def _is_alive(entry: _Entry, loop: asyncio.AbstractEventLoop, *, for_prompt: bool) -> bool:
         if entry.loop is not loop or entry.client is None or entry.error is not None:
             return False
         if entry.client.is_stalled:
+            return False
+        if for_prompt and entry.client.should_replace_for_prompt(entry.config.name):
             return False
         return entry.task is not None and not entry.task.done()
 

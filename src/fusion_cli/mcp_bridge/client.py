@@ -203,6 +203,10 @@ class McpClient:
         düşürür; havuz bu istemciyi bırakıp yeniden bağlanmalı (ölçüldü 30 Ekim)."""
         return any(count >= STALLED_AFTER_TIMEOUTS for count in self._timeouts.values())
 
+    def should_replace_for_prompt(self, server: str) -> bool:
+        """Bağlantı önceki sessiz çağrılardan gecikmiş soru alabilir mi?"""
+        return self._elicitation_scopes.should_replace_for_prompt(server)
+
     def has_resources(self, server: str) -> bool:
         """Sunucu `resources` yeteneği bildirdi mi?"""
         session = self._sessions.get(server)

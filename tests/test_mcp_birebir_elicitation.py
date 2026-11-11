@@ -20,9 +20,11 @@ from fusion_cli.mcp_bridge.elicitation import (
     ACCEPT,
     DECLINE,
     OPEN,
+    elicitation_asker_scope,
     elicitation_callback,
     register_elicitation_asker,
 )
+from fusion_cli.mcp_bridge.pool import McpToolPool
 
 
 class _Sorucu:
@@ -172,7 +174,7 @@ async def test_overlapping_clients_with_same_server_name_keep_turn_askers(elicit
     assert len(asker.questions) == 4
 
 
-async def test_shared_client_cancels_ambiguous_overlap_and_can_prompt_on_later_call(
+async def test_shared_client_cancels_ambiguous_overlap_and_stays_quiet(
     eliciting_client,
 ):
     start, proceed = eliciting_client
@@ -189,6 +191,58 @@ async def test_shared_client_cancels_ambiguous_overlap_and_can_prompt_on_later_c
 
         later = await start(client, "later", asker)
         proceed["later"].set()
+        assert (await later).output == "cancel"
+
+    assert not asker.questions
+
+
+async def test_late_callback_from_timed_out_quiet_call_cannot_ask_later_turn(eliciting_client):
+    start, proceed = eliciting_client
+    config = (McpServerConfig("crm", call_timeout_s=0.2),)
+    asker = _Sorucu(ACCEPT, "owner", "3", "evet")
+    async with mcp_client.McpClient(config) as client:
+        quiet = await start(client, "quiet-timeout", None)
+        with pytest.raises(TimeoutError):
+            await quiet
+
+        later = await start(client, "later", asker)
+        wire = client._session("crm")
+        late = await asyncio.create_task(wire.elicitation(None, _form()), context=Context())
+        proceed["later"].set()
+        await later
+
+    assert late.action == "cancel"
+    assert not asker.questions
+
+
+async def test_interactive_checkout_replaces_quiet_wire_and_can_prompt(eliciting_client):
+    start, proceed = eliciting_client
+    config = (McpServerConfig("crm"),)
+    asker = _Sorucu(ACCEPT, "owner", "3", "evet")
+    pool = McpToolPool()
+    try:
+        (quiet_client,) = await pool.clients_for(config)
+        quiet = await start(quiet_client, "quiet", None)
+        with elicitation_asker_scope(asker):
+            (busy_client,) = await pool.clients_for(config)
+            assert busy_client is quiet_client
+        proceed["quiet"].set()
+        assert (await quiet).output == "cancel"
+        old_wire = quiet_client._session("crm")
+
+        with elicitation_asker_scope(asker):
+            (interactive_client,) = await pool.clients_for(config)
+            assert interactive_client is not quiet_client
+            (cached_client,) = await pool.clients_for(config)
+            assert cached_client is interactive_client
+
+        later = await start(interactive_client, "later", asker)
+        late = await asyncio.create_task(old_wire.elicitation(None, _form()), context=Context())
+        assert late.action == "cancel"
+        assert not asker.questions
+        proceed["later"].set()
         assert (await later).output == "accept"
+    finally:
+        await pool.aclose()
 
     assert len(asker.questions) == 4
