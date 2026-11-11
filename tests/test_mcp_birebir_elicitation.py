@@ -5,9 +5,16 @@ Belge: code.claude.com/docs/en/mcp, "Respond to MCP elicitation requests".
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from contextvars import Context
+from types import SimpleNamespace
+
 import pytest
 from mcp import types
 
+from fusion_cli.config.models import McpServerConfig
+from fusion_cli.mcp_bridge import client as mcp_client
 from fusion_cli.mcp_bridge import elicitation
 from fusion_cli.mcp_bridge.elicitation import (
     ACCEPT,
@@ -100,3 +107,88 @@ def test_istemci_form_ve_url_bildirir():
     session = ClientSession(None, None, elicitation_callback=elicitation_callback("x"))  # type: ignore[arg-type]
 
     assert session._elicitation_callback is not None
+
+
+@pytest.fixture
+def eliciting_client(monkeypatch):
+    entered = {}
+    proceed = {}
+
+    @asynccontextmanager
+    async def transport(*args, **kwargs):
+        yield None, None
+
+    class Session:
+        def __init__(self, *args, elicitation_callback, **kwargs):
+            self.elicitation = elicitation_callback
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            pass
+
+        async def initialize(self):
+            return SimpleNamespace(instructions="")
+
+        async def call_tool(self, name, args, **kwargs):
+            entered[name].set()
+            await proceed[name].wait()
+            result = await asyncio.create_task(self.elicitation(None, _form()), context=Context())
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=result.action)]
+            )
+
+    monkeypatch.setattr(mcp_client, "open_mcp_stream", transport)
+    monkeypatch.setattr(mcp_client, "ClientSession", Session)
+
+    async def start(client, name, asker):
+        entered[name] = asyncio.Event()
+        proceed[name] = asyncio.Event()
+
+        async def call():
+            register_elicitation_asker(asker)
+            return await client.call("crm", name, {})
+
+        task = asyncio.create_task(call())
+        await asyncio.wait_for(entered[name].wait(), 1)
+        return task
+
+    return start, proceed
+
+
+async def test_overlapping_clients_with_same_server_name_keep_turn_askers(eliciting_client):
+    start, proceed = eliciting_client
+    config = (McpServerConfig("crm"),)
+    asker = _Sorucu(ACCEPT, "owner", "3", "evet")
+    async with mcp_client.McpClient(config) as quiet, mcp_client.McpClient(config) as interactive:
+        quiet_task = await start(quiet, "quiet", None)
+        interactive_task = await start(interactive, "interactive", asker)
+        proceed["quiet"].set()
+        assert (await quiet_task).output == "cancel"
+        proceed["interactive"].set()
+        assert (await interactive_task).output == "accept"
+
+    assert len(asker.questions) == 4
+
+
+async def test_shared_client_cancels_ambiguous_overlap_and_can_prompt_on_later_call(
+    eliciting_client,
+):
+    start, proceed = eliciting_client
+    config = (McpServerConfig("crm"),)
+    asker = _Sorucu(ACCEPT, "owner", "3", "evet")
+    async with mcp_client.McpClient(config) as client:
+        quiet = await start(client, "quiet", None)
+        interactive = await start(client, "interactive", asker)
+        proceed["quiet"].set()
+        assert (await quiet).output == "cancel"
+        proceed["interactive"].set()
+        assert (await interactive).output == "cancel"
+        assert not asker.questions
+
+        later = await start(client, "later", asker)
+        proceed["later"].set()
+        assert (await later).output == "accept"
+
+    assert len(asker.questions) == 4

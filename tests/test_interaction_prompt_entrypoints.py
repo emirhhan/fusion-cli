@@ -20,6 +20,7 @@ from fusion_cli.engines import agent
 from fusion_cli.engines.agent import approval, loop, team_tools, workflow_tools
 from fusion_cli.engines.agent.engine_tools import build_agent_registry
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+from fusion_cli.mcp_bridge.elicitation import elicitation_asker_scope, registered_elicitation_asker
 from fusion_cli.memory.factory import null_memory
 from fusion_cli.tools.registry import ToolRegistry
 
@@ -38,7 +39,6 @@ def test_config_preserves_interaction_by_default_and_accepts_opt_out(tmp_path):
 
 async def test_appserver_task_and_child_policies_use_noninteractive_setting(tmp_path, monkeypatch):
     flags = []
-    elicitation = []
     real_policy = approval.build_policy
 
     def build(*args, **kwargs):
@@ -48,6 +48,7 @@ async def test_appserver_task_and_child_policies_use_noninteractive_setting(tmp_
     async def run_agent(task, deps, **kwargs):
         assert deps.asker is None
         assert deps.interactive is False
+        assert registered_elicitation_asker() is None
         assert deps.policy_factory is not None and deps.policy_factory() is not None
         assert deps.policy_for_mode is not None
         deps.policy_for_mode(approval.ApprovalMode.SECURITY)
@@ -58,7 +59,6 @@ async def test_appserver_task_and_child_policies_use_noninteractive_setting(tmp_
 
     monkeypatch.setattr(cli_session, "build_policy", build)
     monkeypatch.setattr(cli_session, "run_agent", run_agent)
-    monkeypatch.setattr(cli_session, "_register_elicitation", elicitation.append)
     session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
     config = session._state.config
     session._state.config = replace(
@@ -67,18 +67,19 @@ async def test_appserver_task_and_child_policies_use_noninteractive_setting(tmp_
         mcp_servers=(),
     )
     session._state.approval = approval.ApprovalMode.AUTO
+    parent_asker = SimpleNamespace()
     try:
-        assert (await session._run_turn("Complete the task"))["ok"]
+        with elicitation_asker_scope(parent_asker):
+            assert (await session._run_turn("Complete the task"))["ok"]
+            assert registered_elicitation_asker() is parent_asker
     finally:
         await session.close()
 
     assert flags == [False, False, False]
-    assert elicitation == [None]
 
 
 async def test_repl_task_and_child_policies_use_noninteractive_setting(tmp_path, monkeypatch):
     flags = []
-    elicitation = []
     real_policy = approval.build_policy
 
     def build(*args, **kwargs):
@@ -88,25 +89,27 @@ async def test_repl_task_and_child_policies_use_noninteractive_setting(tmp_path,
     async def run_agent(task, deps, **kwargs):
         assert deps.asker is None
         assert deps.interactive is False
+        assert registered_elicitation_asker() is None
         assert deps.policy_for_mode is not None
         deps.policy_for_mode(approval.ApprovalMode.SECURITY)
         return loop.AgentOutcome("Done", [], 0, ok=True)
 
     monkeypatch.setattr(approval, "build_policy", build)
     monkeypatch.setattr(agent, "run_agent", run_agent)
-    monkeypatch.setattr(repl_loop, "_register_elicitation", elicitation.append)
     state = ReplState(
         config=make_config(runtime={"interaction_prompts": False}),
         memory=null_memory(),
         root=tmp_path,
         home=tmp_path / "home",
     )
-    await repl_loop._agent_turn(
-        "Complete the task", state, Console(file=io.StringIO()), BackgroundTasks()
-    )
+    parent_asker = SimpleNamespace()
+    with elicitation_asker_scope(parent_asker):
+        await repl_loop._agent_turn(
+            "Complete the task", state, Console(file=io.StringIO()), BackgroundTasks()
+        )
+        assert registered_elicitation_asker() is parent_asker
 
     assert flags == [False, False]
-    assert elicitation == [None]
 
 
 async def test_stale_ask_user_is_hidden_and_blocked_before_dispatch(tmp_path):

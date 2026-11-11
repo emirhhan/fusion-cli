@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import logging
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -49,12 +51,25 @@ class Asker(Protocol):
     ) -> str: ...
 
 
-_ASKER: list[Asker | None] = [None]
+_ASKER: ContextVar[Asker | None] = ContextVar("fusion_elicitation_asker", default=None)
 
 
 def register_elicitation_asker(asker: Asker | None) -> None:
     """Oturumun soru sorabilen tarafını kaydet (None: kaldır)."""
-    _ASKER[0] = asker
+    _ASKER.set(asker)
+
+
+def registered_elicitation_asker() -> Asker | None:
+    return _ASKER.get()
+
+
+@contextmanager
+def elicitation_asker_scope(asker: Asker | None) -> Iterator[None]:
+    token = _ASKER.set(asker)
+    try:
+        yield
+    finally:
+        _ASKER.reset(token)
 
 
 def escaped_length(url: str) -> int:
@@ -133,7 +148,7 @@ def elicitation_callback(server: str) -> ElicitationFnT:
 
     async def _callback(context: object, params: types.ElicitRequestParams) -> types.ElicitResult:
         del context
-        asker = _ASKER[0]
+        asker = _ASKER.get()
         if asker is None:
             return types.ElicitResult(action="cancel")
         try:

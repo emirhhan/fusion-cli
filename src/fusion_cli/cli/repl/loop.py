@@ -1121,7 +1121,7 @@ async def _agent_turn(
     from ...engines.agent.team_fork import run_forked_turn
     from ...engines.agent.verification import build_verifier
     from ...memory.checkpoint_store import JsonCheckpointStore
-    from ..session import agent_mcp_scope
+    from ..session import agent_mcp_scope, mcp_asker_scope
 
     state.prepare_persona_config()
     line = state.take_persona_initial(line)
@@ -1168,7 +1168,6 @@ async def _agent_turn(
         confirm_prompter = notifying(prompter, state.hooks())
         interaction_prompts = state.config.runtime.interaction_prompts
         asker = prompter if interaction_prompts else None
-        _register_elicitation(asker)  # MCP sunucusu girdi isterse bu taraf sorar (#257)
 
         def policy_for_mode(wanted: ApprovalMode) -> ApprovalPolicy:
             return build_policy(
@@ -1249,23 +1248,24 @@ async def _agent_turn(
                 )
                 if part
             )
-            outcome = await _drive_agent(
-                extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else run_agent,
-                line,
-                deps,
-                state,
-                console,
-                plan_mode=state.approval.value == "plan",
-                extra_system=turn_extra_system,
-                system_prompt=persona.system_prompt,
-                step_limit=macros.mode_step_limit(mode),
-                workflow=macros.mode_workflow(mode),
-                # Oturum kişiliğinin araç kısıtı (P-053) ile becerinin `allowed-tools`'u kesişir.
-                allowed_tools=extras.merged_tools(persona.allowed_tools),
-                denied_tools=extras.merged_denied(persona.denied_tools),
-                # Ctrl+V ile yapıştırılan `[Image #N]` çiplerinin görüntüleri (#216).
-                images=shortcuts.take_images(line) if shortcuts is not None else (),
-            )
+            with mcp_asker_scope(asker):
+                outcome = await _drive_agent(
+                    extras.fork_runner(run_forked_turn) if macros.mode_fork(mode) else run_agent,
+                    line,
+                    deps,
+                    state,
+                    console,
+                    plan_mode=state.approval.value == "plan",
+                    extra_system=turn_extra_system,
+                    system_prompt=persona.system_prompt,
+                    step_limit=macros.mode_step_limit(mode),
+                    workflow=macros.mode_workflow(mode),
+                    # Oturum kişiliği ile becerinin araç sınırları kesişir (P-053).
+                    allowed_tools=extras.merged_tools(persona.allowed_tools),
+                    denied_tools=extras.merged_denied(persona.denied_tools),
+                    # Ctrl+V ile yapıştırılan `[Image #N]` çiplerinin görüntüleri (#216).
+                    images=shortcuts.take_images(line) if shortcuts is not None else (),
+                )
             # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
             if not outcome.final_text.strip() and outcome.ok:
                 bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
@@ -1507,14 +1507,6 @@ def _print_status(console: Console, state: ReplState) -> None:
         task_type=state.task_type,
         model=state.config.agent.name,
     )
-
-
-def _register_elicitation(asker: object) -> None:
-    try:
-        from ...mcp_bridge.elicitation import register_elicitation_asker
-    except ImportError:  # `mcp` paketi kurulu değil
-        return
-    register_elicitation_asker(asker)  # type: ignore[arg-type]
 
 
 def _plan_auto(config: object) -> bool:

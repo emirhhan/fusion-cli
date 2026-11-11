@@ -51,7 +51,12 @@ from .auth_retry import AuthFailures, Reauth
 from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .elicitation_hooks import elicitation_callback_for, elicitation_scope, with_completion_notice
+from .elicitation_hooks import (
+    ElicitationScopes,
+    elicitation_callback_for,
+    elicitation_scope,
+    with_completion_notice,
+)
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED
 from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
@@ -159,6 +164,7 @@ class McpClient:
     ) -> None:
         self._configs = tuple(configs)
         self._tracker = RequestTracker()
+        self._elicitation_scopes = ElicitationScopes()
         #: Açıkça verilen bütçe eski davranışı korur (her aşama aynı sınır). Verilmezse
         #: Claude Code sınırları (`timeouts.py`): başlatma 30 sn, araç ~28 sa, boşta 5/30 dk.
         self._explicit_timeout = timeout_seconds
@@ -342,11 +348,14 @@ class McpClient:
                                 functools.partial(self._stale_catalogs.add, config.name),
                                 functools.partial(self._stale_tools.add, config.name),
                             ),
+                            scopes=self._elicitation_scopes,
                         ),
                         # Claude Code elicitation (#257): Elicitation/ElicitationResult kancaları,
                         # karar vermezlerse soru `elicitation.elicitation_callback` ile (#90).
                         # Yanıtlayacak taraf yoksa None: yetenek sunucuya bildirilmez (#125).
-                        elicitation_callback=elicitation_callback_for(config.name),
+                        elicitation_callback=elicitation_callback_for(
+                            config.name, scopes=self._elicitation_scopes
+                        ),
                     )
                 )
                 initialized = await session.initialize()
@@ -479,7 +488,10 @@ class McpClient:
         "görev başarısız" görüyordu.
         """
         session = self._session(server)
-        with self._tracker.track(server) as scope, elicitation_scope(server):
+        with (
+            self._tracker.track(server) as scope,
+            elicitation_scope(server, self._elicitation_scopes),
+        ):
             try:
                 wall, idle = self._call_budgets(server)
                 async with asyncio.timeout(wall):
@@ -529,14 +541,14 @@ class McpClient:
 
     async def get_prompt(self, server: str, name: str, arguments: dict[str, str]) -> str:
         """`prompts/get` → görev metni."""
-        with elicitation_scope(server):
+        with elicitation_scope(server, self._elicitation_scopes):
             async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
                 result = await self._session(server).get_prompt(name, arguments or None)
         return prompt_text(result)
 
     async def read_resource(self, server: str, uri: str) -> str:
         """`resources/read` → maskeli, sınırlı bağlam bloğu."""
-        with elicitation_scope(server):
+        with elicitation_scope(server, self._elicitation_scopes):
             async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
                 result = await self._session(server).read_resource(as_uri(uri))
         return resource_block(server, uri, result)
