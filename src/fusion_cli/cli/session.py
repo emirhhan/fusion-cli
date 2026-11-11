@@ -12,8 +12,8 @@ from __future__ import annotations
 import hashlib
 import sys
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -396,8 +396,6 @@ async def run_agent_task(
             )
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 
-        # MCP sunucusu görev ortasında girdi isterse bu taraf sorar (#257).
-        _register_elicitation(prompter if can_ask else None)
         deps = AgentDeps(
             config=config,
             deadline=deadline,
@@ -484,25 +482,26 @@ async def run_agent_task(
         # Masaüstü oturumu turun görevine bağlanır: Esc iptali bu görevi keser (P-033).
         desktop_turn.begin(tool_context)
         try:
-            outcome = await _run_agent_with_mcp(
-                task,
-                deps,
-                config,
-                bus,
-                history=history,
-                mode=mode,
-                extra_system=extra_system,
-                system_prompt=system_prompt,
-                images=images,
-                step_limit=step_limit,
-                chat_mode=chat_mode,
-                workflow=workflow,
-                allowed_tools=allowed_tools,
-                bootstrap_mcp=bootstrap_mcp,
-                denied_tools=denied_tools,
-                turn_runner=turn_runner,
-                strict_tool_names=strict_tool_names,
-            )
+            with mcp_asker_scope(deps.asker):
+                outcome = await _run_agent_with_mcp(
+                    task,
+                    deps,
+                    config,
+                    bus,
+                    history=history,
+                    mode=mode,
+                    extra_system=extra_system,
+                    system_prompt=system_prompt,
+                    images=images,
+                    step_limit=step_limit,
+                    chat_mode=chat_mode,
+                    workflow=workflow,
+                    allowed_tools=allowed_tools,
+                    bootstrap_mcp=bootstrap_mcp,
+                    denied_tools=denied_tools,
+                    turn_runner=turn_runner,
+                    strict_tool_names=strict_tool_names,
+                )
         finally:
             # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
             # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
@@ -786,9 +785,13 @@ async def agent_mcp_scope(
 agent_mcp_scope.supports_lazy_discovery = True  # type: ignore[attr-defined]
 
 
-def _register_elicitation(asker: object) -> None:
+@contextmanager
+def mcp_asker_scope(asker: UserAsker | None) -> Iterator[None]:
+    """MCP sorularını bu görevin sorucusuna bağla."""
     try:
-        from ..mcp_bridge.elicitation import register_elicitation_asker
+        from ..mcp_bridge.elicitation import elicitation_asker_scope
     except ImportError:  # `mcp` paketi kurulu değil
-        return
-    register_elicitation_asker(asker)  # type: ignore[arg-type]
+        yield
+    else:
+        with elicitation_asker_scope(asker):
+            yield
