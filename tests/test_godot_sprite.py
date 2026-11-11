@@ -70,6 +70,19 @@ def test_add_godot_sprite_preserves_existing_manifest_entries(project):
     assert manifest["version"] == 1
 
 
+def test_oversized_manifest_addition_leaves_original_project_untouched(project):
+    assets = project / "assets"
+    assets.mkdir()
+    base = b'{"assets":[],"padding":""}'
+    original = base[:-2] + b"x" * (godot_sprite._MAX_MANIFEST - len(base)) + base[-2:]
+    manifest = assets / "ASSETS.json"
+    manifest.write_bytes(original)
+    result = godot_sprite.add_godot_sprite({"path": "assets/player.png"}, ToolContext(root=project))
+    assert not result.ok
+    assert manifest.read_bytes() == original
+    assert not (assets / "player.png").exists()
+
+
 def test_registered_sprite_tool_declares_and_respects_both_write_targets(project):
     tool = build_registry().get("add_godot_sprite")
     args = {"path": "assets/player.png"}

@@ -184,12 +184,15 @@ def _add_locked(
     created = None
     published_manifest = None
     updated = None
+    if not matches:
+        records.append(entry)
+        updated = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode()
+        if len(updated) > _MAX_MANIFEST:
+            raise ValueError("Yeni ASSETS.json izin verilen boyutu aşar.")
     try:
         if existing is None:
             created = _publish(directory, name, sprite, previous=None)
-        if not matches:
-            records.append(entry)
-            updated = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode()
+        if updated is not None:
             published_manifest = _publish(directory, _MANIFEST, updated, previous=before)
         if _read(directory, name, len(sprite)) != sprite or (
             created is not None and not _owned(directory, name, created, sprite)
