@@ -1111,7 +1111,12 @@ async def _agent_turn(
     mode: Mode = Mode.NONE,
 ) -> None:
     from ...engines.agent import run_agent
-    from ...engines.agent.approval import build_policy, may_run_unasked_commands
+    from ...engines.agent.approval import (
+        ApprovalMode,
+        ApprovalPolicy,
+        build_policy,
+        may_run_unasked_commands,
+    )
     from ...engines.agent.loop import AgentDeps
     from ...engines.agent.team_fork import run_forked_turn
     from ...engines.agent.verification import build_verifier
@@ -1161,32 +1166,33 @@ async def _agent_turn(
             transport = browser_transport(state.remotion_browser)
         # `Notification` kancası onay sorusundan hemen önce (P-009).
         confirm_prompter = notifying(prompter, state.hooks())
-        _register_elicitation(prompter)  # MCP sunucusu girdi isterse bu taraf sorar (#257)
+        interaction_prompts = state.config.runtime.interaction_prompts
+        asker = prompter if interaction_prompts else None
+        _register_elicitation(asker)  # MCP sunucusu girdi isterse bu taraf sorar (#257)
+
+        def policy_for_mode(wanted: ApprovalMode) -> ApprovalPolicy:
+            return build_policy(
+                wanted,
+                confirm_prompter,
+                state.approval_memory,
+                use_auto_mode_during_plan=_plan_auto(state.config),
+                bypass_available=state.bypass_available,
+                interaction_prompts=interaction_prompts,
+            )
+
         deps = AgentDeps(
             config=state.config,
             session_persona=state.persona,
             main_config_applied=state.main_config_applied,
             mcp_connector=agent_mcp_scope,
             child_runs=state.child_runs,
-            interactive=True,
+            interactive=interaction_prompts,
             publisher=bus,
-            policy=build_policy(
-                state.approval,
-                confirm_prompter,
-                state.approval_memory,
-                use_auto_mode_during_plan=_plan_auto(state.config),
-                bypass_available=state.bypass_available,
-            ),
+            policy=policy_for_mode(state.approval),
             approval_mode=lambda: state.approval,
-            policy_for_mode=lambda wanted: build_policy(
-                wanted,
-                confirm_prompter,
-                state.approval_memory,
-                use_auto_mode_during_plan=_plan_auto(state.config),
-                bypass_available=state.bypass_available,
-            ),
+            policy_for_mode=policy_for_mode,
             tool_context=tool_context,
-            asker=prompter,
+            asker=asker,
             code_index=state.memory.code_index if state.memory.enabled else None,
             lessons=state.memory.lessons,
             capabilities=state.capabilities,

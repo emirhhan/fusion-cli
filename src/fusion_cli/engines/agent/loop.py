@@ -3678,6 +3678,10 @@ def _bind_tool_search_permissions(
 
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
 
+INTERACTION_PROMPTS_BLOCKED = (
+    "Bu turda kullanıcıya soru sorulamaz. Eksik yanıtı varsayma; bağımsız işlemlerle devam et."
+)
+
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
 WEB_READ_WINDOW = 100
 
@@ -5137,6 +5141,8 @@ async def _execute(
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
+    if call.name == "ask_user" and not deps.config.runtime.interaction_prompts:
+        return ToolResult.failure(INTERACTION_PROMPTS_BLOCKED), ToolOutcome.BLOCKED
     if native_method_blocked(call.name, args, deps.denied_tools):
         return ToolResult.failure(NATIVE_METHOD_BLOCKED), ToolOutcome.BLOCKED
     if prohibited_tool(call.name, execution.forbidden_tool_families | deps.turn_forbidden_families):

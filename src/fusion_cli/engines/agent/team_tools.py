@@ -157,7 +157,11 @@ async def _confirmed(deps: AgentDeps, request: TeamRequest) -> bool:
     """Yeni ekipte maliyet uyarısı (Claude Code: ekip ~7 kat token)."""
     from .engine_tools import QuestionOption
 
-    if not getattr(deps.config.runtime, "agent_team_confirm", True) or deps.asker is None:
+    if not getattr(deps.config.runtime, "agent_team_confirm", True):
+        return True
+    if not deps.config.runtime.interaction_prompts:
+        return False
+    if deps.asker is None:
         return True
     limits = team_limits(deps)
     answer = await deps.asker.ask(

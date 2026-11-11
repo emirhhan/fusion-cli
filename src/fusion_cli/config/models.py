@@ -197,6 +197,8 @@ class RuntimeConfig:
     #: gibi `default` (#54): auto ve denetçisi yalnız kullanıcı seçince (Shift+Tab, `/auto`,
     #: `--permission-mode auto`, `defaultMode: auto`) devrededir.
     approval_mode: str = "default"
+    #: Görev sırasında onay kartları ve kullanıcıya yöneltilen sorular açılabilir.
+    interaction_prompts: bool = True
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

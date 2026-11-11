@@ -664,7 +664,7 @@ class ReplState:
             self.capabilities.invalidate()
 
     def _fall_back_to_manual(self) -> None:
-        if self.approval is ApprovalMode.AUTO:
+        if self.approval is ApprovalMode.AUTO and self.config.runtime.interaction_prompts:
             self.approval = ApprovalMode.SECURITY
 
     def permission_rules(self) -> PermissionRuleSet:
