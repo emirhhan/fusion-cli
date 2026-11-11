@@ -88,6 +88,20 @@ def test_numeric_budget_and_retry_changes_change_digest():
     )
 
 
+def test_interaction_prompt_preference_is_bound_to_effective_proof():
+    config = make_config()
+    enabled = replace(config, runtime=SimpleNamespace(interaction_prompts=True))
+    disabled = replace(config, runtime=SimpleNamespace(interaction_prompts=False))
+
+    proof_with_prompts = project_effective(enabled, config.agent, "code")
+    proof_without_prompts = project_effective(disabled, config.agent, "code")
+    fields = {item.path: item for item in proof_without_prompts.fields}
+    field = fields["runtime.interaction_prompts"]
+
+    assert field.kind == "flag" and field.value is False
+    assert proof_with_prompts.digest != proof_without_prompts.digest
+
+
 def test_mapping_order_is_canonical_but_role_order_is_preserved():
     config = make_config()
     first = replace(config, task_model_map={"code": "a", "chat": "b"})

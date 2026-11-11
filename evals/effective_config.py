@@ -74,6 +74,7 @@ _COUNTS = (
 _FLAGS = (
     "auto_web_fallback",
     "self_review",
+    "interaction_prompts",
     "reflexion",
     "lessons",
     "teacherless",
