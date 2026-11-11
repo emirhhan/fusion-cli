@@ -1043,9 +1043,7 @@ def test_gecerli_json_hatasiz_ayristirilir():
 
 
 def _sabit_denetim(sonuc):
-    async def _review(
-        task, final_text, messages, *, config, publisher=None, diff="", criteria=(), failures=()
-    ):
+    async def _review(*args, **kwargs):
         return sonuc
 
     return _review
