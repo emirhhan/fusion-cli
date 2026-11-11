@@ -34,6 +34,11 @@ def test_uygulama_adi_kabuga_girmeden_acilir(tmp_path, monkeypatch) -> None:
 
     assert result.ok
     assert calls == [["open", "-a", name]]
+    assert (
+        "Adı belli bir düğmeye basacaksan önce desktop_window_focus ile pencereyi doğrula"
+        in result.output
+    )
+    assert "desktop_background_inspect" in result.output
 
 
 def test_metin_sonucta_sizdirilmaz(tmp_path, monkeypatch) -> None:
