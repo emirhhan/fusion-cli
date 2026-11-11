@@ -19,8 +19,10 @@ from pathlib import Path
 
 from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
+from ...core.clock import SystemClock
 from ...core.events import EventPublisher
 from ...core.evidence import CriterionEvidence
+from ...core.rate_control import RateControl
 from ...core.redaction import redact
 from ...core.types import CompletionRequest, Message, ModelResult
 from ...providers.factory import build_provider
@@ -95,6 +97,8 @@ async def review_turn(
     diff: str = "",
     criteria: tuple[CriterionEvidence, ...] = (),
     failures: tuple[str, ...] = (),
+    rate_control: RateControl | None = None,
+    task_deadline_s: float | None = None,
 ) -> str | None:
     """Düzeltme talimatı, açık temiz karar için boş metin, denetim yoksa None döner."""
     trace = history.transcript(messages, TRACE_CHARS, message_chars=TRACE_MESSAGE_CHARS)
@@ -117,9 +121,18 @@ async def review_turn(
             "Sorun yoksa TAMAM."
         )
     try:
-        result = await asyncio.wait_for(
-            _ask(prompt, config, publisher), timeout=config.runtime.judge_timeout_s + 2.0
+        call = (
+            _ask(prompt, config, publisher)
+            if rate_control is None and task_deadline_s is None
+            else _ask(
+                prompt,
+                config,
+                publisher,
+                rate_control=rate_control,
+                task_deadline_s=task_deadline_s,
+            )
         )
+        result = await asyncio.wait_for(call, timeout=config.runtime.judge_timeout_s + 2.0)
     except TimeoutError:
         # Web taşıması istek zaman aşımını her zaman uygulamıyor. Öz-denetim
         # kullanıcının tamamlanmış görevini dakikalarca bekletemez.
@@ -148,7 +161,15 @@ async def _ask(
     *,
     disable_thinking: bool = False,
     response_schema: Mapping[str, object] | None = None,
+    rate_control: RateControl | None = None,
+    task_deadline_s: float | None = None,
 ) -> ModelResult:
+    now = SystemClock().monotonic()
+    timeout = config.runtime.judge_timeout_s
+    if task_deadline_s is not None:
+        timeout = min(timeout, task_deadline_s - now)
+    if timeout <= 0:
+        raise TimeoutError
     structured_nim = (
         response_schema is not None
         and config.judge.model == "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
@@ -157,7 +178,7 @@ async def _ask(
         messages=(Message("user", prompt),),
         temperature=config.runtime.utility_temperature,
         max_tokens=config.runtime.judge_max_tokens,
-        timeout_s=config.runtime.judge_timeout_s,
+        timeout_s=timeout,
         max_retries=config.runtime.max_retries,
         disable_thinking=disable_thinking and not structured_nim,
         reasoning_effort="medium" if structured_nim else None,
@@ -173,6 +194,8 @@ async def _ask(
         config.judge,
         publisher=publisher,
         retry_delays_s=config.runtime.retry_delays_s,
+        retry_deadline_s=now + timeout,
+        rate_control=rate_control,
         background=True,
         web_sessions=web_registry_for(config),
         model_specs=configured_model_specs(config),

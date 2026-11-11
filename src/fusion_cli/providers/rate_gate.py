@@ -20,6 +20,7 @@ Defter erişilemezse kapı hiçbir şey yapmaz (bkz. `rate_ledger`); çağrı yi
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import AsyncIterator
 from dataclasses import replace
 
@@ -116,12 +117,14 @@ class RateGatedProvider:
         Yeniden deneme katmanı bu alanı görür ve kısa sabit gecikme yerine soğuma
         bitene dek bekler; yoksa ilk deneme kapıdan anında "soğumada" döner (P1-07).
         """
-        if not result.is_rate_limited or self._cooldown_s <= 0:
+        if not result.is_rate_limited:
             return result
-        self._ledger.cool(self._key, self._clock.now() + self._cooldown_s)
-        if result.retry_after_s is not None:
-            return result
-        return replace(result, retry_after_s=self._cooldown_s)
+        hint = result.retry_after_s
+        valid_hint = hint is not None and math.isfinite(hint) and hint >= 0
+        wait_s = hint if valid_hint else max(0.0, self._cooldown_s)
+        if wait_s is not None and wait_s > 0:
+            self._ledger.cool(self._key, self._clock.now() + wait_s)
+        return result if valid_hint else replace(result, retry_after_s=wait_s or None)
 
     def _blocked(self, reason: str, *, retry_after_s: float | None = None) -> ModelResult:
         return ModelResult(

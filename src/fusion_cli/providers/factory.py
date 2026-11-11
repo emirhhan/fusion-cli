@@ -50,6 +50,8 @@ def build_provider(
     background: bool = False,
     purpose: ModelCallPurpose = "other",
     health: HealthRegistry | None = None,
+    rate_control: RateControl | None = None,
+    retry_deadline_s: float | None = None,
     key_pools: KeyPoolRegistry | None = None,
     web_sessions: WebSessionRegistry | None = None,
     model_specs: Sequence[ModelSpec] = (),
@@ -90,7 +92,11 @@ def build_provider(
         # LiteLLM ağır ve web-only kullanımda gereksizdir; yalnızca gerçek API
         # yaprağı kurulurken yüklenir.
         configure_litellm()
-        rate = health.rate_control if health is not None else None
+        rate = (
+            rate_control
+            if rate_control is not None
+            else (health.rate_control if health is not None else None)
+        )
         provider_id = definition.id if definition is not None else ""
 
         def _gated(inner: LlmProvider, key: str) -> LlmProvider:
@@ -133,7 +139,13 @@ def build_provider(
     # tur üst üste düştü. Sessiz kalmak kullanıcıya yardım etmiyordu.
     model_ids = spec.models
     models = [_leaf(model) for model in model_ids]
-    retrying = wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper)
+    retrying = wrap_with_retry(
+        models,
+        delays_s=retry_delays_s,
+        sleeper=sleeper,
+        clock=clock,
+        completion_deadline_s=retry_deadline_s,
+    )
     # `health` verilirse her modelin yeniden-deneme katmanı circuit breaker ile sarılır:
     # devresi açık model çağrılmadan atlanır ve zincir sıradakine geçer. Verilmezse
     # (varsayılan) mevcut davranış birebir korunur.

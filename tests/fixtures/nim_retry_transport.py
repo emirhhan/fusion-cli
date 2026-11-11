@@ -48,7 +48,7 @@ async def mocked_send(self, request, **kwargs):
 httpx.AsyncClient.send = mocked_send
 
 
-async def run_case(requested_retries, stream):
+async def run_case(requested_retries, stream, retry_after=None):
     global active
     seen = []
 
@@ -62,6 +62,13 @@ async def run_case(requested_retries, stream):
             }
         )
         if len(seen) <= 2:
+            if retry_after is not None:
+                return httpx.Response(
+                    429,
+                    request=request,
+                    headers={"Retry-After": retry_after},
+                    json={"error": {"message": "synthetic rate limit", "type": "rate_limit_error"}},
+                )
             return httpx.Response(
                 500,
                 request=request,
@@ -118,13 +125,14 @@ async def run_case(requested_retries, stream):
         "http_requests": len(seen),
         "ok": result.ok if result else None,
         "error_type": (result.error or "").split(":", 1)[0] if result else None,
+        "retry_after_s": result.retry_after_s if result else None,
         "requests": seen,
         "text": result.text if result else None,
     }
 
 
 async def main():
-    result = await run_case(int(sys.argv[1]), sys.argv[2] == "stream")
+    result = await run_case(int(sys.argv[1]), sys.argv[2] == "stream", *sys.argv[3:])
     print(json.dumps(result))
 
 

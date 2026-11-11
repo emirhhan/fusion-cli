@@ -3070,7 +3070,12 @@ async def _publish_intro(
     ):
         return
     intro = await intro_paragraph(
-        task, _active_spec(deps, execution), deps.config, deps.publisher, tool_names
+        task,
+        _active_spec(deps, execution),
+        deps.config,
+        deps.publisher,
+        tool_names,
+        rate_control=deps.health.rate_control if deps.health is not None else None,
     )
     if not intro:
         return
@@ -5682,6 +5687,7 @@ async def _self_review(
     timeout = _self_review_timeout(deps)
     feedback = None
     if timeout is None or timeout > 0:
+        task_deadline_s = None if timeout is None else SystemClock().monotonic() + timeout
         deps.publisher.publish(SelfReviewStarted())
         try:
             async with asyncio.timeout(timeout):
@@ -5696,6 +5702,8 @@ async def _self_review(
                     else "",
                     criteria=verification.evidence if verification else (),
                     failures=verification.findings if verification else (),
+                    rate_control=deps.health.rate_control if deps.health is not None else None,
+                    task_deadline_s=task_deadline_s,
                 )
         except TimeoutError:
             pass
