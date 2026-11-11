@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Collection, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -40,9 +41,12 @@ class _TimingLimitExceededError(ValueError):
 
 def private_trace_dir(home: Path, env: Mapping[str, str]) -> Path | None:
     """Read only the existing trace location under the runner-owned home."""
-    if any(env.get(name) for name in ("FUSION_MEMORY_DIR", "XDG_DATA_HOME", "FUSION_ACCOUNT")):
+    windows = sys.platform == "win32"
+    data_override = "LOCALAPPDATA" if windows else "XDG_DATA_HOME"
+    if any(env.get(name) for name in ("FUSION_MEMORY_DIR", data_override, "FUSION_ACCOUNT")):
         return None
-    return home / ".local/share/fusion-cli/memory/traces"
+    data = home / ("AppData/Local" if windows else ".local/share")
+    return data / "fusion-cli/memory/traces"
 
 
 def trace_files(directory: Path | None) -> set[Path]:
@@ -155,14 +159,16 @@ def _wire_timing(events: Path) -> tuple[set[str], dict[str, int], list[dict[str,
     model = dict.fromkeys(
         ("started", "finished", "abandoned", "reported_latency_ms", "finished_rate_limited"), 0
     )
-    starts: dict[str, tuple[str, int]] = {}
+    starts: dict[tuple[str, str | None, str | None, str], tuple[str, int]] = {}
     tools: list[dict[str, object]] = []
     for row in _rows(events):
         event = row.get("veri")
         if row.get("tip") != "olay" or not isinstance(event, dict):
             continue
-        if (turn := _id(event.get("turn_id"))) is not None:
-            turns.add(turn)
+        turn = _id(event.get("turn_id"))
+        if turn is None:
+            continue
+        turns.add(turn)
         kind = event.get("olay")
         if kind == "ModelCallStarted":
             model["started"] += 1
@@ -186,10 +192,17 @@ def _wire_timing(events: Path) -> tuple[set[str], dict[str, int], list[dict[str,
             name = event.get("name")
             if call is None or stamp is None or not isinstance(name, str):
                 continue
+            agent_id, candidate_id = event.get("agent_id"), event.get("candidate_id")
+            agent, candidate = _id(agent_id), _id(candidate_id)
+            if (agent is None and agent_id not in (None, "")) or (
+                candidate is None and candidate_id is not None
+            ):
+                continue
+            key = (turn, agent, candidate, call)
             if kind == "ToolStarted":
-                starts[call] = name, stamp
+                starts[key] = name, stamp
             else:
-                start = starts.pop(call, None)
+                start = starts.pop(key, None)
                 outcome = event.get("outcome")
                 if (
                     start is not None
