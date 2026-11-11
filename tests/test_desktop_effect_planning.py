@@ -77,28 +77,47 @@ def test_coordinated_build_objects_still_bind_to_their_shared_verb(task):
 async def test_calculator_lane_admits_explicit_click_and_key_with_trusted_target(
     tmp_path, monkeypatch
 ):
+    from base64 import b64encode
     from dataclasses import replace
 
     from fusion_cli.core.desktop_frame import DesktopFrame
+    from fusion_cli.core.tool_content import ToolContent
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.engines.agent import loop
     from fusion_cli.tools import desktop_policy
     from fusion_cli.tools.builtin import build_registry
     from fusion_cli.tools.registry import ToolRegistry
     from tests.fakes import ScriptedProvider, model_result, tool_call
+    from tests.image_fixture import image_bytes
     from tests.test_agent_lessons import _deps
 
     deps = _deps(tmp_path)
-    deps.config = replace(deps.config, desktop=replace(deps.config.desktop, enabled=True))
+    deps.config = replace(
+        deps.config,
+        desktop=replace(deps.config.desktop, enabled=True),
+        agent=replace(deps.config.agent, tags=("vision",)),
+    )
     deps.tool_context = replace(
         deps.tool_context,
         desktop_settings=replace(deps.tool_context.desktop_settings, enabled=True),
     )
-    deps.tool_context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+
+    def capture(_args, context):
+        width, height = 100, 80
+        path = tmp_path / "calculator.png"
+        data = image_bytes("PNG", (width, height))
+        path.write_bytes(data)
+        image = ToolContent.image("image/png", b64encode(data).decode())
+        context.desktop.frame = DesktopFrame(width, height, 0, 0, width, height)
+        context.desktop.record_capture(path, image.data_uri, data, (0, 0, width, height))
+        return ToolResult(str(path), content=(image,))
+
     delivered = []
     registry = ToolRegistry()
     for tool in build_registry():
-        if tool.name in {"desktop_click", "desktop_key"}:
+        if tool.name == "desktop_screenshot":
+            tool = replace(tool, run=capture)
+        elif tool.name in {"desktop_click", "desktop_key"}:
 
             def deliver(args, context, name=tool.name):
                 delivered.append(name)
@@ -120,7 +139,11 @@ async def test_calculator_lane_admits_explicit_click_and_key_with_trusted_target
     monkeypatch.setattr(desktop_policy, "_swift_probe", probe)
     provider = ScriptedProvider(
         [
-            model_result(tool_calls=(tool_call("desktop_click", x=400, y=300),)),
+            model_result(tool_calls=(tool_call("desktop_screenshot"),)),
+            replace(
+                model_result(tool_calls=(tool_call("desktop_click", x=40, y=30),)),
+                model=deps.config.agent.model,
+            ),
             model_result(tool_calls=(tool_call("desktop_key", key="1"),)),
             model_result("Sentetik etkileşim kaydı tamamlandı."),
         ]
