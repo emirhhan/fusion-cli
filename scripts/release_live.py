@@ -23,6 +23,7 @@ from evals.executor import _snapshot, _write_seed_file
 from evals.live_drive import drive
 from evals.loader import load_tasks
 from evals.profiles import _digest_entries, _scorer_entries, _source_entries
+from evals.release_phase_timing import case_timing, private_trace_dir, trace_files
 from scripts.release_feedback import FeedbackControl, prepare_feedback
 from scripts.release_manifest import ROOT, sha256_file
 from scripts.release_runtime import extract_runtime, verify_runtime_files
@@ -191,6 +192,8 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                     }
                     _checkpoint(args.out, payload, "in_progress")
                     phase = "driver"
+                    traces = private_trace_dir(home, options.runtime_env)
+                    before = trace_files(traces)
                     started_at = time.time()
                     with events.open("wb") as stream:
                         observed = await drive(options, None, stream)
@@ -202,6 +205,7 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
                             "finished_at": time.time(),
                             "candidate_digest": _digest_entries(_snapshot(root)),
                             "driver": observed,
+                            "phase_timing": case_timing(events, traces, before),
                             "feedback": feedback_manifest,
                             "events": events.name,
                         }
