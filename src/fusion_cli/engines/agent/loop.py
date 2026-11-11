@@ -98,6 +98,7 @@ from ...core.memory import CodeIndex, Lesson, LessonMemory, SkillProposalMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.proposal_invocation import ProposalPolicy
 from ...core.protocols import Clock, TurnJournal
+from ...core.rate_control import model_pacing_rate
 from ...core.reasoning import ReasoningEffort
 from ...core.redaction import redact
 from ...core.refusal import looks_like_refusal
@@ -3083,8 +3084,8 @@ async def _publish_intro(
     )
     limits = deps.config.runtime.rate_limit_per_minute
     provider = provider_for_model(spec.model)
-    provider_enabled = provider is None or limits.get(provider.id, 1) > 0
-    if bounded and provider_enabled and limits.get(spec.model, 0) > 0:
+    pace = model_pacing_rate(limits, spec.model, provider.id if provider else "")
+    if bounded and pace is not None and math.isfinite(pace) and pace > 0:
         # Reserve the paced provider's first slot for the task itself.
         return
     intro = await intro_paragraph(

@@ -568,7 +568,7 @@ async def test_older_healthy_response_cannot_reset_newer_backoff(tmp_path):
     assert (await failing.complete(_REQUEST)).retry_after_s == 24.0
 
 
-@pytest.mark.parametrize("provider_limit, expected", [(3.0, 20.0), (0.0, 60.0)])
+@pytest.mark.parametrize("provider_limit, expected", [(3.0, 20.0), (0.0, 60.0), (-1.0, 60.0)])
 async def test_smoothed_backoff_uses_effective_model_pacing_interval(
     tmp_path, provider_limit, expected
 ):

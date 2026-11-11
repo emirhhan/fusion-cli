@@ -62,12 +62,18 @@ class RateGatedProvider:
         self._inner = inner
         self._ledger = ledger
         self._key = key
-        self._per_minute = per_minute
+        self._per_minute = (
+            per_minute
+            if per_minute is not None and math.isfinite(per_minute) and per_minute > 0
+            else None
+        )
         self._pace_max_wait_s = pace_max_wait_s
         self._cooldown_s = cooldown_s
         self._smooth = smooth
         self._backoff_base_s = (
-            60.0 / per_minute if smooth and per_minute and cooldown_s > 0.0 else None
+            60.0 / self._per_minute
+            if smooth and self._per_minute is not None and cooldown_s > 0.0
+            else None
         )
         self._pace_key = inner.label if smooth else key
         self._clock = clock or SystemClock()
