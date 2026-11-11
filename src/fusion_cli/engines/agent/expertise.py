@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ...config.paths import bundled_skills_dir
 from ...core.events import EventPublisher, SkillLoaded
+from ...core.text_fold import fold_tr
 from ...tools.capabilities import CapabilityRegistry
 from ...tools.skill_pages import read_skill_page
 
@@ -132,9 +133,64 @@ _DESKTOP_TASK = re.compile(
 )
 
 
+# Yalnız yerel pencereyi hedefleyen araç adlarını, doğrudan eylem isteğinde tanı.
+_NATIVE_WINDOW_TOOL = r"desktop_(?:window_focus|background_(?:windows|inspect|screenshot|action))"
+_NATIVE_TOOL_REQUEST = re.compile(
+    rf"^(?:please\s+)?(?:use|call|run)\s+(?:the\s+)?{_NATIVE_WINDOW_TOOL}(?![\w.-])"
+    rf"|(?<![\w.-]){_NATIVE_WINDOW_TOOL}\s+"
+    r"(?:(?:aracini\s+)?(?:press\s+)?(?:kullan|cagir|calistir)"
+    r"|ile\s+[^.!?;\n]+\b(?:al|incele|listele|odakla|dogrula))"
+    r"\s*(?:lutfen)?$"
+)
+_DESKTOP_REQUEST_LITERAL = re.compile(
+    rf"```.*?(?:```|\Z)|`(?P<tool>{_NATIVE_WINDOW_TOOL})`|`[^`\n]*`|"
+    r'"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|'
+    r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
+    re.S | re.M | re.I,
+)
+_DESKTOP_REQUEST_META = re.compile(
+    r"^\s*(?:if|eger|explain|acikla|what|nedir)\b"
+    r"|\b(?:ornek\w*|example\w*|varsayalim|suppose|demedim|demiyorum|instead of)\b"
+)
+_CALCULATOR_APP = re.compile(
+    r"\b(?:hesap makinesi|calculator)\s+uygulamasinda\b"
+    r"|\b(?:in|on|use|using)\s+(?:the\s+)?calculator app\b"
+)
+_CALCULATOR_BUTTON_REQUEST = re.compile(
+    r"\bdugme(?:ye|lere)\s+(?:tikla|bas)\s*$"
+    r"|^(?:please\s+)?(?:click|press)\s+(?:(?:the|only|visible)\s+)*buttons?\b"
+)
+_CALCULATOR_NON_NATIVE = re.compile(r"\b(?:web|browser|mobile|mobil|android|ios|python)\b")
+_CALCULATOR_BUILD = re.compile(
+    r"\b(?:hesap makinesi|calculator)\s+uygulamas[ıi](?:n[ıi])?\s+"
+    r"(?:geli[şs]tir|olu[şs]tur|kodla|tasarla|yaz)\b",
+    re.IGNORECASE,
+)
+
+
+def has_native_desktop_request(task: str) -> bool:
+    """Doğrudan pencere aracı veya Hesap Makinesi düğmesi isteğini tanı."""
+    prose = _DESKTOP_REQUEST_LITERAL.sub(lambda match: match["tool"] or " ", task)
+    prose = fold_tr(prose).translate(str.maketrans("çğıöşü", "cgiosu"))
+    clauses = [
+        clause.strip()
+        for clause in re.split(r"[.!?;]+(?=\s|$)|\n+", prose)
+        if not _DESKTOP_REQUEST_META.search(clause)
+    ]
+    if any(_NATIVE_TOOL_REQUEST.search(clause) for clause in clauses):
+        return True
+    # İstek düğme yöntemini ve uygulamayı ayrı cümlelerde de söyleyebilir.
+    calculator_clauses = [clause for clause in clauses if not _CALCULATOR_NON_NATIVE.search(clause)]
+    return any(_CALCULATOR_APP.search(clause) for clause in calculator_clauses) and any(
+        _CALCULATOR_BUTTON_REQUEST.search(clause) for clause in calculator_clauses
+    )
+
+
 def is_desktop_task(task: str) -> bool:
     """İstek masaüstü penceresi/uygulaması üzerinde mi (arka plan araçlarını açar)?"""
-    return _DESKTOP_TASK.search(task) is not None
+    return has_native_desktop_request(task) or (
+        _DESKTOP_TASK.search(_CALCULATOR_BUILD.sub(" ", task)) is not None
+    )
 
 
 _WORKTREE_TASK = re.compile(

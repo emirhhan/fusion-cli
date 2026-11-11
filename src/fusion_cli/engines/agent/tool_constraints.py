@@ -11,6 +11,7 @@ from collections.abc import Collection, Mapping
 
 from ...core.text_fold import fold_tr
 from ...core.tools import ToolFamily
+from .expertise import has_native_desktop_request
 
 _FAMILY_WORDS = {
     ToolFamily.SHELL: r"\b(?:terminal|shell|komut satiri|kabuk)\b",
@@ -94,7 +95,7 @@ _CODE_WORDS = re.compile(r"\b(?:kod|code|shell|kabuk|terminal|komut satiri)\b")
 def native_method_denials(task: str) -> frozenset[str]:
     """Only direct user prohibitions; never infer a method from task/app identity."""
     prose = fold_tr(_NATIVE_QUOTED.sub(" ", task)).translate(str.maketrans("çğıöşü", "cgiosu"))
-    native_context = _NATIVE_CONTEXT.search(prose) is not None
+    native_context = _NATIVE_CONTEXT.search(prose) is not None or has_native_desktop_request(task)
     denied: set[str] = set()
     for clause in _CLAUSE.split(prose):
         if _NATIVE_META.search(clause) or not _NATIVE_NEGATIVE.search(clause):
