@@ -299,7 +299,8 @@ async def run_agent_task(
         persona_root = tool_context.root if tool_context else root or Path.cwd()
         config = main_agent_config(config, session_persona, root=persona_root, home=home)
         mode = main_approval_mode(config, session_persona, mode, root=persona_root, home=home)
-    can_ask = sys.stdin.isatty() if interactive is None else interactive
+    interaction_prompts = config.runtime.interaction_prompts
+    can_ask = interaction_prompts and (sys.stdin.isatty() if interactive is None else interactive)
     started_at = time.monotonic()
     attempt_id = attempt_id or new_trace_id()
 
@@ -391,6 +392,7 @@ async def run_agent_task(
                 use_auto_mode_during_plan=getattr(
                     config.runtime, "use_auto_mode_during_plan", True
                 ),
+                interaction_prompts=interaction_prompts,
             )
             return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
 

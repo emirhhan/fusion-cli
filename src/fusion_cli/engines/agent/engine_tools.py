@@ -196,6 +196,8 @@ def build_agent_registry(
         | _disabled_browser_tools(deps, extended)
         | _subagent_removed_tools(deps, depth)
     )
+    if not deps.config.runtime.interaction_prompts:
+        kapali |= {"ask_user"}
     return _without(extended, kapali) if kapali else extended
 
 

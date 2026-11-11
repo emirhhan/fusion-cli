@@ -130,7 +130,11 @@ async def _confirmed(deps: AgentDeps, spec: WorkflowSpec, count: int, parallel: 
     threshold = int(
         getattr(deps.config.runtime, "dynamic_workflow_confirm_agents", DEFAULT_CONFIRM_AGENTS)
     )
-    if threshold <= 0 or count < threshold or deps.asker is None:
+    if threshold <= 0 or count < threshold:
+        return True
+    if not deps.config.runtime.interaction_prompts:
+        return False
+    if deps.asker is None:
         return True
     answer = await deps.asker.ask(
         CONFIRM_QUESTION.format(name=spec.name, count=count, parallel=parallel),

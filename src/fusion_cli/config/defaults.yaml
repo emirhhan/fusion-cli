@@ -393,6 +393,8 @@ runtime:
   # `fusion usage` ve `fusion insights` 24s/7g/30g pencerelerini buradan okur. İstem
   # metni, argüman ya da çıktı YAZILMAZ; 90 günden eski satırlar budanır. False = kapalı.
   usage_log: true
+  # False: görev sırasında etkileşim gerektiren çağrılar soru açmadan engellenir.
+  interaction_prompts: true
   # Otomatik kip denetçisi (P-011; Claude Code auto mode sınıflandırıcısı). Otomatik kipte
   # kuralların SORACAĞI çağrı (git push, proje dışına yazma, uzak sunucu…) küçük/hızlı rol
   # modeline kullanıcının mesajlarıyla birlikte sorulur: "güvenli" derse sorulmaz, "riskli"
