@@ -148,6 +148,13 @@ class RetryingProvider:
                 yield StreamDone(erken)
                 return
             wait_s = _wait_s(delay, erken)
+            rate_hint = erken.retry_after_s if erken.is_rate_limited else None
+            deadline = request.rate_retry_deadline if rate_hint is not None else None
+            if (rate_hint is not None and rate_hint > RETRY_AFTER_MAX_WAIT_S) or (
+                deadline is not None and wait_s >= deadline.remaining_s()
+            ):
+                yield StreamDone(erken)
+                return
             observe_phase(
                 request,
                 "provider_retry_wait",
@@ -156,6 +163,9 @@ class RetryingProvider:
             )
             await self._sleeper.sleep(wait_s)
             observe_phase(request, "provider_retry_wait_end")
+            if deadline is not None and deadline.remaining_s() <= 0:
+                yield StreamDone(erken)
+                return
 
     # ----------------------------------------------------------------------- #
 

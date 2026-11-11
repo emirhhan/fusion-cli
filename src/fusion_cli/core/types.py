@@ -17,6 +17,7 @@ from .web_provenance import WebCallContext, WebResponseProvenance
 
 if TYPE_CHECKING:
     from .provider_diagnostics import ProviderCallObserver
+    from .turn_deadline import TurnDeadline
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +380,10 @@ class CompletionRequest:
 
     #: Private observation only: never forwarded to SDK kwargs or serialized as an event.
     provider_observer: ProviderCallObserver | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    #: Yalnız yerel akış yeniden denemesi için; SDK gövdesine veya olaylara girmez.
+    rate_retry_deadline: TurnDeadline | None = field(
         default=None, kw_only=True, repr=False, compare=False
     )
     messages: tuple[Message, ...]

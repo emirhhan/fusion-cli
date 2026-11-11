@@ -36,6 +36,7 @@ from .delivery_contract import AcceptedDeliveryContract
 from .protocols import Clock
 from .repair_ledger import RepairLedger
 from .research_grounding import GroundingVerdict, SourceSnapshot
+from .turn_deadline import TurnDeadline
 from .usage_ledger import UsageLedger
 from .verification import VerificationResult
 
@@ -208,6 +209,13 @@ class TurnBudget:
         if self.total_timeout_s is None:
             return None
         return self.total_timeout_s - self.elapsed_s
+
+    @property
+    def hard_deadline(self) -> TurnDeadline | None:
+        """Turla aynı saatte ölçülen, yeniden başlatılmayan mutlak bitiş."""
+        if self.total_timeout_s is None:
+            return None
+        return TurnDeadline(self.clock, self._started_at + self.total_timeout_s)
 
     def constrain_remaining_s(self, seconds: float) -> None:
         """Dış kalan süre mevcut mutlak sınırı yalnız daraltabilir; başlangıç tazelenmez."""
