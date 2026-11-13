@@ -38,6 +38,7 @@ def frozen_proof(root: Path, provenance: dict[str, Any], pid: int) -> ImportedEn
 
 ACCEPTANCE_TOOLS = frozenset(
     {
+        "add_godot_sprite",
         "read_file",
         "write_file",
         "edit_file",

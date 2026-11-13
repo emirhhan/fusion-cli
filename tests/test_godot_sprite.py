@@ -5,6 +5,7 @@ from threading import Event
 
 import pytest
 from evals.fixtures.production_acceptance import check_assets
+from evals.frozen_engine import ACCEPTANCE_TOOLS
 from typer.testing import CliRunner
 
 from fusion_cli.cli.app import app
@@ -94,7 +95,8 @@ def test_registered_sprite_tool_declares_and_respects_both_write_targets(project
     check_assets(project)
 
 
-async def test_godot_actor_writes_both_assets_in_one_tool_call(project, monkeypatch):
+@pytest.mark.parametrize("allowed_tools", [None, set(ACCEPTANCE_TOOLS)], ids=["chat", "frozen"])
+async def test_godot_actor_writes_both_assets_in_one_tool_call(project, monkeypatch, allowed_tools):
     sink = RecordingSink()
     deps = _deps(
         project,
@@ -121,6 +123,7 @@ async def test_godot_actor_writes_both_assets_in_one_tool_call(project, monkeypa
         "assets/ASSETS.json içinde source_url ile license kaydı ekle. "
         "project.godot dosyasını koru.",
         deps,
+        allowed_tools=allowed_tools,
     )
     assert result.mutating_tool_calls_made == 1 and result.failed_tool_calls == 0
     assert "add_godot_sprite" in {s["function"]["name"] for s in provider.seen_requests[0]}
