@@ -1048,16 +1048,15 @@ pub fn run() {
         .on_menu_event(|app, event| {
             // Tepsi menüsü (P-064): Çıkış da onay akışından geçer, doğrudan kapatmaz.
             match tepsi::menu_olayi(app, event.id().as_ref()) {
-                tepsi::TepsiKarar::Islendi => return,
-                tepsi::TepsiKarar::CikisIstendi => {
-                    kapatma_iste(app);
-                    return;
+                tepsi::TepsiKarar::Islendi => {}
+                tepsi::TepsiKarar::CikisIstendi => kapatma_iste(app),
+                tepsi::TepsiKarar::TepsiyeAitDegil =>
+                {
+                    #[cfg(target_os = "macos")]
+                    if event.id() == CIKIS_MENU_KIMLIGI {
+                        kapatma_iste(app);
+                    }
                 }
-                tepsi::TepsiKarar::TepsiyeAitDegil => {}
-            }
-            #[cfg(target_os = "macos")]
-            if event.id() == CIKIS_MENU_KIMLIGI {
-                kapatma_iste(app);
             }
         })
         .invoke_handler(tauri::generate_handler![
