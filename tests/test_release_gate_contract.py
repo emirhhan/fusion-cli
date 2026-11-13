@@ -141,3 +141,12 @@ def test_verifier_authority_is_separate_from_actor_artifacts():
     )
     assert "needs.acceptance-verifier.outputs.verifier_key_sha256" in gate["run"]
     assert "--live-acceptance-signature" in gate["run"]
+
+
+def test_desktop_packaging_uses_node_supported_by_kits():
+    jobs = _yukle("desktop.yml")["jobs"]
+    for name in ("macos", "windows"):
+        setup = next(
+            step for step in jobs[name]["steps"] if "actions/setup-node@" in step.get("uses", "")
+        )
+        assert int(setup["with"]["node-version"].split(".")[0]) >= 24
