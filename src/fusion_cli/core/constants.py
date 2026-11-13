@@ -9,6 +9,8 @@ satırlık bir dökümü bağlama boca etmek hem pahalı hem de sinyali gürült
 
 from __future__ import annotations
 
+NEMOTRON_ULTRA_NIM_MODEL = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
+
 #: "Dosya yok" hatasının değişmez öneki.
 #
 # Motor katmanı bu işarete bakarak "yanlış çalışma dizini" hipotezini kurar;

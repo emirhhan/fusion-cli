@@ -22,6 +22,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 from ..core.clock import SystemClock
+from ..core.constants import NEMOTRON_ULTRA_NIM_MODEL
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock
 from ..core.provider_diagnostics import observe_phase
@@ -45,7 +46,6 @@ from .stream_cleanup import closing_stream
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
-_NIM_BUDGET_MODEL = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
 
 
 def _retry_after(error: Exception, now: float) -> float | None:
@@ -242,7 +242,7 @@ class LiteLlmProvider:
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         if request.reasoning_budget is not None:
             if (
-                self._model != _NIM_BUDGET_MODEL
+                self._model != NEMOTRON_ULTRA_NIM_MODEL
                 or request.reasoning_effort not in {"medium", "high"}
                 or request.disable_thinking
                 or isinstance(request.reasoning_budget, bool)
@@ -297,7 +297,7 @@ class LiteLlmProvider:
     def _with_effort(self, result: ModelResult, request: CompletionRequest) -> ModelResult:
         resolution = resolve_reasoning(request.reasoning_effort, self._capability)
         native_budget = (
-            self._model == _NIM_BUDGET_MODEL
+            self._model == NEMOTRON_ULTRA_NIM_MODEL
             and request.reasoning_budget is not None
             and request.reasoning_effort in {"medium", "high"}
             and not request.disable_thinking

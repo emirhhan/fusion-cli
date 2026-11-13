@@ -20,6 +20,7 @@ from pathlib import Path
 from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.clock import SystemClock
+from ...core.constants import NEMOTRON_ULTRA_NIM_MODEL
 from ...core.events import EventPublisher
 from ...core.evidence import CriterionEvidence
 from ...core.rate_control import RateControl
@@ -172,10 +173,7 @@ async def _ask(
     if timeout <= 0:
         raise TimeoutError
     deadline = now + timeout
-    structured_nim = (
-        response_schema is not None
-        and config.judge.model == "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
-    )
+    structured_nim = response_schema is not None and config.judge.model == NEMOTRON_ULTRA_NIM_MODEL
     request = CompletionRequest(
         messages=(Message("user", prompt),),
         temperature=config.runtime.utility_temperature,

@@ -50,6 +50,7 @@ from ...core.concurrency import BackgroundTasks
 from ...core.constants import (
     CAPABILITY_WALL_PREFIX,
     FILE_MISSING_PREFIX,
+    NEMOTRON_ULTRA_NIM_MODEL,
     TOOL_CALL_BLOCKED_PREFIX,
     UNREACHABLE_RESOURCE_PREFIX,
 )
@@ -3219,6 +3220,32 @@ def _rate_retry_deadline(deps: AgentDeps) -> TurnDeadline | None:
     )
 
 
+def _actor_reasoning(
+    spec: ModelSpec, deps: AgentDeps, state: _State
+) -> tuple[str | None, int | None]:
+    runtime = deps.config.runtime
+    if state.reasoning_relief:
+        return effort_for_spec(spec, ReasoningEffort.LOW), None
+    effort = deps.turn_effort_override or runtime.reasoning_effort
+    budget = deps.budget
+    # Leave most of a short turn for the tool calls and their verification.
+    # Native NIM options must not leak into another provider in a fallback chain.
+    if (
+        effort is ReasoningEffort.AUTO
+        and spec.model == NEMOTRON_ULTRA_NIM_MODEL
+        and not spec.fallback
+        and not any(
+            session.enabled and session.model == spec.model for session in deps.config.web_sessions
+        )
+        and budget is not None
+        and budget.total_timeout_s is not None
+        and budget.total_timeout_s <= 180
+        and runtime.max_tokens >= 1024
+    ):
+        return "medium", min(768, runtime.max_tokens // 4)
+    return effort_for_spec(spec, effort), None
+
+
 async def _call_with_retries(
     messages: list[Message],
     deps: AgentDeps,
@@ -3550,6 +3577,7 @@ async def _call_model(
                 window=runtime.tool_output_window,
             )
         )
+    reasoning_effort, reasoning_budget = _actor_reasoning(spec, deps, state)
     request = CompletionRequest(
         messages=tuple(gorunum.messages),
         temperature=runtime.temperature,
@@ -3557,12 +3585,8 @@ async def _call_model(
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=offered_tools,
-        reasoning_effort=effort_for_spec(
-            spec,
-            ReasoningEffort.LOW
-            if state.reasoning_relief
-            else (getattr(deps, "turn_effort_override", None) or runtime.reasoning_effort),
-        ),
+        reasoning_effort=reasoning_effort,
+        reasoning_budget=reasoning_budget,
         disable_thinking=state.reasoning_relief,
         conversation_id=deps.conversation_id,
         edit_format=execution.edit_format,

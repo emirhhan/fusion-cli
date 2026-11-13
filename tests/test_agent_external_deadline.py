@@ -7,9 +7,12 @@ from dataclasses import replace
 
 import pytest
 
-from fusion_cli.core.constants import RETRY_AFTER_MAX_WAIT_S
+from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.core.constants import NEMOTRON_ULTRA_NIM_MODEL, RETRY_AFTER_MAX_WAIT_S
+from fusion_cli.core.reasoning import ReasoningEffort
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.turn_deadline import TurnDeadline
+from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent import loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
@@ -43,6 +46,50 @@ def deps_for(root, deadline, **config_args):
         tool_context=ToolContext(root=root),
         deadline=deadline,
     )
+
+
+@pytest.mark.parametrize(
+    "duration,effort,model,fallback,web_sessions,expected",
+    [
+        (180, ReasoningEffort.AUTO, NEMOTRON_ULTRA_NIM_MODEL, (), (), 768),
+        (None, ReasoningEffort.AUTO, NEMOTRON_ULTRA_NIM_MODEL, (), (), None),
+        (180, ReasoningEffort.HIGH, NEMOTRON_ULTRA_NIM_MODEL, (), (), None),
+        (181, ReasoningEffort.AUTO, NEMOTRON_ULTRA_NIM_MODEL, (), (), None),
+        (180, ReasoningEffort.AUTO, NEMOTRON_ULTRA_NIM_MODEL, ("sahte/fallback",), (), None),
+        (
+            180,
+            ReasoningEffort.AUTO,
+            NEMOTRON_ULTRA_NIM_MODEL,
+            (),
+            (WebSessionConfig(model=NEMOTRON_ULTRA_NIM_MODEL),),
+            None,
+        ),
+        (180, ReasoningEffort.AUTO, "scripted", (), (), None),
+    ],
+)
+async def test_short_turn_caps_only_auto_nemotron_reasoning(
+    tmp_path, monkeypatch, duration, effort, model, fallback, web_sessions, expected
+):
+    seen = []
+
+    class CapturingProvider(ScriptedProvider):
+        def _next(self, request):
+            seen.append(request)
+            return super()._next(request)
+
+    provider = CapturingProvider([model_result("Merhaba.")])
+    monkeypatch.setattr(loop, "build_provider", lambda *args, **kwargs: provider)
+    deps = deps_for(
+        tmp_path,
+        TurnDeadline.from_duration(duration, FakeClock()),
+        agent=ModelSpec(name="agent", model=model, fallback=fallback, tags=("strict",)),
+        web_sessions=web_sessions,
+        runtime={"max_tokens": 8192, "reasoning_effort": effort},
+    )
+    await run_agent("Merhaba.", deps, self_review=False, verify=False)
+    assert seen and seen[0].reasoning_budget == expected
+    if expected:
+        assert seen[0].reasoning_effort == "medium"
 
 
 async def test_expired_external_deadline_stops_api_before_first_provider_call(
