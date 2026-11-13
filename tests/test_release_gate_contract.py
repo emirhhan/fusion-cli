@@ -146,7 +146,14 @@ def test_verifier_authority_is_separate_from_actor_artifacts():
 def test_desktop_packaging_uses_node_supported_by_kits():
     jobs = _yukle("desktop.yml")["jobs"]
     for name in ("macos", "windows"):
-        setup = next(
-            step for step in jobs[name]["steps"] if "actions/setup-node@" in step.get("uses", "")
-        )
-        assert int(setup["with"]["node-version"].split(".")[0]) >= 24
+        steps = jobs[name]["steps"]
+        quality = next(i for i, step in enumerate(steps) if step.get("run") == "npm run check:ci")
+        bundle = next(i for i, step in enumerate(steps) if "npm run bundle:" in step.get("run", ""))
+        setups = [
+            (i, int(step["with"]["node-version"].split(".")[0]))
+            for i, step in enumerate(steps)
+            if "actions/setup-node@" in step.get("uses", "")
+        ]
+        assert len(setups) == 2
+        assert setups[0][0] < quality < setups[1][0] < bundle
+        assert setups[0][1] == 22 and setups[1][1] >= 24

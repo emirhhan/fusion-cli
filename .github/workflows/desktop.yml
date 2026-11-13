@@ -94,7 +94,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
           cache: npm
           cache-dependency-path: app/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
@@ -139,6 +139,9 @@ jobs:
         # sınırlı, yayın kapısı DEĞİL ama kırmızıysa görünür (Q1-02). Kök neden
         # (runner'da PTY asılması) hâlâ açık.
         run: npm run check:ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Native runtime ve uygulama paketini üret
         # Hiçbir adım 6 saatlik iş sınırını yakmamalı. Ölçüldü (Windows,
         # run 34580249690): `runtime:smoke` asıldı ve adım 2 saat 6 dakika
@@ -226,7 +229,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
           cache: npm
           cache-dependency-path: app/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
@@ -271,6 +274,9 @@ jobs:
         # sınırlı, yayın kapısı DEĞİL ama kırmızıysa görünür (Q1-02). Kök neden
         # (runner'da PTY asılması) hâlâ açık.
         run: npm run check:ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Native runtime ve uygulama kurucusunu üret
         # Hiçbir adım 6 saatlik iş sınırını yakmamalı. Ölçüldü (Windows,
         # run 34580249690): `runtime:smoke` asıldı ve adım 2 saat 6 dakika

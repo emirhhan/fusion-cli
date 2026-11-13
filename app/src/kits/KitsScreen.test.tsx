@@ -97,7 +97,7 @@ describe("KitsScreen", () => {
     expect(frame.getAttribute("src")).toBe("http://127.0.0.1:50003/?surface=kits&theme=dark&asset_protocol=1");
     const post = vi.fn();
     Object.defineProperty(frame, "contentWindow", { configurable: true, value: { postMessage: post } });
-    delete document.documentElement.dataset.theme;
+    await act(async () => { delete document.documentElement.dataset.theme; });
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith(
       { type: "fusion-kits-theme", theme: "light" }, "http://127.0.0.1:50003",
     ));

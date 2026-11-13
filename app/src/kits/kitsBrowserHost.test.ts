@@ -125,7 +125,7 @@ describe("KitsBrowserHost", () => {
     expect(text).not.toContain("sk-proj");
     expect(text).toContain("/Users/ali/rapor.md");
     // Ölçüldü (31 Ekim): önce kesip sonra gizlemek sınırdaki yarım anahtarı sızdırıyordu.
-    const dolgu = "x".repeat(20_000 - " sk-proj-abcd".length);
+    const dolgu = "x ".repeat(10_000).slice(0, 20_000 - " sk-proj-abcd".length);
     f.komut.mockResolvedValueOnce({ ok: true, status: "ok", text: `${dolgu} sk-proj-abcdefghijklmnop1234567890` });
     f.send(req("n2", { action: "text" }));
     await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledTimes(2));
