@@ -723,6 +723,7 @@ async def review_grounding(
         or _input_digest(target, sources) != fingerprint
     ):
         return first
+    replacement: GroundingVerdict | None
     if coverage_gap:
         if not _strict_response_shape(second.text):
             return first

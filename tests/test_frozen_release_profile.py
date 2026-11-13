@@ -35,6 +35,8 @@ def test_checked_in_profile_is_explicit_and_requires_protection(monkeypatch):
     assert config.runtime.max_tokens == 8192
     assert config.runtime.request_timeout_s == 600
     assert config.runtime.max_retries == 0
+    assert config.runtime.interaction_prompts is False
+    assert config.runtime.judge_timeout_s == 60
     assert config.runtime.self_review is True
     assert config.runtime.reasoning_effort.value == "auto"
     assert len(facts["effective_config_digest"]) == 64

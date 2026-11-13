@@ -315,8 +315,7 @@ def classify_teacher_task(task: str) -> TeacherTaskDecision:
     """Mevcut etki kararı ile görevin yapısal kapsamını birlikte kullan."""
     mutation = EffectKind.WORKSPACE_MUTATION.value
     has_mutation = any(
-        required_effect_for(part) == mutation
-        for part in (task, *re.split(r";|[.!?](?=\s)", task))
+        required_effect_for(part) == mutation for part in (task, *re.split(r";|[.!?](?=\s)", task))
     )
     # An imperative named-function repair remains a mutation even when a later
     # "do not install" sentence wins the general effect classifier's priority.

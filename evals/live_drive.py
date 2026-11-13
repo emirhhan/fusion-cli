@@ -360,9 +360,10 @@ async def drive(
                 ozet["efektif_kanit"] = (
                     len(kayit.get("efektif_kanitlar", [])) > kayit["efektif_baslangic"]
                 )
-            kayit["turlar"].append(
-                {"gorev": gorev[:120], **ozet, "sure_sn": round(time.monotonic() - basla, 1)}
-            )
+            elapsed = time.monotonic() - basla
+            if selected:
+                ozet["sure_ham_sn"] = elapsed
+            kayit["turlar"].append({"gorev": gorev[:120], **ozet, "sure_sn": round(elapsed, 1)})
     finally:
         # Önce girişi kapat: çekirdek düzgün çıkıp tarayıcı kirasını bırakır. Zorla
         # öldürmek paylaşılan Chrome'u sahipsiz bırakıyordu.

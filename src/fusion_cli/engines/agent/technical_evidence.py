@@ -106,8 +106,7 @@ def _prose_error_types(prose: str, fragments: tuple[CodeFragment, ...]) -> Itera
             continue
         for token in _PROSE_IDENTIFIER.finditer(prose, chunk.start(), chunk.end()):
             while (
-                fragment_index < len(fragments)
-                and fragments[fragment_index].end <= token.start()
+                fragment_index < len(fragments) and fragments[fragment_index].end <= token.start()
             ):
                 fragment_index += 1
             if fragment_index < len(fragments) and fragments[fragment_index].start < token.end():

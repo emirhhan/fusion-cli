@@ -226,8 +226,11 @@ def live_acceptance(
             policy = json.loads((ROOT / "release/live-acceptance-policy.json").read_text())
             targets = payload.get("targets")
             required_targets = set(policy["release_targets"])
-            if (not isinstance(targets, list) or len(targets) != len(required_targets)
-                or set(targets) != required_targets):
+            if (
+                not isinstance(targets, list)
+                or len(targets) != len(required_targets)
+                or set(targets) != required_targets
+            ):
                 raise ValueError("K29: zorunlu frozen platform kabulü eksik.")
     except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
         raise SystemExit(f"Canlı kabul kanıtı geçersiz: {error}") from error

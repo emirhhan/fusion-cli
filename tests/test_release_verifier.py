@@ -92,7 +92,13 @@ def _runs(tmp_path, monkeypatch):
                 "finished_at": time.time() - 1,
                 "candidate_digest": _digest_entries(_snapshot(candidate)),
                 "events": event_path.name,
-                "driver": {"motor_kaniti": asdict(proof), "efektif_kanitlar": [asdict(receipt)]},
+                "driver": {
+                    "motor_kaniti": asdict(proof),
+                    "efektif_kanitlar": [asdict(receipt)],
+                    "turlar": [{"ok": True, "efektif_kanit": True, "sure_ham_sn": 1.0}],
+                    "izinler": [],
+                    "sorular": [],
+                },
             }
         )
     raw = {
@@ -139,6 +145,11 @@ def _runs(tmp_path, monkeypatch):
         "stale_execution",
         "incomplete_checkpoint",
         "diagnostic_checkpoint",
+        "failed_chat",
+        "approval_requested",
+        "question_requested",
+        "missing_turn_receipt",
+        "overdue_turn",
     ],
 )
 async def test_independent_verifier_rejects_unmeasured_or_mismatched_runs(
@@ -165,6 +176,17 @@ async def test_independent_verifier_rejects_unmeasured_or_mismatched_runs(
         raw["observations"][0]["finished_at"] = 1
     if mutation == "duplicate_repeat":
         raw["observations"][-1]["repeat"] = 1
+    driver = raw["observations"][0]["driver"]
+    if mutation == "failed_chat":
+        driver["turlar"][0]["ok"] = False
+    if mutation == "approval_requested":
+        driver["izinler"].append({"arac": "write_file"})
+    if mutation == "question_requested":
+        driver["sorular"].append({"soru": "Proceed?"})
+    if mutation == "missing_turn_receipt":
+        driver["turlar"][0]["efektif_kanit"] = False
+    if mutation == "overdue_turn":
+        driver["turlar"][0].update(sure_sn=180.0, sure_ham_sn=180.04)
     (directory / "observations.json").write_text(json.dumps(raw))
     if mutation is None:
         report = await release_verify.verify_runs(args)

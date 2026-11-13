@@ -65,7 +65,10 @@ async def test_explicit_locate_has_typed_point_and_local_contract(monkeypatch):
 def _assert_locate_prompt(prompt):
     assert prompt.count("Respond ONLY as <point>(x,y)</point>") == 1
     for conflicting in (
-        "three short labeled", "visible_text", "description (", "literal transcription"
+        "three short labeled",
+        "visible_text",
+        "description (",
+        "literal transcription",
     ):
         assert conflicting not in prompt, prompt
     for safeguard in (
@@ -112,7 +115,9 @@ async def test_locate_without_known_contract_never_gains_coordinate_authority(
     if unknown_model:
         config = replace(config, vision=ModelSpec("vision", "unknown/vision"))
     observation = await image_view.describe_image_observation(
-        config, _uri() if unknown_model else "data:image/png;base64,broken", "Find 2.",
+        config,
+        _uri() if unknown_model else "data:image/png;base64,broken",
+        "Find 2.",
         mode="locate",
     )
     assert not observation.can_ground and observation.coordinates is CoordinateStatus.REJECTED
@@ -288,9 +293,7 @@ async def test_describe_does_not_mislabel_noncurrent_or_unowned_images(
 
 
 @pytest.mark.parametrize("change", ["capture", "generation", "focus", "cancel"])
-async def test_foreground_describe_status_rechecks_final_file_await(
-    tmp_path, monkeypatch, change
-):
+async def test_foreground_describe_status_rechecks_final_file_await(tmp_path, monkeypatch, change):
     from fusion_cli.engines.agent.image_coordinates import ImageObservation
 
     from .test_desktop_visual_grounding import _capture, _setup

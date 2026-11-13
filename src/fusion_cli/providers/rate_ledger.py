@@ -113,7 +113,7 @@ class SqliteRateLedger:
                     _COOL + " RETURNING until", (key, failed_at + delay)
                 ).fetchone()
                 connection.execute("COMMIT")
-                return until - now
+                return float(until) - now
         except sqlite3.Error as error:
             _LOG.warning("hız defterine soğuma yazılamadı", extra={"hata": str(error)})
             return None

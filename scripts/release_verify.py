@@ -129,6 +129,23 @@ async def verify_runs(args: argparse.Namespace) -> dict[str, Any]:
             driver = item["driver"]
             if driver.get("hata") or driver.get("surucu_hatalari"):
                 raise ValueError("Frozen sürücü gözlemi geçersiz.")
+            task = next(task for task in tasks if task.id == item["task_id"])
+            if task.budget is None:
+                raise ValueError("Frozen görevin açık bütçesi eksik.")
+            turns = driver.get("turlar")
+            if (
+                not isinstance(turns, list)
+                or len(turns) != 1
+                or not isinstance(turns[0], dict)
+                or turns[0].get("ok") is not True
+                or turns[0].get("efektif_kanit") is not True
+                or driver.get("izinler") != []
+                or driver.get("sorular") != []
+            ):
+                raise ValueError("Frozen sohbet doğrulanmış ve etkileşimsiz biçimde tamamlanmadı.")
+            elapsed = turns[0].get("sure_ham_sn")
+            if type(elapsed) not in (int, float) or not 0 <= elapsed <= task.budget.timeout_s:
+                raise ValueError("Frozen sohbet görev süre bütçesini aştı.")
             proof = ImportedEngineProof(**driver["motor_kaniti"])
             if proof.source_digest != source or proof.requested_revision != args.commit:
                 raise ValueError("Çalışan motor kaynak kimliği uyuşmuyor.")
@@ -153,8 +170,7 @@ async def verify_runs(args: argparse.Namespace) -> dict[str, Any]:
             if event_path.parent != directory or event_path.is_symlink():
                 raise ValueError("Model olay yolu aday paketi dışına çıkamaz.")
             observed_calls = _calls(event_path, args.model)
-            task = next(task for task in tasks if task.id == item["task_id"])
-            if task.budget is None or len(observed_calls) > task.budget.max_model_calls:
+            if len(observed_calls) > task.budget.max_model_calls:
                 raise ValueError("Ölçülen model çağrısı görev bütçesini aştı.")
             calls_by_task[item["task_id"]] += len(observed_calls)
             calls.extend(observed_calls)

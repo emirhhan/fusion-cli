@@ -1,4 +1,5 @@
 """Protocol controls only: semantic correctness requires the retained live cases."""
+
 from __future__ import annotations
 
 import json

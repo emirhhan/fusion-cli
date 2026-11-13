@@ -80,8 +80,7 @@ _VISION_EVIDENCE_PROMPT = (
 )
 _VISION_NO_SUCCESS_PROMPT = "Do not claim that an action succeeded or that a task was verified."
 VISION_GROUNDING_PROMPT = (
-    _VISION_EVIDENCE_PROMPT
-    + "Preserve every visible digit and operator, including trailing "
+    _VISION_EVIDENCE_PROMPT + "Preserve every visible digit and operator, including trailing "
     "operators. If text is unclear say so rather than guessing. Return three short labeled "
     "fields: visible_text (literal transcription of relevant display text), "
     "description (visible objects/state only), uncertainty (unclear details or none). "

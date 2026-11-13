@@ -35,6 +35,8 @@ mcp_servers: []
 hosted_connectors: []
 web_sessions: []
 runtime:
+  interaction_prompts: false
+  judge_timeout_s: 60
   max_tokens: 8192
   request_timeout_s: 600
   max_retries: 0

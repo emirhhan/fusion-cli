@@ -18,7 +18,9 @@ class KeychainReadUnavailableError(RuntimeError):
 class _NativeApi(Protocol):
     def create_query(self, **kwargs: object) -> ctypes.c_void_p: ...
     def k_(self, name: str) -> ctypes.c_void_p: ...
+
     SecItemCopyMatching: Callable[[ctypes.c_void_p, object], int]
+
     def cfstr_to_str(self, data: ctypes.c_void_p) -> str: ...
 
 

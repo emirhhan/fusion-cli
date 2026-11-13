@@ -214,6 +214,7 @@ async def test_successful_keyboard_input_resets_the_focused_window_only(
 
     # This synthetic keyboard fixture must never claim the live GUI session lock.
     monkeypatch.setattr(desktop_lock, "lock_path", lambda: tmp_path / "desktop.lock")
+
     async def invoke(self, operation, args):
         return stale()
 
