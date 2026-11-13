@@ -27,6 +27,7 @@ from ..core.types import (
     is_authentication_error,
     is_web_session_error,
 )
+from .rate_gate import GATE_ERROR_PREFIX
 from .stream_cleanup import closing_stream
 
 #: Devre açıkken dönen sonucun hata metni. `FallbackProvider` bunu görüp sıradakine geçer.
@@ -57,7 +58,11 @@ class CircuitBreakingProvider:
     async def complete(self, request: CompletionRequest) -> ModelResult:
         if not self._health.allow():
             return self._skipped()
+        probe = self._health.active_probe
         result = await self._inner.complete(request)
+        if result.error and result.error.startswith(GATE_ERROR_PREFIX):
+            self._health.release_probe(probe)
+            return result
         if _budget_exhausted(result):
             return result
         # Kota hatası sıradan arıza değildir: sağlayıcı "şimdi olmaz" diyor ve aynı
@@ -76,12 +81,20 @@ class CircuitBreakingProvider:
         if not self._health.allow():
             yield StreamDone(self._skipped())
             return
+        probe = self._health.active_probe
         produced = False
         recorded = False
         async with closing_stream(self._inner.stream(request)) as stream:
             async for item in stream:
                 if isinstance(item, TextChunk) and item.text:
                     produced = True
+                elif (
+                    isinstance(item, StreamDone)
+                    and item.result.error
+                    and item.result.error.startswith(GATE_ERROR_PREFIX)
+                ):
+                    self._health.release_probe(probe)
+                    recorded = True
                 elif isinstance(item, StreamDone) and _budget_exhausted(item.result):
                     recorded = True
                 elif isinstance(item, StreamDone):

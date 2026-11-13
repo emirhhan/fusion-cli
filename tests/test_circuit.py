@@ -12,6 +12,7 @@ from fusion_cli.core.types import StreamDone
 from fusion_cli.providers.chain import FallbackProvider
 from fusion_cli.providers.circuit import CIRCUIT_OPEN_ERROR, CircuitBreakingProvider
 from fusion_cli.providers.factory import build_provider
+from fusion_cli.providers.rate_gate import GATE_ERROR_PREFIX
 
 from .fakes import FakeProvider, request
 
@@ -82,6 +83,45 @@ async def test_stream_sonucu_sagliga_kaydedilir():
     async for _ in sarmal.stream(request()):
         pass
     assert saglik.samples == 1
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("half_open", [False, True])
+async def test_local_pacing_rejection_does_not_open_model_circuit(stream, half_open):
+    inner = FakeProvider("m", ok=False, error=f"{GATE_ERROR_PREFIX} dakikalık sınır dolu")
+    clock = _MutableClock()
+    health = _health(clock, threshold=1)
+    if half_open:
+        health.record(ok=False)
+        clock.t = 60.0
+    samples = health.samples
+    provider = CircuitBreakingProvider(inner, health=health, role="agent")
+    if stream:
+        results = [
+            item async for item in provider.stream(request()) if isinstance(item, StreamDone)
+        ]
+        assert results[-1].result.is_rate_limited
+    else:
+        assert (await provider.complete(request())).is_rate_limited
+    assert health.phase is (CircuitPhase.HALF_OPEN if half_open else CircuitPhase.CLOSED)
+    assert health.samples == samples
+    assert health.allow()
+
+
+def test_stale_pacing_rejection_cannot_release_newer_probe():
+    clock = _MutableClock()
+    health = _health(clock, threshold=1)
+    health.record(ok=False)
+    clock.t = 60.0
+    assert health.allow()
+    earlier_probe = health.active_probe
+    assert earlier_probe is not None
+    clock.t = 120.0
+    assert health.allow()
+    assert health.active_probe != earlier_probe
+    health.release_probe(earlier_probe)
+    health.release_probe(None)
+    assert not health.allow()
 
 
 async def test_acik_devrede_stream_ic_saglayiciyi_cagirmaz():

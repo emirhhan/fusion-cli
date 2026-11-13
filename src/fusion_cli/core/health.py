@@ -83,6 +83,7 @@ class ModelHealth:
         self._opened_at = 0.0
         #: Yarı-açıkta uçuştaki deneme çağrısının başlangıcı; None = deneme yok.
         self._probe_started_at: float | None = None
+        self._probe_generation = 0
         #: Yeni model iyimser başlar: tek bir geçici arıza onu dışlamasın.
         self._score = initial_score
         self._samples = 0
@@ -133,14 +134,27 @@ class ModelHealth:
             if started is not None and now - started < self._current_cooldown():
                 return False
             self._probe_started_at = now
+            self._probe_generation += 1
             return True
         if self._phase is not CircuitPhase.OPEN:
             return True
         if now - self._opened_at >= self._current_cooldown():
             self._phase = CircuitPhase.HALF_OPEN
             self._probe_started_at = now
+            self._probe_generation += 1
             return True
         return False
+
+    @property
+    def active_probe(self) -> int | None:
+        if self._phase is CircuitPhase.HALF_OPEN and self._probe_started_at is not None:
+            return self._probe_generation
+        return None
+
+    def release_probe(self, probe: int | None) -> None:
+        """Release a half-open slot when local pacing prevented a provider call."""
+        if probe is not None and probe == self.active_probe:
+            self._probe_started_at = None
 
     def _current_cooldown(self) -> float:
         """Kota gerilimi varsa artan geri çekilme, yoksa normal soğuma.
