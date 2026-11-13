@@ -64,6 +64,7 @@ def test_derleme_yardimciyi_ayni_swift_kaynagindan_uretir(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(native_helper.platform, "machine", lambda: "arm64")
     calls: list[list[str]] = []
 
     def run(arguments: list[str], **options: object) -> subprocess.CompletedProcess[str]:
@@ -95,6 +96,30 @@ def test_windows_derlemesi_macos_yardimcisi_uretmez(
     monkeypatch.setattr(sys, "platform", "win32")
     assert native_helper.build_native_helper(str(tmp_path), str(tmp_path / "build")) is None
     assert not (tmp_path / "build").exists()
+
+
+def test_rosetta_uses_native_swift_compiler_with_intel_target(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(native_helper.platform, "machine", lambda: "x86_64")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if args[0] == "/usr/sbin/sysctl":
+            return subprocess.CompletedProcess(args, 0, "1\n", "")
+        Path(args[-1]).touch()
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    native_helper.build_native_helper(str(tmp_path), str(tmp_path / "build"))
+    assert calls[-1][:6] == [
+        "/usr/bin/arch",
+        "-arm64",
+        "/usr/bin/swiftc",
+        "-target",
+        "x86_64-apple-macos12.0",
+        str(tmp_path / "src/fusion_cli/tools/data/desktop_host.swift"),
+    ]
 
 
 def test_pyinstaller_tarifi_yardimciyi_resmi_workpath_ile_paketler(tmp_path: Path) -> None:
