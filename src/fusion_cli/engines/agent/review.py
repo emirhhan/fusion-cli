@@ -24,6 +24,7 @@ from ...core.constants import NEMOTRON_ULTRA_NIM_MODEL
 from ...core.events import EventPublisher
 from ...core.evidence import CriterionEvidence
 from ...core.rate_control import RateControl
+from ...core.reasoning import ReasoningEffort
 from ...core.redaction import redact
 from ...core.types import CompletionRequest, Message, ModelResult
 from ...providers.factory import build_provider
@@ -174,6 +175,24 @@ async def _ask(
         raise TimeoutError
     deadline = now + timeout
     structured_nim = response_schema is not None and config.judge.model == NEMOTRON_ULTRA_NIM_MODEL
+    timed_nim = (
+        task_deadline_s is not None
+        and task_deadline_s - now <= 180
+        and not disable_thinking
+        and config.runtime.reasoning_effort is ReasoningEffort.AUTO
+        and config.judge.model == NEMOTRON_ULTRA_NIM_MODEL
+        and not config.judge.fallback
+        and not any(
+            session.enabled and session.model == config.judge.model
+            for session in config.web_sessions
+        )
+        and config.runtime.judge_max_tokens >= 1024
+    )
+    reasoning_budget = None
+    if structured_nim:
+        reasoning_budget = min(_GROUNDED_NIM_REASONING_BUDGET, config.runtime.judge_max_tokens)
+    elif timed_nim:
+        reasoning_budget = min(768, config.runtime.judge_max_tokens // 4)
     request = CompletionRequest(
         messages=(Message("user", prompt),),
         temperature=config.runtime.utility_temperature,
@@ -181,10 +200,8 @@ async def _ask(
         timeout_s=timeout,
         max_retries=config.runtime.max_retries,
         disable_thinking=disable_thinking and not structured_nim,
-        reasoning_effort="medium" if structured_nim else None,
-        reasoning_budget=min(_GROUNDED_NIM_REASONING_BUDGET, config.runtime.judge_max_tokens)
-        if structured_nim
-        else None,
+        reasoning_effort="medium" if reasoning_budget is not None else None,
+        reasoning_budget=reasoning_budget,
         # Bu model/taşıma eşleşmesinde şema kısıtı gerçek uçta doğrulandı.
         # Diğer denetçiler kendi mevcut metin protokolünü korur.
         response_schema=response_schema if structured_nim else None,

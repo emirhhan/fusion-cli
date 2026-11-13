@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from fusion_cli.core.clock import SystemClock
+from fusion_cli.core.constants import NEMOTRON_ULTRA_NIM_MODEL
 from fusion_cli.core.events import ModelCallFinished, SelfReviewFinished, TurnAnswered
 from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
 from fusion_cli.core.execution_plan import VerificationCheckKind
@@ -23,6 +25,28 @@ from fusion_cli.providers.rate_ledger import SqliteRateLedger
 from .fakes import ScriptedProvider, model_result, tool_call
 from .test_agent_external_deadline import deps_for
 from .test_turn_deadline import FakeClock
+
+
+@pytest.mark.parametrize("timed", [False, True])
+async def test_nim_self_review_reasoning_leaves_time_to_finish(tmp_path, monkeypatch, timed):
+    deps = deps_for(tmp_path, None)
+    config = replace(
+        deps.config,
+        judge=replace(deps.config.judge, model=NEMOTRON_ULTRA_NIM_MODEL),
+        runtime=replace(deps.config.runtime, judge_max_tokens=3072),
+    )
+    requests = []
+
+    class Provider:
+        async def complete(self, request):
+            requests.append(request)
+            return model_result("TAMAM")
+
+    monkeypatch.setattr(review, "build_provider", lambda *args, **kwargs: Provider())
+    deadline = SystemClock().monotonic() + 180 if timed else None
+    assert (await review._ask("Denetle.", config, None, task_deadline_s=deadline)).ok
+    assert requests[0].reasoning_budget == (768 if timed else None)
+    assert requests[0].reasoning_effort == ("medium" if timed else None)
 
 
 @pytest.mark.parametrize("suppress_cancellation", [False, True])
