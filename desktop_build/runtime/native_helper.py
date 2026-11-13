@@ -22,7 +22,9 @@ def _swift_command() -> list[str]:
             check=False,
         )
         if translated.returncode == 0 and translated.stdout.strip() == "1":
-            return ["/usr/bin/arch", "-arm64", *command, "-target", "x86_64-apple-macos12.0"]
+            # The ARM host Swift toolchain lacks Intel compatibility archives
+            # for older macOS. Native Intel release builds use the normal path.
+            return ["/usr/bin/arch", "-arm64", *command, "-target", "x86_64-apple-macos15.0"]
     return command
 
 

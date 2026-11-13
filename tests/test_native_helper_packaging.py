@@ -117,7 +117,7 @@ def test_rosetta_uses_native_swift_compiler_with_intel_target(monkeypatch, tmp_p
         "-arm64",
         "/usr/bin/swiftc",
         "-target",
-        "x86_64-apple-macos12.0",
+        "x86_64-apple-macos15.0",
         str(tmp_path / "src/fusion_cli/tools/data/desktop_host.swift"),
     ]
 
