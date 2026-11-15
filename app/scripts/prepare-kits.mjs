@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, resolve } from "node:path";
+import { delimiter, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -154,10 +154,15 @@ function packageFromHead(source, nodeVersion) {
   try {
     const dependencies = resolve(kitsRoot, "node_modules");
     if (vendored) {
-      cpSync(kitsRoot, tree, {
-        recursive: true,
-        filter: (path) => path !== dependencies && path !== resolve(kitsRoot, "dist"),
-      });
+      const root = resolve(appRoot, "..");
+      const files = git(["ls-files", "-z", "--", "vendor/fusion-kits"], root);
+      if (files.status !== 0 || !files.stdout) throw new Error("Paketli Kits kaynakları okunamadı.");
+      for (const file of files.stdout.split("\0").filter(Boolean)) {
+        const input = resolve(root, file);
+        const output = resolve(tree, relative(kitsRoot, input));
+        mkdirSync(dirname(output), { recursive: true });
+        copyFileSync(input, output);
+      }
     } else {
       const add = git(["worktree", "add", "--detach", tree, source.commit]);
       if (add.status !== 0) throw new Error(`Geçici Kits ağacı açılamadı: ${add.stderr.trim()}`);
