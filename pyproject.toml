@@ -15,7 +15,7 @@ dependencies = [
     "litellm>=1.51,<2",
     "pyyaml>=6.0,<7",
     # Unicode emoji properties for local speech preparation.
-    "regex>=2024.11.6,<2027",
+    "regex>=2026.11.9,<2027",
     "typer>=0.12,<1",
     "rich>=13.7,<15",
     "python-dotenv>=1.0,<2",
