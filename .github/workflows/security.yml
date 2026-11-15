@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
       # Kural dosyası depodaki `.gitleaks.toml` (sentetik test sırları için dar izin listesi).
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
