@@ -44,3 +44,5 @@
 984eedd4cef575bcd5b05346888037d7bb5af108:tests/test_visible_transcript.py:curl-auth-user:420
 984eedd4cef575bcd5b05346888037d7bb5af108:tests/test_visible_transcript.py:curl-auth-user:491
 984eedd4cef575bcd5b05346888037d7bb5af108:tests/test_visible_transcript.py:curl-auth-user:537
+/private/tmp/fusion-publication.mWkGgc/tree/984eedd4cef575bcd5b05346888037d7bb5af108pp/src/feedback/report.test.ts:aws-access-token:107
+984eedd4cef575bcd5b05346888037d7bb5af108ests/test_diagnostic_redaction.py:aws-access-token:51

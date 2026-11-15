@@ -20,8 +20,6 @@ jobs:
         with:
           fetch-depth: 0
       - id: version
-        env:
-          BEFORE: ${{ github.event.before }}
         run: |
           config=app/src-tauri/tauri.conf.json
           current=$(jq -er '.version' "$config")
@@ -29,8 +27,6 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             test "$GITHUB_REF_NAME" = "$tag"
           elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]]; then
-            previous=$(git show "$BEFORE:$config" | jq -r '.version')
-            [[ "$previous" != "$current" ]] || exit 0
             tagged=$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}" || true)
             if [[ -n "$tagged" && "$tagged" != "$GITHUB_SHA" ]]; then
               exit 0
