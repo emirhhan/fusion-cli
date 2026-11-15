@@ -235,7 +235,7 @@ fn platform_status(kind: PermissionKind) -> PermissionCapability {
 /// Sistem izin penceresine kullanıcının cevabı için bekleme üst sınırı. Tamamlama bloğu hiç
 /// çağrılmazsa (pencere açılamadı, süreç askıda) `recv()` sonsuza dek bloklar ve
 /// `spawn_blocking` iş parçacığı sızardı (R2-17).
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(target_os = "macos")]
 const IZIN_CEVAP_ZAMAN_ASIMI: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Cevabı zaman aşımıyla bekler; gelmezse `None` (çağıran "bilinmiyor" döner, uydurmaz).
