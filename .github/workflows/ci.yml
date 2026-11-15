@@ -22,6 +22,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust değerlendirmelerinde kurulu derleyiciyi kullan
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess
+          compiler = subprocess.check_output(["rustup", "which", "rustc"], text=True).strip()
+          with pathlib.Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as path:
+              path.write(str(pathlib.Path(compiler).parent) + "\n")
+          PY
       - name: Bağımlılıkları kur
         run: make install
       # Davranış değerlendirmesi ve web oturumu testleri gerçek Chromium açar.
