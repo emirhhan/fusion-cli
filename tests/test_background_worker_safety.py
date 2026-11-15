@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from fusion_cli.cli import background_worker
@@ -152,7 +153,7 @@ def test_fusion_agent_bg_anlamsiz_bayragi_acik_hatayla_reddeder(cli_config, laun
     result = CliRunner().invoke(app, ["agent", "--bg", *flags, "rapor"])
 
     assert result.exit_code == 2
-    assert "--bg ile kullanılamaz" in result.output
+    assert "--bg ile kullanılamaz" in Text.from_ansi(result.output).plain
     assert launches == []
 
 

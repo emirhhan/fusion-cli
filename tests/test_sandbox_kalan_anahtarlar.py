@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import threading
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -120,11 +121,18 @@ def test_proje_ayari_yalitimi_gevsetemez_ve_mask_acamaz(tmp_path, monkeypatch, c
 
 
 def test_seatbelt_dis_proxy_portlari_ve_socks_ortami(tmp_path):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     policy = SandboxPolicy(allow_localhost=False, http_proxy_port=8080, socks_proxy_port=1081)
     endpoint = shell_sandbox.ProxyEndpoint(port=8080, socks_port=1081)
 
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (tmp_path,), policy=policy, platform="darwin", proxy=endpoint
+        "write_root",
+        (tmp_path,),
+        policy=policy,
+        platform="darwin",
+        executable=str(executable),
+        proxy=endpoint,
     )
 
     profile = plan.prefix[-1]
@@ -139,21 +147,29 @@ def test_seatbelt_dis_proxy_portlari_ve_socks_ortami(tmp_path):
         (tmp_path,),
         policy=SandboxPolicy(socks_proxy_port=1081),
         platform="darwin",
+        executable=str(executable),
         proxy=shell_sandbox.ProxyEndpoint(socks_port=1081),
     )
     assert dict(only_socks.env)["HTTPS_PROXY"] == "socks5h://127.0.0.1:1081"
 
 
 def test_dis_proxy_verilince_fusion_proxysi_baslamaz(tmp_path, monkeypatch):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     monkeypatch.setattr(sandbox_runtime, "_uses_unix_proxy", lambda: False)
+    monkeypatch.setattr(
+        sandbox_runtime,
+        "plan_shell_sandbox",
+        partial(shell_sandbox.plan_shell_sandbox, platform="darwin", executable=str(executable)),
+    )
     policy = SandboxPolicy(allowed_domains=("github.com",), http_proxy_port=8080)
     context = ToolContext(root=tmp_path, shell_sandbox="write_root", sandbox_policy=policy)
 
     run = sandbox_runtime.prepare_sandbox("curl x", {"command": "curl x"}, context)
     try:
         assert run.proxy is None
-        if run.plan.is_active:
-            assert dict(run.plan.env)["HTTP_PROXY"] == "http://127.0.0.1:8080"
+        assert run.plan.is_active
+        assert dict(run.plan.env)["HTTP_PROXY"] == "http://127.0.0.1:8080"
     finally:
         sandbox_runtime.release_sandbox(run)
 
@@ -187,15 +203,12 @@ def test_linuxta_dis_proxy_unix_aktariciyla_tasinir(tmp_path, monkeypatch):
 
 
 @_SEATBELT
-def test_gercek_sandboxta_filesystem_disabled_yazar_sirlar_kapali(tmp_path):
-    # Geçici dizinler sandbox'ta hep yazılabilir; dış hedef depo içinde açılıp silinir.
-    import tempfile
-
-    outside = Path(tempfile.mkdtemp(prefix=".fs-disabled-", dir=Path(__file__).parent))
-    try:
-        _filesystem_disabled_case(tmp_path, outside)
-    finally:
-        shutil.rmtree(outside, ignore_errors=True)
+def test_gercek_sandboxta_filesystem_disabled_yazar_sirlar_kapali(tmp_path, monkeypatch):
+    # Depo /tmp altında olsa bile dış hedef izinli köklerin dışında kalmalı.
+    monkeypatch.setattr(shell_sandbox, "_temporary_directories", lambda: ())
+    outside = tmp_path / "dis"
+    outside.mkdir()
+    _filesystem_disabled_case(tmp_path, outside)
 
 
 def _filesystem_disabled_case(tmp_path: Path, outside: Path) -> None:

@@ -80,6 +80,21 @@ def test_yorumlayicisi_pathte(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def tui_test_console():
+    """Konsolsuz Windows koşusunda terminal girdi ve çıktısını uygulamadan ayır."""
+    if sys.platform != "win32" or sys.stdout.isatty():
+        yield
+        return
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import DummyInput
+    from prompt_toolkit.output import DummyOutput
+
+    with create_app_session(input=DummyInput(), output=DummyOutput()):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def ortam_sizintisini_geri_al(monkeypatch):
     """Her test aynı süreç ortamıyla başlasın ve bitsin.
 

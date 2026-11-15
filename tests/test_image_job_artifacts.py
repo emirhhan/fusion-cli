@@ -15,6 +15,11 @@ from PIL import Image
 from fusion_cli.appserver import image_job_artifacts as artifacts
 from fusion_cli.core.image_jobs import ImageJobConflictError
 
+_requires_image_receipts = pytest.mark.skipif(
+    not artifacts.receipt_reads_supported(),
+    reason="Platform güvenli görsel makbuzu okumayı desteklemiyor.",
+)
+
 
 def _image(path, color="blue"):
     Image.new("RGB", (12, 7), color).save(path)
@@ -23,7 +28,12 @@ def _image(path, color="blue"):
 
 def test_receipt_uses_observed_dimensions_and_content_fingerprint(tmp_path):
     path = tmp_path / "image.png"
-    (receipt,) = artifacts.collect_outputs(_image(path), tmp_path)
+    result = _image(path)
+    if not artifacts.receipt_reads_supported():
+        with pytest.raises(ImageJobConflictError):
+            artifacts.collect_outputs(result, tmp_path)
+        return
+    (receipt,) = artifacts.collect_outputs(result, tmp_path)
     assert (receipt.width, receipt.height) == (12, 7)
     assert receipt.digest == hashlib.sha256(path.read_bytes()).hexdigest()
     assert artifacts.outputs_current((receipt,), tmp_path)
@@ -31,7 +41,16 @@ def test_receipt_uses_observed_dimensions_and_content_fingerprint(tmp_path):
     assert not artifacts.outputs_current((receipt,), tmp_path)
 
 
-@pytest.mark.parametrize("kind", ["outside", "symlink", "invalid_image", "missing", "duplicate"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "outside",
+        pytest.param("symlink", marks=_requires_image_receipts),
+        "invalid_image",
+        "missing",
+        "duplicate",
+    ],
+)
 def test_invalid_or_outside_artifact_never_becomes_output_receipt(tmp_path, kind):
     gallery = tmp_path / "gallery"
     gallery.mkdir()
@@ -60,6 +79,7 @@ def test_artifact_read_limit_rejects_oversized_payload(tmp_path, monkeypatch):
         artifacts.collect_outputs(result, tmp_path)
 
 
+@_requires_image_receipts
 @pytest.mark.parametrize("retarget", ["parent", "leaf"])
 def test_retarget_between_validation_and_open_never_reads_outside_bytes(
     tmp_path, monkeypatch, retarget
@@ -102,6 +122,7 @@ def test_retarget_between_validation_and_open_never_reads_outside_bytes(
     assert changed and outside_inode not in read_inodes
 
 
+@_requires_image_receipts
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO bu platformda yok")
 @pytest.mark.parametrize("replace_at_open", [False, True])
 def test_fifo_output_is_rejected_without_waiting_for_writer(tmp_path, monkeypatch, replace_at_open):

@@ -6,6 +6,8 @@ reddeder (allow kuralı/kanca onaylamadıkça); bayrak adı `--permission-mode`.
 
 from __future__ import annotations
 
+from rich.text import Text
+
 from fusion_cli.cli import app as cli_app
 from fusion_cli.cli.unprompted import UnpromptedPrompter
 from fusion_cli.core.tools import Tool
@@ -61,4 +63,4 @@ def test_permission_mode_bayragi_tanimli():
     from typer.testing import CliRunner
 
     yardim = CliRunner().invoke(cli_app.app, ["agent", "--help"]).output
-    assert "--permission-mode" in yardim
+    assert "--permission-mode" in Text.from_ansi(yardim).plain

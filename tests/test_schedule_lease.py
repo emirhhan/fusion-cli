@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from fusion_cli.appserver import schedule
 from fusion_cli.appserver.schedule_lease import (
@@ -14,8 +14,7 @@ from fusion_cli.appserver.schedule_lease import (
     release_lease,
 )
 
-TZ = timezone(timedelta(hours=3))
-NOW = datetime(2026, 10, 5, 10, 0, tzinfo=TZ)
+NOW = datetime(2026, 10, 5, 10, 0).astimezone()
 
 
 def test_ilk_sahip_alir_ikinci_bekler(tmp_path):
@@ -96,7 +95,7 @@ def test_iki_yoklayici_ayni_vadeyi_iki_kez_almaz(tmp_path):
     schedule.save_schedule(
         {"gorev": "Rapor", "kok": str(tmp_path), "tur": "gunluk", "saat": "11:00"}, yol, NOW
     )
-    zaman = datetime(2026, 10, 5, 11, 0, 20, tzinfo=TZ)
+    zaman = datetime(2026, 10, 5, 11, 0, 20).astimezone()
     sonuclar: list[list[dict]] = []
     kilit = threading.Lock()
 

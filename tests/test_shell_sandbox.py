@@ -74,9 +74,11 @@ def test_sandbox_exec_yoksa_uyarirla_kapali_kalir(tmp_path):
 
 
 def test_profil_yollari_parametre_olarak_gecer_enjeksiyon_yok(tmp_path):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     kotu = tmp_path / 'a") (allow file-write* (subpath "/")'
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (kotu,), platform="darwin", executable="/usr/bin/sandbox-exec"
+        "write_root", (kotu,), platform="darwin", executable=str(executable)
     )
     profil = plan.prefix[plan.prefix.index("-p") + 1]
     assert str(kotu) not in profil

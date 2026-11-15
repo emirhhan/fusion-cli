@@ -27,7 +27,8 @@ def test_kopru_calisirken_eslesme_bilgisi_verilir_ve_dosya_yalniz_kullaniciya_ac
     chrome_host.serve(_ileti({"type": "pair"}), cikti)
 
     assert _cevap(cikti) == {"ok": True, "port": 51234, "anahtar": "gizli"}
-    assert oct(chrome_host.bridge_state_file().stat().st_mode & 0o777) == "0o600"
+    if os.name == "posix":
+        assert oct(chrome_host.bridge_state_file().stat().st_mode & 0o777) == "0o600"
 
 
 def test_sahibi_olmus_ya_da_silinmis_kopru_bildirilmez():
@@ -47,12 +48,17 @@ def test_sahibi_olmus_ya_da_silinmis_kopru_bildirilmez():
 def test_eklenti_kimligi_chrome_yontemiyle_hesaplanir():
     # Chrome: yolun SHA-256 özetinin ilk 32 onaltılık hanesi, 0-f → a-p.
     yol = Path("/Users/kullanici/Desktop/01-Projeler/fusion-cli/chrome-extension")
-    assert chrome_host.extension_id_for_path(yol) == "eigpikpghdhbbefejciokiinjcpiegjc"
+    beklenen = (
+        "bajaghkcdnihigpgdllkiphccfajmejo"
+        if os.name == "nt"
+        else "eigpikpghdhbbefejciokiinjcpiegjc"
+    )
+    assert chrome_host.extension_id_for_path(yol) == beklenen
 
 
 def test_yuklu_fusion_browser_kimligi_yalniz_guvenilir_klasorden_bulunur(tmp_path):
     """Ad kimlik kanıtı değildir (bkz. test_native_host_identity)."""
-    profil = tmp_path / "Library/Application Support/Google/Chrome/Default"
+    profil = chrome_host.chrome_user_data_dir(tmp_path) / "Default"
     profil.mkdir(parents=True)
     guvenilir = str(chrome_host.trusted_extension_dirs()[0])
     (profil / "Preferences").write_text(
@@ -98,5 +104,6 @@ def test_mevcut_gevsek_izinli_durum_dosyasi_yeniden_yazilirken_sikilasir():
 
     chrome_host.write_bridge_state(1234, "gizli")
 
-    assert oct(yol.stat().st_mode & 0o777) == "0o600"
+    if os.name == "posix":
+        assert oct(yol.stat().st_mode & 0o777) == "0o600"
     assert json.loads(yol.read_text(encoding="utf-8"))["port"] == 1234

@@ -42,6 +42,8 @@ jobs:
       # Yerelde çalıştırılan kapının birebir aynısı; CI'a özel kural yoktur.
       # `make check` = lint + type + test + deadlock.
       - name: Kalite kapısı
+        env:
+          PYTEST_ADDOPTS: "-vv --durations=30"
         run: make check
 
       # Kilitlenme ağı AYRI bir adım olarak da görünür.

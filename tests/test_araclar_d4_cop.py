@@ -130,7 +130,7 @@ def test_job_gunlugu_kuyrugu_tum_dosyayi_okumaz(tmp_path, monkeypatch):
 def test_job_gunlugu_kisa_ise_oldugu_gibi(tmp_path):
     from fusion_cli.tools import jobs
 
-    (tmp_path / "j2.log").write_text("merhaba\n", encoding="utf-8")
+    (tmp_path / "j2.log").write_bytes(b"merhaba\n")
 
     assert jobs._tail(tmp_path, "j2") == "merhaba\n"
     assert jobs._tail(tmp_path, "yok") == ""

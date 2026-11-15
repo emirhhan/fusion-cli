@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.text import Text
 from typer.testing import CliRunner
 
 from fusion_cli.cli import app as app_module
@@ -270,9 +271,8 @@ def test_terminal_sorusu_arka_plan_is_parcaciginda_sorulur_ve_cevabi_ileride_ver
 def test_cli_yardim_komutu_tanitir() -> None:
     result = CliRunner().invoke(app_module.app, ["remote-control", "--help"])
     assert result.exit_code == 0
-    assert (
-        "--telegram" in result.stdout and "--kapsam" in result.stdout and "--adres" in result.stdout
-    )
+    help_text = Text.from_ansi(result.stdout).plain
+    assert all(flag in help_text for flag in ("--telegram", "--kapsam", "--adres"))
 
 
 def test_onay_saat_araligi_disinda_komut_sunucu_acmadan_duser() -> None:
@@ -281,7 +281,7 @@ def test_onay_saat_araligi_disinda_komut_sunucu_acmadan_duser() -> None:
     for value in ("-5", "200"):
         result = CliRunner().invoke(app_module.app, ["remote-control", "--onay-saat", value])
         assert result.exit_code == 2, result.output
-        assert "onay-saat" in result.output
+        assert "onay-saat" in Text.from_ansi(result.output).plain
 
 
 async def test_repl_rc_komutu_kayitli_ve_sunucu_yokken_yol_gosterir(tmp_path: Path) -> None:

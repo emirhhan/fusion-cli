@@ -123,6 +123,8 @@ def _repo(home: Path, name: str = "yardimci") -> Path:
     runner.invoke(app, ["init", name, "--author", "A"])
     root = home / ".claude" / "skills" / name
     _git(root, "init", "-q")
+    _git(root, "config", "--local", "user.name", "Fusion Test")
+    _git(root, "config", "--local", "user.email", "fusion-test@example.invalid")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "i")
     return root

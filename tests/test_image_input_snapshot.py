@@ -16,6 +16,7 @@ import pytest
 
 from fusion_cli.appserver import image_create
 from fusion_cli.appserver import session as module
+from fusion_cli.appserver.image_job_artifacts import receipt_reads_supported
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
 from tests.test_image_create_flow import _config
@@ -44,13 +45,20 @@ async def test_kalici_is_eksik_referansi_kabul_oncesi_kodlu_reddeder(tmp_path, m
                 {"requestId": "job-1", "istem": "x", "referans": str(Path(tmp_path) / "yok.png")},
             )
         )
-        assert sonuc["ok"] is False and sonuc["code"] == "reference_invalid"
+        assert sonuc["ok"] is False
+        if not receipt_reads_supported():
+            assert sonuc["code"] == "unavailable"
+            return
+        assert sonuc["code"] == "reference_invalid"
         listed = await session._dispatch(Request("l", "gorsel.is.liste", {}))
         assert listed["isler"] == []
     finally:
         await session.close()
 
 
+@pytest.mark.skipif(
+    not receipt_reads_supported(), reason="Platform güvenli görsel makbuzu okumayı desteklemiyor."
+)
 @pytest.mark.parametrize("alan", ["istem", "oran"])
 async def test_baslangic_sonrasi_degisen_istek_calisan_isi_etkilemez(
     tmp_path, monkeypatch, alan
@@ -74,8 +82,9 @@ async def test_baslangic_sonrasi_degisen_istek_calisan_isi_etkilemez(
     session = AppSession([].append, root=tmp_path, home=tmp_path / "ev")
     veri = {"requestId": "snap-1", "istem": "dağ", "oran": "16:9", "saglayici": "offline"}
     try:
-        await session._dispatch(Request("s", "gorsel.is.baslat", veri))
-        await girdi.wait()
+        accepted = await session._dispatch(Request("s", "gorsel.is.baslat", veri))
+        assert accepted["ok"] is True, accepted
+        await asyncio.wait_for(girdi.wait(), 5)
         veri[alan] = "değişti"  # çağıranın sözlüğü iş başladıktan sonra değişir
         serbest.set()
         await asyncio.wait_for(tuketildi.wait(), 3)
@@ -95,6 +104,9 @@ async def test_desteklenmeyen_model_secimi_uretmeden_acik_hata_verir(tmp_path, m
     assert sonuc["ok"] is False and "dosyalar" not in sonuc
 
 
+@pytest.mark.skipif(
+    not receipt_reads_supported(), reason="Platform güvenli görsel makbuzu okumayı desteklemiyor."
+)
 @pytest.mark.parametrize("kesim", [0.5, 0.9])
 def test_yarim_yazilmis_gorsel_son_cikti_sayilmaz(tmp_path, kesim) -> None:
     """Kesik PNG tam çözümlemede reddedilir; iş başarı makbuzu yazılamaz."""

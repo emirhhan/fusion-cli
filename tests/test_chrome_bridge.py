@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 
 import httpx
 import pytest
@@ -15,6 +16,21 @@ from fusion_cli.tools import chrome
 
 pytestmark = pytest.mark.asyncio
 ORIGIN = "chrome-extension://abcdefghijklmnop"
+
+
+async def test_kopru_durumunda_gecersiz_pid_sinyal_gondermez(tmp_path, monkeypatch):
+    from fusion_cli.appserver import chrome_host
+
+    state_path = tmp_path / "chrome-bridge.json"
+    state_path.write_text(json.dumps({"port": 4567, "anahtar": "test", "pid": 0}), encoding="utf-8")
+    monkeypatch.setattr(chrome_host, "bridge_state_file", lambda: state_path)
+
+    def reject_signal(pid, signal):
+        pytest.fail("Geçersiz süreç kimliğine sinyal gönderilmemeli.")
+
+    monkeypatch.setattr(chrome_host.os, "kill", reject_signal)
+
+    assert chrome_host.read_bridge_state() is None
 
 
 async def test_yalniz_eklenti_origin_ve_anahtari_kabul_edilir() -> None:

@@ -142,8 +142,14 @@ def _git_init(root: Path) -> None:
 
 def test_profil_git_ve_ayar_yollarini_yazmaya_kapatir(proje):
     _git_init(proje)
+    executable = proje / "sandbox-exec"
+    executable.touch()
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (proje,), policy=SandboxPolicy(), platform="darwin", executable="/bin/sh"
+        "write_root",
+        (proje,),
+        policy=SandboxPolicy(),
+        platform="darwin",
+        executable=str(executable),
     )
     argv = list(plan.prefix)
     parametreler = {argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "-D"}

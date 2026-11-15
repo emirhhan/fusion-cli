@@ -50,7 +50,7 @@ async def test_proje_listesi_klasorleri_once_ve_sayfali_dondurur(tmp_path: Path)
 async def test_proje_oku_utf8_icerik_ve_sha256_dondurur(tmp_path: Path):
     """İçerik veya özet yanlış dosyadan gelirse editör stale yazımı algılayamaz."""
     content = "merhaba\nşğü\n"
-    (tmp_path / "not.txt").write_text(content, encoding="utf-8")
+    (tmp_path / "not.txt").write_bytes(content.encode("utf-8"))
 
     result = await _request(tmp_path, "proje.oku", {"yol": "not.txt"})
 
@@ -170,7 +170,7 @@ async def test_proje_durumu_tum_agaci_taramadan_temel_yetenekleri_bildirir(tmp_p
 async def test_proje_yaz_sha_kapisi_diff_ve_geri_alma_saglar(tmp_path: Path):
     """Hash kapısı veya anlık görüntü kalkarsa UI başkasının yazımını sessizce ezer."""
     path = tmp_path / "app.txt"
-    path.write_text("eski\n", encoding="utf-8")
+    path.write_bytes(b"eski\n")
     old_sha = hashlib.sha256(b"eski\n").hexdigest()
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path.parent / ".fusion-home")

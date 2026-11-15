@@ -116,10 +116,12 @@ def test_sandbox_disi_eski_yildizsiz_onek_takma_ad():
 
 
 def test_okuma_engeli_ve_ek_kok_profile_parametreyle_girer(tmp_path):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     gizli = tmp_path / 'gizli") (allow file-read*'
     policy = SandboxPolicy(deny_read=(gizli,), extra_write=(tmp_path / "ek",))
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (tmp_path,), policy=policy, platform="darwin", executable=str(_SANDBOX_EXEC)
+        "write_root", (tmp_path,), policy=policy, platform="darwin", executable=str(executable)
     )
     profil = plan.prefix[plan.prefix.index("-p") + 1]
     assert str(gizli) not in profil
@@ -129,13 +131,15 @@ def test_okuma_engeli_ve_ek_kok_profile_parametreyle_girer(tmp_path):
 
 
 def test_ag_allowlist_profili_yalniz_proxy_portuna_izin_verir(tmp_path):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     policy = SandboxPolicy(network="allowlist", allowed_domains=("x.com",), allow_localhost=False)
     plan = shell_sandbox.plan_shell_sandbox(
         "write_root",
         (tmp_path,),
         policy=policy,
         platform="darwin",
-        executable=str(_SANDBOX_EXEC),
+        executable=str(executable),
         proxy=shell_sandbox.ProxyEndpoint(port=41234),
     )
     profil = plan.prefix[plan.prefix.index("-p") + 1]
@@ -147,12 +151,14 @@ def test_ag_allowlist_profili_yalniz_proxy_portuna_izin_verir(tmp_path):
 
 
 def test_ag_acik_kipte_ag_kurali_ve_proxy_ortami_yok(tmp_path):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     plan = shell_sandbox.plan_shell_sandbox(
         "write_root",
         (tmp_path,),
         policy=SandboxPolicy(network="open"),
         platform="darwin",
-        executable=str(_SANDBOX_EXEC),
+        executable=str(executable),
     )
     assert "network" not in plan.prefix[-1] and plan.env == ()
 

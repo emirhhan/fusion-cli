@@ -226,14 +226,18 @@ def test_sandbox_paneli_kip_ve_gecersiz_kilma_yerel_ayara_yazar(tmp_path):
     gecisler = [label for label in seen[0] if label.startswith("Sekme › ")]
     assert gecisler == ["Sekme › Geçersiz kılmalar", "Sekme › Yapılandırma"]
 
-    kati = panel.sandbox_panel(sonuc.config, tmp_path, picker=picker(panel.OVERRIDE_STRICT))
+    kati = panel.sandbox_panel(
+        sonuc.config, tmp_path, picker=picker(panel.OVERRIDE_STRICT), platform="darwin"
+    )
     yerel = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
     assert yerel["sandbox"]["allowUnsandboxedCommands"] is False
     assert not kati.config.sandbox.allow_unsandboxed
     secili = [label for label in seen[-1] if "●" in label]
     assert any("normal izinlerle" in label for label in secili)
 
-    durum = panel.sandbox_panel(kati.config, tmp_path, picker=picker(panel.SHOW_CONFIG))
+    durum = panel.sandbox_panel(
+        kati.config, tmp_path, picker=picker(panel.SHOW_CONFIG), platform="darwin"
+    )
     assert durum.config is kati.config and "sandbox" in durum.message.lower()
     deps = panel.dependency_report("linux")
     assert "bwrap" in deps and "socat" in deps

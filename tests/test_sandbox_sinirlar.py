@@ -289,9 +289,11 @@ def test_fusion_web_profillerinin_canli_cdp_portlari_okunur(tmp_path, monkeypatc
 
 @pytest.mark.parametrize("ag", ["open", "allowlist"])
 def test_seatbelt_profili_cdp_portunu_localhost_izninden_sonra_kapatir(tmp_path, ag):
+    executable = tmp_path / "sandbox-exec"
+    executable.touch()
     policy = SandboxPolicy(network=ag, denied_local_ports=(41234,))
     plan = shell_sandbox.plan_shell_sandbox(
-        "write_root", (tmp_path,), policy=policy, platform="darwin", executable="/bin/sh"
+        "write_root", (tmp_path,), policy=policy, platform="darwin", executable=str(executable)
     )
     profil = plan.prefix[-1]
     kural = '(deny network-outbound (remote ip "localhost:41234"))'

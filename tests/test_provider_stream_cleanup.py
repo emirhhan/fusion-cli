@@ -187,16 +187,12 @@ async def test_legacy_or_unknown_sync_closer_is_not_called(monkeypatch, closer):
 
 @pytest.mark.parametrize("mode", ["eof", "cancel", "close", "error"])
 async def test_installed_sdk_closes_httpx_stream_offline(monkeypatch, mode):
-    """Exercise the pinned SDK's actual aclose hook, without sockets or DNS."""
+    """Exercise the installed SDK's actual aclose hook, without sockets or DNS."""
     import socket
-    from importlib.metadata import version
 
     import httpx
     import litellm
     from openai import AsyncOpenAI
-
-    assert version("litellm") == "1.105.1"
-    assert version("httpx") == "0.28.1"
 
     def forbidden(*args, **kwargs):
         pytest.fail("network access forbidden")
@@ -221,6 +217,11 @@ async def test_installed_sdk_closes_httpx_stream_offline(monkeypatch, mode):
                 await asyncio.Event().wait()
             if mode == "error":
                 raise httpx.ReadError("synthetic read error")
+            yield (
+                b'data: {"id":"synthetic","object":"chat.completion.chunk",'
+                b'"created":1,"model":"synthetic","choices":[{"index":0,'
+                b'"delta":{},"finish_reason":"stop"}]}\n\n'
+            )
             yield b"data: [DONE]\n\n"
 
         async def aclose(self):
@@ -270,7 +271,7 @@ async def test_installed_sdk_closes_httpx_stream_offline(monkeypatch, mode):
                 await pending
         else:
             result = [item async for item in stream][-1].result
-            assert result.ok == (mode == "eof")
+            assert result.ok == (mode == "eof"), result.error
         assert body.closed == 1
         assert acquired[0].completion_stream is None
     finally:

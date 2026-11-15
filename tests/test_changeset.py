@@ -201,7 +201,7 @@ def test_arac_yazmasindan_sonraki_kullanici_degisimine_geri_alma_dokunmaz(tmp_pa
     from fusion_cli.tools.files import edit_file
 
     dosya = tmp_path / "a.py"
-    dosya.write_text("ilk\n", encoding="utf-8")
+    dosya.write_bytes(b"ilk\n")
     context = ToolContext(root=tmp_path)
     assert edit_file({"path": "a.py", "old": "ilk", "new": "ajan"}, context).ok
     dosya.write_text("kullanici\n", encoding="utf-8")

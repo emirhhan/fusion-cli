@@ -14,7 +14,6 @@ CLI'dan ya da ajandan bir Kit'e serbest mesaj bırakma yolu yoktu (P-063).
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +24,7 @@ import httpx
 from ..config.paths import kits_state_file
 from ..core.constants import KITS_DEFAULT_URL, KITS_TIMEOUT_S
 from ..core.errors import FusionError
+from ..core.process_liveness import process_alive
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 
@@ -51,30 +51,18 @@ class KitsEndpoint:
     source: str
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
-
-
 def read_kits_state(path: Path) -> KitsEndpoint | None:
     """Durum dosyasını oku; yazan süreç ölmüşse ya da adres yerel HTTP değilse `None`."""
     try:
         veri = json.loads(path.read_text(encoding="utf-8"))
         url = str(veri["url"])
         pid = int(veri["pid"])
+        if process_alive(pid) is not True:
+            return None
     except (OSError, ValueError, KeyError, TypeError):
         return None
     parts = urlsplit(url)
     if parts.scheme != "http" or parts.hostname not in _LOOPBACK_HOSTS or not parts.port:
-        return None
-    if not _pid_alive(pid):
         return None
     return KitsEndpoint(f"{parts.scheme}://{parts.netloc}", "masaustu")
 

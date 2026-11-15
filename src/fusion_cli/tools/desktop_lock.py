@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from ..core.file_lease import FileLease
+from ..core.process_liveness import process_alive
 
 LOCK_DIRECTORY_TEMPLATE = "fusion-desktop-{uid}"
 LOCK_FILE_NAME = "oturum.lock"
@@ -55,35 +56,8 @@ def lock_path() -> Path:
 
 
 def _is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-        kernel.OpenProcess.restype = wintypes.HANDLE
-        kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
-        kernel.WaitForSingleObject.restype = wintypes.DWORD
-        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
-        kernel.CloseHandle.restype = wintypes.BOOL
-        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
-        if not handle:
-            # ERROR_INVALID_PARAMETER: no such process. Other failures are ambiguous.
-            return ctypes.get_last_error() != 87
-        try:
-            return int(kernel.WaitForSingleObject(handle, 0)) != 0  # WAIT_OBJECT_0: exited
-        finally:
-            kernel.CloseHandle(handle)
-    else:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+    # Sahibi doğrulanamayan kilit başka oturuma verilmez.
+    return process_alive(pid) is not False
 
 
 def _parse(raw: bytes) -> LockOwner | None:

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from ..config.paths import base_config_dir
+from ..core.process_liveness import process_alive
 from .native_host_paths import host_dirs, windows_host_keys
 
 HOST_NAME = "com.fusion.browser"
@@ -68,10 +69,12 @@ def clear_bridge_state(pid: int | None = None) -> None:
 def read_bridge_state() -> dict[str, Any] | None:
     try:
         veri = json.loads(bridge_state_file().read_text(encoding="utf-8"))
-        os.kill(int(veri["pid"]), 0)
+        pid = veri["pid"]
+        if type(pid) is not int or process_alive(pid) is not True:
+            return None
+        return {"port": int(veri["port"]), "anahtar": str(veri["anahtar"])}
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    return {"port": int(veri["port"]), "anahtar": str(veri["anahtar"])}
 
 
 def extension_id_for_path(path: Path) -> str:
