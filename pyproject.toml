@@ -28,7 +28,7 @@ dependencies = [
     # doğrulandı. Sınır tamamen kaldırılmıyor; bir sonraki ana sürüm yine ölçülsün.
     "cryptography>=42,<51",
     # API keys and web-session cookies use the OS credential vault when available.
-    "keyring>=25,<27",
+    "keyring>=25.7.0,<27",
     # Ajanın ürettiği görseli tam ölçüye getirme ve srcset kopyaları (WebP/AVIF).
     # macOS `sips` Windows'ta yok; Pillow iki platformda aynı. 11.3 AVIF yazabilen
     # ilk sürüm; 12.3 ile WebP+AVIF doğrulandı (1 Ekim 2026).
