@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import dataclasses
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from fusion_cli.config import paths
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.models import RuntimeConfig
 from fusion_cli.config.paths import bundled_defaults
@@ -21,6 +23,14 @@ def _yaz(tmp_path, data):
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return path
+
+
+def test_windows_yapilandirmasi_testin_gecici_dizininde_kalir(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "sys", SimpleNamespace(platform="win32"))
+
+    config_dir = paths.base_config_dir()
+
+    assert config_dir == tmp_path.parent / f".{tmp_path.name}-fusion-config" / paths.APP_NAME
 
 
 def test_kullanici_dosyasi_yoksa_varsayilanlar_yuklenir(tmp_path, monkeypatch):

@@ -14,9 +14,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from fusion_cli.appserver.image_job_artifacts import receipt_reads_supported
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
 from fusion_cli.ui import messages
+
+_requires_image_receipts = pytest.mark.skipif(
+    not receipt_reads_supported(), reason="Platform güvenli görsel makbuzu okumayı desteklemiyor."
+)
 
 
 def _session(tmp_path, satirlar):
@@ -710,8 +715,13 @@ async def test_tur_ekleri_yalniz_yol_metadatasi_olarak_baglanca_girer(tmp_path, 
         )
     )
 
-    assert str(attachment) in gorulen["extra_system"]
-    assert '"kind": "image"' in gorulen["extra_system"]
+    _, opening_tag, attachment_block = gorulen["extra_system"].partition("<kullanici_ekleri>\n")
+    block, closing_tag, _ = attachment_block.partition("\n</kullanici_ekleri>")
+    assert opening_tag and closing_tag
+    attachment_metadata = json.loads(block.splitlines()[-1])
+    assert attachment_metadata == [
+        {"path": str(attachment), "name": "ornek.png", "kind": "image"},
+    ]
     assert "BURASI-PROTOKOLE-GIRMEMELI" not in gorulen["extra_system"]
 
 
@@ -1932,6 +1942,24 @@ async def test_child_cancel_rpc_rejects_stale_turn_and_waits_cleanup(tmp_path):
     await session.close()
 
 
+async def test_persistent_image_routes_are_unavailable_without_safe_receipts(tmp_path, monkeypatch):
+    from fusion_cli.appserver import session as module
+
+    monkeypatch.setattr(module, "receipt_reads_supported", lambda: False)
+    monkeypatch.setattr(module, "image_providers", lambda _config: [])
+    session = _session(tmp_path, [])
+    try:
+        providers = await session._dispatch(Request("providers", "gorsel.saglayicilar", {}))
+        result = await session._dispatch(
+            Request("start", "gorsel.is.baslat", {"requestId": "no-receipts", "istem": "deneme"})
+        )
+        assert providers["ok"] is True and "isProtokolu" not in providers
+        assert result["ok"] is False and result["code"] == "unavailable"
+    finally:
+        await session.close()
+
+
+@_requires_image_receipts
 async def test_persistent_image_routes_deduplicate_and_scope_receipts(tmp_path, monkeypatch):
     from PIL import Image
 
@@ -1984,6 +2012,7 @@ async def test_persistent_image_routes_deduplicate_and_scope_receipts(tmp_path, 
         await session.close()
 
 
+@_requires_image_receipts
 async def test_persistent_image_close_finishes_receipt_before_store_close(tmp_path, monkeypatch):
     from fusion_cli.appserver import session as module
 
@@ -2002,10 +2031,16 @@ async def test_persistent_image_close_finishes_receipt_before_store_close(tmp_pa
 
     monkeypatch.setattr(module, "create_image", render)
     session = _session(tmp_path, [])
-    await session._dispatch(
-        Request("start", "gorsel.is.baslat", {"requestId": "close-job", "istem": "deneme"})
-    )
-    await started.wait()
+    try:
+        accepted = await session._dispatch(
+            Request("start", "gorsel.is.baslat", {"requestId": "close-job", "istem": "deneme"})
+        )
+        assert accepted["ok"] is True, accepted
+        await asyncio.wait_for(started.wait(), 5)
+    except (AssertionError, TimeoutError):
+        release.set()
+        await session.close()
+        raise
     closing = asyncio.create_task(session.close())
     try:
         await asyncio.wait_for(cleaning.wait(), 2)
@@ -2036,6 +2071,7 @@ async def test_persistent_image_close_finishes_receipt_before_store_close(tmp_pa
         await store.close()
 
 
+@_requires_image_receipts
 async def test_persistent_image_uses_captured_reference_after_original_changes(
     tmp_path, monkeypatch
 ):
@@ -2064,7 +2100,7 @@ async def test_persistent_image_uses_captured_reference_after_original_changes(
     monkeypatch.setattr(module, "create_image", render)
     session = _session(tmp_path, [])
     try:
-        await session._dispatch(
+        accepted = await session._dispatch(
             Request(
                 "start",
                 "gorsel.is.baslat",
@@ -2075,7 +2111,8 @@ async def test_persistent_image_uses_captured_reference_after_original_changes(
                 },
             )
         )
-        await entered.wait()
+        assert accepted["ok"] is True, accepted
+        await asyncio.wait_for(entered.wait(), 5)
         Image.new("RGB", (9, 6), "red").save(reference)
         release.set()
         await asyncio.wait_for(consumed_ready.wait(), 3)

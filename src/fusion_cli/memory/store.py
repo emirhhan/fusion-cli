@@ -376,8 +376,8 @@ def get_collection(directory: Path, name: str, *, embedding_function: Any = None
         raise MemoryUnavailableError(f"Koleksiyon açılamadı ({name}): {exc}") from exc
 
 
-def reset_clients() -> None:
-    """Önbelleklenmiş istemcileri kapatıp bırak (testler arası izolasyon için)."""
+def reset_clients() -> bool:
+    """Önbelleklenmiş istemcileri kapat ve en az bir istemci olup olmadığını bildir."""
     _disabled.clear()
     with _lock:
         clients = tuple(_clients.values())
@@ -386,3 +386,4 @@ def reset_clients() -> None:
         close = getattr(client, "close", None)
         if callable(close):
             close()
+    return bool(clients)

@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 
 from fusion_cli.appserver import schedule
 
-TZ = timezone(timedelta(hours=3))
-#: 5 Ekim 2026 Pazartesi 10:00 (+03).
-NOW = datetime(2026, 10, 5, 10, 0, tzinfo=TZ)
+
+def _local_time(day: int, hour: int, minute: int = 0, second: int = 0) -> datetime:
+    return datetime(2026, 10, day, hour, minute, second).astimezone()
+
+
+#: 5 Ekim 2026 Pazartesi 10:00, sistemin yerel saati.
+NOW = _local_time(5, 10)
 
 
 def _at(day: int, hour: int, minute: int = 0) -> float:
-    return datetime(2026, 10, day, hour, minute, tzinfo=TZ).timestamp()
+    return _local_time(day, hour, minute).timestamp()
 
 
 def _new(tmp_path, **fields):
@@ -33,7 +37,7 @@ def test_haftalik_gorev_secili_gunlerde_calisir():
     spec = {"tur": "haftalik", "saat": "09:00", "gunler": [0, 3]}
 
     assert schedule.next_run(spec, NOW) == _at(8, 9)
-    assert schedule.next_run(spec, datetime(2026, 10, 8, 9, 0, tzinfo=TZ)) == _at(12, 9)
+    assert schedule.next_run(spec, _local_time(8, 9, 0)) == _at(12, 9)
 
 
 def test_tek_seferlik_ve_aralik():
@@ -86,7 +90,7 @@ def test_vadesi_gelen_gorev_bir_kez_verilir_ve_takvim_ilerler(tmp_path):
     _new(tmp_path, tur="gunluk", saat="15:00", gorev="Sonraki")
 
     assert schedule.claim_due(path, NOW)["gorevler"] == []
-    at_eleven = datetime(2026, 10, 5, 11, 0, 20, tzinfo=TZ)
+    at_eleven = _local_time(5, 11, 0, 20)
     first = schedule.claim_due(path, at_eleven)["gorevler"]
     second = schedule.claim_due(path, at_eleven + timedelta(seconds=30))["gorevler"]
 
@@ -99,11 +103,11 @@ def test_tek_seferlik_gorev_calisinca_kapanir_gec_kalan_isaretlenir(tmp_path):
     path = tmp_path / "z.json"
     _new(tmp_path, tur="bir_kez", zaman=_at(5, 12))
 
-    late = schedule.claim_due(path, datetime(2026, 10, 6, 9, 0, tzinfo=TZ))["gorevler"]
+    late = schedule.claim_due(path, _local_time(6, 9, 0))["gorevler"]
 
     assert late[0]["son_gecikmeli"] is True and late[0]["etkin"] is False
     assert late[0]["sonraki"] is None
-    assert schedule.claim_due(path, datetime(2026, 10, 7, 9, 0, tzinfo=TZ))["gorevler"] == []
+    assert schedule.claim_due(path, _local_time(7, 9, 0))["gorevler"] == []
 
 
 def test_duraklatilan_gorev_verilmez_surdurulunce_zamani_yeniden_hesaplanir(tmp_path):
@@ -113,10 +117,8 @@ def test_duraklatilan_gorev_verilmez_surdurulunce_zamani_yeniden_hesaplanir(tmp_
     assert (
         schedule.set_enabled({"id": task_id, "etkin": False}, path, NOW)["gorev"]["etkin"] is False
     )
-    assert schedule.claim_due(path, datetime(2026, 10, 5, 12, 0, tzinfo=TZ))["gorevler"] == []
-    resumed = schedule.set_enabled(
-        {"id": task_id, "etkin": True}, path, datetime(2026, 10, 5, 12, 0, tzinfo=TZ)
-    )
+    assert schedule.claim_due(path, _local_time(5, 12, 0))["gorevler"] == []
+    resumed = schedule.set_enabled({"id": task_id, "etkin": True}, path, _local_time(5, 12, 0))
     assert resumed["gorev"]["etkin"] is True and resumed["gorev"]["sonraki"] == _at(6, 11)
     assert schedule.set_enabled({"id": "yok", "etkin": True}, path, NOW)["ok"] is False
 
@@ -203,7 +205,7 @@ def test_bozuk_kayitlar_acik_eylemle_yedeklenip_ayrilir_sonra_gorevler_calisir(t
     yedeklenen = json.loads(yedek.read_text(encoding="utf-8"))
     assert yedeklenen[0]["id"] == "bozuk-1" and "kayit-degil" in yedeklenen
     assert [item["id"] for item in json.loads(path.read_text(encoding="utf-8"))] == [iyi["id"]]
-    due = schedule.claim_due(path, datetime.fromtimestamp(iyi["sonraki"] + 60, tz=TZ))
+    due = schedule.claim_due(path, datetime.fromtimestamp(iyi["sonraki"] + 60).astimezone())
     assert due["ok"] is True and len(due["gorevler"]) == 1
     # Tekrar ayırmak yeni yedek üretmez.
     assert schedule.quarantine_invalid(path) == {"ok": True, "ayrilan": 0}
@@ -273,7 +275,7 @@ def test_eski_kayittaki_tehlikeli_kok_vadesi_gelince_verilmez_ve_durdurulur(tmp_
     kayitlar.append({**guvenli, "id": "eski", "kok": "/", "baslik": "eski kök"})
     yol.write_text(json.dumps(kayitlar), encoding="utf-8")
 
-    verilen = schedule.claim_due(yol, datetime(2026, 10, 5, 12, 0, tzinfo=TZ))
+    verilen = schedule.claim_due(yol, _local_time(5, 12, 0))
 
     assert [g["id"] for g in verilen["gorevler"]] == [guvenli["id"]]
     liste = {g["id"]: g for g in schedule.list_schedules(yol)["gorevler"]}
@@ -336,14 +338,14 @@ def test_cron_gorevi_kaydedilir_ve_ifade_normalize_edilir(tmp_path):
 def test_cron_siklik_denetimi_ilk_vadeden_bagimsiz(ifade):
     """Ölçüldü (31 Ekim): saat 08:00'da '*/1 9 * * *' kaydediliyordu (ilk vade 1 saat
     sonra); ilk çalışmadan sonra `_advance` hata yutup görevi sessizce kapatıyordu."""
-    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    sabah = _local_time(5, 8, 0)
     with pytest.raises(schedule.ScheduleError):
         schedule.next_run({"tur": "cron", "cron": ifade}, sabah)
 
 
 @pytest.mark.parametrize("ifade", ["*/15 * * * *", "0 9 * * *", "0,30 9-18 * * 1-5"])
 def test_cron_yeterince_seyrek_ifade_kabul_edilir(ifade):
-    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    sabah = _local_time(5, 8, 0)
     assert schedule.next_run({"tur": "cron", "cron": ifade}, sabah) is not None
 
 

@@ -9,16 +9,8 @@ from fusion_cli.memory.code_index import ChromaCodeIndex, format_matches
 from fusion_cli.memory.lessons import ChromaLessonMemory
 from fusion_cli.memory.performance import ChromaPerformanceMemory
 from fusion_cli.memory.seed import SEED_LESSONS, seed
-from fusion_cli.memory.store import reset_clients
 
 pytestmark = pytest.mark.slow
-
-
-@pytest.fixture(autouse=True)
-def _izole_istemci():
-    reset_clients()
-    yield
-    reset_clients()
 
 
 def _sonuc(model, *, score=0.9, latency=1000, won=True, task_type="general"):

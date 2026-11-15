@@ -119,8 +119,8 @@ def izole_kalici_bellek():
 
     from fusion_cli.memory.store import reset_clients
 
-    reset_clients()
-    gc.collect()
+    if reset_clients():
+        gc.collect()
 
 
 @pytest.fixture(autouse=True)
@@ -135,6 +135,16 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     monkeypatch.setattr(loader, "user_config_candidates", tuple)
     for degisken in ("FUSION_CONFIG", "FUSION_HOME"):
         monkeypatch.delenv(degisken, raising=False)
+    if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        # Kurulu tarayıcıları kullanıcı dizinlerini yalıtmadan önce bul.
+        user_home = Path.home()
+        if sys.platform == "win32":
+            cache = Path(os.environ.get("LOCALAPPDATA") or user_home / "AppData" / "Local")
+        elif sys.platform == "darwin":
+            cache = user_home / "Library" / "Caches"
+        else:
+            cache = Path(os.environ.get("XDG_CACHE_HOME") or user_home / ".cache")
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(cache / "ms-playwright"))
     # AppSession konuşma dökümünü kalıcı belleğe yazar. Test turları gerçek
     # ~/.local/share/fusion-cli/memory geçmişine karışmamalıdır.
     # Keep the persistent-memory fixture outside the workspace root. Appserver
@@ -153,7 +163,9 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(user_data))
     # Chrome köprüsü açılınca eşleşme dosyası yapılandırma köküne yazılır ve
     # Chrome'a yerel mesajlaşma sunucusu tanıtılır; testler gerçek dizinlere dokunmaz.
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path.parent / f".{tmp_path.name}-fusion-config"))
+    user_config = tmp_path.parent / f".{tmp_path.name}-fusion-config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(user_config))
+    monkeypatch.setenv("APPDATA", str(user_config))
     monkeypatch.setenv("FUSION_NO_NATIVE_HOST", "1")
     # Kurumsal Claude Code dizini (`/Library/Application Support/ClaudeCode`) okunmasın.
     monkeypatch.setenv("FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-mg"))
@@ -161,15 +173,11 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     monkeypatch.setenv("FUSION_CLAUDE_HOME", str(tmp_path.parent / f".{tmp_path.name}-claude-ev"))
     # Kullanıcı izin kuralları artık Claude gibi `~/.claude/settings.json`'a yazılır (#66):
     # HOME'u yalıtmayan bir test gerçek ayar dosyasına kural eklemesin (ölçüldü, 1 Kasım).
-    if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-        # Playwright tarayıcı ikilileri gerçek ev dizinindeki önbellekte durur (salt okunur).
-        cache = Path.home() / "Library" / "Caches" / "ms-playwright"
-        if not cache.is_dir():
-            cache = Path.home() / ".cache" / "ms-playwright"
-        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(cache))
     ev = tmp_path.parent / f".{tmp_path.name}-home"
     ev.mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(ev))
+    if sys.platform == "win32":
+        monkeypatch.setenv("USERPROFILE", str(ev))
     # Claude yönetilen ayarları (#65) gerçek sistem dizininden okunmasın.
     monkeypatch.setenv(
         "FUSION_CLAUDE_MANAGED_DIR", str(tmp_path.parent / f".{tmp_path.name}-managed")

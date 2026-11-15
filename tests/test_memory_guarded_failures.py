@@ -58,13 +58,6 @@ class _Koleksiyon:
         return len(self.eklenen)
 
 
-@pytest.fixture(autouse=True)
-def _izole():
-    store.reset_clients()
-    yield
-    store.reset_clients()
-
-
 def _kilidi_tut(dizin: Path):
     tutamac = (dizin / store._LOCK_FILE).open("a")
     assert store._try_lock(tutamac)
