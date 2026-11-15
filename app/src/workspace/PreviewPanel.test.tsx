@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 const { ayriAdres } = vi.hoisted(() => ({ ayriAdres: vi.fn(async (): Promise<string | null> => null) }));
@@ -128,7 +128,9 @@ describe("PreviewPanel", () => {
 
     fireEvent.change(address, { target: { value: "http://localhost:3001/" } });
     expect(screen.queryByRole("button", { name: "Tarayıcı panelinde aç" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    });
     const sec = screen.getByRole("button", { name: "Öğe seç (Tarayıcı panelinde)" });
     await waitFor(() => expect(sec.hasAttribute("disabled")).toBe(false));
     fireEvent.click(sec);

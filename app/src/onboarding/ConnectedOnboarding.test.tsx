@@ -161,10 +161,16 @@ it("başarısız anahtar kaydı girdiyi korur ve yanlış devamı engeller", asy
     if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: false, eylem: "anahtar", tur: "anahtar" }] };
     return { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: false }] };
   });
-  navigate(3); fireEvent.click(await screen.findByRole("button", { name: "Bağlan" }));
+  navigate(3);
+  const connect = await screen.findByRole("button", { name: "Bağlan" });
+  await act(async () => { fireEvent.click(connect); });
   const input = await screen.findByLabelText(/API anahtarı/i) as HTMLInputElement;
-  fireEvent.change(input, { target: { value: "SYNTHETIC_FAILED_KEY" } });
-  fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+  await act(async () => {
+    fireEvent.change(input, { target: { value: "SYNTHETIC_FAILED_KEY" } });
+  });
+  expect(input.value).toBe("SYNTHETIC_FAILED_KEY");
+  const save = screen.getByRole("button", { name: "Kaydet", exact: true });
+  await act(async () => { fireEvent.click(save); });
   await screen.findByText("Test depolaması kullanılamıyor.");
   expect(input.value).toBe("SYNTHETIC_FAILED_KEY");
   expect((screen.getByRole("button", { name: "Devam et", exact: true }) as HTMLButtonElement).disabled).toBe(true);
