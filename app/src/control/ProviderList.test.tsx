@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
 import { ProviderList } from "./ProviderList";
@@ -224,6 +224,8 @@ it("bekleyen anahtar kaydı sırasında alan ve sağlayıcı seçimi kilitlidir"
   fireEvent.change(input, { target: { value: "SYNTHETIC_PENDING_KEY" } });
   fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
   expect(input.disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Ayrıntıyı kapat" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Anahtarı göster" }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: /OpenRouter/ }) as HTMLButtonElement).disabled).toBe(true);
   resolve({ ok: true });
   await waitFor(() => expect(input.disabled).toBe(false));
@@ -262,6 +264,24 @@ describe("kayıtlı anahtar gizliliği (30 Ekim)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
     await Promise.resolve();
     expect(input.value).toBe("yeni-anahtar");
+  });
+
+  it("kart değişince önceki kartın geciken anahtar yanıtını göstermez", async () => {
+    let resolveKey!: (value: Record<string, unknown>) => void;
+    const fake = client({
+      "kontrol.anahtar_goster": new Promise<Record<string, unknown>>((resolve) => { resolveKey = resolve; }),
+    });
+    render(<ProviderList client={fake} initialProviderId="openrouter" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Anahtarı göster" }));
+    expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_goster", { saglayici: "openrouter" });
+    fireEvent.click(screen.getByRole("button", { name: /OpenAI/ }));
+    await act(async () => { resolveKey({ ok: true, deger: "SYNTHETIC_PRIOR_KEY" }); });
+
+    const input = screen.getByLabelText("API anahtarı") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.type).toBe("password");
+    expect(screen.getByRole("button", { name: /OpenAI/ }).getAttribute("aria-expanded")).toBe("true");
   });
 
   it("kaydedilen anahtar kırpılarak gönderilir (U5-39)", async () => {

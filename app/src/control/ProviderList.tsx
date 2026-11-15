@@ -77,6 +77,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   const [modelLoading, setModelLoading] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const timers = useRef<number[]>([]);
+  const keyReadGeneration = useRef(0);
   const run = async (operation: () => Promise<void>) => {
     try {
       await operation();
@@ -125,29 +126,21 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   }, [query, rows]);
 
   const openRow = rows.find((item) => cardKey(item) === open);
-  const keyedOpenId = openRow?.tur === "anahtar" ? openRow.id : null;
-  const keyedOpenBound = openRow?.tur === "anahtar" && openRow.bagli;
-  // Kart açılınca kasadaki değer webview'e İNDİRİLMEZ (U5-37); yalnız kullanıcı göz düğmesine
-  // basınca istenir. Liste her yenilendiğinde (kaydet, ölç…) de yeniden istenip kullanıcının
-  // yazmakta olduğu değerin üzerine yazılmaz (U5-38): efekt yalnız açılan kart değişince çalışır.
-  useEffect(() => {
-    setReveal(false);
-    setSecret("");
-    setStored("");
-  }, [keyedOpenId]);
-
   const toggleReveal = () => {
+    if (busy !== null) return;
+    const generation = ++keyReadGeneration.current;
     if (reveal) { setReveal(false); return; }
     setReveal(true);
-    if (!openRow || !keyedOpenBound || stored || secret) return;
-    const id = openRow.id;
-    void client.request("kontrol.anahtar_goster", { saglayici: id }).then((result) => {
+    if (openRow?.tur !== "anahtar" || !openRow.bagli || stored || secret) return;
+    void client.request("kontrol.anahtar_goster", { saglayici: openRow.id }).then((result) => {
+      if (generation !== keyReadGeneration.current) return;
       const value = result.ok && typeof result.deger === "string" ? result.deger : "";
       if (!value) return;
-      // Bu arada kullanıcı yazdıysa ya da kart değiştiyse üzerine yazılmaz.
       setSecret((current) => (current === "" ? value : current));
       setStored((current) => current || value);
-    }).catch(() => setNotice("Kayıtlı anahtar okunamadı."));
+    }).catch(() => {
+      if (generation === keyReadGeneration.current) setNotice("Kayıtlı anahtar okunamadı.");
+    });
   };
 
   // Web model menüsü yalnız açılan kart ya da bağlantı durumu değişince okunur; liste yenilenmesi
@@ -311,6 +304,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
     if (!secret.trim()) return;
     // Yapıştırmadan gelen baştaki/sondaki boşluk ve satırsonu anahtarı bozup 401'e yol açıyordu (U5-39).
     const submitted = secret.trim();
+    keyReadGeneration.current++;
     setBusy(cardKey(row));
     const sonuc = (await client.request("kontrol.anahtar_kaydet", {
       saglayici: row.id,
@@ -329,6 +323,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   };
 
   const dropKey = async (row: ProviderRow) => {
+    keyReadGeneration.current++;
     setBusy(cardKey(row));
     const sonuc = (await client.request("kontrol.anahtar_sil", { saglayici: row.id })) as {
       ok?: boolean;
@@ -347,9 +342,15 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   };
 
   const toggle = (row: ProviderRow) => {
+    if (busy !== null && row.eylem === "anahtar") return;
     if (dirty) { setNotice("Kaydedilmemiş anahtar var. Önce Kaydet'e bas veya alanı temizle."); return; }
     // Bildirim kartlar arasında ortaktır: kart değişince önceki sağlayıcının mesajı yanlış yerde kalmasın (U5-41).
     setNotice(null);
+    // Clear this card's key in the same update as the selection, before the new field mounts.
+    keyReadGeneration.current++;
+    setReveal(false);
+    setSecret("");
+    setStored("");
     const kapaniyor = open === cardKey(row);
     setOpen(kapaniyor ? null : cardKey(row));
     // Ayrıntı paneli kartın yanında değil grubun sonunda: açılınca odak oraya, kapanınca karta döner (U5-42).
@@ -373,7 +374,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
           <h4>{cardTitle(row)}</h4>
           <p><span className="pv-dot" data-bagli={row.bagli} aria-hidden="true" /> {stateText(row)}</p>
         </div>
-        <button aria-label="Ayrıntıyı kapat" className="pv-close" onClick={() => toggle(row)} type="button">×</button>
+        <button aria-label="Ayrıntıyı kapat" className="pv-close" disabled={busy !== null && row.eylem === "anahtar"} onClick={() => toggle(row)} type="button">×</button>
       </div>
       {row.eylem === "oturum" ? (
         <div className="pv-detail__body">
@@ -451,6 +452,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
               aria-label={reveal ? "Anahtarı gizle" : "Anahtarı göster"}
               aria-pressed={reveal}
               className="pv-eye"
+              disabled={busy !== null}
               onClick={toggleReveal}
               title={reveal ? "Gizle" : "Göster"}
               type="button"

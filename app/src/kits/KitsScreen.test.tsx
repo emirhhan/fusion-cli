@@ -32,7 +32,9 @@ describe("KitsScreen", () => {
       name === "chrome.kit_tarif" ? { ok: true, status: "ok", hedef: "Gönder", riskli: true } : { ok: true, status: "ok", text: "{}" },
     );
     const confirmBrowser = vi.fn(async () => false);
-    render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50030" })} requestHost={requestHost} confirmBrowser={confirmBrowser} />);
+    await act(async () => {
+      render(<KitsScreen start={() => Promise.resolve({ url: "http://127.0.0.1:50030" })} requestHost={requestHost} confirmBrowser={confirmBrowser} />);
+    });
     const frame = (await screen.findByTitle("Fusion Kits")) as HTMLIFrameElement;
     // Köprü, iframe'in jsdom penceresine bağlanır; yanıt oraya postMessage ile gider.
     const inner = frame.contentWindow!;
