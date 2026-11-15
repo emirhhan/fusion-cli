@@ -605,15 +605,18 @@ def test_measured_document_warning_compacts_without_mutating_engine():
     assert TOUCH_WARNING in original and TOUCH_WARNING not in result.text
 
 
-@pytest.mark.parametrize("warnings,compact", [
-    (("Açık kontrol notu",), True),
-    (("😀" * 500,), True),
-    (("😀" * 501,), False),
-    (tuple(f"Not {n}" for n in range(11)), False),
-    (("API_KEY=synthetic-private-value",), True),
-    (("x" * 490 + " secret=synthetic-private-value trailing",), False),
-    (("x " * 246 + "token:a",), False),
-])
+@pytest.mark.parametrize(
+    "warnings,compact",
+    [
+        (("Açık kontrol notu",), True),
+        (("😀" * 500,), True),
+        (("😀" * 501,), False),
+        (tuple(f"Not {n}" for n in range(11)), False),
+        (("API_KEY=synthetic-private-value",), True),
+        (("x" * 490 + " secret=synthetic-private-value trailing",), False),
+        (("x " * 246 + "token:a",), False),
+    ],
+)
 def test_warning_projection_requires_complete_public_text(warnings, compact):
     from fusion_cli.appserver.delivery_presentation import present_delivery
     from fusion_cli.core.redaction import redact
@@ -629,13 +632,16 @@ def test_warning_projection_requires_complete_public_text(warnings, compact):
     assert "synthetic-private-value" not in json.dumps(result.evidence)
 
 
-@pytest.mark.parametrize("warnings,compact", [
-    (["Tam not"], True),
-    (["Ölçülemedi"], True),
-    (["😀" * 500], True),
-    (["😀" * 501], False),
-    (["not"] * 11, False),
-])
+@pytest.mark.parametrize(
+    "warnings,compact",
+    [
+        (["Tam not"], True),
+        (["Ölçülemedi"], True),
+        (["😀" * 500], True),
+        (["😀" * 501], False),
+        (["not"] * 11, False),
+    ],
+)
 def test_public_warning_projection_admits_only_complete_notes(warnings, compact):
     from fusion_cli.appserver.delivery_presentation import public_delivery_evidence
     from fusion_cli.engines.agent.completion_evidence import evidence_payload

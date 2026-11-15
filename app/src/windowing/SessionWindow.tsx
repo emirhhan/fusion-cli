@@ -41,7 +41,7 @@ export function SessionWindow({
     const gone = () => send({ id, tur: "kapandi" });
     window.addEventListener("beforeunload", gone);
     return () => { active = false; stop?.(); window.removeEventListener("beforeunload", gone); gone(); };
-     
+
   }, [id, events]);
 
   useEffect(() => { if (state) document.title = state.title; }, [state]);

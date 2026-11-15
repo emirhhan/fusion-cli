@@ -81,12 +81,12 @@ async def test_sesli_cografya_sorusu_kod_oturumunda_araclari_acmaz(tmp_path, mon
     monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
     session = _session(tmp_path, [])
     session._workspace_mode = "kod"
-    assert (await session._run_turn(
-        "Teşekkür ederim Türkiye'nin başkenti neresi?", voice_context=VoiceTurnContext()
-    ))["ok"]
-    assert (await session._run_turn(
-        "Projede kaç il var?", voice_context=VoiceTurnContext()
-    ))["ok"]
+    assert (
+        await session._run_turn(
+            "Teşekkür ederim Türkiye'nin başkenti neresi?", voice_context=VoiceTurnContext()
+        )
+    )["ok"]
+    assert (await session._run_turn("Projede kaç il var?", voice_context=VoiceTurnContext()))["ok"]
 
     answer, work = kwargs_seen
     assert answer["chat_mode"] and not answer["bootstrap_mcp"]

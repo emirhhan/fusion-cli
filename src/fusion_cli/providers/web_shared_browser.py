@@ -501,7 +501,14 @@ def chrome_launch_arguments(
             raise SharedBrowserError("Chrome uygulama paketi bulunamadı, gizli kip açılamadı.")
         # Açılış sekmesi varsa arka plan CDP hedefi bile o pencereyi gösterebiliyor.
         return [
-            "/usr/bin/open", "-g", "-j", "-n", "-a", str(bundle), "--args",
-            *arguments[1:], "--no-startup-window",
+            "/usr/bin/open",
+            "-g",
+            "-j",
+            "-n",
+            "-a",
+            str(bundle),
+            "--args",
+            *arguments[1:],
+            "--no-startup-window",
         ]
     return [*arguments, "about:blank"]

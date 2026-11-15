@@ -80,7 +80,8 @@ def _default_provider(config: Config, *, browserless: bool = False) -> LlmProvid
 
         allowed = {ProviderKind.API_KEY, ProviderKind.LOCAL, ProviderKind.AGGREGATOR}
         models = [
-            model for model in spec.models
+            model
+            for model in spec.models
             if (definition := provider_for_model(model)) is not None and definition.kind in allowed
         ]
         if not models:
@@ -118,7 +119,8 @@ async def ask_side(
         max_retries=runtime.max_retries,
     )
     provider = (
-        provider_factory(config) if provider_factory
+        provider_factory(config)
+        if provider_factory
         else _default_provider(config, browserless=data.get("tarayicisiz") is True)
     )
     if provider is None:

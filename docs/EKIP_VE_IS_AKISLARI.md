@@ -200,4 +200,3 @@ plandaki ekibin olayları işçinin günlüğüne gider: sohbet içi canlı pano
 sekmesi / `/team goster` panoyu diskten okur. Üyeler tmux/iTerm bölmesinde görünmez.
 Kancanın `continue: false` kararı üyenin o anki koşusunu kesmez: araç hata döner, üye kısa
 özetle biter ve yeniden uyandırılmaz.
-

@@ -1053,7 +1053,9 @@ async def test_chatgpt_keeps_successful_tab_across_idle_release():
     page = _FakePage([])
     pool.schedule_idle_release("chatgpt_web", "main")
     assert ("chatgpt_web", "main") in pool._idle_timers
-    pool.remember_conversation("chatgpt_web", "main", "root", web_browser.ConversationState(page=page))
+    pool.remember_conversation(
+        "chatgpt_web", "main", "root", web_browser.ConversationState(page=page)
+    )
     pool.schedule_idle_release("chatgpt_web", "main")
     await pool._release_idle(("chatgpt_web", "main"))
     assert not pool._idle_timers

@@ -11,7 +11,8 @@ VOICE_RESPONSE_NOTE = (
     "Sesli konuşma: Türkçe, doğal ve doğrudan cevap ver. "
     "Kullanıcı ayrıntı istemedikçe bir veya iki kısa cümle kullan; önce doğrudan cevabı söyle. "
     "Araç, ajan, iç işlem veya model adlarını kullanıcı özellikle sormadıkça anlatma. "
-    "Genel bilgi sorularını doğrudan yanıtla. Klasörleri veya dosyaları ancak kullanıcı isterse aç. "
+    "Genel bilgi sorularını doğrudan yanıtla. Klasörleri veya dosyaları ancak kullanıcı isterse "
+    "aç. "
     "Düşünme seslerini Talk verir. Cevaba hmm gibi yazılı bir dolgu ekleme."
 )
 #: Kesilen sözün prompta girecek üst sınırı (sınırsızdı, ölçüldü 30 Ekim).
@@ -21,7 +22,8 @@ VOICE_METADATA_ERROR = "Sesli konuşma bağlamı geçersiz. Konuşmayı yeniden 
 _COURTESY = re.compile(r"^(?:tesekkur ederim|tesekkurler|sag ol|peki|bu arada) +")
 _GEOGRAPHY = re.compile(
     r"(?:turkiye(?: ?nin)? baskenti (?:neresi|nerede|hangisi|ne)|"
-    r"(?:turkiye(?: ?de)?|istanbul(?: ?da)?) kac (?:tane )?(?:cografi )?(?:bolge|sehir|il|ilce) var)"
+    r"(?:turkiye(?: ?de)?|istanbul(?: ?da)?) kac (?:tane )?(?:cografi )?(?:bolge|sehir|il|ilce) "
+    r"var)"
 )
 
 

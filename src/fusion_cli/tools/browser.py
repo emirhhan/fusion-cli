@@ -67,9 +67,7 @@ _KURULUM_TALIMATI = (
 
 
 _LOCAL_PREFIXES = ("localhost", "127.0.0.1", "[::1]")
-SHARED_HEADED_NOTE = (
-    "not: headed yok sayıldı; tarayıcı aracı arka planda çalışır."
-)
+SHARED_HEADED_NOTE = "not: headed yok sayıldı; tarayıcı aracı arka planda çalışır."
 
 
 def normalize_url(raw: str) -> str:

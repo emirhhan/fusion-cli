@@ -85,9 +85,11 @@ async def test_arka_plan_talk_web_oturumunu_es_gecer(monkeypatch) -> None:
     from fusion_cli.providers import factory
 
     config = SimpleNamespace(
-        agent=ModelSpec("talk", "chatgpt_web/main/auto", fallback=(
-            "gemini_web/main/auto", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
-        )),
+        agent=ModelSpec(
+            "talk",
+            "chatgpt_web/main/auto",
+            fallback=("gemini_web/main/auto", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"),
+        ),
         runtime=SimpleNamespace(retry_delays_s=(1.0,)),
     )
     selected = {}
@@ -107,19 +109,31 @@ async def test_arka_plan_talk_web_oturumunu_es_gecer(monkeypatch) -> None:
     assert _default_provider(config, browserless=True) is None
 
 
-async def test_talk_arastirmasi_http_kaynaklarini_aracsiz_modele_verir(monkeypatch, tmp_path) -> None:
+async def test_talk_arastirmasi_http_kaynaklarini_aracsiz_modele_verir(
+    monkeypatch, tmp_path
+) -> None:
     from fusion_cli.appserver import voice_research
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.core.types import ModelSpec
 
     provider = _Provider("2026'da yeni nesil Andromeda duyuruldu.")
-    config = SimpleNamespace(agent=ModelSpec("talk", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"))
-    monkeypatch.setattr(voice_research, "_default_provider", lambda _, *, browserless: provider if browserless else None)
+    config = SimpleNamespace(
+        agent=ModelSpec("talk", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b")
+    )
+    monkeypatch.setattr(
+        voice_research,
+        "_default_provider",
+        lambda _, *, browserless: provider if browserless else None,
+    )
     url = "https://example.com/announcement"
     monkeypatch.setattr(voice_research, "web_search", lambda *_: ToolResult(f"• Duyuru\n  {url}"))
-    monkeypatch.setattr(voice_research, "web_fetch", lambda *_: ToolResult("2026 duyurusunun metni"))
+    monkeypatch.setattr(
+        voice_research, "web_fetch", lambda *_: ToolResult("2026 duyurusunun metni")
+    )
 
-    result = await voice_research.research_voice(config, tmp_path, {"soru": "2026 güncellemeleri neler?"})
+    result = await voice_research.research_voice(
+        config, tmp_path, {"soru": "2026 güncellemeleri neler?"}
+    )
     assert result["ok"] is True
     assert result["kaynaklar"] == [url]
     request = provider.requests[0]
@@ -127,13 +141,17 @@ async def test_talk_arastirmasi_http_kaynaklarini_aracsiz_modele_verir(monkeypat
     assert "2026 duyurusunun metni" in request.messages[-1].content
 
 
-async def test_talk_arastirmasi_alan_adini_dogrudan_dener_ve_guveni_belirsiz_birakir(monkeypatch, tmp_path) -> None:
+async def test_talk_arastirmasi_alan_adini_dogrudan_dener_ve_guveni_belirsiz_birakir(
+    monkeypatch, tmp_path
+) -> None:
     from fusion_cli.appserver import voice_research
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.core.types import ModelSpec
 
     provider = _Provider("Sitenin kendi iade koşulları var.")
-    config = SimpleNamespace(agent=ModelSpec("talk", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"))
+    config = SimpleNamespace(
+        agent=ModelSpec("talk", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b")
+    )
     monkeypatch.setattr(voice_research, "_default_provider", lambda _, **__: provider)
     queries, fetched = [], []
 
@@ -147,7 +165,9 @@ async def test_talk_arastirmasi_alan_adini_dogrudan_dener_ve_guveni_belirsiz_bir
 
     monkeypatch.setattr(voice_research, "web_search", search)
     monkeypatch.setattr(voice_research, "web_fetch", fetch)
-    result = await voice_research.research_voice(config, tmp_path, {"soru": "Örnek nokta kom güvenilir mi?", "ayrintili": True})
+    result = await voice_research.research_voice(
+        config, tmp_path, {"soru": "Örnek nokta kom güvenilir mi?", "ayrintili": True}
+    )
 
     assert fetched == ["https://örnek.com"]
     assert len(queries) > 1
@@ -161,7 +181,9 @@ async def test_talk_ticari_unvan_icin_sitede_isletmeci_kaniti_ister(monkeypatch,
     from fusion_cli.core.types import ModelSpec
 
     provider = _Provider('{"unvan": "Örnek Ticaret A.Ş.", "kaynak": 0}')
-    config = SimpleNamespace(agent=ModelSpec("talk", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"))
+    config = SimpleNamespace(
+        agent=ModelSpec("talk", "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b")
+    )
     monkeypatch.setattr(voice_research, "_default_provider", lambda _, **__: provider)
     monkeypatch.setattr(voice_research, "web_search", lambda *_: ToolResult.failure("Arama yok."))
     page = "Ödeme aracısı: Örnek Ticaret A.Ş."

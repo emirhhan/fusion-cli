@@ -224,7 +224,6 @@ from .runtime_prefs import persist_approval, persist_engine
 from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
 from .side_chat import SIDE_CHAT_ROUTE, ask_side
-from .voice_research import VOICE_RESEARCH_ROUTE, research_voice
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import discard_prepared_voice, play_prepared_voice, prepare_voice, warm_voice
@@ -235,6 +234,7 @@ from .voice import status as voice_status
 from .voice import stop as voice_stop
 from .voice import wait_for_speech as voice_wait
 from .voice_context import VoiceTurnContext, is_voice_geography_question, parse_voice_context
+from .voice_research import VOICE_RESEARCH_ROUTE, research_voice
 from .wake import WakeDesk
 from .workspace import (
     WorkspaceJournal,

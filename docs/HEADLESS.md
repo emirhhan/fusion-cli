@@ -401,4 +401,3 @@ Kısıt bayrakları işçiye taşınır: `--allowed-tools`, `--disallowed-tools`
 `--max-turns`, `--add-dir`, `--append-system-prompt`, `--no-memory`, `--bare`, `--worktree`
 ve global `--set`/`--profile`. `--output-format`/`--json`, `--json-schema` ve
 `--permission-channel` `--bg` ile açık hatayla (çıkış kodu 2) reddedilir.
-
