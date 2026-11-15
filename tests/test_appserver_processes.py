@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import suppress
 from pathlib import Path
 
@@ -41,14 +42,15 @@ async def test_surec_ciktiyi_akar_ve_bitis_kodunu_saklar(tmp_path: Path):
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path.parent / ".fusion-home")
 
-    started = await _send(session, lines, "surec.baslat", {"komut": "printf 'merhaba'"})
+    command = "echo merhaba" if os.name == "nt" else "printf 'merhaba'"
+    started = await _send(session, lines, "surec.baslat", {"komut": command})
     process = await _wait_finished(session, lines, str(started["surec_id"]))
     await session.close()
 
     assert started["ok"] is True
     assert process["durum"] == "bitti"
     assert process["cikis_kodu"] == 0
-    assert process["cikti"] == "merhaba"
+    assert process["cikti"].strip() == "merhaba"
     events = [json.loads(line) for line in lines if json.loads(line).get("tip") == "olay"]
     assert any(event["veri"].get("olay") == "ProcessOutput" for event in events)
 
@@ -68,7 +70,11 @@ async def test_bir_sureci_durdurmak_digerini_etkilemez(tmp_path: Path):
     """Process-group sahipliği yanlışsa bir terminali durdurmak kardeş süreci öldürür."""
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path.parent / ".fusion-home")
-    command = 'python3 -c "import time; time.sleep(30)"'
+    command = (
+        "powershell.exe -NoProfile -NonInteractive -Command Start-Sleep -Seconds 30"
+        if os.name == "nt"
+        else "sleep 30"
+    )
     first = await _send(session, lines, "surec.baslat", {"komut": command})
     second = await _send(session, lines, "surec.baslat", {"komut": command})
 
@@ -183,14 +189,20 @@ async def test_terminal_cocugu_mcp_sir_adlarini_miras_almaz(tmp_path: Path, monk
     )
     session._state.config = replace(session._state.config, mcp_servers=(server,))
 
-    komut = (
+    unix_command = (
         'printf "%s|%s|%s" "${MG_STDIO_SIRRI:-yok}" "${MG_BEARER_SIRRI:-yok}" "$MG_DIGER_DEGISKEN"'
     )
+    komut = "set MG_" if os.name == "nt" else unix_command
     started = await _send(session, lines, "surec.baslat", {"komut": komut})
     process = await _wait_finished(session, lines, str(started["surec_id"]))
     await session.close()
 
-    assert process["cikti"] == "yok|yok|gorunur"
+    if os.name == "nt":
+        assert "MG_DIGER_DEGISKEN=gorunur" in process["cikti"]
+        assert "MG_STDIO_SIRRI" not in process["cikti"]
+        assert "MG_BEARER_SIRRI" not in process["cikti"]
+    else:
+        assert process["cikti"] == "yok|yok|gorunur"
 
 
 async def test_biten_surec_kayitlari_sinirlanir_ve_eszamanli_sayi_siniri_vardir(tmp_path: Path):
@@ -200,8 +212,9 @@ async def test_biten_surec_kayitlari_sinirlanir_ve_eszamanli_sayi_siniri_vardir(
 
     manager = ProcessManager(tmp_path, lambda _line: None, max_finished=2, max_running=1)
     pompalar = []
+    short = "exit /b 0" if os.name == "nt" else "true"
     for _ in range(4):
-        sonuc = await manager.start({"komut": "true"})
+        sonuc = await manager.start({"komut": short})
         assert sonuc["ok"] is True
         pompalar.append(manager._records[sonuc["surec_id"]].pump)
         await pompalar[-1]
@@ -209,8 +222,13 @@ async def test_biten_surec_kayitlari_sinirlanir_ve_eszamanli_sayi_siniri_vardir(
 
     assert len(manager.list()["surecler"]) == 2
 
-    uzun = await manager.start({"komut": "sleep 5"})
-    reddedilen = await manager.start({"komut": "true"})
+    long = (
+        "powershell.exe -NoProfile -NonInteractive -Command Start-Sleep -Seconds 5"
+        if os.name == "nt"
+        else "sleep 5"
+    )
+    uzun = await manager.start({"komut": long})
+    reddedilen = await manager.start({"komut": short})
     await manager.stop({"surec_id": uzun["surec_id"]})
     await manager.close()
 

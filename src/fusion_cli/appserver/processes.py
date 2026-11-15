@@ -231,10 +231,15 @@ class ProcessManager:
         record.status = "durduruluyor"
         self._event("ProcessStatus", record, durum=record.status)
         try:
-            await await_owned_thread(terminate_process_tree, record.process.pid, force=False)
+            # A pipe-backed Windows console has no window to close via taskkill without /F.
+            windows = os.name == "nt"
+            if not windows or record.process.returncode is None:
+                await await_owned_thread(terminate_process_tree, record.process.pid, force=windows)
             try:
                 await asyncio.wait_for(record.process.wait(), timeout=PROCESS_TERMINATE_GRACE_S)
             except TimeoutError:
+                if windows:
+                    raise
                 await await_owned_thread(terminate_process_tree, record.process.pid, force=True)
                 await asyncio.wait_for(record.process.wait(), timeout=PROCESS_TERMINATE_GRACE_S)
             await await_owned_thread(ensure_process_group_exit, record.process.pid)
@@ -242,6 +247,8 @@ class ProcessManager:
                 try:
                     await asyncio.wait_for(asyncio.shield(record.pump), PROCESS_TERMINATE_GRACE_S)
                 except TimeoutError:
+                    if windows:
+                        raise  # The shell exited, so there is no live Windows tree root.
                     await await_owned_thread(terminate_process_tree, record.process.pid, force=True)
                     await asyncio.wait_for(asyncio.shield(record.pump), PROCESS_TERMINATE_GRACE_S)
         except (TimeoutError, CleanupFailedError):

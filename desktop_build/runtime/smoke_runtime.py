@@ -152,14 +152,22 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
         preview = _request(process, "preview", "proje.onizle", {"yol": "pixel.png"})
         assert preview["ok"] is True and preview["tur"] == "image"
 
-        # Uzun süren zararsız komut platforma göre değişir: Windows'ta `sleep` yoktur.
-        uzun_komut = "timeout /t 30 /nobreak" if platform.system() == "Windows" else "sleep 30"
+        # timeout.exe exits immediately with piped input. Start-Sleep works without a console.
+        uzun_komut = (
+            "powershell.exe -NoLogo -NoProfile -NonInteractive -Command Start-Sleep -Seconds 30"
+            if platform.system() == "Windows"
+            else "sleep 30"
+        )
         started = _request(process, "start", "surec.baslat", {"komut": uzun_komut})
+        assert started["ok"] is True, started
         process_id = started["surec_id"]
         processes = _request(process, "list", "surec.listele", {})
-        assert any(item["surec_id"] == process_id for item in processes["surecler"])
+        assert any(
+            item["surec_id"] == process_id and item["durum"] == "calisiyor"
+            for item in processes["surecler"]
+        )
         stopped = _request(process, "stop", "surec.kes", {"surec_id": process_id})
-        assert stopped["ok"] is True
+        assert stopped["ok"] is True and stopped["durum"] == "durduruldu", stopped
 
         switched = _request(process, "switch", "oturum.baslat", {"kok": str(other)})
         assert switched["kok"] == str(other)
