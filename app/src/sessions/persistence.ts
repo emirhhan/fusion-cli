@@ -55,21 +55,25 @@ export function saveSessionView(
   storage: StorageLike | (() => StorageLike),
   state: SessionState,
   updatedAt = Date.now(),
+  //: Açılışta bağlanamayan kayıtlı sekmeler: listeden düşmesinler, bir sonraki açılışta yeniden denensinler.
+  keep: readonly PersistedSessionMetadata[] = [],
 ): void {
+  const open: PersistedSessionMetadata[] = state.order.flatMap((id) => {
+    const session = state.sessions[id];
+    if (!session) return [];
+    return [{
+      id: session.id,
+      title: session.title,
+      source: session.source,
+      root: session.root,
+      updatedAt: session.updatedAt ?? updatedAt,
+    }];
+  });
+  const openIds = new Set(open.map((session) => session.id));
   const view: PersistedSessionView = {
     version: SESSION_VIEW_VERSION,
     activeId: state.activeId,
-    sessions: state.order.flatMap((id) => {
-      const session = state.sessions[id];
-      if (!session) return [];
-      return [{
-        id: session.id,
-        title: session.title,
-        source: session.source,
-        root: session.root,
-        updatedAt: session.updatedAt ?? updatedAt,
-      }];
-    }),
+    sessions: [...keep.filter((session) => !openIds.has(session.id)), ...open],
   };
   try {
     writeStorage(typeof storage === "function" ? storage : () => storage, SESSION_VIEW_KEY, JSON.stringify(view));

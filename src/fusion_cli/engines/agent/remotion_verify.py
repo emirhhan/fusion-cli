@@ -62,8 +62,21 @@ def _violations(path: Path, root: Path) -> list[str]:
         "render eder, bu videoda oynamaz. Hareketi useCurrentFrame() + interpolate()/"
         "spring() ile hesapla."
         for no, satir in enumerate(satirlar, start=1)
-        if _CSS_MOTION.search(satir)
+        if _CSS_MOTION.search(_without_comment(satir))
     ]
+
+
+def _without_comment(satir: str) -> str:
+    """Satırın yorum kısmını at (`// animation: yok`, ` * transition: …`, `/* … */`).
+
+    Ölçüldü (29 Ekim, A3-34): yorumdaki anlatım engelleyici bulgu üretip modeli meşru
+    kodu "düzeltmeye" itiyordu.
+    """
+    kalan = satir.lstrip()
+    if kalan.startswith(("//", "*", "/*")):
+        return ""
+    kalan = re.sub(r"/\*.*?\*/", "", satir)
+    return re.sub(r"(?:^|\s)//.*$", "", kalan)
 
 
 def _in_remotion_project(path: Path) -> bool:

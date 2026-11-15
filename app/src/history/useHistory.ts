@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type {
   HistorySearchMatch,
@@ -38,8 +38,14 @@ export function useHistory(client: ProtocolClient | null) {
   const [searchPartial, setSearchPartial] = useState(false);
   const [searchNotice, setSearchNotice] = useState("");
   const [searching, setSearching] = useState(false);
+  // Son istek kazanır: her eşzamansız akışın nesil sayacı vardır; yanıt geldiğinde sayaç
+  // değişmişse (kaynak/konuşma/sorgu değişti) sonuç yazılmaz.
+  const sessionsGeneration = useRef(0);
+  const turnsGeneration = useRef(0);
+  const searchGeneration = useRef(0);
 
   const resetSearch = useCallback(() => {
+    searchGeneration.current += 1;
     setSearchQuery("");
     setSearchResults([]);
     setSearchPartial(false);
@@ -61,6 +67,8 @@ export function useHistory(client: ProtocolClient | null) {
     // çubuğundaki "Devam et" bölümü BİR DAHA HİÇ dolmuyordu — yalnız
     // uygulama yeniden başlayınca (taze istemciler) düzeliyordu. Liste artık
     // yeni bir istek BAŞARIYLA dönene kadar olduğu gibi kalır.
+    sessionsGeneration.current += 1;
+    turnsGeneration.current += 1;
     setSource(null);
     setSessions([]);
     setSessionCursor(null);
@@ -98,11 +106,13 @@ export function useHistory(client: ProtocolClient | null) {
         resetSearch();
         return;
       }
+      const generation = ++searchGeneration.current;
       setSearchQuery(trimmed);
       setSearching(true);
       setError(null);
       try {
         const result = await client.request("gecmis.ara", { kaynak: source, sorgu: trimmed });
+        if (generation !== searchGeneration.current) return;
         if (result.ok !== true || !Array.isArray(result.oturumlar)) {
           throw new Error(messageFrom(result, "Konuşmalarda arama yapılamadı."));
         }
@@ -110,12 +120,13 @@ export function useHistory(client: ProtocolClient | null) {
         setSearchPartial(result.kismi === true);
         setSearchNotice(typeof result.metin === "string" ? result.metin : "");
       } catch (reason) {
+        if (generation !== searchGeneration.current) return;
         setSearchResults([]);
         setSearchPartial(false);
         setSearchNotice("");
         setError(String(reason));
       } finally {
-        setSearching(false);
+        if (generation === searchGeneration.current) setSearching(false);
       }
     },
     [client, resetSearch, source],
@@ -124,6 +135,8 @@ export function useHistory(client: ProtocolClient | null) {
   const openSource = useCallback(
     async (name: HistorySourceName) => {
       if (!client) return;
+      const generation = ++sessionsGeneration.current;
+      turnsGeneration.current += 1;
       setLoading(true);
       setError(null);
       setSource(name);
@@ -139,15 +152,16 @@ export function useHistory(client: ProtocolClient | null) {
           cursor: 0,
           limit: PAGE_SIZE,
         });
+        if (generation !== sessionsGeneration.current) return;
         if (result.ok !== true || !Array.isArray(result.oturumlar)) {
           throw new Error(messageFrom(result, "Geçmiş konuşmalar alınamadı."));
         }
         setSessions(result.oturumlar as HistorySessionRef[]);
         setSessionCursor(typeof result.next_cursor === "number" ? result.next_cursor : null);
       } catch (reason) {
-        setError(String(reason));
+        if (generation === sessionsGeneration.current) setError(String(reason));
       } finally {
-        setLoading(false);
+        if (generation === sessionsGeneration.current) setLoading(false);
       }
     },
     [client, resetSearch],
@@ -155,6 +169,7 @@ export function useHistory(client: ProtocolClient | null) {
 
   const loadMoreSessions = useCallback(async () => {
     if (!client || !source || sessionCursor === null || loading) return;
+    const generation = sessionsGeneration.current;
     setLoading(true);
     setError(null);
     try {
@@ -163,21 +178,23 @@ export function useHistory(client: ProtocolClient | null) {
         cursor: sessionCursor,
         limit: PAGE_SIZE,
       });
+      if (generation !== sessionsGeneration.current) return;
       if (result.ok !== true || !Array.isArray(result.oturumlar)) {
         throw new Error(messageFrom(result, "Daha fazla konuşma alınamadı."));
       }
       setSessions((current) => [...current, ...(result.oturumlar as HistorySessionRef[])]);
       setSessionCursor(typeof result.next_cursor === "number" ? result.next_cursor : null);
     } catch (reason) {
-      setError(String(reason));
+      if (generation === sessionsGeneration.current) setError(String(reason));
     } finally {
-      setLoading(false);
+      if (generation === sessionsGeneration.current) setLoading(false);
     }
   }, [client, loading, sessionCursor, source]);
 
   const selectSession = useCallback(
     async (session: HistorySessionRef) => {
       if (!client) return;
+      const generation = ++turnsGeneration.current;
       setLoading(true);
       setError(null);
       setSelected(session);
@@ -190,15 +207,16 @@ export function useHistory(client: ProtocolClient | null) {
           cursor: 0,
           limit: PAGE_SIZE,
         });
+        if (generation !== turnsGeneration.current) return;
         if (result.ok !== true || !Array.isArray(result.turlar)) {
           throw new Error(messageFrom(result, "Konuşma önizlemesi alınamadı."));
         }
         setTurns(result.turlar as HistoryTurn[]);
         setTurnCursor(typeof result.next_cursor === "number" ? result.next_cursor : null);
       } catch (reason) {
-        setError(String(reason));
+        if (generation === turnsGeneration.current) setError(String(reason));
       } finally {
-        setLoading(false);
+        if (generation === turnsGeneration.current) setLoading(false);
       }
     },
     [client],
@@ -206,6 +224,7 @@ export function useHistory(client: ProtocolClient | null) {
 
   const loadMoreTurns = useCallback(async () => {
     if (!client || !selected || turnCursor === null || loading) return;
+    const generation = turnsGeneration.current;
     setLoading(true);
     setError(null);
     try {
@@ -215,15 +234,16 @@ export function useHistory(client: ProtocolClient | null) {
         cursor: turnCursor,
         limit: PAGE_SIZE,
       });
+      if (generation !== turnsGeneration.current) return;
       if (result.ok !== true || !Array.isArray(result.turlar)) {
         throw new Error(messageFrom(result, "Önizlemenin devamı alınamadı."));
       }
       setTurns((current) => [...current, ...(result.turlar as HistoryTurn[])]);
       setTurnCursor(typeof result.next_cursor === "number" ? result.next_cursor : null);
     } catch (reason) {
-      setError(String(reason));
+      if (generation === turnsGeneration.current) setError(String(reason));
     } finally {
-      setLoading(false);
+      if (generation === turnsGeneration.current) setLoading(false);
     }
   }, [client, loading, selected, turnCursor]);
 

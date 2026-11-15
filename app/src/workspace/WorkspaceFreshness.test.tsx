@@ -28,7 +28,8 @@ it('aynı dosya yolu yeni revizyonda eski metni göstermeyi sürdürmez', async 
   rerender(<PreviewPanel client={client} selectedPath="README.md" revision={1} />);
   await screen.findByText('New snapshot');
   expect(screen.queryByText('Old snapshot')).toBeNull();
-  await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  // Yalnız dosya okuması sayılır: panel açılırken launch.json listesi de istenir (P-041).
+  await waitFor(() => expect(request.mock.calls.filter(([name]) => name === 'proje.onizle')).toHaveLength(2));
 });
 
 it('dosya güncellenirken kullanıcının açık Web sekmesi korunur', async () => {
@@ -37,6 +38,25 @@ it('dosya güncellenirken kullanıcının açık Web sekmesi korunur', async () 
   await screen.findByText('a');
   fireEvent.click(screen.getByRole('tab', { name: 'Web' }));
   rerender(<PreviewPanel client={client} selectedPath="README.md" revision={1} />);
-  await waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
+  const request = client.request as ReturnType<typeof vi.fn>;
+  await waitFor(() => expect(request.mock.calls.filter(([name]) => name === 'proje.onizle')).toHaveLength(2));
   expect(screen.getByRole('tab', { name: 'Web' }).getAttribute('aria-selected')).toBe('true');
+});
+
+// Ölçüldü (30 Ekim): git_durum hatası öneri komutlarını da gizliyordu (U4-49).
+it('git durumu okunamasa da öneri komutları görünür (U4-49)', async () => {
+  const request = vi.fn(async (name: string) => name === 'proje.komut_onerileri'
+    ? { ok: true, komutlar: [{ tur: 'test', ad: 'Test', komut: 'npm test' }] }
+    : { ok: false });
+  const client = { request } as unknown as ProtocolClient;
+  render(<TestsPanel client={client} processes={{ busy: false, processes: [] } as unknown as ProcessController} revision={0} />);
+  await screen.findByText('npm test');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+// Ölçüldü (30 Ekim): geçersiz base64 render sırasında atob'u fırlatıp paneli çökertiyordu (U4-46).
+it('geçersiz base64 metin varlığı paneli çökertmez, hata gösterir (U4-46)', async () => {
+  const client = { request: vi.fn(async () => ({ ok: true, yol: 'a.txt', tur: 'text', mime: 'text/plain', boyut: 1, base64: '***geçersiz***' })) } as unknown as ProtocolClient;
+  render(<PreviewPanel client={client} selectedPath="a.txt" revision={0} />);
+  expect(await screen.findByText('Dosya içeriği çözülemedi.')).toBeTruthy();
 });

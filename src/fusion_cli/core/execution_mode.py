@@ -29,4 +29,9 @@ class ExecutionMode(Enum):
             return cls.OFF
         if value is True:
             return cls.ALWAYS
+        # Tamsayı (0/1) ve tırnaklı boolean (`"true"`/`"false"`) de aynı göçü izler.
+        if isinstance(value, int) and value in (0, 1):
+            return cls.ALWAYS if value else cls.OFF
+        if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+            return cls.ALWAYS if value.strip().lower() == "true" else cls.OFF
         return None

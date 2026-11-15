@@ -6,6 +6,8 @@ export const PENDING_POLL_MS = 2000;
 export const BACKOFF_START_MS = 1000;
 export const BACKOFF_MAX_MS = 15000;
 export const BUSY_RETRY_MS = 5000;
+// Üst üste bu kadar kare hatasında akış kendiliğinden durur (kalıcı hata pil/ağ harcamasın).
+export const MAX_FRAME_ERRORS = 6;
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -17,6 +19,7 @@ export function createScreenStream({
   frameMs = FRAME_MS,
 }) {
   let generation = 0;
+  let frameErrors = 0;
   let visible = true;
   let wake = null;
 
@@ -39,6 +42,7 @@ export function createScreenStream({
     const frame = await rpc("screen.frame");
     if (!alive(token)) return 0;
     if (frame.ok) {
+      frameErrors = 0;
       onFrame(frame.data);
       emit("live");
       return frameMs;
@@ -51,6 +55,11 @@ export function createScreenStream({
       if (state === "pending") { emit("pending"); return PENDING_POLL_MS; }
       if (state === "active") return frameMs;
       emit("ended");
+      return -1;
+    }
+    frameErrors += 1;
+    if (frameErrors >= MAX_FRAME_ERRORS) {
+      emit("error", { message: `${frame.message || "Ekran alınamadı."} Akış durduruldu; yeniden başlatmak için “Başlat”a bas.` });
       return -1;
     }
     emit("error", { message: frame.message || "Ekran alınamadı." });
@@ -82,6 +91,7 @@ export function createScreenStream({
     // İzleme başlar: etkin oturum varsa sürdürür, yoksa izin ister.
     async start({ request = true, remember = false, confirmed = false } = {}) {
       generation += 1;
+      frameErrors = 0;
       const token = generation;
       try {
         const status = await rpc("screen.status");

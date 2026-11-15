@@ -2,6 +2,7 @@ import { approvalCard, pendingFromEvents } from "./approvals.js";
 import { createApi, postJson } from "./api.js";
 import { createChat, newChatId } from "./chat.js";
 import { h, icon } from "./dom.js";
+import { pairingCodeFromSearch, stripPairingCode } from "./pair-link.js";
 import { createScreenView } from "./screen-view.js";
 import { importKey } from "./signing.js";
 import { kv } from "./store.js";
@@ -22,7 +23,7 @@ const TABS = [
 let device = null;
 let rpc = null;
 const ctx = {
-  tasks: [], chats: [], projects: [], chatProjects: {}, schedules: [], kits: [], scopes: [],
+  tasks: [], chats: [], projects: [], chatProjects: {}, schedules: [], kits: [], scopes: [], approvalAuthority: null,
   tiers: [], tiersEditable: false, activeTier: "", tier: localStorage.getItem("fusion.tier") ?? "",
   filter: "all", notice: "",
 };
@@ -57,7 +58,9 @@ async function pair() {
   button.disabled = true;
   say("Kod gönderiliyor…");
   try {
-    const submitted = await postJson("/v1/pair/submit", { code, deviceName: $("cihazAdi").value });
+    // Teslim anahtarı: sırrı getiren yanıt kaybolursa aynı cihaz yeniden alınır (hayalet kayıt olmaz).
+    const claimKey = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+    const submitted = await postJson("/v1/pair/submit", { code, deviceName: $("cihazAdi").value, claimKey });
     if (submitted.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
     if (submitted.status !== 200) return say(submitted.body.message || "Kod kabul edilmedi.", "danger");
     // Kod doğruysa masaüstü onayı gerekmeyebilir: sunucu "onaylandi" der ve cihaz hemen alınır.
@@ -70,7 +73,15 @@ async function pair() {
         say(`Masaüstünde Fusion → Uzaktan Erişim’den bu cihazı onayla (${left} sn)…`);
         await new Promise((r) => setTimeout(r, PAIR_POLL_MS));
       }
-      const claimed = await postJson("/v1/pair/claim", { code });
+      let claimed;
+      try {
+        claimed = await postJson("/v1/pair/claim", { code, claimKey });
+      } catch {
+        // Yanıt ağda kayboldu: aynı teslim anahtarıyla yeniden sorulur, aynı cihaz gelir.
+        say("Bağlantı koptu, eşleştirme yeniden deneniyor…");
+        waiting = true;
+        continue;
+      }
       if (claimed.status === 429) return say("Çok fazla deneme. Birkaç dakika bekleyip tekrar dene.", "danger");
       if (claimed.status !== 200) return say(claimed.body.message || "Eşleştirme başarısız.", "danger");
       if (claimed.body.state === "onaylandi") return await finishPairing(claimed.body);
@@ -234,11 +245,15 @@ function render() {
 async function renderApprovals() {
   const box = $("liste-onaylar");
   const cards = [];
-  for (const task of ctx.tasks.filter((t) => t.state === "waiting_approval")) {
-    const events = await rpc("tasks.events", { runId: task.runId });
+  // Görev başına olay sorguları aynı anda başlar (RPC kuyruğu yine sırayla gönderir); art arda
+  // beklemek N görevde N tur gecikme ekliyordu.
+  const waiting = ctx.tasks.filter((t) => t.state === "waiting_approval");
+  const eventLists = await Promise.all(waiting.map((task) => rpc("tasks.events", { runId: task.runId })));
+  for (const [index, task] of waiting.entries()) {
+    const events = eventLists[index];
     for (const [, question] of pendingFromEvents(events.data?.events ?? [])) {
       const existing = [...box.querySelectorAll("[data-question]")].find((node) => node.dataset.question === question.questionId);
-      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh)));
+      cards.push(existing?.closest(".approval-wrap") || h("div", { class: "approval-wrap" }, h("div", { class: "muted small" }, task.summary), approvalCard(question, rpc, refresh, ctx.scopes, ctx.approvalAuthority)));
     }
   }
   if (cards.length !== box.children.length || cards.some((card, index) => card !== box.children[index])) {
@@ -291,6 +306,7 @@ async function refreshNow() {
     chat?.reconcile(next);
     if (changed) render();
     ctx.notice = status.data?.notice ?? "";
+    ctx.approvalAuthority = status.data?.approvalAuthority ?? null;
     const slow = Date.now() - lastSlow > 20000;
     if (changed || slow) {
       lastSlow = Date.now();
@@ -337,6 +353,7 @@ async function start() {
   try {
     const status = await rpc("service.status");
     ctx.scopes = status.data?.scopes ?? [];
+    ctx.approvalAuthority = status.data?.approvalAuthority ?? null;
   } catch (error) {
     if (error.auth) return forget();
     setConnection(false, "Bilgisayara ulaşılamıyor; yeniden deneniyor…");
@@ -367,7 +384,14 @@ async function main() {
   device = (await kv("get", "device").catch(() => null)) ?? null;
   if (device) return start();
   $("eslestir").hidden = false;
-  void loadAuthOptions();
-  say("");
+  // Terminal QR'ındaki `?kod=`: kodu alana yaz, adresten düşür (geçmişte kalmasın), kod formunu aç.
+  const linked = pairingCodeFromSearch(location.search);
+  if (linked) {
+    $("kod").value = linked;
+    history.replaceState(null, "", stripPairingCode(location.href));
+  }
+  await loadAuthOptions();
+  if (linked) showLogin(false, true);
+  say(linked ? "Kod QR'dan alındı; Eşleştir'e dokun." : "");
 }
 main();

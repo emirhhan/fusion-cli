@@ -150,7 +150,7 @@ export function TerminalTabs({
             return (
               <button
                 aria-controls={`terminal-panel-${terminalId}`}
-                aria-label={tab.title}
+                aria-label={tab.closed ? `${tab.title}, ${status.label}` : tab.title}
                 aria-selected={activeId === terminalId}
                 className="terminal-tabs__tab"
                 id={`terminal-tab-${terminalId}`}
@@ -188,7 +188,7 @@ export function TerminalTabs({
       {tabs.length ? tabs.map((tab) => {
         const terminalId = tab.session.snapshot.terminalId;
         return (
-          <section aria-label={`${tab.title} ekranı`} hidden={activeId !== terminalId} id={`terminal-panel-${terminalId}`} key={terminalId} role="tabpanel">
+          <section aria-labelledby={`terminal-tab-${terminalId}`} hidden={activeId !== terminalId} id={`terminal-panel-${terminalId}`} key={terminalId} role="tabpanel">
             <XtermSession active={activeId === terminalId} closed={tab.closed} session={tab.session} />
           </section>
         );

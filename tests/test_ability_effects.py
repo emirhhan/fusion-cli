@@ -54,3 +54,20 @@ async def test_cozucu_hata_ya_da_eksik_adda_karari_araca_birakir():
     cozucu = ability_gateway_resolver(bozuk)
     assert await cozucu({"ability_name": "x"}) is None
     assert await cozucu({}) is None
+
+
+async def test_cozucu_bilgi_alinamayan_yetenegi_kalici_onbellege_almaz():
+    """Ölçüldü (30 Ekim): `info()` başarısız/yapısız dönünce `cache[name]=None` KALICI
+    saklanıyor, yorum "hata önbelleğe alınmaz" derken yetenek sonsuza dek en sıkı etkide
+    kalıyordu (M1-24). Geçici hata sonraki çağrıda toparlanmalı."""
+    cevaplar = [None, {"meta": {"annotations": {"readonly": True}}}]
+
+    async def bilgi(_ad: str):
+        return cevaplar.pop(0)
+
+    cozucu = ability_gateway_resolver(bilgi)
+
+    assert await cozucu({"ability_name": "x"}) is None
+    assert await cozucu({"ability_name": "x"}) is ToolEffect.REMOTE_READ
+    assert await cozucu({"ability_name": "x"}) is ToolEffect.REMOTE_READ
+    assert cevaplar == []

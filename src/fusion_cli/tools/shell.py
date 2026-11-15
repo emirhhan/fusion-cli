@@ -10,75 +10,274 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from ..config.paths import trash_dir
 from ..core.constants import (
+    EXIT_CODE_PREFIX,
     GIT_TIMEOUT_S,
-    MAX_OUTPUT_CHARS,
     SHELL_TIMEOUT_S,
     truncate_notice,
 )
 from ..core.errors import ProcessCancelledError
-from ..core.process_control import run_foreground
-from ..core.tools import ToolArgs, ToolContext, ToolResult
+from ..core.foreground_handoff import handoff_slot
+from ..core.process_control import MovedToBackgroundError, run_foreground
+from ..core.shell_cwd import new_marker, settle, split_marker, wrap
+from ..core.tools import ToolArgs, ToolContext, ToolEvidenceRole, ToolResult
+from ..core.workspace_fingerprint import (
+    Fingerprint,
+    WorkspaceEffect,
+    launches_background_process,
+    measure_effect,
+    take_fingerprint,
+)
 from .args import require_str
-from .command_policy import READONLY_GIT_SUBCOMMANDS
+from .auto_policy import is_read_only_command
+from .bash_settings import output_limit, timeout_seconds, wants_background
+from .command_semantics import READONLY_GIT_SUBCOMMANDS, git_reads_only
 from .files import invented_path_reason
 from .job_delivery import prepare_outputs
 from .job_evidence import prepare_manifest
+from .job_lifetime import time_limit_s
 from .jobs import start_job
-from .remotion_shell_guard import check_shell_result, remotion_integrity_error
+from .remotion_shell_guard import (
+    check_shell_result,
+    is_repair_command,
+    remotion_integrity_error,
+    repair_hint,
+)
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
+from .sandbox_runtime import (
+    SandboxRun,
+    background_exit_note,
+    delete_blocked,
+    prepare_sandbox,
+    release_sandbox,
+    sandbox_env,
+    sandbox_notes,
+)
+from .shell_adopt import adopt, can_adopt, new_token
+from .shell_cwd_check import checked_command, context_cwd
+from .shell_env_file import with_env_prelude
+from .shell_output import is_benign_exit, output_limits, shape_output
+from .shell_overwrite import backup_paths
 from .wordpress_setup import php_env
 
 __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
+
+#: Süreç başına bir kez gösterilen sandbox uyarıları (her komutta tekrarlanmaz).
+_SHOWN_SANDBOX_NOTICES: set[str] = set()
+_UNPROVEN_WRITE_NOTE = (
+    "\nFUSION_NOT: Değişen dosyaların yazarı doğrulanamadı; otomatik dosya geri alma "
+    "uygulanmaz, ilk kayıtları korunur."
+)
+
+
+def _once_notice(run: SandboxRun) -> str:
+    """Sandbox kurulamadı uyarısı süreç başına bir kez."""
+    notice = run.plan.notice
+    if not notice or notice in _SHOWN_SANDBOX_NOTICES:
+        return ""
+    _SHOWN_SANDBOX_NOTICES.add(notice)
+    return f"\nFUSION_NOT: {notice}"
+
+
+def _sandbox_notes(run: SandboxRun, process: subprocess.CompletedProcess[str]) -> str:
+    """Sandbox uyarısı (bir kez) ve engellenen yazma/okuma/ağ için eyleme dönük ipuçları."""
+    notes = sandbox_notes(run, process.returncode, process.stderr)
+    return _once_notice(run) + "".join(f"\nFUSION_NOT: {note}" for note in notes)
+
+
+class _ProcessObservation(ToolResult):
+    """Produced only after an actual foreground process completes."""
+
+    __slots__ = ()
+
+
+def process_evidence_role(_args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    return (
+        ToolEvidenceRole.DATA_OBSERVATION
+        if isinstance(result, _ProcessObservation)
+        else ToolEvidenceRole.UNCLASSIFIED
+    )
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     command = require_str(args, "command")
     integrity_error = remotion_integrity_error(context)
-    if integrity_error is not None:
-        return ToolResult.failure(integrity_error)
+    if integrity_error is not None and not is_repair_command(context, command):
+        return ToolResult.failure(repair_hint(integrity_error))
     uydurma = _invented_path(command, context.root)
     if uydurma is not None:
         return ToolResult.failure(uydurma)
-    deleted = _guarded_delete(command, context)
+    deleted = _guarded_delete(command, context, args)
     if deleted is not None:
-        return check_shell_result(context, deleted)
-    if args.get("background") is True:
-        try:
-            manifest = prepare_manifest(args, context.root)
-            outputs = prepare_outputs(args, context.root)
-        except (OSError, ValueError) as error:
-            return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
-        return start_job(command, context, _shell_env(), manifest=manifest, outputs=outputs)
+        return check_shell_result(context, deleted, baseline=integrity_error)
+    # Ezilecek/taşınacak mevcut proje dosyaları çalışmadan ÖNCE geri alma kaydına
+    # girer (T1-18). Kabukta yazarı kanıtlayan dosya makbuzu yoktur; bu kayıt
+    # önceki içeriği korur ama shell farkından otomatik geri alma yetkisi doğmaz.
+    for path in backup_paths(command, _cwd(context)):
+        context.changes.record(path)
+    if wants_background(args):
+        return start_background(command, args, context)
+    run = prepare_sandbox(command, args, context)
+    token = new_token() if can_adopt(command) else None
+    handed_over = False
+    try:
+        return _run_foreground(
+            command, context, run, integrity_error, timeout_seconds(args), token=token
+        )
+    except MovedToBackgroundError as moved:
+        # Süreç ve proxy artık işe aittir: iş bitince kapanır (#319).
+        handed_over = True
+        return adopt(moved, command, token or "", context, lambda: background_exit_note(run))
+    finally:
+        if not handed_over:
+            release_sandbox(run)
+
+
+def start_background(
+    command: str, args: ToolArgs, context: ToolContext, *, notify: bool = True
+) -> ToolResult:
+    """Komutu sandbox planıyla arka plan işi olarak başlat (`run_in_background`, `monitor`).
+
+    `notify=False` iş bitişinin genel bildirimini kapatır (`monitor` kendi bildirimini verir).
+    """
+    try:
+        manifest = prepare_manifest(args, context.root)
+        outputs = prepare_outputs(args, context.root)
+    except (OSError, ValueError) as error:
+        return ToolResult.failure(f"İş kanıtı hazırlanamadı: {error}")
+    run = prepare_sandbox(command, args, context)
+    if run.plan.refused:
+        release_sandbox(run)
+        return ToolResult.failure(run.plan.refused)
+    # Proxy işe aittir: iş süreci bitince kapanır (iş başlamazsa hemen).
+    started: ToolResult | None = None
+    try:
+        started = start_job(
+            with_env_prelude(_in_cwd(command, context), context),
+            context,
+            sandbox_env(_shell_env(context), run),
+            manifest=manifest,
+            outputs=outputs,
+            argv_prefix=run.plan.prefix,
+            on_exit=lambda: background_exit_note(run),
+            limit_s=time_limit_s(args.get("timeout")),
+            notify=notify,
+        )
+    finally:
+        if started is None or not started.ok:
+            release_sandbox(run)
+    notes = _once_notice(run) + "".join(
+        f"\nFUSION_NOT: {note}" for note in sandbox_notes(run, 0, "")
+    )
+    return replace(started, output=f"{started.output}{notes}") if notes else started
+
+
+def _run_foreground(
+    command: str,
+    context: ToolContext,
+    run: SandboxRun,
+    integrity_error: str | None,
+    timeout_s: float = SHELL_TIMEOUT_S,
+    *,
+    token: str | None = None,
+) -> ToolResult:
+    """Komutu ön planda çalıştır; proxy'nin sahibi çağırandır (bitince kapatır).
+
+    `token` verilirse zaman aşımında süreç öldürülmez, `MovedToBackgroundError` yükselir (#319).
+    """
+    if run.plan.refused:
+        return ToolResult.failure(run.plan.refused)
+    before, skipped = _fingerprint_before(command, context)
+    marker = new_marker()
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
-        process = run_foreground(
-            command,
-            timeout_s=SHELL_TIMEOUT_S,
-            cancelled=context.cancelled,
-            cwd=context.root,
-            env=_shell_env(),
-        )
+        # Komut kalıcı kabuk dizininde başlar; bitişteki dizin işaretle okunur (#126).
+        with handoff_slot() as slot:
+            process = run_foreground(
+                wrap(with_env_prelude(command, context), marker),
+                timeout_s=timeout_s,
+                cancelled=context.cancelled,
+                cwd=_cwd(context),
+                env=sandbox_env(_shell_env(context), run),
+                argv_prefix=run.plan.prefix,
+                adopt_on_timeout=(lambda: True) if token else None,
+                handoff=slot if token else None,
+                ownership_marker=token,
+            )
     except ProcessCancelledError as error:
         return ToolResult.failure(str(error))
     except subprocess.TimeoutExpired as timeout:
-        return ToolResult.failure(_timeout_message(timeout))
+        return ToolResult.failure(_timeout_message(timeout, timeout_s))
     except OSError as exc:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
 
-    body = _combine(process.stdout, process.stderr)
-    text = f"(çıkış kodu {process.returncode})\n{body}".strip()
+    stdout, finished_in = split_marker(process.stdout or "", marker)
+    inline, window = output_limits(context.root)
+    body, saved = shape_output(
+        _join(stdout, process.stderr),
+        valid=is_benign_exit(command, process.returncode),
+        inline=inline,
+        window=window,
+        store=context.artifacts,
+    )
+    text = f"{EXIT_CODE_PREFIX}{process.returncode})\n{body}".strip()
+    text += _sandbox_notes(run, process)
+    text += _settle_cwd(context, finished_in)
     if process.returncode != 0 and any(char.isspace() for char in str(context.root)):
         text += (
-            "\nFUSION_NOT: Komut zaten seçili proje dizininde çalışır. "
+            "\nFUSION_NOT: Komut zaten kabuk çalışma dizininde (varsayılan: proje kökü) çalışır. "
             "Göreli yol kullanın; tam yol gerekiyorsa boşlukları koruyun: "
             f"{shlex.quote(str(context.root))}"
         )
-    return check_shell_result(context, ToolResult(text, ok=process.returncode == 0))
+    effect = skipped
+    if effect is None and _measures(command, context):
+        effect = measure_effect(before, context.root)
+    if effect is not None and effect.changed is not None:
+        changed = {context.root / relative for relative in effect.changed}
+        unproven = changed.intersection(context.changes.paths)
+        # Parmak izi ve çıkış kodu yazarı kanıtlamaz; kullanıcı da yazmış olabilir.
+        # Değişmeyen yolun önceki doğrulanmış araç kimliği ise korunur.
+        for path in unproven:
+            context.changes.invalidate_applied(path)
+        if unproven:
+            text += _UNPROVEN_WRITE_NOTE
+    return check_shell_result(
+        context,
+        _ProcessObservation(
+            text,
+            ok=process.returncode == 0,
+            workspace_effect=effect,
+            artifact_path=str(saved) if saved else "",
+            output_shaped=True,
+        ),
+        baseline=integrity_error,
+    )
+
+
+def _measures(command: str, context: ToolContext) -> bool:
+    """Bu komut için çalışma alanı etkisi ölçülür mü (ayar açık, komut salt-okunur değil)?"""
+    return getattr(context, "shell_fingerprint", True) and not is_read_only_command(command)
+
+
+def _fingerprint_before(
+    command: str, context: ToolContext
+) -> tuple[Fingerprint | None, WorkspaceEffect | None]:
+    """Komuttan ÖNCE parmak izi; ölçülemeyecekse (arka plan süreci) hazır sonuç da döner.
+
+    Ölçüldü (30 Ekim): tanınmayan program temkinli olarak mutasyon sayılıyordu. Arka plana
+    atılan süreç komut bittikten sonra da yazabileceğinden "önce/sonra" ona güvenilmez;
+    eski temkinli davranış korunur.
+    """
+    if not _measures(command, context):
+        return None, None
+    if launches_background_process(command):
+        return None, WorkspaceEffect(None, "arka plan süreci")
+    return take_fingerprint(context.root), None
 
 
 #: Argümanında çoğu kez desen/URL yolu taşıyan komutlar; yol denetimi yapılmaz.
@@ -100,7 +299,7 @@ def _invented_path(command: str, root: Path) -> str | None:
     return None
 
 
-def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
+def _guarded_delete(command: str, context: ToolContext, args: ToolArgs) -> ToolResult | None:
     """Sade `rm` komutunu kalıcı silme yerine Fusion çöpüne taşı (bkz. `safe_delete`).
 
     Onay akışından SONRA, çalıştırma anında uygulanır. Sade olmayan silme
@@ -111,10 +310,15 @@ def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
     targets = simple_rm_targets(command)
     if targets is None:
         return None
+    # Sandbox sınırı göreli hedefleri köke göre çözer; kalıcı dizinde köke göre yeniden yazılır.
+    rebased = simple_rm_targets(checked_command(command, _cwd(context), context.root)) or targets
+    blocked = delete_blocked(list(rebased), args, context)
+    if blocked is not None:
+        return ToolResult.failure(blocked)
     try:
         moved, missing = move_to_trash(
             targets,
-            cwd=context.root,
+            cwd=_cwd(context),
             root=context.root,
             home=Path.home(),
             trash_root=trash_dir(),
@@ -130,17 +334,45 @@ def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
     return ToolResult("\n".join(lines))
 
 
-def _shell_env() -> dict[str, str]:
+def _cwd(context: ToolContext) -> Path:
+    """Komutun başlayacağı dizin: kalıcı kabuk dizini ya da proje kökü (#126)."""
+    return context_cwd(context) or context.root
+
+
+def _in_cwd(command: str, context: ToolContext) -> str:
+    """Arka plan işi de kalıcı kabuk dizininde başlar; işin `cd`'si kalıcı değildir."""
+    cwd = _cwd(context)
+    return command if cwd == context.root else f"cd {shlex.quote(str(cwd))} && {command}"
+
+
+def _settle_cwd(context: ToolContext, finished_in: Path | None) -> str:
+    """Komutun bıraktığı dizini kaydet; değiştiyse/sıfırlandıysa modele not."""
+    holder = getattr(context, "shell_cwd", None)
+    if holder is None:
+        return ""
+    note = settle(holder, finished_in, context.root, tuple(context.extra_roots))
+    return f"\nFUSION_NOT: {note}" if note else ""
+
+
+def _shell_env(context: ToolContext) -> dict[str, str]:
     """Kabuk ortamı: Homebrew PATH'i ve çalışan bir WP-CLI.
 
     Ölçüldü (2 Ekim, kabul koşusu): ajanın `wp core download` komutu PHP'nin 128 MB
     sınırında çöktü ve model WordPress'i curl ile elle kurmaya saptı. Kullanıcı
-    kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz.
+    kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz. MCP sır adları
+    (`context.hidden_env`) çıkarılır: komut `env` yazarsa sırlar modele gitmesin.
     """
-    return php_env()
+    from ..config.plugin_bin import with_plugin_bin
+    from ..core.env_scrub import scrubbed_env
+
+    # Claude `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`: sağlayıcı kimlik bilgileri çıkarılır (#368).
+    env = scrubbed_env(php_env())
+    env = {name: value for name, value in env.items() if name not in context.hidden_env}
+    # #389: etkin eklentilerin bin/ klasörleri
+    return with_plugin_bin(env, getattr(context, "root", None))
 
 
-def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
+def _timeout_message(timeout: subprocess.TimeoutExpired, timeout_s: float = SHELL_TIMEOUT_S) -> str:
     """Zaman aşımını ELDE OLAN kanıtla anlat.
 
     Ölçüldü: model `npm run start:all` çalıştırdı — üç servisi birlikte ayağa
@@ -155,11 +387,12 @@ def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
     """
     partial = _combine(_as_text(timeout.output), _as_text(timeout.stderr)).strip()
     lead = (
-        f"Komut {SHELL_TIMEOUT_S:.0f}s içinde bitmedi ve durduruldu. Sürekli çalışan bir "
+        f"Komut {timeout_s:.0f}s içinde bitmedi ve durduruldu. Sürekli çalışan bir "
         "süreç (dev sunucusu, izleyici) olabilir: böyle bir komut zaten hiç bitmez.\n"
         "Yapılacak: aynı komutu tekrar çalıştırma (ön planda). Uzun ama BİTEN bir iş "
-        "(npm install, render, build, export) ise run_shell(command=..., background=true) "
-        "ile arka planda başlat ve job_status(id, wait_s) ile bekle. Hiç bitmeyen bir "
+        "(npm install, render, build, export) ise run_shell(command=..., "
+        "run_in_background=true) "
+        "ile arka planda başlat; bitince bildirim gelir. Hiç bitmeyen bir "
         "sunucuysa (dev sunucusu) start_preview kullan ya da arka planda başlatıp "
         "doğrulama için biten bir komut (build, test, lint) çalıştır."
     )
@@ -178,8 +411,12 @@ def _as_text(value: str | bytes | None) -> str:
 def git(args: ToolArgs, context: ToolContext) -> ToolResult:
     subcommand = require_str(args, "subcommand")
     # require_str boş/yalnızca-boşluk girdiyi zaten reddeder; parts en az bir öğe taşır.
-    parts = subcommand.split()
-    if parts[0] not in READONLY_GIT_SUBCOMMANDS:
+    try:
+        # Tırnaklara saygı: `--format="%h %s"` ve `--grep "a b"` `str.split()` ile bozuluyordu.
+        parts = shlex.split(subcommand)
+    except ValueError as exc:
+        return ToolResult.failure(f"git alt komutu ayrıştırılamadı (tırnak hatası?): {exc}")
+    if not parts or not git_reads_only(parts):
         allowed = ", ".join(sorted(READONLY_GIT_SUBCOMMANDS))
         return ToolResult.failure(
             f"Yalnızca salt-okunur git komutlarına izin var ({allowed}). "
@@ -190,6 +427,8 @@ def git(args: ToolArgs, context: ToolContext) -> ToolResult:
             ["git", *parts],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # ikili çıktı UnicodeDecodeError fırlatmasın
             timeout=GIT_TIMEOUT_S,
             cwd=context.root,
         )
@@ -200,8 +439,12 @@ def git(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(body or "(çıktı yok)", ok=process.returncode == 0)
 
 
-def _combine(stdout: str, stderr: str) -> str:
+def _join(stdout: str, stderr: str) -> str:
     text = stdout or ""
     if stderr:
         text += f"\n[stderr]\n{stderr}"
-    return truncate_notice(text, MAX_OUTPUT_CHARS, ne="komut çıktısı")
+    return text
+
+
+def _combine(stdout: str, stderr: str) -> str:
+    return truncate_notice(_join(stdout, stderr), output_limit(), ne="komut çıktısı")

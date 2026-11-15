@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..core.atomic_file import atomic_replace_text
 from . import voice
 
 #: Talimat metni için üst sınır. Uzun bir blok her turda bağlamı yer ve
@@ -35,9 +36,81 @@ def read_instructions() -> str:
         return ""
 
 
-def get_instructions() -> dict[str, Any]:
-    """`ayar.talimat`: kayıtlı metni ve sınırı döndür."""
-    return {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
+def get_instructions(root: Path | None = None, home: Path | None = None) -> dict[str, Any]:
+    """`ayar.talimat`: kayıtlı metin, sınır ve (kök verilmişse) talimat envanteri.
+
+    `katmanlar`: başlangıç dosyaları ve kapsamlı kuralların kaynak, karakter ve güven bilgisi.
+    `toplam_karakter` yalnız başlangıçta yüklenen içeriği sayar; ertelenen kuralları saymaz.
+    `notlar`: atlanan import, dolan bütçe veya kesin ölçülemeyen kırpma gibi uyarılar.
+    """
+    sonuc: dict[str, Any] = {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
+    if root is None:
+        return sonuc
+    from ..engines.agent.project_instructions import load_startup_instruction_files
+
+    yuk = load_startup_instruction_files(root, home)
+    sonuc["katmanlar"] = [
+        {
+            "kaynak": item.label,
+            "katman": item.layer,
+            "karakter": item.chars,
+            "kirpilan": item.trimmed,
+            "guvenilir": item.trusted,
+        }
+        for item in yuk.files
+        if item.layer != "kural"
+    ]
+    # `.claude/rules` kuralları da katman listesine girer (katman "kural", `kapsam` = paths).
+    # Eksik yüzeydi: arayüzün "Kural" etiketi vardı ama hiç kullanılmıyordu (31 Ekim).
+    from ..engines.agent.instruction_rules import MAX_RULE_FILE_CHARS, discover_rules, rule_block
+
+    loaded_rules = {item.label: item for item in yuk.files if item.layer == "kural"}
+    for kural in discover_rules(root, home):
+        loaded = loaded_rules.get(kural.label)
+        if loaded is not None:
+            karakter, kirpilan = loaded.chars, loaded.trimmed
+            kesin = loaded.trimmed_exact
+        else:
+            _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+            kirpilan = 0
+            kesin = True
+        sonuc["katmanlar"].append(
+            {
+                "kaynak": kural.label,
+                "katman": "kural",
+                "karakter": karakter,
+                "kirpilan": kirpilan if kesin else None,
+                "kirpilan_alt_sinir": kirpilan,
+                "kirpilan_kesin": kesin,
+                "guvenilir": kural.trusted,
+                "kapsam": list(kural.paths),
+            }
+        )
+    sonuc["notlar"] = list(yuk.notes)
+    # Kararı verilmemiş dış `@import` hedefleri (Claude Code #145): arayüz onay sorar.
+    from ..engines.agent.import_approval import pending_external_imports
+
+    sonuc["dis_importlar"] = [str(path) for path in pending_external_imports(root, home)]
+    sonuc["toplam_karakter"] = sum(item.chars for item in yuk.files)
+    # `/doctor prompt` ile aynı öneriler (P-021): arayüz Kişiselleştirme ekranında gösterir.
+    from ..engines.agent.instruction_audit import audit_instructions
+
+    denetim = audit_instructions(root, home)
+    sonuc["oneriler"] = list(denetim.suggestions)
+    sonuc["supheli"] = [
+        {"kaynak": s.source, "satir": s.line_no, "metin": s.text} for s in denetim.suspicious
+    ]
+    return sonuc
+
+
+def set_external_imports(root: Path, data: dict[str, Any]) -> dict[str, Any]:
+    """`ayar.dis_import_karari`: dış import onayı ya da reddi (proje başına saklanır, #145)."""
+    from ..engines.agent.import_approval import record
+
+    onay = data.get("onay")
+    if not isinstance(onay, bool):
+        return {"ok": False, "metin": "'onay' alanı true ya da false olmalı."}
+    return {"ok": True, "metin": record(root, "e" if onay else "h")}
 
 
 def save_instructions(value: object) -> dict[str, Any]:
@@ -52,8 +125,9 @@ def save_instructions(value: object) -> dict[str, Any]:
         if not text.strip():
             instructions_path().unlink(missing_ok=True)
             return {"ok": True, "metin": ""}
-        instructions_path().parent.mkdir(parents=True, exist_ok=True)
-        instructions_path().write_text(text, encoding="utf-8")
+        # Atomik yaz: çökme/eşzamanlı okuma yarım talimat görmesin (ölçüldü 30 Ekim:
+        # doğrudan `write_text` dosyayı önce boşaltıyordu).
+        atomic_replace_text(instructions_path(), text)
     except OSError as error:
         return {"ok": False, "metin": f"Talimat kaydedilemedi: {error}"}
     return {"ok": True, "metin": text}

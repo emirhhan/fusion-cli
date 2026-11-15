@@ -17,6 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from urllib.parse import urlsplit
 
+from ..core.redaction import redact
+
 #: Argümandan alınan metinlerin üst sınırı; durum satırı tek satırda kalmalı.
 _MAX_QUOTE = 60
 
@@ -44,7 +46,16 @@ def _host(url: str | None) -> str:
         parsed = urlsplit(url if "://" in url else f"https://{url}")
     except ValueError:
         return url
-    return parsed.netloc or url
+    # `netloc` kullanıcı:parola@ içerebilir; durum satırına (ve olay günlüğüne) yalnız
+    # makine adı ve port yazılır (ölçüldü 30 Ekim).
+    host = parsed.hostname
+    if not host:
+        return url
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    return f"{host}:{port}" if port else host
 
 
 def _path_metni(args: Mapping[str, object]) -> str:
@@ -89,7 +100,7 @@ def _run_shell(args: Mapping[str, object]) -> str:
     komut = _text(args, "command", "komut")
     if not komut:
         return "kabuk komutu çalıştırılıyor"
-    return f"kabuk komutu {_quote(komut)} çalıştırılıyor"
+    return f"kabuk komutu {_quote(redact(komut))} çalıştırılıyor"
 
 
 def _todo_write(_args: Mapping[str, object]) -> str:
@@ -167,7 +178,28 @@ def _chrome_action(args: Mapping[str, object]) -> str:
         return "chrome ile tuşa basılıyor"
     if action == "screenshot":
         return "chrome ile ekran görüntüsü alınıyor"
-    return "chrome ile sayfa etkileşimi yapılıyor"
+    if action == "console":
+        return "chrome konsolu okunuyor"
+    if action == "network":
+        return "chrome ağ istekleri okunuyor"
+    if action == "record":
+        # `stop` GIF yazar; "kayıt alınıyor" demek yanıltıcıydı (ölçüldü, 31 Ekim).
+        if (_text(args, "value") or "").lower() == "stop":
+            return "chrome ekran kaydı GIF olarak yazılıyor"
+        return "chrome ekran kaydı başlatılıyor"
+    if action == "shortcut":
+        ad = (_text(args, "value") or "").lstrip("/")
+        return f"chrome kısayolu {_quote(ad)} alınıyor" if ad else "chrome kısayolu alınıyor"
+    return _CHROME_ACTION_TEXTS.get(str(action), "chrome ile sayfa etkileşimi yapılıyor")
+
+
+#: Değersiz ya da değeri cümleye girmeyen chrome eylemleri (P-073 pencere/grup/kısayol dahil).
+_CHROME_ACTION_TEXTS = {
+    "window": "chrome ile yeni pencere açılıyor",
+    "group": "chrome ile sekmeler gruplanıyor",
+    "shortcuts": "chrome kısayolları listeleniyor",
+    "tabs": "chrome sekmeleri listeleniyor",
+}
 
 
 def _browser_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
@@ -175,6 +207,16 @@ def _browser_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
         return f"tarayıcı ile {fiil}"
 
     return _metin
+
+
+def _kit_send(args: Mapping[str, object]) -> str:
+    kit = _text(args, "kit")
+    return f"{kit} Kit'ine iş bırakılıyor" if kit else "bir Kit'e iş bırakılıyor"
+
+
+def _kit_task_status(args: Mapping[str, object]) -> str:
+    kit = _text(args, "kit")
+    return f"{kit} Kit'inin gelen kutusu okunuyor" if kit else "Kit gelen kutusu okunuyor"
 
 
 def _browser_open(args: Mapping[str, object]) -> str:
@@ -185,6 +227,19 @@ def _browser_open(args: Mapping[str, object]) -> str:
 def _desktop_open(args: Mapping[str, object]) -> str:
     hedef = _text(args, "path", "uygulama", "app")
     return f"masaüstünde {hedef} açılıyor" if hedef else "masaüstünde uygulama açılıyor"
+
+
+_MOUSE_VERBS = {
+    "click": "bir öğeye tıklanıyor", "right_click": "sağ tıklanıyor",
+    "double_click": "çift tıklanıyor", "triple_click": "üç kez tıklanıyor",
+    "middle_click": "orta tuşla tıklanıyor", "drag": "sürükleniyor",
+    "hover": "imleç bir öğenin üstüne götürülüyor", "down": "fare basılı tutuluyor",
+    "up": "fare bırakılıyor",
+}  # fmt: skip
+
+
+def _desktop_mouse(args: Mapping[str, object]) -> str:
+    return f"masaüstünde {_MOUSE_VERBS.get(str(args.get('action', 'click')), 'fare kullanılıyor')}"
 
 
 def _desktop_generic(fiil: str) -> Callable[[Mapping[str, object]], str]:
@@ -221,6 +276,9 @@ _METINLER: dict[str, Callable[[Mapping[str, object]], str]] = {
     "chrome_type": _chrome_type,
     "chrome_page": _chrome_page,
     "chrome_action": _chrome_action,
+    "kits_list": lambda _args: "Kit'ler listeleniyor",
+    "kit_send": _kit_send,
+    "kit_task_status": _kit_task_status,
     "browser_open": _browser_open,
     "browser_read": _browser_generic("sayfa okunuyor"),
     "browser_tabs_list": _browser_generic("sekmeler listeleniyor"),
@@ -237,7 +295,9 @@ _METINLER: dict[str, Callable[[Mapping[str, object]], str]] = {
     "desktop_apps": _desktop_generic("uygulamalar listeleniyor"),
     "desktop_open": _desktop_open,
     "desktop_screenshot": _desktop_generic("ekran görüntüsü alınıyor"),
+    "desktop_displays": _desktop_generic("ekranlar listeleniyor"),
     "desktop_click": _desktop_generic("bir öğeye tıklanıyor"),
+    "desktop_mouse": _desktop_mouse,
     "desktop_type": _desktop_generic("yazı yazılıyor"),
     "desktop_key": _desktop_generic("tuşa basılıyor"),
     "desktop_scroll": _desktop_generic("sayfa kaydırılıyor"),
@@ -251,8 +311,13 @@ def progress_text(name: str, args: Mapping[str, object]) -> str:
     de anlaşılır bir varsayılana düşer: ham İngilizce araç adını kullanıcıya
     hiç göstermemek yerine, en azından "ne yapıldığı" belli bir cümle kurar.
     """
+    # Zayıf modelden bozuk çağrı gelebilir (`args` str/list/None): olay yayını düşmemeli.
+    guvenli_args: Mapping[str, object] = args if isinstance(args, Mapping) else {}
     olustur = _METINLER.get(name)
     if olustur is not None:
-        return olustur(args)
+        try:
+            return olustur(guvenli_args)
+        except (TypeError, ValueError, AttributeError):
+            pass
     okunabilir_ad = name.replace("_", " ").strip() or "araç"
     return f"{okunabilir_ad} çalıştırılıyor"

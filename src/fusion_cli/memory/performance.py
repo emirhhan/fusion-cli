@@ -18,6 +18,7 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.memory import Feedback, ModelStats, Outcome
 from ..core.protocols import Clock
+from ..core.redaction import redact
 from .store import get_collection
 
 COLLECTION = "model_performance"
@@ -38,7 +39,8 @@ class ChromaPerformanceMemory:
     def record(self, outcome: Outcome) -> None:
         self._collection.add(
             ids=[uuid.uuid4().hex],
-            documents=[outcome.task],
+            # Görev metni sır içerebilir ve Chroma bunu GÖMER + diskte düz saklar.
+            documents=[redact(outcome.task)],
             metadatas=[
                 {
                     "task_type": outcome.task_type,
@@ -83,10 +85,10 @@ class ChromaPerformanceMemory:
         updated = dict(metadatas[newest])
         updated["score"] = _clamp(float(updated["score"]) + feedback.delta)
         updated["feedback"] = feedback.value
-        self._collection.update(
+        yazildi = self._collection.update(
             ids=[ids[newest]], documents=[documents[newest]], metadatas=[updated]
         )
-        return 1
+        return 1 if yazildi else 0
 
     def stats(self) -> tuple[ModelStats, ...]:
         metadatas = self._collection.get().get("metadatas") or []

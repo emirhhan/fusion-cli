@@ -10,7 +10,7 @@ PYTEST   := $(VENV_BIN)pytest
 
 # Tek adımlık kurulum: uygun Python'u bulur, .venv kurar, .env'i hazırlar.
 setup:
-	./setup.sh --dev
+	FUSION_DEV_EXTRAS=$(EXTRAS) ./setup.sh --dev
 
 venv:
 	./setup.sh
@@ -64,7 +64,7 @@ runtime-bundle: install
 	cd app && npm run runtime:build && npm run runtime:smoke
 
 app-package: install
-	$(PY) desktop_build/listen/build_listen.py || true
+	$(PY) desktop_build/listen/build_listen.py
 	cd app && npm run bundle:mac
 	$(PY) desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
 

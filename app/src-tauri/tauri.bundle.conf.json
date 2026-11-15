@@ -1,8 +1,7 @@
 {
   "bundle": {
     "targets": [
-      "app",
-      "dmg"
+      "app"
     ],
     "resources": {
       "resources/runtime/runtime-manifest.json": "runtime/runtime-manifest.json",
@@ -10,17 +9,28 @@
       "resources/fusion-listen": "fusion-listen",
       "../../chrome-extension/manifest.json": "chrome-extension/manifest.json",
       "../../chrome-extension/background.js": "chrome-extension/background.js",
+      "../../chrome-extension/pageMonitor.js": "chrome-extension/pageMonitor.js",
+      "../../chrome-extension/recorder.js": "chrome-extension/recorder.js",
+      "../../chrome-extension/shortcuts.js": "chrome-extension/shortcuts.js",
       "../../chrome-extension/panel.html": "chrome-extension/panel.html",
       "../../chrome-extension/panel.css": "chrome-extension/panel.css",
       "../../chrome-extension/panel.js": "chrome-extension/panel.js",
       "../../chrome-extension/core.js": "chrome-extension/core.js",
+      "../../chrome-extension/permissionWait.js": "chrome-extension/permissionWait.js",
+      "../../chrome-extension/taskScope.js": "chrome-extension/taskScope.js",
+      "../../chrome-extension/device.js": "chrome-extension/device.js",
       "../../chrome-extension/offscreen.html": "chrome-extension/offscreen.html",
       "../../chrome-extension/offscreen.js": "chrome-extension/offscreen.js",
       "../../chrome-extension/panelView.js": "chrome-extension/panelView.js",
       "../../chrome-extension/pageGlow.js": "chrome-extension/pageGlow.js",
       "../../chrome-extension/icons/fusion.svg": "chrome-extension/icons/fusion.svg",
       "../../chrome-extension/icons/fusion-32.png": "chrome-extension/icons/fusion-32.png",
-      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png"
+      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png",
+      "resources/kits/kits-manifest.json": "kits/kits-manifest.json",
+      "resources/kits/node": "kits/node",
+      "resources/kits/app/": "kits/app/",
+      "../../chrome-extension/InterVariable.woff2": "chrome-extension/InterVariable.woff2",
+      "../../chrome-extension/Inter-LICENSE.txt": "chrome-extension/Inter-LICENSE.txt"
     },
     "macOS": {
       "minimumSystemVersion": "12.0",

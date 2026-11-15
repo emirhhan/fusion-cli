@@ -1,0 +1,2 @@
+def parse_value(value):
+    return value.strip()

@@ -44,7 +44,11 @@ _MIN_TOKEN_LENGTH = 2
 def tokenize(text: str) -> list[str]:
     """Metni küçük harfli, alfasayısal token listesine ayırır (Türkçe harfler dahil)."""
 
-    words = re.split(r"[^0-9a-zçğıöşü]+", text.lower())
+    # Türkçe büyük harf: `"İ".lower()` birleşik noktalı 'i' (U+0307) üretip token'ı
+    # ikiye bölüyordu ("İstanbul" → "stanbul"); `I` de 'ı' olup "ISPARTA"yı "isparta"dan
+    # ayırıyordu. İki yönde de 'i'ye katla (noktalı/noktasız i arama için aynı sayılır).
+    folded = text.replace("İ", "i").replace("I", "i").lower().replace("ı", "i")
+    words = re.split(r"[^0-9a-zçğöşü]+", folded)
     return [word for word in words if len(word) >= _MIN_TOKEN_LENGTH]
 
 
@@ -140,3 +144,18 @@ def _idf(document_frequency: int, total_docs: int) -> float:
     """BM25 ters belge sıklığı; her zaman pozitif kalan (log1p'li) biçim."""
 
     return math.log(1 + (total_docs - document_frequency + 0.5) / (document_frequency + 0.5))
+
+
+def fuse_ranked_ids(
+    vector_ids: tuple[str, ...], lexical_ids: tuple[str, ...], *, k: int = RRF_K
+) -> dict[str, float]:
+    """Bağımsız iki gerçek aday sırasını birleştir; eksik sıra katkısı sıfırdır.
+
+    Bir listede olmayan kimlik için mesafe ya da yapay sıra üretilmez. Sıfır
+    eşleşmeli lexical belgeler çağıran tarafından elenir; vektör sırası korunur.
+    """
+    scores: dict[str, float] = {}
+    for ranking in (vector_ids, lexical_ids):
+        for rank, identifier in enumerate(dict.fromkeys(ranking), start=1):
+            scores[identifier] = scores.get(identifier, 0.0) + 1.0 / (k + rank)
+    return scores

@@ -79,13 +79,14 @@ describe("Markdown", () => {
 });
 
 describe("Markdown — görseller", () => {
-  test("uzak adres olduğu gibi, yerel yol varlık protokolüyle çizilir", () => {
+  test("uzak adres kullanıcı yükleyince olduğu gibi, yerel yol varlık protokolüyle çizilir", () => {
     vi.mock("../platform/assetUrl", () => ({
       assetUrl: (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
     }));
     const { container } = render(
       <Markdown text={"![uzak](https://ornek.test/a.png)\n\n![yerel](</Users/e/.local/share/fusion-cli/gallery/a b.png>)"} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/i }));
     const sources = Array.from(container.querySelectorAll("img")).map((img) => img.getAttribute("src"));
     expect(sources[0]).toBe("https://ornek.test/a.png");
     expect(sources[1]).toBe(
@@ -94,14 +95,15 @@ describe("Markdown — görseller", () => {
   });
 
   test("varlık protokolü yoksa (tarayıcı/test) kırık resim yerine alt metin gösterir", async () => {
-    const { imageSource } = await import("./Markdown");
-    expect(imageSource("https://x.test/a.png")).toBe("https://x.test/a.png");
+    const { classifyImageSource } = await import("./remoteContentPolicy");
+    expect(classifyImageSource("/Users/e/a.png", () => null)).toEqual({ kind: "blocked" });
   });
 });
 
 describe("Markdown — görseli büyütme", () => {
   test("görsele tıklayınca tam ekran açılır; Esc ve Kapat ile kapanır", () => {
     render(<Markdown text={"![mavi kuş](https://ornek.test/kus.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/i }));
     fireEvent.click(screen.getByRole("button", { name: "mavi kuş — büyüt" }));
     expect(screen.getByRole("dialog", { name: "mavi kuş" })).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
@@ -113,9 +115,38 @@ describe("Markdown — görseli büyütme", () => {
 
   test("yüklenene kadar görünmez, yüklenince belirir (iskelet)", () => {
     const { container } = render(<Markdown text={"![x](https://ornek.test/a.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/i }));
     const frame = container.querySelector(".markdown__image-button") as HTMLElement;
     expect(frame.dataset.loaded).toBe("false");
     fireEvent.load(container.querySelector("img") as HTMLImageElement);
     expect(frame.dataset.loaded).toBe("true");
+  });
+});
+
+// Ölçüldü (30 Ekim): undefined metin lexer'ı fırlatıyor, lightbox odak yönetimi yok, yüklenemeyen görsel boş kutu,
+// görev kutusu etiketsiz (U5-23, U5-27).
+describe("Markdown dayanıklılık (30 Ekim)", () => {
+  test("boş/eksik yanıt çökertmez", () => {
+    expect(() => render(<Markdown text={undefined as unknown as string} />)).not.toThrow();
+  });
+  test("görev kutuları etiketlidir", () => {
+    render(<Markdown text={"- [x] bitti\n- [ ] sürüyor"} />);
+    expect(screen.getByRole("checkbox", { name: "Tamamlandı" })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Tamamlanmadı" })).toBeTruthy();
+  });
+  test("lightbox açılınca odak kapat düğmesine gider, kapanınca tetikleyiciye döner", () => {
+    render(<Markdown text={"![x](https://a.example/p.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/ }));
+    const tetikleyici = screen.getByRole("button", { name: "x — büyüt" });
+    fireEvent.click(tetikleyici);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Kapat" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.activeElement).toBe(tetikleyici);
+  });
+  test("yüklenemeyen görsel boş kutu bırakmaz", () => {
+    const { container } = render(<Markdown text={"![x](https://a.example/p.png)"} />);
+    fireEvent.click(screen.getByRole("button", { name: /uzak görseli yükle/ }));
+    fireEvent.error(container.querySelector("img")!);
+    expect(screen.getByText(/yüklenemedi/)).toBeTruthy();
   });
 });

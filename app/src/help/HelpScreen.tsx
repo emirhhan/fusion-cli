@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
+import { ACTION_LABELS, DEFAULT_BINDINGS, formatKey, isMacPlatform, keysForAction } from "../shortcuts/keys";
 import "./help.css";
 
 /**
@@ -23,10 +24,20 @@ interface Kisayol {
 const KISAYOLLAR: Kisayol[] = [
   { tus: "Enter", ne: "Görevi gönder" },
   { tus: "Shift + Enter", ne: "Alt satıra geç" },
-  { tus: "Shift + Tab", ne: "İzin modunu değiştir (Otomatik / Yalnız plan / Güvenli)" },
-  { tus: "/", ne: "Komut paletini aç" },
+  { tus: "Shift + Tab", ne: "İzin modunu değiştir (Otomatik / Manuel / Düzenlemeleri kabul et / Plan)" },
+  { tus: "/", ne: "Görev kutusunda komut listesini aç" },
   { tus: "Esc", ne: "Açık menüyü ya da seçiciyi kapat" },
 ];
+
+/** Uygulama kısayolları varsayılan tablodan gelir (P-046); kişisel bağlar Ayarlar › Kısayollar'dadır. */
+const UYGULAMA_EYLEMLERI = ["kisayollar", "yeni_sohbet", "oturumu_kapat", "sonraki_oturum", "onceki_oturum", "fark_paneli", "onizleme", "terminal", "paneli_kapat", "ayarlar"];
+
+function uygulamaKisayollari(mac: boolean): Kisayol[] {
+  return UYGULAMA_EYLEMLERI.flatMap((eylem) => {
+    const tus = keysForAction({ ...DEFAULT_BINDINGS }, eylem)[0];
+    return tus ? [{ tus: formatKey(tus, mac), ne: ACTION_LABELS[eylem] ?? eylem }] : [];
+  });
+}
 
 interface Soru {
   baslik: string;
@@ -51,9 +62,10 @@ const SORULAR: Soru[] = [
   {
     baslik: "İzin modları ne işe yarıyor?",
     cevap:
-      "Otomatik: Fusion kendi ilerler, yıkıcı işlemde sorar. Yalnız plan: hiçbir şeyi " +
-      "değiştirmez. Güvenli mod: her değiştirici işlem için ayrı ayrı onay ister. " +
-      "Görev kutusunun altından ya da Shift+Tab ile değiştirilir.",
+      "Otomatik: Fusion kendi ilerler, yalnız riskli işlemde sorar. Manuel: okuma dışındaki her " +
+      "işlem için onay ister. Düzenlemeleri kabul et: dosya düzenlemelerini sormadan uygular, " +
+      "komutları sorar. Plan: hiçbir şeyi değiştirmez. İzinleri atla: hiçbir şey sormaz, yalnız " +
+      "menüden seçilir. Görev kutusunun altından ya da Shift+Tab ile değiştirilir.",
   },
   {
     baslik: "Sağlayıcıya giriş yaparken tarayıcı açılıyor, normal mi?",
@@ -86,14 +98,13 @@ export function HelpScreen({
       <PageHeader
         actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
         description="Kısayollar, sık sorulanlar ve bir şey ters gittiğinde ne yapılacağı."
-        eyebrow="Yardım"
         title="Yardım"
       />
 
       <section className="help__card">
         <h3>Kısayollar</h3>
         <dl className="help__shortcuts">
-          {KISAYOLLAR.map((kisayol) => (
+          {[...KISAYOLLAR, ...uygulamaKisayollari(isMacPlatform())].map((kisayol) => (
             <div key={kisayol.tus}>
               <dt><kbd>{kisayol.tus}</kbd></dt>
               <dd>{kisayol.ne}</dd>

@@ -103,9 +103,10 @@ def _walk_files(root: Path, *, limit: int) -> tuple[list[Path], bool]:
         dizinler[:] = sorted(ad for ad in dizinler if not _is_skipped(ad))
         taban = Path(klasor)
         for ad in sorted(dosyalar):
-            # Nokta ile başlayan DOSYA atlanmaz; git yolu onları döndürüyor
-            # (`.gitignore`, `.claude/launch.json`) ve iki yolun aynı listeyi
-            # vermesi gerekiyor. Atlanan yalnız nokta ile başlayan DİZİNLERdir.
+            # Nokta ile başlayan DOSYA atlanmaz (`.gitignore`); git yolu onları döndürüyor.
+            # Nokta ile başlayan DİZİNLER (`.claude/launch.json` gibi) ise yalnız git
+            # yolunda görünür: iki yol bu noktada ve `_SKIP` süzgecinde birebir aynı
+            # liste vermez (git yolu izlenen `dist/` dosyalarını da döndürür).
             yollar.append(taban / ad)
             if len(yollar) >= limit:
                 return yollar, True

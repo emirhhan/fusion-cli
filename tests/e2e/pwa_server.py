@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.account_login import AccountLogin
 from fusion_cli.remote.asgi import RemoteApp
 from fusion_cli.remote.devices import DeviceRegistry
@@ -252,11 +253,22 @@ class Backend:
         return scripted.get(name, {"ok": True})
 
 
+class DesktopApprovingPairing(PairingService):
+    """Masaüstü kullanıcısı onayı simülasyonu: yüksek yetkili kapsamlı kod artık ayardan
+    bağımsız elle onay ister (R1-13); uçtan uca test o "tıklamayı" kodla yapar."""
+
+    def submit(self, code: str, device_name: str, *args: Any, **kwargs: Any) -> frozenset[str]:
+        scopes = super().submit(code, device_name, *args, **kwargs)
+        if not self.is_approved(code):
+            self.approve(code)
+        return scopes
+
+
 async def main(port: int) -> None:
     clock = Clock()
     tmp = Path(tempfile.mkdtemp(prefix="fusion-e2e-"))
     registry = DeviceRegistry(tmp / "d.json", clock)
-    pairing = PairingService(registry, clock, require_approval=lambda: False)
+    pairing = DesktopApprovingPairing(registry, clock, require_approval=lambda: False)
     backend = Backend()
     lock = asyncio.Lock()
     mobile = MobileApi(
@@ -272,7 +284,7 @@ async def main(port: int) -> None:
     service = RemoteService(
         clock=clock,
         registry=registry,
-        store=TaskStore(clock),
+        store=TaskStore(SqliteRunStore(tmp / "runs.sqlite3", clock=clock)),
         backend=backend,
         screen_capture=Capture(),
         mobile=mobile,
@@ -280,7 +292,7 @@ async def main(port: int) -> None:
     )
     limiter = FailureLimiter(clock)
     login = AccountLogin(
-        authenticate=lambda i, p: (i, p) == ("emir", "parola123"),
+        authenticate=lambda i, p: "hesap-emir" if (i, p) == ("emir", "parola123") else None,
         registry=registry,
         limiter=limiter,
     )
@@ -296,6 +308,21 @@ async def main(port: int) -> None:
     async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope["type"] == "http" and scope["path"] == "/__focused":
             body = json.dumps(Navigation.focused).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
+        if scope["type"] == "http" and scope["path"] == "/__approve_screen":
+            # Masaüstündeki "izin ver" tıklamasının yerine: bekleyen ekran isteklerini onayla.
+            approved = [
+                device for device in service.screen_gate.pending() if service.approve_screen(device)
+            ]
+            body = json.dumps({"approved": approved}).encode()
             await send(
                 {
                     "type": "http.response.start",

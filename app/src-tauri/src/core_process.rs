@@ -13,6 +13,7 @@
 //! Geliştirici Kipi bu kuralın TEK istisnasıdır ve yalnız `lib.rs`'te,
 //! açıkça istenmişse devreye girer.
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::time::{Duration, Instant};
@@ -73,22 +74,88 @@ pub(crate) fn validate_runtime_executable(path: &Path) -> Result<(), String> {
     }
 }
 
-pub(crate) fn stop_child(mut child: Child) {
-    let baslangic = Instant::now();
+/// Satır satır okur; geçersiz UTF-8 baytları `U+FFFD` ile değiştirilir ve okuma
+/// SÜRER. `BufRead::lines()` geçersiz UTF-8'de `Err` verip döngüyü bitiriyordu:
+/// tek bir bozuk bayt çekirdek çıktısını sonsuza dek susturuyordu (R2-05). Yalnız
+/// gerçek bir G/Ç hatasında ya da EOF'ta durur; satır sonu (`\n`, `\r\n`) atılır.
+pub(crate) fn satirlari_oku(okuyucu: impl Read, mut satir_isle: impl FnMut(String)) {
+    let mut okuyucu = BufReader::new(okuyucu);
+    let mut tampon = Vec::new();
     loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) => {
-                if baslangic.elapsed() >= DURDURMA_ZAMAN_ASIMI {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return;
+        tampon.clear();
+        match okuyucu.read_until(b'\n', &mut tampon) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                if tampon.last() == Some(&b'\n') {
+                    tampon.pop();
+                    if tampon.last() == Some(&b'\r') {
+                        tampon.pop();
+                    }
                 }
-                std::thread::sleep(YOKLAMA_ARALIGI);
+                satir_isle(String::from_utf8_lossy(&tampon).into_owned());
             }
-            Err(_) => return,
         }
     }
+}
+
+/// Unix'te çekirdeği KENDİ süreç grubunda başlatır (pgid = pid); böylece
+/// durdurma zaman aşımında yalnız çekirdek değil, başlattığı torunlar da
+/// `killpg` ile sonlandırılabilir. Windows'ta etkisizdir (Job Object kapsam dışı).
+pub(crate) fn kendi_grubunda(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command
+}
+
+pub(crate) fn stop_child(child: Child) {
+    stop_children(vec![child]);
+}
+
+/// All owned children share one grace period; no child delays signalling the next.
+pub(crate) fn stop_children(mut children: Vec<Child>) {
+    let deadline = Instant::now() + DURDURMA_ZAMAN_ASIMI;
+    loop {
+        // Reaped/error children are removed before any group signal: their PID
+        // ownership must never be inferred later from a stale numeric identifier.
+        children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
+        if children.is_empty() {
+            return;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(YOKLAMA_ARALIGI);
+    }
+    for child in &mut children {
+        grubu_oldur(child);
+        let _ = child.kill();
+    }
+    for mut child in children {
+        let _ = child.wait();
+    }
+}
+
+/// Süreç grubunu (çekirdek + torunları) SIGKILL ile sonlandırır. Yalnız
+/// `kendi_grubunda` ile başlatılmış çocuklar için çağrılır; çocuk henüz
+/// `wait` edilmediği için pid (dolayısıyla pgid) başka bir sürece geçmemiştir.
+///
+/// Ölçüldü (30 Ekim): yalnız `child.kill()` ile çekirdeğin başlattığı torunlar
+/// (araç süreçleri, dev sunucuları) yetim kalıp çalışmayı sürdürüyordu (R2-06).
+fn grubu_oldur(child: &Child) {
+    #[cfg(unix)]
+    {
+        if let Ok(pgid) = i32::try_from(child.id()) {
+            // SAFETY: yalnız sayısal süreç grubu kimliği ve sabit bir sinyal verilir.
+            unsafe {
+                libc::killpg(pgid, libc::SIGKILL);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = child;
 }
 
 /// Bir yolun var olan ve çalıştırılabilir bir dosya olup olmadığını
@@ -125,6 +192,72 @@ mod testler {
             PathBuf::from("/Application Support/Fusion/runtime/0.3.0a1/fusion")
         );
         assert_eq!(launch.args, vec!["app"]);
+    }
+
+    /// Ölçüldü (30 Ekim): `lines()` 0xff baytında `Err` verip döngüyü bitiriyordu;
+    /// sonraki satırlar hiç iletilmiyordu (R2-05).
+    #[test]
+    fn gecersiz_utf8_sonraki_satirlari_susturmaz() {
+        let girdi: &[u8] = b"bir\n\xffbozuk\r\niki\nson";
+        let mut satirlar = Vec::new();
+        satirlari_oku(girdi, |satir| satirlar.push(satir));
+        assert_eq!(satirlar, vec!["bir", "\u{fffd}bozuk", "iki", "son"]);
+    }
+
+    #[test]
+    fn gercek_io_hatasinda_okuma_durur() {
+        struct Bozuk(u8);
+        impl Read for Bozuk {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                if self.0 == 1 {
+                    buf[..3].copy_from_slice(b"a\nb");
+                    Ok(3)
+                } else {
+                    Err(std::io::Error::other("kesildi"))
+                }
+            }
+        }
+        let mut satirlar = Vec::new();
+        satirlari_oku(Bozuk(0), |satir| satirlar.push(satir));
+        assert_eq!(satirlar, vec!["a"]);
+    }
+
+    /// Ölçüldü (30 Ekim): zaman aşımında yalnız `child.kill()` çağrılınca çekirdeğin
+    /// torunu (`sleep`) hayatta kalıyordu (R2-06).
+    #[cfg(unix)]
+    #[test]
+    fn durdurma_zaman_asiminda_torunlari_da_oldurur() {
+        use std::io::{BufRead, BufReader};
+        use std::process::{Command, Stdio};
+        // TERM'i ve stdin EOF'unu yok sayan bir kabuk, arka planda torun başlatır.
+        let mut komut = Command::new("/bin/sh");
+        komut
+            .args(["-c", "sleep 30 & echo $!; while true; do sleep 1; done"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        kendi_grubunda(&mut komut);
+        let mut cocuk = komut.spawn().unwrap();
+        let mut satir = String::new();
+        BufReader::new(cocuk.stdout.take().unwrap())
+            .read_line(&mut satir)
+            .unwrap();
+        let torun: i32 = satir.trim().parse().unwrap();
+        let canli = |pid: i32| unsafe { libc::kill(pid, 0) == 0 };
+        assert!(canli(torun));
+
+        stop_child(cocuk);
+
+        // Yetim torun init'e geçer; SIGKILL sonrası kısa süre içinde kaybolmalı.
+        let son = Instant::now() + Duration::from_secs(3);
+        while canli(torun) && Instant::now() < son {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let hala_canli = canli(torun);
+        if hala_canli {
+            unsafe { libc::kill(torun, libc::SIGKILL) };
+        }
+        assert!(!hala_canli, "torun süreç stop_child sonrası hayatta kaldı");
     }
 
     #[test]

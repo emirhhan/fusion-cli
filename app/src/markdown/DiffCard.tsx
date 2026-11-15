@@ -25,11 +25,29 @@ export interface DiffRow {
 
 /** Unified diff metnini satır türleriyle birlikte çöz. */
 export function parseDiff(diff: string): DiffRow[] {
-  return diff.split("\n").map((text) => ({ kind: rowKind(text), text }));
+  const lines = diff.split("\n");
+  // Metni "\n" ile biten diff'in sonundaki boş parça bir bağlam satırı değildir.
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  let hunkSeen = false;
+  let previousWasOldHeader = false;
+  return lines.map((text, index) => {
+    // `---`/`+++` yalnız ilk hunk'tan ÖNCE ve çift olarak başlıktır; hunk içindeki `--- yorum`
+    // (içeriği `--` ile başlayan silinmiş satır) ya da `+++x` satırı gerçek eklenti/silinti sayılır (U5-25).
+    if (!hunkSeen && text.startsWith("---") && (lines[index + 1] ?? "").startsWith("+++")) {
+      previousWasOldHeader = true;
+      return { kind: "meta" as const, text };
+    }
+    if (!hunkSeen && previousWasOldHeader && text.startsWith("+++")) {
+      previousWasOldHeader = false;
+      return { kind: "meta" as const, text };
+    }
+    previousWasOldHeader = false;
+    if (text.startsWith("@@")) hunkSeen = true;
+    return { kind: rowKind(text), text };
+  });
 }
 
 function rowKind(text: string): DiffKind {
-  if (text.startsWith("+++") || text.startsWith("---")) return "meta";
   if (text.startsWith("@@")) return "hunk";
   if (text.startsWith("+")) return "add";
   if (text.startsWith("-")) return "remove";

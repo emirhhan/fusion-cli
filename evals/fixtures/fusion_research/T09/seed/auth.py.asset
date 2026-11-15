@@ -1,0 +1,4 @@
+from token_dogrula import dogrula
+
+def giris(token):
+    return dogrula(token)

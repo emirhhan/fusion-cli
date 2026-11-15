@@ -34,7 +34,7 @@
 .runtime-setup__details summary { cursor: pointer; }
 .runtime-setup__details summary:focus-visible { outline: 2px solid var(--focus-ring, #7db4ff); outline-offset: 3px; }
 .runtime-setup__details p { margin: 8px 0 0; }
-.runtime-setup__version { color: #737373; }
+.runtime-setup__version { color: #8c8c8c; /* #111 üstünde ≥ 5:1 (CSS1-30) */ }
 
 @media (prefers-reduced-motion: reduce) {
   .runtime-setup__mark, .runtime-setup[data-busy="true"] .runtime-setup__mark img { animation: none; }

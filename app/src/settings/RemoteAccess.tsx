@@ -5,20 +5,27 @@ import { Button } from "../ui/Button";
 import { ChoiceCards, Field, PanelGroup, PanelIntro, StatusPill, ToggleRow } from "./PanelParts";
 import { markRemoteInUse } from "../remote/remoteFlag";
 import { TunnelGuide } from "./RemoteGuide";
-import { ELEVATED_SCOPES, readPairingScopes, savePairingScopes } from "./remotePreferences";
+import { APPROVAL_FORCING_SCOPES, ELEVATED_SCOPES, readPairingScopes, savePairingScopes } from "./remotePreferences";
 
 /**
  * Uzaktan Erişim — telefon (PWA) ve Telegram eşleştirme.
  *
- * Güvenlik kuralı: yüksek yetkili kapsamlar varsayılan KAPALI ve açıkça seçilir;
- * riskli işlemler uzaktan onaylanamaz, onay burada (masaüstünde) verilir.
+ * Güvenlik kuralı: yüksek yetkili kapsamlar varsayılan KAPALI ve açıkça seçilir; tehlikeli ve
+ * masaüstü işlemleri yalnız burada ya da imzalı telefonda ikinci teyitle onaylanır. İstenirse
+ * uzaktan onay için cihaz başına SÜRELİ yetki şartı açılır (P-040; Claude Code "Trusted Devices").
  */
 
-interface Device { deviceId: string; name: string; channel: string; scopes: string[]; revoked: boolean }
+interface Device {
+  deviceId: string; name: string; channel: string; scopes: string[]; revoked: boolean;
+  /** Masaüstünün verdiği süreli onay yetkisinin bittiği an (Unix sn); 0 = yok. */
+  approvalTrustedUntil?: number;
+}
 interface ScreenDevice { cihazId: string; ad: string }
 interface Pending { soruId: string; runId: string; baslik: string; hedef: string; onay: boolean }
 interface Status {
   onayIste?: boolean;
+  onayYetkisiIste?: boolean;
+  onayYetkisiVarsayilanSaat?: number;
   sonEslesen?: { cihazId: string; ad: string; zaman: number } | null;
   dinliyor: boolean; adres: string; telegram: boolean; telegramHata: string; cihazSayisi: number;
   port: number; agAdresleri: string[];
@@ -26,14 +33,38 @@ interface Status {
 
 type Mode = "local" | "tunnel" | "lan";
 
+const VARSAYILAN_PORT = 8791;
+/** Cihaz başına onay yetkisinin varsayılan süresi (çekirdek `APPROVAL_TRUST_DEFAULT_HOURS`). */
+const ONAY_YETKISI_SAAT = 18;
+
+/** Kalan onay yetkisini insan diliyle yaz; dolmuşsa "yok". */
+export function approvalTrustLabel(until: number | undefined, nowSeconds: number): string {
+  const left = (until ?? 0) - nowSeconds;
+  if (left <= 0) return "Onay yetkisi yok";
+  if (left >= 3600) return `Onay yetkisi: ${Math.floor(left / 3600)} sa kaldı`;
+  return `Onay yetkisi: ${Math.max(1, Math.round(left / 60))} dk kaldı`;
+}
+/** Eşleştirme kodunun ömrü (çekirdekle aynı: 2 dakika); süre dolunca ekrandan kalkar. */
+const KOD_OMRU_MS = 120_000;
+
+/** Port alanını doğrular (U2-42): boş → 0, harf → NaN idi ve hata ancak çekirdekten dönüyordu. */
+export function parsePort(value: string): number | null {
+  const text = value.trim();
+  if (!/^\d{1,5}$/.test(text)) return null;
+  const port = Number(text);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
 export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [screenAsks, setScreenAsks] = useState<ScreenDevice[]>([]);
   const [screenLive, setScreenLive] = useState<ScreenDevice[]>([]);
-  const [code, setCode] = useState<{ kod: string; kanal: string } | null>(null);
+  const [code, setCode] = useState<{ kod: string; kanal: string; yuksekYetki: boolean } | null>(null);
   const [extra, setExtra] = useState<string[]>(readPairingScopes);
+  // Eşleşen cihaza baştan onay yetkisi ver (varsayılan kapalı; yalnız bu eşleştirmeye uygulanır).
+  const [pairWithTrust, setPairWithTrust] = useState(false);
   const [token, setToken] = useState("");
   const [mode, setMode] = useState<Mode>("tunnel");
   const [port, setPort] = useState("8791");
@@ -41,7 +72,10 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   const [certificate, setCertificate] = useState("");
   const [keyFile, setKeyFile] = useState("");
   const [message, setMessage] = useState("");
+  // Yoklama hatası eylem hatasından ayrıdır; yoklama düzelince kendiliğinden kalkar (U2-41).
+  const [pollMessage, setPollMessage] = useState("");
   const [notice, setNotice] = useState("");
+  const reloading = useRef(false);
   const seenPairing = useRef<number | null | undefined>(undefined);
 
   const call = useCallback(
@@ -54,6 +88,9 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
   );
 
   const reload = useCallback(async () => {
+    // Tek uçuşlu yoklama: bir tur bitmeden yenisi başlamaz (5 ardışık istek üst üste binmesin).
+    if (reloading.current) return;
+    reloading.current = true;
     try {
       const durum = (await call("uzak.durum")) as unknown as Status;
       setStatus(durum);
@@ -71,10 +108,19 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       const screen = await call("uzak.ekran_bekleyen");
       setScreenAsks((screen.bekleyen ?? []) as ScreenDevice[]);
       setScreenLive((screen.etkin ?? []) as ScreenDevice[]);
+      setPollMessage("");
     } catch (reason) {
-      setMessage(errorMessage(reason));
+      setPollMessage(errorMessage(reason));
+    } finally {
+      reloading.current = false;
     }
   }, [call]);
+
+  useEffect(() => {
+    if (!code) return;
+    const timer = window.setTimeout(() => setCode(null), KOD_OMRU_MS);
+    return () => window.clearTimeout(timer);
+  }, [code]);
 
   useEffect(() => {
     void reload();
@@ -92,14 +138,26 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
     }
   };
 
+  // desktop.control / production.deploy seçiliyken masaüstü onayı zorunludur (U2-43).
+  const approvalForced = extra.some((id) => APPROVAL_FORCING_SCOPES.includes(id));
+  const ensureApproval = async () => {
+    if (status?.onayIste !== true) await call("uzak.ayar", { onayIste: true });
+  };
+
   const begin = (kanal: "pwa" | "telegram") =>
     act(async () => {
       const base = ["project.read", "agent.run", "agent.cancel"];
-      const result = await call("uzak.eslestir_baslat", { kanal, kapsamlar: [...base, ...extra] });
-      setCode({ kod: String(result.kod), kanal });
+      if (approvalForced) await ensureApproval();
+      const istek: Record<string, unknown> = { kanal, kapsamlar: [...base, ...extra] };
+      if (pairWithTrust) istek.onaySaat = trustHours;
+      const result = await call("uzak.eslestir_baslat", istek);
+      const yuksekYetki = Array.isArray(result.yuksekYetki) && result.yuksekYetki.length > 0;
+      setCode({ kod: String(result.kod), kanal, yuksekYetki });
     });
 
   const listening = Boolean(status?.dinliyor);
+  const trustHours = status?.onayYetkisiVarsayilanSaat ?? ONAY_YETKISI_SAAT;
+  const nowSeconds = Date.now() / 1000;
   const rows = (title: string, empty: string, items: unknown[], body: ReactNode) => (
     <PanelGroup title={title}>{items.length === 0 ? <p className="px-empty">{empty}</p> : body}</PanelGroup>
   );
@@ -107,9 +165,11 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
     <article className="settings__card" id="settings-remote">
       <PanelIntro title="Uzaktan Erişim">
         Görevler bu bilgisayarda çalışır; uyku, kilit veya kapalı bilgisayarda ilerlemez. Riskli işlemler
-        (masaüstü kontrolü, dış servis yazma, silme) yalnız burada onaylanır.
+        (masaüstü kontrolü, dış servis yazma, silme) burada ya da imzalı telefonda ikinci teyitle onaylanır;
+        Telegram bunları yalnız reddeder. İkinci teyit istemeyen onaylar kapsamı yeten Telegram cihazından
+        da verilebilir; aşağıdaki &quot;Uzaktan onay&quot; yetki şartı Telegram için de geçerlidir.
       </PanelIntro>
-      {message && <p className="px-error" role="alert">{message}</p>}
+      {(message || pollMessage) && <p className="px-error" role="alert">{message || pollMessage}</p>}
       {notice && <p className="px-note" role="status">{notice}</p>}
 
       <PanelGroup title="Telefon (PWA)">
@@ -145,7 +205,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
       />
 
       <Field label="Port">
-        {(id) => <input id={id} inputMode="numeric" onChange={(event) => setPort(event.target.value)} value={port} />}
+        {(id) => <input aria-invalid={parsePort(port) === null} id={id} inputMode="numeric" onChange={(event) => setPort(event.target.value)} value={port} />}
       </Field>
       {mode === "lan" && (
         <>
@@ -175,7 +235,9 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
           disabled={listening || (mode === "lan" && (!lanAddress || !certificate || !keyFile))}
           onClick={() =>
             act(async () => {
-              const base: Record<string, unknown> = { port: Number(port) };
+              const parsed = parsePort(port);
+              if (parsed === null) throw new Error("Port 1 ile 65535 arasında bir tam sayı olmalı.");
+              const base: Record<string, unknown> = { port: parsed };
               if (mode === "tunnel") base.guvenilirTunel = true;
               if (mode === "lan") {
                 Object.assign(base, { adres: lanAddress, yerelAg: true, sertifika: certificate, anahtar: keyFile });
@@ -191,7 +253,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
         </Button>
       </div>
 
-      {mode === "tunnel" && <TunnelGuide port={port} />}
+      {mode === "tunnel" && <TunnelGuide port={String(parsePort(port) ?? VARSAYILAN_PORT)} />}
 
       <PanelGroup note="Seçimin bu bilgisayarda hatırlanır ve yalnız yeni eşleştirmelere uygulanır. Mevcut cihazların yetkileri değişmez." title="Ek yetkiler">
         {ELEVATED_SCOPES.map((item) => (
@@ -202,16 +264,34 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
               const next = checked ? [...extra, item.id] : extra.filter((id) => id !== item.id);
               setExtra(next);
               savePairingScopes(next);
+              if (checked && APPROVAL_FORCING_SCOPES.includes(item.id)) void act(ensureApproval);
             }}
             title={item.etiket}
+            warning={APPROVAL_FORCING_SCOPES.includes(item.id) ? "Her eşleştirme masaüstünde elle onaylanır" : undefined}
           />
         ))}
       </PanelGroup>
       <PanelGroup note="Kapalıyken telefonda doğru kodu girmek yeterlidir (kodu sen ürettin, 2 dakika geçerli). Açıkken her eşleştirmeyi burada onaylarsın. Telegram her zaman onay ister." title="Kodla eşleştirme">
         <ToggleRow
-          checked={status?.onayIste === true}
+          checked={status?.onayIste === true || approvalForced}
+          description={approvalForced ? "Masaüstü denetimi ya da üretime yayın yetkisi seçili olduğu için kapatılamaz." : undefined}
+          disabled={approvalForced}
           onChange={(checked) => act(async () => { await call("uzak.ayar", { onayIste: checked }); })}
           title="Kodla eşleştirmede masaüstü onayı iste"
+        />
+      </PanelGroup>
+      <PanelGroup note="Claude Code'un güvenilir cihazları gibi: yetki süreli verilir, dolunca telefon yalnız reddedebilir. Şart kapalıyken onaylar eşleşme kapsamına göre verilir." title="Uzaktan onay">
+        <ToggleRow
+          checked={status?.onayYetkisiIste === true}
+          description="Açıkken bir cihaz, burada verdiğin süreli yetki olmadan uzaktan onay veremez (reddetmek serbest)."
+          onChange={(checked) => act(async () => { await call("uzak.ayar", { onayYetkisiIste: checked }); })}
+          title="Uzaktan onay için cihaz başına süreli yetki iste"
+        />
+        <ToggleRow
+          checked={pairWithTrust}
+          description="Yalnız bir sonraki eşleştirmeye uygulanır."
+          onChange={setPairWithTrust}
+          title={`Eşleşen cihaz ${trustHours} saat onay verebilsin`}
         />
       </PanelGroup>
       <div className="px-actions">
@@ -223,7 +303,7 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
           <p className="px-note">Eşleştirme kodu (2 dakika geçerli)</p>
           <strong className="px-pairing__code">{code.kod}</strong>
           <p className="px-note">
-            {status?.onayIste || code.kanal === "telegram"
+            {status?.onayIste || code.kanal === "telegram" || code.yuksekYetki
               ? "Cihaz kodu girdikten sonra onayla."
               : "Kodu telefona gir; doğru kod kendiliğinden bağlanır."}
           </p>
@@ -333,10 +413,22 @@ export function RemoteAccess({ client }: { client: ProtocolClient }) {
           <div className="px-item" key={device.deviceId}>
             <div className="px-item__text">
               <span className="px-item__title">{device.name}</span>
-              <p className="px-item__hint">{device.channel === "telegram" ? "Telegram" : "PWA"}</p>
+              <p className="px-item__hint">
+                {device.channel === "telegram" ? "Telegram" : "PWA"}
+                {!device.revoked && ` · ${approvalTrustLabel(device.approvalTrustedUntil, nowSeconds)}`}
+              </p>
             </div>
             <div className="px-item__actions">
               <StatusPill tone={device.revoked ? "off" : "on"}>{device.revoked ? "iptal" : "aktif"}</StatusPill>
+              {!device.revoked && ((device.approvalTrustedUntil ?? 0) > nowSeconds ? (
+                <Button onClick={() => act(async () => { await call("uzak.onay_yetkisi", { cihazId: device.deviceId, saat: 0 }); })}>
+                  Onay yetkisini kaldır
+                </Button>
+              ) : (
+                <Button onClick={() => act(async () => { await call("uzak.onay_yetkisi", { cihazId: device.deviceId, saat: trustHours }); })}>
+                  {`Onay yetkisi ver (${trustHours} sa)`}
+                </Button>
+              ))}
               {!device.revoked && (
                 <Button onClick={() => act(async () => { await call("uzak.cihaz_iptal", { cihazId: device.deviceId }); })}>
                   Erişimi iptal et

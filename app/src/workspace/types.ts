@@ -23,5 +23,8 @@ export interface WorkspaceState {
   expanded: Set<string>;
   selected: WorkspaceFile | null;
   loading: boolean;
+  /** Dizin listeleme/açma hatası; ağacı GİZLEMEZ (yalnız kök liste yoksa tek başına görünür). */
   error: string | null;
+  /** Seçilen dosyanın okuma hatası; görüntüleyicide gösterilir, ağaç etkilenmez. */
+  selectedError: string | null;
 }

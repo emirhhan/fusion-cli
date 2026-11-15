@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 const OUTPUT_QUEUE_CAPACITY: usize = 128;
@@ -37,6 +38,9 @@ pub(crate) struct TerminalClosed {
 
 type OutputSink = Arc<dyn Fn(TerminalOutput) + Send + Sync>;
 type ClosedSink = Arc<dyn Fn(TerminalClosed) + Send + Sync>;
+/// Tek bir terminalin ham bayt alıcısı (Tauri `Channel`, U4-25). Verilirse o terminalin çıktısı
+/// `TerminalOutput` JSON olayı yerine doğrudan bu alıcıya, bayt dizisi olarak gider.
+pub(crate) type RawOutputSink = Arc<dyn Fn(Vec<u8>) + Send + Sync>;
 
 struct ManagedTerminal {
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
@@ -88,6 +92,18 @@ impl TerminalManager {
         cols: u16,
         rows: u16,
     ) -> Result<TerminalSnapshot, String> {
+        self.open_raw(cwd, cols, rows, None)
+    }
+
+    /// `raw` verilirse bu terminalin çıktısı yalnız ona gider (ham bayt, JSON sayı dizisi değil);
+    /// verilmezse genel `output` olayı kullanılır (eski arayüzlerle uyum).
+    pub(crate) fn open_raw(
+        &self,
+        cwd: String,
+        cols: u16,
+        rows: u16,
+        raw: Option<RawOutputSink>,
+    ) -> Result<TerminalSnapshot, String> {
         if cols == 0 || rows == 0 {
             return Err("terminal boyutu sıfır olamaz".into());
         }
@@ -95,6 +111,7 @@ impl TerminalManager {
         if !cwd_path.is_dir() {
             return Err(format!("çalışma dizini bulunamadı: {cwd}"));
         }
+        ensure_terminal_capacity(self.terminals.lock().unwrap().len())?;
 
         let size = PtySize {
             rows,
@@ -114,9 +131,13 @@ impl TerminalManager {
             .map_err(|error| format!("terminal girdisi alınamadı: {error}"))?;
         let terminal_id = format!("terminal-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let output_sink: OutputSink = match raw {
+            Some(raw) => Arc::new(move |event: TerminalOutput| raw(event.data)),
+            None => Arc::clone(&self.output_sink),
+        };
         let events = event_worker(
             terminal_id.clone(),
-            Arc::clone(&self.output_sink),
+            output_sink,
             Arc::clone(&self.closed_sink),
             Arc::clone(&close_delivered),
         );
@@ -206,15 +227,34 @@ impl TerminalManager {
             }
             terminals.drain().collect()
         };
-        for (_, terminal) in terminals {
+        // Signal every owned child before waiting for any child or UI callback.
+        let closing: Vec<_> = terminals
+            .into_iter()
+            .map(|(_, terminal)| {
+                let mut child = terminal.child.lock().unwrap().take();
+                let kill_result = child
+                    .as_mut()
+                    .map_or(Ok(()), |child| match child.try_wait() {
+                        Ok(Some(_)) => Ok(()),
+                        Ok(None) => child.kill(),
+                        Err(error) => Err(error),
+                    });
+                (terminal, child, kill_result)
+            })
+            .collect();
+        let delivery_deadline =
+            Instant::now() + KAPANIS_TESLIM_ZAMAN_ASIMI + KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI;
+        let mut delivering = Vec::new();
+        for (terminal, child, kill_result) in closing {
             #[cfg(test)]
-            let pid = terminal
-                .child
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|child| child.process_id());
-            let close_result = close_terminal(terminal);
+            let pid = child.as_ref().and_then(|child| child.process_id());
+            let wait_result = match child {
+                Some(mut child) => child.wait().map(|_| ()),
+                None => Ok(()),
+            };
+            let close_result = kill_result.and(wait_result);
+            terminal.writer.lock().unwrap().take();
+            terminal.master.lock().unwrap().take();
             #[cfg(test)]
             if close_result.is_ok() {
                 if let Some(pid) = pid {
@@ -222,6 +262,10 @@ impl TerminalManager {
                 }
             }
             let _ = close_result;
+            delivering.push(terminal);
+        }
+        for terminal in delivering {
+            wait_for_close_delivery_until(&terminal, delivery_deadline);
         }
     }
 
@@ -304,12 +348,42 @@ fn queue_closed_once(terminal: &ManagedTerminal, exit_code: Option<u32>) {
         .send(TerminalEvent::Closed { reason, exit_code });
 }
 
+/// Kapanış olayının doğal yoldan (okuyucu iş parçacığı) kuyruğa girmesi için
+/// beklenen en uzun süre.
+const KAPANIS_TESLIM_ZAMAN_ASIMI: Duration = Duration::from_millis(1500);
+
+/// Olayı kendimiz kuyruğa koyduktan sonra işleyicinin teslim etmesi için ek süre.
+const KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI: Duration = Duration::from_millis(500);
+
+/// Kapanış olayının teslim edilmesini sınırlı süre bekler. Okuyucu iş parçacığı
+/// pty'yi elinde tutan bir torun süreç yüzünden bitmezse olay hiç kuyruğa
+/// girmez; zaman aşımsız beklemek `close`'u (ve uygulama kapanışını) sonsuza dek
+/// kilitliyordu (R2-03). Süre dolarsa olayı biz kuyruğa koyarız; ikinci bekleme
+/// de dolarsa vazgeçilir.
 fn wait_for_close_delivery(terminal: &ManagedTerminal) {
-    let (delivered, wake) = &*terminal.close_delivered;
-    let mut delivered = delivered.lock().unwrap();
-    while !*delivered {
-        delivered = wake.wait(delivered).unwrap();
+    wait_for_close_delivery_until(
+        terminal,
+        Instant::now() + KAPANIS_TESLIM_ZAMAN_ASIMI + KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI,
+    );
+}
+
+fn wait_for_close_delivery_until(terminal: &ManagedTerminal, deadline: Instant) {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if bekle_teslim(terminal, KAPANIS_TESLIM_ZAMAN_ASIMI.min(remaining)) {
+        return;
     }
+    queue_closed_once(terminal, None);
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    bekle_teslim(terminal, KAPANIS_ZORLA_TESLIM_ZAMAN_ASIMI.min(remaining));
+}
+
+fn bekle_teslim(terminal: &ManagedTerminal, sure: Duration) -> bool {
+    let (delivered, wake) = &*terminal.close_delivered;
+    let guard = delivered.lock().unwrap();
+    let (guard, _) = wake
+        .wait_timeout_while(guard, sure, |teslim_edildi| !*teslim_edildi)
+        .unwrap();
+    *guard
 }
 
 fn event_worker(
@@ -388,6 +462,7 @@ fn spawn_shell(
             .map_err(|error| format!("PTY açılamadı: {error}"))?;
         let mut command = CommandBuilder::new(&shell);
         command.cwd(cwd);
+        apply_shell_args(&mut command);
         apply_terminal_env(&mut command);
         match pair.slave.spawn_command(command) {
             Ok(child) => return Ok((pair, child)),
@@ -398,6 +473,63 @@ fn spawn_shell(
         "etkileşimli kabuk başlatılamadı: {}",
         errors.join("; ")
     ))
+}
+
+/// Kabuk GİRİŞ (login) kabuğu olarak açılır (Terminal.app ile aynı): Homebrew'in `shellenv`'i
+/// ve nvm/pyenv gibi PATH eklemeleri çoğunlukla `~/.zprofile`'dadır ve yalnız giriş
+/// kabuğunda okunur. GUI uygulaması minimal PATH ile açıldığından etkileşimli ama girişsiz
+/// kabukta `git`/`node`/`python` görünmüyordu (R2-15). Windows kabukları `-l` bilmez.
+fn apply_shell_args(command: &mut CommandBuilder) {
+    if cfg!(unix) {
+        command.arg("-l");
+    }
+}
+
+/// Ham bayt girdisinin hangi terminale gittiğini taşıyan istek başlığı (U4-25).
+pub(crate) const TERMINAL_KIMLIK_BASLIGI: &str = "x-terminal-id";
+
+/// `terminal_yaz` isteğinden (terminal kimliği, bayt) çıkarır.
+///
+/// Yeni arayüz gövdede HAM bayt gönderir, kimliği başlıkta taşır: JSON sayı dizisi her bayt için
+/// birkaç karakter ve bir ayrıştırma turu demekti. Eski biçim (`{terminalId, data:[..]}` JSON)
+/// kabul edilmeye devam eder; böylece arayüz ve çekirdek ayrı sürümde kalsa da yazma bozulmaz.
+pub(crate) fn girdi_coz(
+    body: &tauri::ipc::InvokeBody,
+    headers: &tauri::http::HeaderMap,
+) -> Result<(String, Vec<u8>), String> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            let id = headers
+                .get(TERMINAL_KIMLIK_BASLIGI)
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.is_empty())
+                .ok_or("terminal kimliği başlığı eksik")?;
+            Ok((id.to_owned(), bytes.clone()))
+        }
+        tauri::ipc::InvokeBody::Json(value) => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct EskiGirdi {
+                terminal_id: String,
+                data: Vec<u8>,
+            }
+            let girdi: EskiGirdi = serde_json::from_value(value.clone())
+                .map_err(|error| format!("terminal girdisi çözülemedi: {error}"))?;
+            Ok((girdi.terminal_id, girdi.data))
+        }
+    }
+}
+
+/// Aynı anda açık terminal sayısı üst sınırı; sınırsız açılış PTY/dosya tanıtıcısı tüketirdi.
+const MAX_TERMINALS: usize = 16;
+
+fn ensure_terminal_capacity(open: usize) -> Result<(), String> {
+    if open >= MAX_TERMINALS {
+        return Err(format!(
+            "en fazla {MAX_TERMINALS} terminal açılabilir; birini kapatıp yeniden dene"
+        ));
+    }
+    Ok(())
 }
 
 /// Fusion Dock'tan açıldığında ortamda `TERM` yoktur; kabuk ekran türünü
@@ -429,8 +561,9 @@ fn shell_candidates() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_explicit_terminal, event_worker, forward_output, queue_closed_once, wait_for_child,
-        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
+        claim_explicit_terminal, close_terminal, event_worker, forward_output, queue_closed_once,
+        wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap,
+        TerminalOutput,
     };
     use portable_pty::{
         native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, PtySize,
@@ -448,6 +581,106 @@ mod tests {
         super::apply_terminal_env(&mut command);
         assert_eq!(command.get_env("TERM").unwrap(), "xterm-256color");
         assert_eq!(command.get_env("COLORTERM").unwrap(), "truecolor");
+    }
+
+    /// Ölçüldü (30 Ekim): kabuk giriş kabuğu değildi; `~/.zprofile`'daki PATH (Homebrew) görünmüyordu.
+    #[cfg(unix)]
+    #[test]
+    fn kabuk_giris_kabugu_olarak_acilir() {
+        let mut command = CommandBuilder::new("/bin/sh");
+        super::apply_shell_args(&mut command);
+        let args: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|item| item.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["/bin/sh", "-l"]);
+    }
+
+    /// Ölçüldü (30 Ekim): çıktı `terminal://cikti` olayında JSON sayı dizisiydi; kanalla ham bayt gider.
+    #[test]
+    fn ham_kanal_verilirse_cikti_genel_olaya_degil_kanala_gider() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let (manager, outputs, _) = manager();
+        let alinan = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let alinan_kopya = Arc::clone(&alinan);
+        let snapshot = manager
+            .open_raw(
+                cwd.path().to_string_lossy().into_owned(),
+                80,
+                24,
+                Some(Arc::new(move |bytes| {
+                    alinan_kopya.lock().unwrap().extend(bytes);
+                })),
+            )
+            .unwrap();
+        manager
+            .write(&snapshot.terminal_id, print_command("fusion-raw-kanal"))
+            .unwrap();
+        let bitis = Instant::now() + Duration::from_secs(5);
+        let needle = b"fusion-raw-kanal";
+        while !alinan
+            .lock()
+            .unwrap()
+            .windows(needle.len())
+            .any(|pencere| pencere == needle)
+        {
+            assert!(Instant::now() < bitis, "kanal çıktıyı almadı");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            outputs.lock().unwrap().is_empty(),
+            "ham kanal varken genel olay da gitmemeli"
+        );
+        manager.close_all();
+    }
+
+    #[test]
+    fn girdi_ham_govdede_kimlik_basliktan_okunur() {
+        let mut basliklar = tauri::http::HeaderMap::new();
+        basliklar.insert(
+            super::TERMINAL_KIMLIK_BASLIGI,
+            "terminal-7".parse().unwrap(),
+        );
+        let (id, bayt) =
+            super::girdi_coz(&tauri::ipc::InvokeBody::Raw(vec![3, 10, 0xff]), &basliklar).unwrap();
+        assert_eq!(id, "terminal-7");
+        assert_eq!(bayt, vec![3, 10, 0xff]);
+    }
+
+    #[test]
+    fn girdi_ham_govdede_baslik_yoksa_reddedilir() {
+        let hata = super::girdi_coz(
+            &tauri::ipc::InvokeBody::Raw(vec![1]),
+            &tauri::http::HeaderMap::new(),
+        )
+        .unwrap_err();
+        assert!(hata.contains("başlığı eksik"));
+    }
+
+    #[test]
+    fn girdi_eski_json_bicimi_hala_kabul_edilir() {
+        let govde = tauri::ipc::InvokeBody::Json(serde_json::json!({
+            "terminalId": "terminal-2", "data": [104, 105]
+        }));
+        let (id, bayt) = super::girdi_coz(&govde, &tauri::http::HeaderMap::new()).unwrap();
+        assert_eq!(id, "terminal-2");
+        assert_eq!(bayt, b"hi".to_vec());
+        assert!(super::girdi_coz(
+            &tauri::ipc::InvokeBody::Json(serde_json::json!({"x": 1})),
+            &tauri::http::HeaderMap::new()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn terminal_sayisi_ust_sinirla_kisitlanir() {
+        assert!(super::ensure_terminal_capacity(0).is_ok());
+        assert!(super::ensure_terminal_capacity(super::MAX_TERMINALS - 1).is_ok());
+        assert!(super::ensure_terminal_capacity(super::MAX_TERMINALS)
+            .unwrap_err()
+            .contains("en fazla"));
     }
 
     type OutputLog = Arc<Mutex<Vec<TerminalOutput>>>;
@@ -663,6 +896,45 @@ mod tests {
         assert!(!manager.test_is_running("exited-still-registered"));
         manager.terminals.lock().unwrap().clear();
         terminal.child.lock().unwrap().take();
+    }
+
+    /// Ölçüldü (30 Ekim): okuyucu iş parçacığı hiç bitmezse (pty'yi elinde tutan
+    /// torun süreç) kapanış olayı kuyruğa girmiyor, `close` zaman aşımsız
+    /// Condvar'da sonsuza dek bekliyordu (R2-03).
+    #[test]
+    fn kapanis_olayi_gelmeyen_terminalde_close_zaman_asimiyla_doner() {
+        let kapanislar = Arc::new(Mutex::new(Vec::new()));
+        let kayit = Arc::clone(&kapanislar);
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
+            "okuyucu-takili".into(),
+            Arc::new(|_| {}),
+            Arc::new(move |kapanis| kayit.lock().unwrap().push(kapanis)),
+            Arc::clone(&close_delivered),
+        );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(None),
+            writer: Mutex::new(None),
+            child: Mutex::new(None),
+            close_reason: Mutex::new(Some("kullanıcı kapattı".into())),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        let (bitti, bekle) = mpsc::channel();
+        let kopya = Arc::clone(&terminal);
+        std::thread::spawn(move || {
+            let _ = close_terminal(kopya);
+            let _ = bitti.send(());
+        });
+
+        assert!(
+            bekle.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "close 5 sn içinde dönmedi"
+        );
+        let kapanislar = kapanislar.lock().unwrap();
+        assert_eq!(kapanislar.len(), 1);
+        assert_eq!(kapanislar[0].reason, "kullanıcı kapattı");
     }
 
     #[derive(Debug)]
@@ -1038,6 +1310,61 @@ mod tests {
 
         wait_for_output(&outputs, &snapshot.terminal_id, b"fusion-after-interrupt");
         manager.close_all();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn close_all_stops_every_owned_child_before_waiting_for_blocked_event_delivery() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let callback_release = release.clone();
+        let manager = Arc::new(TerminalManager::new(
+            |_| {},
+            move |_| {
+                let (lock, wake) = &*callback_release;
+                let released = lock.lock().unwrap();
+                drop(wake.wait_while(released, |released| !*released).unwrap());
+            },
+        ));
+        let pids: Vec<_> = (0..3)
+            .map(|_| {
+                manager
+                    .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
+                    .unwrap()
+                    .pid
+                    .unwrap()
+            })
+            .collect();
+        let closing_manager = manager.clone();
+        let worker = std::thread::spawn(move || closing_manager.close_all());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let all_exited = || {
+            pids.iter().all(|pid| {
+                // SAFETY: signal zero only observes the exact PTY fixture PIDs.
+                unsafe { libc::kill(*pid as i32, 0) != 0 }
+            })
+        };
+        while !all_exited() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let exited_before_delivery = all_exited();
+        let return_deadline = Instant::now() + Duration::from_secs(3);
+        while !worker.is_finished() && Instant::now() < return_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let finished_without_delivery = worker.is_finished();
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        worker.join().unwrap();
+        assert!(
+            exited_before_delivery,
+            "a blocked event callback delayed stopping another owned terminal"
+        );
+        assert!(
+            finished_without_delivery,
+            "callback waits multiplied the terminal batch deadline"
+        );
     }
 
     #[test]

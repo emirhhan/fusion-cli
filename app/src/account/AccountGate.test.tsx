@@ -11,6 +11,7 @@ function denetleyici(ekle: Partial<AccountController> = {}): AccountController {
     durum: { hesaplar: [], etkin: "", kurulum_gerekli: true },
     yukleniyor: false,
     hata: null,
+    kurtarmaKodu: null,
     kayit: vi.fn(async () => null),
     giris: vi.fn(async () => false),
     cikis: vi.fn(async () => undefined),
@@ -118,5 +119,69 @@ describe("AccountGate", () => {
     render(<AccountGate account={denetleyici({ hata: "Kullanıcı adı zaten kullanılıyor." })} />);
 
     expect(screen.getByRole("alert").textContent).toBe("Kullanıcı adı zaten kullanılıyor.");
+  });
+
+  // Ölçüldü (29 Ekim, U5-29): pano yoksa ya da yazım reddedilirse Devam sonsuza dek kapalıydı.
+  describe("kurtarma kodu ekranı pano başarısızken", () => {
+    const kodlu = () => denetleyici({ kurtarmaKodu: "ABCD-EFGH-JKMN-PQRS" });
+    afterEach(() => vi.unstubAllGlobals());
+
+    test("pano reddederse elle kaydettim onayıyla devam edilir", async () => {
+      vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => { throw new Error("izin yok"); }) } });
+      render(<AccountGate account={kodlu()} />);
+      const devam = screen.getByRole("button", { name: /kaydettim/i });
+      expect(devam.hasAttribute("disabled")).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: "Kopyala" }));
+      fireEvent.click(await screen.findByLabelText("Kodu elle kaydettim"));
+
+      expect(devam.hasAttribute("disabled")).toBe(false);
+    });
+
+    test("pano API'si yoksa da elle onay yolu açılır", async () => {
+      vi.stubGlobal("navigator", {});
+      render(<AccountGate account={kodlu()} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Kopyala" }));
+      fireEvent.click(await screen.findByLabelText("Kodu elle kaydettim"));
+
+      expect(screen.getByRole("button", { name: /kaydettim/i }).hasAttribute("disabled")).toBe(false);
+    });
+  });
+});
+
+// Ölçüldü (30 Ekim): "Beni Hatırla" hiçbir yere iletilmeyen ölü kutuydu (U5-31); kip değişince eski hata görünüyor,
+// parola alanlarında autocomplete yoktu (U5-35); emoji baş harf yarım vekil çifti üretiyordu (U5-36); "Bu hesaba geç"
+// seçilen kimliği taşımıyordu (U5-32).
+describe("AccountGate (30 Ekim)", () => {
+  const giris = { durum: { hesaplar: [{ kimlik: "1", kullanici_adi: "k", eposta: "e@o.com", avatar: "", olusturuldu: 0 }], etkin: "", kurulum_gerekli: false } };
+
+  test("var olmayan 'Beni Hatırla' vaadi yoktur", () => {
+    render(<AccountGate account={denetleyici(giris)} />);
+    expect(screen.queryByText(/beni hatırla/i)).toBeNull();
+  });
+
+  test("parola yöneticisi için autocomplete nitelikleri vardır", () => {
+    render(<AccountGate account={denetleyici(giris)} />);
+    expect(screen.getByLabelText("Şifreniz").getAttribute("autocomplete")).toBe("current-password");
+    expect(screen.getByLabelText(/E-posta adresiniz veya/).getAttribute("autocomplete")).toBe("username");
+  });
+
+  test("kip değişince eski kipin hatası görünmez", () => {
+    render(<AccountGate account={denetleyici({ ...giris, hata: "Giriş yapılamadı." })} />);
+    expect(screen.getByRole("alert").textContent).toBe("Giriş yapılamadı.");
+    fireEvent.click(screen.getByRole("button", { name: /şifremi unuttum/i }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("hesap değiştirirken önerilen kimlik giriş alanına gelir", () => {
+    sessionStorage.setItem("fusion.hesap.giris-onerisi", "ikinci@o.com");
+    render(<AccountGate account={denetleyici(giris)} />);
+    expect((screen.getByLabelText(/E-posta adresiniz veya/) as HTMLInputElement).value).toBe("ikinci@o.com");
+    expect(sessionStorage.getItem("fusion.hesap.giris-onerisi")).toBeNull();
+  });
+
+  test("emoji ile başlayan ad yarım vekil çifti üretmez", () => {
+    expect(hesapBasHarfleri({ kullanici_adi: "🏍️ Moto" })).toBe("🏍M");
   });
 });

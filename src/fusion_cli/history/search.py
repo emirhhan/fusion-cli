@@ -94,8 +94,8 @@ def search_sessions(
     açtırmaz. Başlık tutmazsa oturum içeriği sayfa sayfa okunur.
     """
     _dogrula(limit, scan_limit, turn_limit)
-    needle = _fold(query.strip())
-    if not needle:
+    needle = _Needle.of(query.strip())
+    if not needle.tr:
         return SearchResult(matches=(), scanned=0, partial=False)
 
     baslangic = monotonic()
@@ -141,13 +141,13 @@ def _adaylar(source: HistorySource, root: Path | None, scan_limit: int) -> tuple
 
 
 def _eslestir(
-    source: HistorySource, ref: SessionRef, needle: str, turn_limit: int
+    source: HistorySource, ref: SessionRef, needle: _Needle, turn_limit: int
 ) -> SessionMatch | None:
     """Önce başlık, sonra içerik. İlk eşleşmede durur."""
-    if needle in _fold(ref.title):
+    if needle.found_in(ref.title):
         return SessionMatch(ref=ref, snippet=_snippet(ref.title, needle), in_title=True)
     for turn in _turlar(source, ref.session_id, turn_limit):
-        if needle in _fold(turn.text):
+        if needle.found_in(turn.text):
             return SessionMatch(ref=ref, snippet=_snippet(turn.text, needle), in_title=False)
     return None
 
@@ -171,20 +171,52 @@ def _turlar(source: HistorySource, session_id: str, turn_limit: int) -> tuple[Tu
     return tuple(toplanan[:turn_limit])
 
 
-def _snippet(text: str, needle: str) -> str:
+def _snippet(text: str, needle: _Needle) -> str:
     """Eşleşmenin çevresinden maskelenmiş, sınırlı bir parça üret.
 
     Maskeleme kesmeden ÖNCE uygulanır: önce kesip sonra maskelemek, yarısı
     kırpılmış bir anahtarı desene uymadığı için maskesiz bırakırdı.
     """
     guvenli = redact(text)
-    konum = _fold(guvenli).find(needle)
+    konum, uzunluk = needle.locate(guvenli)
     if konum < 0:
         return guvenli[:SNIPPET_CHARS].strip()
-    yarim = max((SNIPPET_CHARS - len(needle)) // 2, 0)
+    yarim = max((SNIPPET_CHARS - uzunluk) // 2, 0)
     bas = max(konum - yarim, 0)
     parca = guvenli[bas : bas + SNIPPET_CHARS].strip()
     return f"…{parca}" if bas > 0 else parca
+
+
+@dataclass(frozen=True, slots=True)
+class _Needle:
+    """Arama sorgusu: Türkçe-doğru katlama + (yalnız ASCII sorgularda) düz küçültme.
+
+    Ölçüldü (30 Ekim): yalnız Türkçe katlamayla "INDEX" sorgusu `ındex` olur ve küçük
+    harfli "index" metnini BULAMAZDI; kod/terim aramaları sessizce boş dönüyordu (E1-31).
+    ASCII sorguda ikinci bir düz `lower()` eşleşmesi de denenir. Türkçe harf (ş, ı…) içeren
+    sorgu YALNIZ Türkçe katlanır: "işik" hâlâ "IŞIK" metnini bulmaz (mevcut sözleşme).
+    """
+
+    tr: str
+    ascii: str
+
+    @classmethod
+    def of(cls, query: str) -> _Needle:
+        return cls(tr=_fold(query), ascii=query.lower() if query.isascii() else "")
+
+    def found_in(self, text: str) -> bool:
+        return self.locate(text)[0] >= 0
+
+    def locate(self, text: str) -> tuple[int, int]:
+        """(konum, uzunluk); bulunamazsa (-1, 0)."""
+        konum = _fold(text).find(self.tr)
+        if konum >= 0:
+            return konum, len(self.tr)
+        if self.ascii:
+            konum = text.lower().find(self.ascii)
+            if konum >= 0:
+                return konum, len(self.ascii)
+        return -1, 0
 
 
 def _fold(text: str) -> str:

@@ -19,7 +19,7 @@ def test_arac_katalogu_kaynagi_etkiyi_ve_parametreleri_ayri_gosterir():
         RemoteTool("two", "lookup", "Update", {}, ToolEffect.REMOTE_WRITE),
     ]
     result = project_tools(tools)
-    assert [item["name"] for item in result["tools"]] == ["one__lookup", "two__lookup"]
+    assert [item["name"] for item in result["tools"]] == ["mcp__one__lookup", "mcp__two__lookup"]
     assert result["tools"][0]["effect"] == "remote_read"
     assert result["tools"][0]["parameters"][0] == {
         "name": "query",
@@ -92,3 +92,110 @@ async def test_katalog_mevcut_istemciyi_girissiz_acar_ve_arac_calistirmaz(monkey
     result = await mcp_catalog.list_tool_catalog(McpServerConfig(name="one", command="fake"))
     assert result["ok"] is True
     assert calls == ["open", "list", "close"]
+
+
+async def test_takilan_mcp_sunucusu_katalog_rpc_sini_sonsuza_dek_bekletmez():
+    """Ölçüldü (30 Ekim, S2-28): sunucu başlatma ve `list_tools` zaman aşımsızdı."""
+    import asyncio
+
+    from fusion_cli.appserver import mcp_catalog
+    from fusion_cli.config.models import McpServerConfig
+
+    class Takilan:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def __aenter__(self):
+            await asyncio.Event().wait()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    original = mcp_catalog.McpClient
+    mcp_catalog.McpClient = Takilan
+    try:
+        sonuc = await mcp_catalog.list_tool_catalog(
+            McpServerConfig(name="one", command="fake"), timeout=0.2
+        )
+    finally:
+        mcp_catalog.McpClient = original
+
+    assert sonuc["ok"] is False and "zamanında" in sonuc["metin"]
+
+
+async def test_katalog_istem_ve_kaynaklari_sohbet_yazimiyla_doner(monkeypatch):
+    """Ölçüldü (31 Ekim): Bağlantılar kataloğu yalnız araçları döndürüyordu; MCP istemleri ve
+    kaynakları masaüstünde sunucu başına görünmüyordu. İstem listesi hatası araçları düşürmez."""
+    from fusion_cli.appserver import mcp_catalog
+    from fusion_cli.config.models import McpServerConfig
+    from fusion_cli.mcp_bridge.references import (
+        McpCatalog,
+        McpPrompt,
+        McpPromptArgument,
+        McpResource,
+    )
+
+    class _Client:
+        fail = False
+
+        def __init__(self, configs, **kwargs) -> None:
+            self.statuses = {"gh": type("S", (), {"state": "bagli"})()}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> None:
+            return None
+
+        async def list_tools(self, server: str):
+            return []
+
+        async def catalog(self, server: str) -> McpCatalog:
+            if _Client.fail:
+                raise TimeoutError
+            return McpCatalog(
+                prompts=(
+                    McpPrompt("gh", "review-pr", "İncele", (McpPromptArgument("n", "", True),)),
+                ),
+                resources=(McpResource("gh", "repo://a", name="A deposu"),),
+            )
+
+    monkeypatch.setattr(mcp_catalog, "McpClient", _Client)
+    server = McpServerConfig(name="gh", command="npx")
+
+    result = await mcp_catalog.list_tool_catalog(server)
+    _Client.fail = True
+    degraded = await mcp_catalog.list_tool_catalog(server)
+
+    assert result["ok"] is True
+    assert result["prompts"] == [
+        {"command": "/mcp__gh__review-pr", "usage": "<n>", "description": "İncele"}
+    ]
+    assert result["resources"] == [{"mention": "@gh:repo://a", "name": "A deposu", "mimeType": ""}]
+    assert degraded["ok"] is True and degraded["prompts"] == [] and degraded["resources"] == []
+
+
+def test_katalog_her_aracin_izin_kurali_durumunu_tasir():
+    """#250: Claude `/mcp` panelinde aracın izin ayarı görünür; masaüstü de gösterir."""
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRule,
+        PermissionRuleSet,
+    )
+
+    rules = PermissionRuleSet(
+        rules=(
+            PermissionRule("mcp__one__lookup", None, PermissionDecision.ALLOW),
+            PermissionRule("mcp__two", None, PermissionDecision.DENY),
+        )
+    )
+    tools = [
+        RemoteTool("one", "lookup", "", {}, ToolEffect.REMOTE_READ),
+        RemoteTool("one", "write", "", {}, ToolEffect.REMOTE_WRITE),
+        RemoteTool("two", "lookup", "", {}, ToolEffect.REMOTE_WRITE),
+    ]
+
+    result = project_tools(tools, rules)
+
+    assert [item["permission"] for item in result["tools"]] == ["allow", "none", "deny"]
+    assert "permission" not in project_tools(tools)["tools"][0]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from ...core.tools import ToolContext
 from ...tools.files import writable_path
@@ -28,7 +29,7 @@ def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
             current.append(index)
             continue
         scope = [Path(raw).expanduser().resolve() for raw in subtask.write_scope]
-        if scope and not any(_overlaps(path, taken) for path in scope for taken in claimed):
+        if scope and not any(paths_overlap(path, taken) for path in scope for taken in claimed):
             current.append(index)
             claimed.extend(scope)
             continue
@@ -44,18 +45,44 @@ def schedule_waves(subtasks: Sequence[SubTask]) -> list[list[int]]:
     return waves
 
 
-def _overlaps(first: Path, second: Path) -> bool:
+def paths_overlap(first: Path, second: Path) -> bool:
+    """İki yol aynı mı ya da biri ötekinin içinde mi (yazma alanı çakışması)?"""
     return first == second or first in second.parents or second in first.parents
 
 
-def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> ToolContext:
+def derive_sub_context(
+    context: ToolContext, subtask: SubTask | None = None, *, root: Path | None = None
+) -> ToolContext:
     """Alt ajan bağlamı: görev listesi ve sahip olunan yollar AYRI.
 
     Alt ajan temiz bir görev listesiyle çalışır — ana ajanın listesini ezmesi
     kullanıcının takip ettiği planı bozardı. `touched` kapanışta parent
     doğrulamasına birleştirilir; kardeşin kanıtı bu ajana yazılmaz. Erişim sınırı aynen taşınır;
-    yazma alanı bildirildiyse alt ajan yalnız oraya yazar.
+    yazma alanı bildirildiyse alt ajan yalnız oraya yazar. `root` verilirse (çalışma
+    ağacı izolasyonu) üye o kökte ve KENDİ değişiklik kümesiyle çalışır: ana projenin
+    `/undo` kaydına karışmaz, yazma alanı da o köke göre çözülür.
     """
+    # Alt ajanın arka plan işleri kendi grubunda: ön plan alt ajanı bitince durur (#335).
+    group = uuid4().hex
+    if root is not None:
+        context = ToolContext(
+            root=root,
+            job_scope=context.job_scope,
+            job_group=group,
+            cancelled=context.cancelled,
+            restrict_to_root=context.restrict_to_root,
+            block_reads_outside_root=context.block_reads_outside_root,
+            block_writes_outside_root=context.block_writes_outside_root,
+            extra_roots=context.extra_roots,
+            chrome=context.chrome,
+            hidden_env=context.hidden_env,
+            shell_sandbox=context.shell_sandbox,
+            sandbox_policy=context.sandbox_policy,
+            edit_fuzzy_match=context.edit_fuzzy_match,
+            post_edit_syntax_check=context.post_edit_syntax_check,
+            shell_fingerprint=context.shell_fingerprint,
+            desktop_settings=context.desktop_settings,
+        )
     scope: tuple[Path, ...] | None = context.write_scope
     if subtask is not None and subtask.write_scope:
         scope = tuple(writable_path(context, raw).resolve() for raw in subtask.write_scope)
@@ -64,12 +91,30 @@ def derive_sub_context(context: ToolContext, subtask: SubTask | None = None) -> 
     return ToolContext(
         root=context.root,
         job_scope=context.job_scope,
+        job_group=group,
         cancelled=context.cancelled,
         changes=context.changes,
         restrict_to_root=context.restrict_to_root,
+        # Kök dışı okuma/yazma engeli (P-002) alt ajana da geçer; düşerse üye engeli aşar.
+        block_reads_outside_root=context.block_reads_outside_root,
+        block_writes_outside_root=context.block_writes_outside_root,
         extra_roots=context.extra_roots,
         chrome=context.chrome,
+        hidden_env=context.hidden_env,
+        shell_sandbox=context.shell_sandbox,
+        sandbox_policy=context.sandbox_policy,
+        edit_fuzzy_match=context.edit_fuzzy_match,
+        post_edit_syntax_check=context.post_edit_syntax_check,
+        shell_fingerprint=context.shell_fingerprint,
+        desktop=context.desktop,
+        desktop_screenshot_max_width=context.desktop_screenshot_max_width,
+        desktop_exclude_fusion_window=context.desktop_exclude_fusion_window,
+        desktop_settings=context.desktop_settings,
         write_scope=scope,
+        # Tarayıcı ayarları (profil kapısı, varsayılan profil, pencere kipi) devralınır;
+        # açık oturum devralınmaz (P-023).
+        browser=context.browser.derive(),
+        skill_grants=list(getattr(subtask, "skill_grants", ()) or ()),
     )
 
 

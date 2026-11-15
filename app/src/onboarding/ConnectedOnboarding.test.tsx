@@ -48,6 +48,25 @@ describe("Bağımsız onboarding otoriteleri", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     await waitFor(() => expect(request.mock.calls.filter(([name]) => name === "kontrol.cirak_varsayilanina_don")).toHaveLength(2));
   });
+  it("çırak bildirimi yalnız sağlayıcı adımında gösterilince görüldü işaretlenir (S2-51)", async () => {
+    const request = vi.fn(async (name: string) => name === "kontrol.cirak_bildirimi_goruldu"
+      ? { ok: true } : { ok: true, model: { cirak_aktif: false, cirak_bildirim_goster: true } });
+    draw(request);
+    navigate(2);
+    await screen.findByRole("heading", { name: /Kaynaklar/ });
+    await waitFor(() => expect(request).toHaveBeenCalledWith("kontrol.durum", {}));
+    expect(request.mock.calls.some(([name]) => name === "kontrol.cirak_bildirimi_goruldu")).toBe(false);
+    navigate(1);
+    await screen.findByText("Kullanılmıyor");
+    await waitFor(() => expect(request.mock.calls.filter(([name]) => name === "kontrol.cirak_bildirimi_goruldu")).toHaveLength(1));
+  });
+  it("bildirim zaten görüldüyse onay isteği göndermez (S2-51)", async () => {
+    const request = vi.fn(async () => ({ ok: true, model: { cirak_aktif: false, cirak_bildirim_goster: false } }));
+    draw(request);
+    navigate(3);
+    await screen.findByText("Kullanılmıyor");
+    expect(request.mock.calls.some(([name]) => name === "kontrol.cirak_bildirimi_goruldu")).toBe(false);
+  });
   it("projesiz ilerleme yeniden bağlanınca restore edilir", () => {
     const request = async () => ({ ok: true });
     const first = draw(request); navigate(2); first.unmount();
@@ -62,11 +81,34 @@ describe("Bağımsız onboarding otoriteleri", () => {
     expect(screen.queryByText("1 öğe")).toBeNull();
   });
   it("eksik apprentice boolean ve yalnız yapılandırılmış anahtarı doğrulanmış saymaz", async () => {
-    draw(async () => ({ ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] }));
+    draw(async (name) => name === "saglayici.katalog"
+      ? { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: true, tur: "anahtar", eylem: "anahtar" }] }
+      : { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] });
     navigate(3);
     await screen.findByText("OpenAI");
     expect(screen.queryByText("Etkin")).toBeNull();
     expect(screen.queryByText("Hazır")).toBeNull();
+    expect(screen.getByText(/Yapılandırıldı.*doğrulanmadı/i)).toBeTruthy();
+  });
+  it("sağlayıcı durumu Ayarlar'daki katalogla aynı kaynaktan gelir: web sağlayıcısı dahil, bagli kurulu'yu ezer (U5-46)", async () => {
+    draw(async (name) => name === "saglayici.katalog"
+      ? { ok: true, saglayicilar: [
+        { id: "gemini_web", ad: "Gemini Web", bagli: true, tur: "web", eylem: "oturum" },
+        { id: "openai", ad: "OpenAI", bagli: false, tur: "anahtar", eylem: "anahtar" },
+      ] }
+      : { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] });
+    navigate(3);
+    await screen.findByText("Gemini Web");
+    expect(screen.getAllByText(/Yapılandırıldı.*doğrulanmadı/i)).toHaveLength(1);
+    expect(screen.getByText("Kurulum gerekli")).toBeTruthy();
+  });
+  it("katalog okunamazsa kontrol.durum listesine düşer (U5-46)", async () => {
+    draw(async (name) => {
+      if (name === "saglayici.katalog") throw new Error("katalog yok");
+      return { ok: true, model: {}, saglayicilar: [{ id: "openai", ad: "OpenAI", kurulu: true }] };
+    });
+    navigate(3);
+    await screen.findByText("OpenAI");
     expect(screen.getByText(/Yapılandırıldı.*doğrulanmadı/i)).toBeTruthy();
   });
   it("fulfilled başarısız history nedenini boş keşif yerine sunar", async () => {

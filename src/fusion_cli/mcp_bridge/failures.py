@@ -28,7 +28,10 @@ from mcp.client.auth.exceptions import OAuthRegistrationError
 from mcp.shared.exceptions import McpError
 
 from ..config.models import McpServerConfig, McpTransport
-from .oauth import McpLoginRequiredError
+from .egress import EgressBlockedError
+from .oauth import McpBrowserOpenError, McpLoginRequiredError
+from .tokens import McpTokenStorageError
+from .types import McpConfigError
 
 __all__ = [
     "STATE_CONNECTED",
@@ -89,6 +92,8 @@ _RUNNER_REGISTRIES = {"npx": "npm", "uvx": "PyPI"}
 _HTTP_UNAUTHORIZED = 401
 _HTTP_FORBIDDEN = 403
 _HTTP_SERVER_ERROR = 500
+_HTTP_REQUEST_TIMEOUT = 408
+_HTTP_TOO_MANY_REQUESTS = 429
 
 
 class McpFailureKind(StrEnum):
@@ -106,6 +111,8 @@ class McpFailureKind(StrEnum):
     SERVER_EXITED = "surec_kapandi"
     CONFIGURATION = "yapilandirma"
     TIMEOUT = "zaman_asimi"
+    EGRESS_BLOCKED = "ic_ag_engeli"
+    RATE_LIMITED = "hiz_siniri"
     UNKNOWN = "bilinmeyen"
 
 
@@ -122,6 +129,7 @@ _PERMANENT_KINDS = frozenset(
         McpFailureKind.COMMAND_MISSING,
         McpFailureKind.PACKAGE_MISSING,
         McpFailureKind.CONFIGURATION,
+        McpFailureKind.EGRESS_BLOCKED,
     }
 )
 
@@ -220,6 +228,18 @@ def _http_status_failure(status: int, config: McpServerConfig) -> McpFailure:
             f"Sunucu girişi reddetti (HTTP {status}). Bağlantılar ekranında 'Bağlan' "
             "ile yeniden giriş yap.",
         )
+    if status == _HTTP_TOO_MANY_REQUESTS:
+        return McpFailure(
+            McpFailureKind.RATE_LIMITED,
+            f"'{_host(config)}' sunucusu çok fazla istek aldığını bildirdi (HTTP 429). "
+            "Birkaç dakika bekle, sonra 'Test et' ile yeniden dene.",
+        )
+    if status == _HTTP_REQUEST_TIMEOUT:
+        return McpFailure(
+            McpFailureKind.TIMEOUT,
+            f"'{_host(config)}' sunucusu isteği zamanında işleyemedi (HTTP 408). Biraz "
+            "sonra 'Test et' ile yeniden dene.",
+        )
     if status >= _HTTP_SERVER_ERROR:
         return McpFailure(
             McpFailureKind.SERVER_ERROR,
@@ -260,12 +280,21 @@ def _classify_leaf(
             "Bu bağlantı giriş istiyor. Bağlantılar ekranında 'Bağlan'a bas; giriş "
             "yapılana kadar turlarda atlanır.",
         )
+    if isinstance(leaf, McpBrowserOpenError):
+        return McpFailure(McpFailureKind.LOGIN_REQUIRED, str(leaf))
     if isinstance(leaf, OAuthRegistrationError):
         return McpFailure(
             McpFailureKind.REGISTRATION_REJECTED,
             "Bu MCP sunucusu Fusion'ın kendini otomatik kaydetmesine izin vermiyor, bu "
             "yüzden giriş sayfası açılamadı. Sağlayıcının verdiği bir client_id ile "
             "bağlantıyı yeniden ekle.",
+        )
+    if isinstance(leaf, EgressBlockedError):
+        # Hata yalnız ana makine adını taşır; yol ve sorgu (token içerebilir) girmez.
+        return McpFailure(
+            McpFailureKind.EGRESS_BLOCKED,
+            f"MCP sunucusu Fusion'ı izin verilmeyen bir adrese yönlendirdi: {leaf}. "
+            "Sunucunun giriş ayarları güvenilir değil; bağlantıyı Kaldır.",
         )
     if isinstance(leaf, httpx.HTTPStatusError):
         return _http_status_failure(leaf.response.status_code, config)
@@ -284,10 +313,20 @@ def _classify_leaf(
         )
     if isinstance(leaf, FileNotFoundError) and config.transport is McpTransport.STDIO:
         return missing_command_failure(config.command)
-    if isinstance(leaf, ValueError):
+    if isinstance(leaf, McpConfigError):
         # `transport.resolve_*` eksik sır/komut için zaten Türkçe ve eyleme
         # dönüştürülebilir mesaj üretir; değer İÇERMEZ, yalnız değişken adı taşır.
+        # Düz `ValueError` BİLEREK yakalanmaz: `JSONDecodeError`/`ValidationError`
+        # sunucunun bozuk yanıtıdır (geçici) ve ham metni sunucu verisi taşır.
         return McpFailure(McpFailureKind.CONFIGURATION, str(leaf))
+    if isinstance(leaf, McpTokenStorageError):
+        # Anahtarlık bozuk/erişilemez: yeniden denemek aynı sonucu verir, çözüm
+        # kullanıcının "Bağlan"ıdır (hata metni değer taşımaz, yalnız sınıf adı).
+        return McpFailure(
+            McpFailureKind.LOGIN_REQUIRED,
+            f"{leaf} Bağlantılar ekranında 'Bağlan'a bas; anahtarlık sorunu sürerse "
+            "bağlantıyı Kaldır ve yeniden ekle.",
+        )
     if isinstance(leaf, TimeoutError):
         return McpFailure(
             McpFailureKind.TIMEOUT,

@@ -48,6 +48,7 @@ PASSWORD_MIN_CHARS = 8
 _ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 #: Okunurluk için kaç karakterde bir tire konur.
 _GROUP = 4
+_CROCKFORD_ESLEME = str.maketrans({"O": "0", "I": "1", "L": "1"})
 
 
 def hash_secret(secret: str) -> str:
@@ -114,8 +115,12 @@ def generate_recovery_code() -> str:
     Parola unutulduğunda tek çıkış yolu budur: sunucu olmadığı için "e-posta ile
     sıfırla" diye bir şey yok. Kod kullanıcıya BİR KEZ gösterilir.
     """
-    ham = secrets.token_bytes(RECOVERY_CODE_BYTES)
-    harfler = "".join(_ALPHABET[bayt % len(_ALPHABET)] for bayt in ham)
+    # Ham baytlar 5 bitlik dilimlere bölünür (Crockford Base32): 10 bayt = 80 bit = 16
+    # karakter. Eskiden BAYT BAŞINA bir harf (`bayt % 32`) üretiliyordu: 10 karakter = 50 bit,
+    # yorumun iddia ettiği 80 bitin altında. Ölçüldü (30 Ekim).
+    ham = int.from_bytes(secrets.token_bytes(RECOVERY_CODE_BYTES), "big")
+    uzunluk = RECOVERY_CODE_BYTES * 8 // 5
+    harfler = "".join(_ALPHABET[(ham >> (5 * i)) & 31] for i in reversed(range(uzunluk)))
     return format_recovery_code(harfler)
 
 
@@ -131,4 +136,8 @@ def normalize_recovery_code(code: str) -> str:
     Tire, boşluk ve küçük harf farkı bir HATA DEĞİLDİR: kodu elle kopyalayan
     kullanıcı bunların hepsini yapar ve reddedilmesi anlamsız bir engel olurdu.
     """
-    return "".join(ch for ch in code.upper() if ch in _ALPHABET)
+    # Crockford okunurluk kuralı: O→0, I/L→1 (alfabede yoklar). Eskiden bu harfler
+    # sessizce SİLİNİyordu; kod kısalıyor ve doğrulama nedensiz başarısız oluyordu.
+    # U alfabede de eşlemede de yoktur ve yok sayılır.
+    eslenmis = code.upper().translate(_CROCKFORD_ESLEME)
+    return "".join(ch for ch in eslenmis if ch in _ALPHABET)

@@ -1,0 +1,4 @@
+from paket import parse_ozel
+
+def oku(value):
+    return parse_ozel(value)

@@ -54,6 +54,23 @@ describe("Notification", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  test("başka bir kontrol Escape'i kullanırken kartı kapatmaz (U6-24)", () => {
+    // Ölçüldü (30 Ekim): menü/seçici kapatmak için basılan Esc eylem gerektiren bildirimi de kapatıyordu.
+    const onDismiss = vi.fn();
+    render(<><Notification baslik="Bilgi" metin="Kısa not." onDismiss={onDismiss} /><button type="button">Menü öğesi</button></>);
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Menü öğesi" }), { key: "Escape" });
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    const iptal = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    iptal.preventDefault();
+    document.body.dispatchEvent(iptal);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Bildirimi kapat" }), { key: "Escape" });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   /* Eylem gerektiren bir bildirim kullanıcı görmeden kaybolursa hiç
      gösterilmemiş sayılır; kart kendiliğinden kapanmaz. */
   test("kendiliğinden kapanmaz", () => {

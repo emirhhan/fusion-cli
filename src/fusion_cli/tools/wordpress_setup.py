@@ -163,7 +163,7 @@ async def setup_wordpress(
     wanted = list(plugins)
     if uses_woocommerce(root, theme) and "woocommerce" not in wanted:
         wanted.append("woocommerce")
-    steps.extend(await _plugins(wp_cli, root, wanted, problems))
+    steps.extend(await _plugins(wp_cli, root, wanted, problems, fresh=credentials is not None))
     await _wp(wp_cli, root, "rewrite", "structure", "/%postname%/")
     existing = root / CREDENTIALS_FILE
     return WordPressSetup(
@@ -174,7 +174,9 @@ async def setup_wordpress(
     )
 
 
-async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[str]) -> list[str]:
+async def _plugins(
+    wp_cli: str, root: Path, wanted: list[str], problems: list[str], *, fresh: bool
+) -> list[str]:
     steps: list[str] = []
     for slug in wanted:
         if (root / "wp-content" / "plugins" / slug).is_dir():
@@ -185,8 +187,11 @@ async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[st
         else:
             problems.append(f"Eklenti '{slug}' kurulamadı: {_plain(output)[-300:]}")
     # Projenin kendi eklentileri (tek dosyalık olanlar dahil) etkinleşir; kurulum
-    # sırasında etkinleşmeyen eklenti "yazıldı ama çalışmıyor" demektir.
-    await _wp(wp_cli, root, "plugin", "activate", "--all")
+    # sırasında etkinleşmeyen eklenti "yazıldı ama çalışmıyor" demektir. YALNIZ yeni kurulumda:
+    # var olan sitede `--all` kullanıcının bilerek devre dışı bıraktığı eklentileri de açıyordu
+    # (kod yorumundaki Wordfence kilitlenmesinin kaynağı; ölçüldü, 30 Ekim).
+    if fresh:
+        await _wp(wp_cli, root, "plugin", "activate", "--all")
     if (root / "wp-content" / "plugins" / "woocommerce").is_dir():
         # Yeni WooCommerce mağazası ziyaretçiye "Yakında" sayfası gösterir. Ölçüldü (2 Ekim
         # 2026, 8. kabul koşusu): ürünler eklendiği halde /shop/ boş "coming-soon" sayfası
@@ -228,15 +233,45 @@ async def _install_core(wp_cli: str, root: Path, url: str) -> Path:
         "--admin_user=admin", f"--admin_password={password}",
         "--admin_email=admin@example.com", "--skip-email",
     )  # fmt: skip
+    return write_credentials(root, url, password)
+
+
+def write_credentials(root: Path, url: str, password: str) -> Path:
+    """Yönetici giriş dosyasını YALNIZ sahibine açık oluştur.
+
+    Ölçüldü (29 Ekim): dosya önce umask'ın izniyle (0644) yazılıp sonra `chmod 0600`
+    yapılıyordu; arada kalan pencerede başka bir yerel kullanıcı okuyabilirdi. İzin
+    artık `os.open` ile açılışta verilir.
+    """
     path = root / CREDENTIALS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    metin = (
         f"Yerel önizleme yönetici girişi\nAdres: {url}/wp-admin\nKullanıcı: admin\n"
-        f"Parola: {password}\n",
-        encoding="utf-8",
+        f"Parola: {password}\n"
     )
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as dosya:
+        dosya.write(metin)
+    # Dosya zaten varsa `os.open` izni değiştirmez; eski geniş izni de kapat.
     path.chmod(0o600)
+    _ignore_in_git(path)
     return path
+
+
+def _ignore_in_git(path: Path) -> None:
+    """Giriş dosyası `.fusion/.gitignore` ile git'e girmekten korunur (A3-22).
+
+    Klasördeki başka dosyalara dokunulmaz: yalnız parola dosyasının adı eklenir.
+    """
+    kural = path.name
+    ignore = path.parent / ".gitignore"
+    try:
+        mevcut = ignore.read_text(encoding="utf-8") if ignore.is_file() else ""
+        if kural not in mevcut.splitlines():
+            ayirici = "" if not mevcut or mevcut.endswith("\n") else "\n"
+            ignore.write_text(f"{mevcut}{ayirici}{kural}\n", encoding="utf-8")
+    except OSError:
+        return
 
 
 def _install_sqlite_dropin(root: Path) -> None:
@@ -292,8 +327,14 @@ async def run_wp(wp_cli: str, root: Path, *args: str) -> tuple[int, str]:
     )
     try:
         raw, _ = await asyncio.wait_for(process.communicate(), timeout=WP_STEP_TIMEOUT_S)
+    except asyncio.CancelledError:
+        # Görev iptali `wp` sürecini öksüz bırakmasın (ölçüldü, 30 Ekim); zombi kalmasın.
+        process.kill()
+        await asyncio.shield(process.wait())
+        raise
     except TimeoutError as exc:
         process.kill()
+        await process.wait()  # zombi bırakma
         # Ölçüldü (3 Ekim 2026, 12. kabul koşusu): model Wordfence/Autoptimize gibi ağır
         # eklentiler kurunca SQLite'lı sitede her `wp` komutu asılı kaldı; model nedenini
         # bilmeden aynı komutları yineledi. `--skip-plugins` WP-CLI'nin kaçış kapısıdır.

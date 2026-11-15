@@ -51,10 +51,20 @@ async function run(width, height) {
   await context.setOffline(false);
   step("ağ kopması: 'ulaşılamıyor' mesajı, yeniden denenebilir");
 
-  // 4) doğru kod: otomatik onay, bağlanır
+  // 4) doğru kod: otomatik onay, bağlanır. İlk claim yanıtı ağda kaybolur (sunucu işler,
+  // telefon göremez): telefon aynı teslim anahtarıyla yeniden sorar ve aynı cihazı alır.
+  let lostOnce = false;
+  await page.route("**/v1/pair/claim", async (route) => {
+    if (lostOnce) return route.continue();
+    lostOnce = true;
+    await route.fetch();
+    await route.abort("connectionreset");
+  });
   await page.locator("#kod").fill(await newCode());
   await page.locator("#eslestirDugme").click();
   await page.locator("#uygulama").waitFor({ state: "visible", timeout: 15000 });
+  assert.equal(lostOnce, true);
+  await page.unroute("**/v1/pair/claim");
   await page.screenshot({ path: `${shots}/${tag}-03-baglandi.png` });
   step("doğru kod desktop onayı beklemeden bağlar");
 
@@ -82,7 +92,8 @@ async function run(width, height) {
   // 7) onay: yeni görev → sohbet içinde onay kartı → onayla → yanıt
   await page.locator("#mesaj").fill("onay gerektiren iş");
   await page.getByRole("button", { name: "Gönder" }).click();
-  const card = page.locator(".approval").first();
+  // Aynı soru "Onaylar" sekmesinde de (gizli) çizilir; sohbetteki kart seçilir.
+  const card = page.locator("#sohbet .approval").first();
   await card.waitFor({ timeout: 8000 });
   await page.screenshot({ path: `${shots}/${tag}-06-onay.png` });
   await card.getByRole("button", { name: /izin ver|onayla/i }).first().click();
@@ -106,8 +117,15 @@ async function run(width, height) {
   // 9) canlı ekran: izin ver, kare, oturum süresi dolunca yeniden bağlanma
   await page.locator('[data-tab="ekran"]').click();
   await page.locator("#ekranIste").click();
-  const confirm = page.getByText("Onayla ve izlemeyi başlat");
+  const confirm = page.getByText("Masaüstünden izin iste");
   if (await confirm.waitFor({ timeout: 4000 }).then(() => true, () => false)) await confirm.click();
+  // Telefonun kendi onayı ekranı açmaz; masaüstü onayı gelene kadar "bekleniyor" görünür.
+  await page.waitForFunction(() => /masaüstünde onay/i.test(document.getElementById("ekranDurum").textContent), null, { timeout: 8000 });
+  for (let i = 0; i < 20; i += 1) {
+    const { approved } = await (await fetch(`${base}/__approve_screen`)).json();
+    if (approved.length) break;
+    await page.waitForTimeout(250);
+  }
   await page.waitForFunction(() => document.getElementById("ekranKare").naturalWidth > 0, null, { timeout: 15000 });
   const ratio = await page.evaluate(() => { const r = document.getElementById("ekranKare").getBoundingClientRect(); return r.width / r.height; });
   assert.ok(Math.abs(ratio - 1.6) < 0.05, `en-boy oranı korunmalı (${ratio})`);

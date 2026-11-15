@@ -2,7 +2,10 @@
 
 Güvenlik duruşu:
 - Yalnız eşleşmiş Telegram kullanıcı kimliği ve yalnız özel sohbet (DM) işlenir.
-- Onay düğmesi YOK: riskli işlem bildirimi yalnız "masaüstünde onayla" der.
+- Onay düğmeleri (P-040): yalnız cihazın kapsamı yeten, step-up istemeyen onaylar için
+  "İzin ver" sunulur; step-up (tehlikeli, masaüstü, dış servis) onayı yalnız "Reddet" düğmesiyle
+  gelir, onayı masaüstü ya da imzalı telefon verir. Düğme verisi tek kullanımlık, cihaza bağlı
+  rastgele bir anahtardır; başka kullanıcının geri çağrısı yok sayılır.
 - Sohbet uçtan uca şifreli (Secret Chat) DEĞİLDİR; sır görünen mesajlar işlenmez.
 - Aynı `update_id` iki kez işlenmez (idempotency anahtarı da buna bağlıdır).
 """
@@ -12,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,6 +24,7 @@ from typing import Any, Protocol
 import httpx
 
 from ..core.atomic_file import atomic_replace_text
+from ..core.execution_context import ExecutionContext
 from ..core.protocols import Clock
 from .constants import (
     NOTIFICATION_SUMMARY_LIMIT,
@@ -30,15 +36,50 @@ from .pairing import PairingError, PairingService
 from .rate_limit import FailureLimiter
 from .redaction import REDACTED, notification_summary, redact_text
 from .rpc import RemoteService, RpcResult
-from .tasks import TERMINAL_STATES, TaskStore
+from .tasks import TERMINAL_STATES, TaskRecord, TaskStore, device_context
 
+_LOG = logging.getLogger(__name__)
+#: Köprü hata sonrası yeniden yoklamadan önce bekler.
+RETRY_SECONDS = 3
+
+# /pause ve /resume yardımda ANILMAZ: oturum duraklatma sözleşmesi yok, komutlar dürüstçe
+# "desteklenmiyor" döner (R1-18). Yürütücü destek ekleyince buraya geri eklenir.
 HELP_TEXT = (
-    "Komutlar: /projects /tasks /status /kits /kit <ad> /pause /resume /cancel /audit /devices\n"
-    "Düz mesaj yeni görev oluşturur. Riskli işlemler yalnız masaüstünde onaylanır.\n"
+    "Komutlar: /projects /tasks /status /kits /kit <ad> /cancel /audit /devices\n"
+    "Düz mesaj yeni görev oluşturur. Onay gerektiğinde düğmeyle izin verir ya da reddedersin; "
+    "riskli işlemler yalnız masaüstünde onaylanır.\n"
     "Bu sohbet uçtan uca şifreli değildir; parola/anahtar yazma."
 )
-SECRET_WARNING = "Mesajında sır gibi görünen bir içerik var; işlenmedi. Sırları sohbete yazma."
-STEP_UP_NOTICE = "Onay gerekiyor. Bu işlem güvenlik için yalnız masaüstü Fusion'da onaylanır."
+SECRET_WARNING = (
+    "Mesajında sır gibi görünen bir içerik var (parola:/token= gibi bir kalıp); işlenmedi. "
+    "Sırları sohbete yazma; sır değilse o kalıbı çıkarıp yeniden yaz."
+)
+STEP_UP_NOTICE = (
+    "Onay gerekiyor. Bu işlem güvenlik için yalnız masaüstü Fusion'da (ya da imzalı telefonda) "
+    "onaylanır; buradan yalnız reddedebilirsin."
+)
+APPROVAL_NOTICE = "Onay gerekiyor: {title}"
+APPROVAL_SCOPE_NOTICE = (
+    "Onay gerekiyor: {title}\nBu Telegram cihazında '{scope}' yetkisi yok; masaüstünden onayla "
+    "ya da buradan reddet."
+)
+APPROVAL_TRUST_NOTICE = (
+    "Onay gerekiyor: {title}\nBu cihaza uzaktan onay yetkisi verilmemiş; masaüstünde Ayarlar › "
+    "Uzaktan Erişim'den ver ya da buradan reddet."
+)
+BUTTON_ALLOW = "İzin ver"
+BUTTON_DENY = "Reddet"
+CALLBACK_PREFIX = "onay:"
+CALLBACK_ANSWERED = {"once": "Onay iletildi; görev sürüyor.", "deny": "İşlem reddedildi."}
+CALLBACK_STALE = "Bu onay artık geçerli değil."
+#: Düğme anahtarı uzunluğu (hex); Telegram `callback_data` 64 bayt sınırının altında kalır.
+CALLBACK_TOKEN_HEX = 16
+#: Bellekteki düğme anahtarı üst sınırı: cevaplanmayan/iptal edilen onaylarda sözlük sınırsız
+#: büyümesin (uzun süre açık `fusion remote-control`); en eski anahtarlar düşer.
+CALLBACK_TOKEN_LIMIT = 200
+
+#: Satır içi düğme: (etiket, callback verisi).
+Button = tuple[str, str]
 
 
 class TelegramApi(Protocol):
@@ -46,9 +87,13 @@ class TelegramApi(Protocol):
 
     async def get_updates(self, offset: int, poll_seconds: int) -> list[dict[str, Any]]: ...
 
-    async def send_message(self, chat_id: int, text: str) -> None: ...
+    async def send_message(
+        self, chat_id: int, text: str, buttons: tuple[Button, ...] = ()
+    ) -> None: ...
 
     async def delete_message(self, chat_id: int, message_id: int) -> None: ...
+
+    async def answer_callback(self, callback_id: str, text: str) -> None: ...
 
 
 class HttpTelegramApi:
@@ -58,6 +103,9 @@ class HttpTelegramApi:
         self._base = f"https://api.telegram.org/bot{token}"
         self._token = token
         self._client = client or httpx.AsyncClient(timeout=TELEGRAM_POLL_TIMEOUT_SECONDS + 10)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def _call(self, method: str, payload: dict[str, Any]) -> Any:  # noqa: ANN401
         try:
@@ -72,12 +120,26 @@ class HttpTelegramApi:
     async def get_updates(self, offset: int, poll_seconds: int) -> list[dict[str, Any]]:
         result = await self._call(
             "getUpdates",
-            {"offset": offset, "timeout": poll_seconds, "allowed_updates": ["message"]},
+            {
+                "offset": offset,
+                "timeout": poll_seconds,
+                "allowed_updates": ["message", "callback_query"],
+            },
         )
         return result if isinstance(result, list) else []
 
-    async def send_message(self, chat_id: int, text: str) -> None:
-        await self._call("sendMessage", {"chat_id": chat_id, "text": text})
+    async def send_message(self, chat_id: int, text: str, buttons: tuple[Button, ...] = ()) -> None:
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if buttons:
+            payload["reply_markup"] = {
+                "inline_keyboard": [
+                    [{"text": label, "callback_data": data} for label, data in buttons]
+                ]
+            }
+        await self._call("sendMessage", payload)
+
+    async def answer_callback(self, callback_id: str, text: str) -> None:
+        await self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         await self._call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
@@ -125,25 +187,46 @@ class TelegramBridge:
         self._offsets = offsets
         self._offset = offsets.load()
         self._limiter = FailureLimiter(clock, limit=TELEGRAM_FAILED_PAIR_LIMIT)
+        #: Görevler kalıcı: köprüden ÖNCE açılmış görevlerin geçmiş olayları yeniden
+        #: bildirilmez (yeniden başlatmada eski onay/bitiş mesajları yağmasın).
+        self._started_at = clock.now()
         self._projects: dict[str, str] = {}
         self._notified: dict[str, int] = {}
         self._chats: dict[str, int] = {}
+        #: Düğme anahtarı → (cihaz, soru, karar). Bellekte: yeniden başlatmada eski düğmeler
+        #: "geçerli değil" döner, görev yine telefondan/masaüstünden cevaplanabilir.
+        self._callbacks: dict[str, tuple[str, str, str]] = {}
 
     async def run(
         self, stop: asyncio.Event, on_error: Callable[[str], Awaitable[None]] | None = None
     ) -> None:
-        """Dışarı bağlantıyla yokla; port açılmaz. Hata olursa kısa bekleyip sürer."""
+        """Dışarı bağlantıyla yokla; port açılmaz. Hata olursa kısa bekleyip sürer.
+
+        Yalnız `TelegramError` değil her istisna yakalanır: aksi halde beklenmeyen bir hata
+        köprü görevini sessizce bitirir (`telegramHata` boş, durum "bağlı değil") olurdu.
+        """
         while not stop.is_set():
             try:
-                await self.poll_once(TELEGRAM_POLL_TIMEOUT_SECONDS)
-            except TelegramError as error:
-                if on_error is not None:
-                    await on_error(str(error))
-                await asyncio.sleep(3)
+                await self.poll_once(TELEGRAM_POLL_TIMEOUT_SECONDS, on_error)
+            except Exception as error:  # köprü ayakta kalmalı; ayrıntı günlükte
+                await self._report(error, on_error)
+                await asyncio.sleep(RETRY_SECONDS)
 
-    async def poll_once(self, poll_seconds: int = 0) -> None:
+    @staticmethod
+    async def _report(error: Exception, on_error: Callable[[str], Awaitable[None]] | None) -> None:
+        _LOG.warning("Telegram köprüsü hatası: %s", error, exc_info=True)
+        if on_error is not None:
+            detail = str(error) if isinstance(error, TelegramError) else repr(error)
+            await on_error(redact_text(detail))
+
+    async def poll_once(
+        self, poll_seconds: int = 0, on_error: Callable[[str], Awaitable[None]] | None = None
+    ) -> None:
         for update in await self._api.get_updates(self._offset, poll_seconds):
-            await self.handle_update(update)
+            try:
+                await self.handle_update(update)
+            except Exception as error:  # zehirli güncelleme diğerlerini ve bildirimi engellemesin
+                await self._report(error, on_error)
         await self.notify()
 
     async def handle_update(self, update: dict[str, Any]) -> None:
@@ -151,7 +234,19 @@ class TelegramBridge:
         if not isinstance(update_id, int) or update_id < self._offset:
             return  # tekrar gelen güncelleme: ikinci kez çalıştırma
         self._offset = update_id + 1
-        self._offsets.save(self._offset)
+        try:
+            await self._process(update, update_id)
+        finally:
+            # İşlendikten SONRA kalıcı: süreç ortada ölürse güncelleme yeniden gelir
+            # (görev anahtarı `tg:<update_id>` olduğundan çift görev açılmaz). Hata
+            # fırlatan güncelleme de atlanır; yoksa her yoklamada aynı hataya takılırdı.
+            self._offsets.save(self._offset)
+
+    async def _process(self, update: dict[str, Any], update_id: int) -> None:
+        callback = update.get("callback_query")
+        if isinstance(callback, dict):
+            await self._callback(callback)
+            return
         message = update.get("message")
         if not isinstance(message, dict):
             return
@@ -159,8 +254,10 @@ class TelegramBridge:
         text = message.get("text")
         if chat.get("type") != "private" or not isinstance(text, str) or "id" not in sender:
             return  # grup/kanal/medya: yok sayılır
+        if not isinstance(chat.get("id"), int):
+            return  # bozuk güncelleme: yanıtlanacak sohbet yok
         user_id = str(sender["id"])
-        chat_id = int(chat["id"])
+        chat_id = chat["id"]
         device = self._registry.find_external(CHANNEL_TELEGRAM, user_id)
         if device is None:
             await self._pair(chat_id, user_id, sender, text)
@@ -170,6 +267,33 @@ class TelegramBridge:
             await self._reject_secret(chat_id, message)
             return
         await self._reply(chat_id, await self._dispatch(device, text, update_id))
+
+    async def _callback(self, callback: dict[str, Any]) -> None:
+        """Satır içi onay düğmesi: anahtar eşleşmiş cihaza ve tek soruya bağlıdır."""
+        callback_id = str(callback.get("id", ""))
+        sender = callback.get("from") or {}
+        data = str(callback.get("data", ""))
+        if not callback_id or "id" not in sender or not data.startswith(CALLBACK_PREFIX):
+            return
+        entry = self._callbacks.get(data[len(CALLBACK_PREFIX) :])
+        device = self._registry.find_external(CHANNEL_TELEGRAM, str(sender["id"]))
+        if entry is None or device is None or entry[0] != device.device_id:
+            # Yabancı/eski düğme: bilgi sızdırmadan yalnız "geçerli değil".
+            await self._api.answer_callback(callback_id, CALLBACK_STALE)
+            return
+        _device_id, question_id, choice = entry
+        result = await self._service.call(
+            device,
+            "approvals.respond",
+            {"questionId": question_id, "choice": choice, "decisionId": f"tg:{callback_id}"},
+        )
+        if result.ok or result.error == "soru_yok":
+            self._forget_question(question_id)
+        text = CALLBACK_ANSWERED.get(choice, "Tamam") if result.ok else self._summary(result, "")
+        await self._api.answer_callback(callback_id, text[:200])
+        chat = (callback.get("message") or {}).get("chat") or {}
+        if isinstance(chat.get("id"), int):
+            await self._reply(chat["id"], text)
 
     async def _pair(self, chat_id: int, user_id: str, sender: dict[str, Any], text: str) -> None:
         key = f"tg:{user_id}"
@@ -183,7 +307,9 @@ class TelegramBridge:
             self._limiter.record_failure(key)
             await self._reply(chat_id, "Kod geçersiz veya süresi doldu.")
             return
-        await self._reply(chat_id, "Kod alındı. Eşleştirmeyi masaüstü Fusion'da onayla.")
+        await self._reply(
+            chat_id, "Kod alındı. Eşleştirmeyi Fusion'da onayla (masaüstü ya da terminal)."
+        )
 
     async def _reject_secret(self, chat_id: int, message: dict[str, Any]) -> None:
         await self._reply(chat_id, SECRET_WARNING)
@@ -203,7 +329,8 @@ class TelegramBridge:
             self._projects[user] = argument[:200]
             return f"Proje: {argument or '(yok)'}"
         if command == "/projects":
-            names = sorted({t.project for t in self._store.list_tasks() if t.project})
+            tasks = self._store.list_tasks(device_context(device))
+            names = sorted({t.project for t in tasks if t.project})
             return "\n".join(names) or "Henüz proje adı yok. /project <ad> ile seç."
         if command == "/tasks":
             return await self._tasks_text(device)
@@ -222,7 +349,7 @@ class TelegramBridge:
             method = "tasks.pause" if command == "/pause" else "tasks.resume"
             return self._summary(await self._service.call(device, method, {}), "Tamam")
         if command == "/cancel":
-            run_id = argument or self._latest_run()
+            run_id = argument or self._latest_run(device)
             return self._summary(
                 await self._service.call(device, "tasks.cancel", {"runId": run_id}), "İptal istendi"
             )
@@ -246,8 +373,8 @@ class TelegramBridge:
             "Görev alındı",
         )
 
-    def _latest_run(self) -> str:
-        tasks = self._store.list_tasks()
+    def _latest_run(self, device: Device) -> str:
+        tasks = self._store.list_tasks(device_context(device))
         return tasks[0].run_id if tasks else ""
 
     @staticmethod
@@ -267,7 +394,7 @@ class TelegramBridge:
         return "\n".join(rows) or "Görev yok."
 
     async def _status_text(self, device: Device, run_id: str, *, audit: bool) -> str:
-        target = run_id or self._latest_run()
+        target = run_id or self._latest_run(device)
         if audit:
             result = await self._service.call(device, "tasks.events", {"runId": target})
             if not result.ok:
@@ -285,21 +412,77 @@ class TelegramBridge:
 
     async def notify(self) -> None:
         """Düşük hacim: yalnız onay isteği ve terminal durum; kod/diff dökülmez."""
-        for task in self._store.list_tasks():
-            chat_id = self._chats.get(task.owner_device)
-            if chat_id is None:
+        for device_id, chat_id in list(self._chats.items()):
+            device = self._registry.active(device_id)
+            if device is None:
                 continue
-            seen = self._notified.get(task.run_id, 0)
-            for event in self._store.events_after(task.run_id, seen):
-                self._notified[task.run_id] = event.seq
-                if event.kind == "approval_request":
-                    await self._reply(chat_id, STEP_UP_NOTICE)
-                elif task.state in TERMINAL_STATES and event.kind in {
-                    "done",
-                    "failed",
-                    "cancelled",
-                }:
-                    await self._reply(chat_id, notification_summary(f"{task.run_id}: {event.kind}"))
+            context = device_context(device)
+            for task in self._store.list_tasks(context):
+                if task.owner_device == device_id:
+                    await self._notify_task(context, device, chat_id, task)
 
-    async def _reply(self, chat_id: int, text: str) -> None:
-        await self._api.send_message(chat_id, text[: NOTIFICATION_SUMMARY_LIMIT * 4])
+    async def _notify_task(
+        self, context: ExecutionContext, device: Device, chat_id: int, task: TaskRecord
+    ) -> None:
+        seen = self._notified.get(task.run_id)
+        if seen is None:
+            seen = task.last_seq if task.created_at < self._started_at else 0
+        for event in self._store.events_after(context, task.run_id, seen):
+            notice = self._notice_for(device, task, event.kind, event.payload)
+            if notice is not None:
+                # İmleç gönderimden SONRA ilerler: gönderim düşerse olay yeniden denenir.
+                await self._reply(chat_id, notice[0], notice[1])
+            self._notified[task.run_id] = event.seq
+
+    def _notice_for(
+        self, device: Device, task: TaskRecord, kind: str, payload: dict[str, Any]
+    ) -> tuple[str, tuple[Button, ...]] | None:
+        if kind == "approval_request":
+            text, buttons = self._approval_notice(device, payload)
+            # Alt ajanın isteği (P-034): bildirim "kim istiyor"u söyler.
+            agent = payload.get("agent")
+            if isinstance(agent, str) and agent:
+                text = f"{text} İsteyen alt ajan: {agent}"
+            return text, buttons
+        if kind == "approval_answered":
+            # Soru kapandı (masaüstü/telefon/zaman aşımı): düğme anahtarları birikmez.
+            self._forget_question(str(payload.get("questionId", "")))
+            return None
+        if task.state in TERMINAL_STATES and kind in {
+            "done",
+            "failed",
+            "cancelled",
+            "needs_reconciliation",
+        }:
+            return notification_summary(f"{task.run_id}: {kind}"), ()
+        return None
+
+    def _approval_notice(
+        self, device: Device, payload: dict[str, Any]
+    ) -> tuple[str, tuple[Button, ...]]:
+        """Onay bildirimi + düğmeler: "İzin ver" yalnız bu cihazın verebileceği onayda (P-040)."""
+        question_id = str(payload.get("questionId", ""))
+        title = notification_summary(str(payload.get("title") or payload.get("target") or "işlem"))
+        deny = (BUTTON_DENY, CALLBACK_PREFIX + self._callback_token(device, question_id, "deny"))
+        if payload.get("stepUp") is not False:
+            return STEP_UP_NOTICE, (deny,)
+        scope = str(payload.get("requiredScope", ""))
+        if scope and scope not in device.scopes:
+            return APPROVAL_SCOPE_NOTICE.format(title=title, scope=scope), (deny,)
+        if not self._service.approval_authority(device.device_id)["canApprove"]:
+            return APPROVAL_TRUST_NOTICE.format(title=title), (deny,)
+        allow = (BUTTON_ALLOW, CALLBACK_PREFIX + self._callback_token(device, question_id, "once"))
+        return APPROVAL_NOTICE.format(title=title), (allow, deny)
+
+    def _callback_token(self, device: Device, question_id: str, choice: str) -> str:
+        token = uuid.uuid4().hex[:CALLBACK_TOKEN_HEX]
+        entries = list(self._callbacks.items())[-(CALLBACK_TOKEN_LIMIT - 1) :]
+        self._callbacks = {**dict(entries), token: (device.device_id, question_id, choice)}
+        return token
+
+    def _forget_question(self, question_id: str) -> None:
+        if question_id:
+            self._callbacks = {k: v for k, v in self._callbacks.items() if v[1] != question_id}
+
+    async def _reply(self, chat_id: int, text: str, buttons: tuple[Button, ...] = ()) -> None:
+        await self._api.send_message(chat_id, text[: NOTIFICATION_SUMMARY_LIMIT * 4], buttons)

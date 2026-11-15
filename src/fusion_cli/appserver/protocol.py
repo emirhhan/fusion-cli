@@ -1,6 +1,6 @@
 """Tel biçimi: satır başına bir JSON nesnesi (JSON Lines), UTF-8.
 
-Dört mesaj tipi vardır. `id` yalnız cevap bekleyen mesajlarda bulunur ve
+Beş mesaj tipi vardır. `id` yalnız cevap bekleyen mesajlarda bulunur ve
 eşleştirme için kullanılır:
 
 - `istek` (uygulama → çekirdek) bir işlem çağırır
@@ -61,8 +61,18 @@ def decode(line: str) -> Request | Reply | None:
 
 
 def _line(payload: dict[str, Any]) -> str:
-    """Türkçe karakterleri koruyarak tek satırlık JSON üret."""
-    return json.dumps(payload, ensure_ascii=False)
+    """Türkçe karakterleri koruyarak tek satırlık JSON üret.
+
+    Tek başına yüksek vekil (lone surrogate) içeren metin UTF-8'e kodlanamaz; stdout `strict`
+    olduğundan `UnicodeEncodeError` fırlatır ve isteğe sonuç hiç yazılmazdı (UI sonsuza dek
+    beklerdi). Böyle bir satır yedek olarak `\\uXXXX` kaçışlarıyla (geçerli JSON) üretilir.
+    """
+    text = json.dumps(payload, ensure_ascii=False)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return json.dumps(payload, ensure_ascii=True)
+    return text
 
 
 def encode_event(payload: dict[str, Any]) -> str:

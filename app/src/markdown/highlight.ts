@@ -121,6 +121,8 @@ async function getHighlighter(): Promise<CoreHighlighter> {
         themes: [light.default, dark.default],
       })) as unknown as CoreHighlighter;
     })();
+    // Bir kez düşen kurulum önbelleğe KALICI yazılmaz; sonraki istek yeniden dener (U5-24).
+    highlighterPromise.catch(() => { highlighterPromise = null; });
   }
   return highlighterPromise;
 }

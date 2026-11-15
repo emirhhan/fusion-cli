@@ -27,7 +27,7 @@ from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
-from ...tools import preview_server
+from ...tools import preview_launch, preview_server
 from ...tools.preview_probe import PageProbe, probe
 from ...tools.preview_server import PreviewKind
 from ...tools.wordpress_setup import has_core
@@ -58,7 +58,7 @@ class SiteVerifier:
         kind = await asyncio.to_thread(preview_server.detect_kind, root)
         if kind not in (PreviewKind.WORDPRESS, PreviewKind.PHP):
             return VerificationResult(ok=True)
-        running = preview_server.running(root)
+        running = running_preview(root)
         if running is not None:
             # Tarayıcıyla ölçülür: yüklenemeyen görsel/video ancak orada görünür. Ölçüldü
             # (3 Ekim 2026, 10. kabul koşusu): 18 ürün görseli 404 veriyordu, kapı yalnız
@@ -71,7 +71,11 @@ class SiteVerifier:
         if kind is PreviewKind.WORDPRESS and not _runnable_wordpress(root):
             return VerificationResult(ok=True, warnings=(NOT_RUNNABLE_NOTE,))
         if self._php is None:
-            return VerificationResult(ok=True)
+            # PHP yok: site hiç açılıp ölçülemedi; bu "doğrulandı" gibi görünmemeli (A4-25).
+            return VerificationResult(
+                ok=True,
+                warnings=("PHP kurulu değil: site açılıp ölçülemedi, sayfa sağlığı DOĞRULANAMADI",),
+            )
         return await self._temporary(root, kind)
 
     async def _temporary(self, root: Path, kind: PreviewKind) -> VerificationResult:
@@ -103,13 +107,34 @@ class SiteVerifier:
         adresler = [sonuc.url, *pick_audit_pages(sonuc.url, acilan)]
         try:
             gozlemler = await BrowserVerifier(self._context).observe_urls(adresler)
-        except Exception:  # sınır: Playwright yok, tarayıcı açılamadı, sayfa çöktü
-            return None
+        except Exception as error:  # sınır: Playwright yok, tarayıcı açılamadı, sayfa çöktü
+            # Sessiz atlama "tarayıcıyla ölçüldü" izlenimi verirdi (A4-25): neden uyarıda.
+            return VerificationResult(
+                ok=True,
+                warnings=(
+                    f"tarayıcı denetimi atlandı ({type(error).__name__}): yerleşim ve görsel "
+                    "yüklemeleri DOĞRULANAMADI",
+                ),
+            )
         return browser_verification_result(gozlemler, source="çalışan sitede")
 
 
 #: Son önizlemede açık kalan bulguların kapı raporundaki öneki.
 OPEN_FINDINGS_NOTE = "son start_preview ölçümünde açık kaldı (düzeltip yeniden ölç)"
+
+
+def running_preview(root: Path) -> preview_server.RunningPreview | None:
+    """Kökte çalışan önizleme: otomatik tespit edilen ya da launch.json ile adlı başlatılan.
+
+    Ölçüldü (31 Ekim): adlı sunucular `preview_server._RUNNING`'e yazılmadığı için PHP kökünde
+    `start_preview name=` ile açılan sunucu kapıya görünmez, kapı ikinci geçici sunucu açardı.
+    Birden çok adlı sunucuda en son başlatılan alınır.
+    """
+    detected = preview_server.running(root)
+    if detected is not None:
+        return detected
+    named = [preview for _, preview in preview_launch.running_launches(root)]
+    return max(named, key=lambda preview: preview.started_at) if named else None
 
 
 def _with_open_findings(

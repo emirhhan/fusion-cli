@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "../ui/Button";
 import { Logo } from "../brand/Logo";
+import { GIRIS_ONERISI_ANAHTARI } from "./types";
 import type { AccountController } from "./useAccount";
 import "./account.css";
 
@@ -26,6 +27,20 @@ const EN_AZ_PAROLA = 8;
 /** Kayıt sonrası kurtarma kodunu BİR KEZ gösteren ekran. */
 function RecoveryCode({ kod, onDevam }: { kod: string; onDevam: () => void }) {
   const [kopyalandi, setKopyalandi] = useState(false);
+  // Ölçüldü (29 Ekim, U5-29): Devam yalnız pano yazımı başarılıysa açılıyordu; pano API'si
+  // yoksa/reddedilirse düğme sonsuza dek kapalı kalıyor, kod bir daha gösterilmiyordu.
+  const [kopyaBasarisiz, setKopyaBasarisiz] = useState(false);
+  const [elleKaydedildi, setElleKaydedildi] = useState(false);
+  const kopyala = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("pano yok");
+      await navigator.clipboard.writeText(kod);
+      setKopyalandi(true);
+      setKopyaBasarisiz(false);
+    } catch {
+      setKopyaBasarisiz(true);
+    }
+  };
   return (
     <div className="account">
       <section className="account__form-col">
@@ -38,19 +53,31 @@ function RecoveryCode({ kod, onDevam }: { kod: string; onDevam: () => void }) {
           </p>
           <code className="account__recovery">{kod}</code>
           <div className="account__actions">
-            <Button
-              onClick={() => {
-                void navigator.clipboard?.writeText(kod).then(() => setKopyalandi(true));
-              }}
-              variant="secondary"
-            >
+            <Button onClick={() => void kopyala()} variant="secondary">
               {kopyalandi ? "Kopyalandı" : "Kopyala"}
             </Button>
-            <Button disabled={!kopyalandi} onClick={onDevam} variant="primary">
+            <Button disabled={!kopyalandi && !elleKaydedildi} onClick={onDevam} variant="primary">
               Kaydettim, devam et
             </Button>
           </div>
-          {!kopyalandi && <p className="account__hint">Devam edebilmek için önce kodu kopyala.</p>}
+          {kopyaBasarisiz && (
+            <>
+              <p className="account__hint" role="alert">
+                Kod panoya kopyalanamadı. Yukarıdaki kodu elle bir yere yaz, sonra aşağıyı işaretle.
+              </p>
+              <label className="account__check">
+                <input
+                  checked={elleKaydedildi}
+                  onChange={(event) => setElleKaydedildi(event.target.checked)}
+                  type="checkbox"
+                />
+                Kodu elle kaydettim
+              </label>
+            </>
+          )}
+          {!kopyalandi && !kopyaBasarisiz && (
+            <p className="account__hint">Devam edebilmek için önce kodu kopyala.</p>
+          )}
         </div>
       </section>
       <BrandPanel />
@@ -76,20 +103,36 @@ function BrandPanel() {
 export function AccountGate({ account }: { account: AccountController }) {
   const kurulum = account.durum?.kurulum_gerekli ?? false;
   const [kip, setKip] = useState<Kip>(kurulum ? "kayit" : "giris");
-  const [kimlik, setKimlik] = useState("");
+  // "Bu hesaba geç" çıkıştan sonra seçilen hesabın kimliğini giriş alanına önerir (U5-32).
+  const [kimlik, setKimlik] = useState(() => {
+    try {
+      const onerilen = sessionStorage.getItem(GIRIS_ONERISI_ANAHTARI);
+      if (onerilen) sessionStorage.removeItem(GIRIS_ONERISI_ANAHTARI);
+      return onerilen ?? "";
+    } catch {
+      return "";
+    }
+  });
+  //: Kip değişince eski kipin hatası yeni kipte görünmesin (U5-35).
+  const [gizlenenHata, setGizlenenHata] = useState<string | null>(null);
   const [parola, setParola] = useState("");
   const [kullaniciAdi, setKullaniciAdi] = useState("");
   const [eposta, setEposta] = useState("");
   const [kurtarmaKodu, setKurtarmaKodu] = useState("");
-  const [beniHatirla, setBeniHatirla] = useState(true);
   const [yeniKod, setYeniKod] = useState<string | null>(null);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [mesgul, setMesgul] = useState(false);
 
-  if (yeniKod) {
+  const degistirKip = (sonraki: Kip) => {
+    setGizlenenHata(account.hata);
+    setKip(sonraki);
+  };
+
+  const gosterilecekKod = account.kurtarmaKodu ?? yeniKod;
+  if (gosterilecekKod) {
     // Kod gösterildikten sonra uygulama YENİDEN YÜKLENİR: hesabın kendi
     // yapılandırması ancak yeni bir çekirdek sürecinde okunur.
-    return <RecoveryCode kod={yeniKod} onDevam={() => window.location.reload()} />;
+    return <RecoveryCode kod={gosterilecekKod} onDevam={() => window.location.reload()} />;
   }
 
   const gonder = async (event: FormEvent) => {
@@ -142,6 +185,7 @@ export function AccountGate({ account }: { account: AccountController }) {
               <label htmlFor="hesap-ad">Kullanıcı adınız</label>
               <input
                 autoFocus
+                autoComplete="username"
                 id="hesap-ad"
                 onChange={(event) => setKullaniciAdi(event.target.value)}
                 placeholder="Kullanıcı adınız"
@@ -150,6 +194,7 @@ export function AccountGate({ account }: { account: AccountController }) {
               />
               <label htmlFor="hesap-eposta">E-posta adresiniz</label>
               <input
+                autoComplete="email"
                 id="hesap-eposta"
                 onChange={(event) => setEposta(event.target.value)}
                 placeholder="E-posta adresiniz"
@@ -162,6 +207,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             <>
               <label htmlFor="hesap-kimlik">E-posta adresiniz veya kullanıcı adınız</label>
               <input
+                autoComplete="username"
                 autoFocus
                 id="hesap-kimlik"
                 onChange={(event) => setKimlik(event.target.value)}
@@ -176,6 +222,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             <>
               <label htmlFor="hesap-kod">Kurtarma kodunuz</label>
               <input
+                autoComplete="off"
                 id="hesap-kod"
                 onChange={(event) => setKurtarmaKodu(event.target.value)}
                 placeholder="XXXX-XXXX-XXXX-XXXX"
@@ -187,6 +234,7 @@ export function AccountGate({ account }: { account: AccountController }) {
 
           <label htmlFor="hesap-parola">{kip === "kurtarma" ? "Yeni şifreniz" : "Şifreniz"}</label>
           <input
+            autoComplete={kip === "giris" ? "current-password" : "new-password"}
             id="hesap-parola"
             minLength={kip === "giris" ? undefined : EN_AZ_PAROLA}
             onChange={(event) => setParola(event.target.value)}
@@ -198,16 +246,7 @@ export function AccountGate({ account }: { account: AccountController }) {
 
           {kip === "giris" ? (
             <div className="account__row">
-              <label className="account__check" htmlFor="hesap-hatirla">
-                <input
-                  checked={beniHatirla}
-                  id="hesap-hatirla"
-                  onChange={(event) => setBeniHatirla(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>Beni Hatırla</span>
-              </label>
-              <button className="account__link" onClick={() => setKip("kurtarma")} type="button">
+              <button className="account__link" onClick={() => degistirKip("kurtarma")} type="button">
                 Şifremi Unuttum ?
               </button>
             </div>
@@ -215,7 +254,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             <p className="account__hint">En az {EN_AZ_PAROLA} karakter.</p>
           )}
 
-          {account.hata && (
+          {account.hata && account.hata !== gizlenenHata && (
             <p className="account__error" role="alert">
               {account.hata}
             </p>
@@ -237,7 +276,7 @@ export function AccountGate({ account }: { account: AccountController }) {
               ) : (
                 <>
                   Zaten hesabın var mı?{" "}
-                  <button className="account__link" onClick={() => setKip("giris")} type="button">
+                  <button className="account__link" onClick={() => degistirKip("giris")} type="button">
                     Giriş Yap
                   </button>
                 </>
@@ -245,7 +284,7 @@ export function AccountGate({ account }: { account: AccountController }) {
             ) : (
               <>
                 Henüz üye değil misiniz?{" "}
-                <button className="account__link" onClick={() => setKip("kayit")} type="button">
+                <button className="account__link" onClick={() => degistirKip("kayit")} type="button">
                   Kayıt Ol
                 </button>
               </>

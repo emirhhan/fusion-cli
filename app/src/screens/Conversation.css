@@ -2,11 +2,10 @@
 .conversation__jump { position: absolute; bottom: 16px; right: 16px; z-index: 1; background: var(--surface-raised); }
 
 .conversation {
-  /* Sohbet tipografisi: sistem yazı tipi, 13px sohbet metni, 12px kod. */
-  --chat-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  --chat-font-size: 13px;
-  --chat-line-height: 1.5;
-  font-family: var(--chat-font-family, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  font-family: var(--chat-font-family);
+  font-size: var(--chat-font-size);
+  font-weight: var(--chat-font-weight);
+  line-height: var(--chat-line-height);
   flex: 1;
   min-height: 0;
   overflow: hidden auto;
@@ -160,7 +159,8 @@
    sıkılaştırmasının (8px) üstüne biniyordu: ardışık araç adımları arasında
    ~60-80px boşluk kalıyordu (ölçüldü). Temel kural (üstte, `var(--space-4)`)
    zaten aynı işi token'la yapıyor; ikinci bir yol açılmaz (RULES). */
-.conversation__message--user { padding-left: 72px; }
+/* Dar konteynerde 72 px boşluk balonu daraltıyordu (CSS1-24). */
+.conversation__message--user { padding-left: min(72px, 14%); }
 .conversation__bubble {
   background: var(--surface-message-user);
   border-radius: 18px;
@@ -171,6 +171,14 @@
 .conversation__message--assistant .conversation__article { padding: 0 8px; }
 /* Adım satırları anlatım metniyle aynı sol çizgiden başlar. */
 .conversation__message--event { padding: 0 8px; }
+
+/* Görünüm kipi (#444, Ctrl+O): Normal dışındaki kipte akışın altında küçük bir not. */
+.conversation__view-mode {
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  margin: 4px auto 0;
+  text-align: center;
+}
 
 /* Canlı durum yalnız ekran okuyucuya duyurulur; görsel durum ActivityLine'da
    zaten bir kez gösterilir. Bu kural eksik olduğunda sayfanın solunda ikinci
@@ -338,9 +346,11 @@
 
 .conversation__tasks li {
   display: grid;
-  grid-template-columns: 18px 1fr;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: baseline;
   gap: 6px;
+  /* Uzun bölünemez görev metni (dosya yolu, URL) sütunu kabın dışına itmesin (CSS1-07). */
+  overflow-wrap: anywhere;
 }
 
 .conversation__tasks li[data-durum="bitti"] {
@@ -408,9 +418,22 @@
   word-break: break-word;
 }
 
-.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border, #2d3748); border-radius: 10px; font-size: 0.85rem; }
+.delivery-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 10px; font: inherit; }
 .delivery-card p, .delivery-card ul { margin: 8px 0 0; }
 .delivery-card code { overflow-wrap: anywhere; }
+.delivery-card__details { margin-top: 8px; }
+.delivery-card__details summary { cursor: pointer; }
+.delivery-card__details summary:focus-visible, .delivery-card__detail-content:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.delivery-card__detail-content { max-height: min(18rem, 45vh); overflow: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
+/* `/code-review` bulgu kartları (#214). */
+.findings-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: 0.85rem; }
+.findings-card ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 10px; }
+.findings-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.findings-card__head code { overflow-wrap: anywhere; }
+.findings-card__item p { margin: 4px 0 0; }
+.findings-card__item details > summary { cursor: pointer; color: var(--text-secondary); margin-top: 4px; }
+.findings-card__tag { padding: 0 6px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-secondary); font-size: var(--text-xs); }
+.findings-card__tag--confirmed { color: var(--text-danger); border-color: currentColor; }
 
 .conversation__actions { align-items: center; flex-wrap: wrap; gap: 2px; opacity: 1; color: var(--text-secondary); }
 .conversation__actions > .ui-button, .conversation__evaluation > .ui-button { color: var(--text-secondary); }

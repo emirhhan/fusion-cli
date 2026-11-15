@@ -7,9 +7,17 @@ from dataclasses import dataclass
 from ..config.eligibility import capability_from_spec
 from ..config.models import Config, WebSessionConfig
 from ..config.web_evidence import web_evaluation_matches
+from ..core.constants import WEB_IMAGE_UPLOAD_PROVIDERS
 from ..core.errors import ConfigError
 from ..core.model_capability import ToolSupport
 from ..core.types import ModelSpec
+from .codex_cli import is_codex_model
+from .registry import BUILTIN_PROVIDERS, ProviderKind
+
+#: Tarayıcı destekli web sağlayıcılar: kayıt defterinden türetilir (elle ikinci kopya yok).
+WEB_PROVIDER_IDS = frozenset(
+    provider.id for provider in BUILTIN_PROVIDERS if provider.kind is ProviderKind.BROWSER_BACKED
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +57,7 @@ def capabilities_for(
         return ProviderCapabilities(
             tools=emulated,
             native_tools=False,
-            images=not browser,
+            images=not browser or session.provider in WEB_IMAGE_UPLOAD_PROVIDERS,
             web=True,
             long_running=not browser,
             exclusive_session=browser,
@@ -60,12 +68,7 @@ def capabilities_for(
             else "unverified",
             last_evaluated_at=session.tool_evaluated_at or 0.0,
         )
-    if spec.model.split("/", 1)[0] in {
-        "chatgpt_web",
-        "claude_web",
-        "gemini_web",
-        "copilot_web",
-    }:
+    if spec.model.split("/", 1)[0] in WEB_PROVIDER_IDS:
         return ProviderCapabilities(
             tools=True,
             native_tools=False,
@@ -74,6 +77,18 @@ def capabilities_for(
             long_running=False,
             exclusive_session=True,
             evaluation_state="legacy",
+        )
+    if is_codex_model(spec.model):
+        # `codex exec` araç şemalarını ve görselleri iletmez (yalnız metin); bilinmeyen
+        # yetenek 'araç var' sayılırsa görev araçsız bir modele giderdi.
+        return ProviderCapabilities(
+            tools=False,
+            native_tools=False,
+            images=False,
+            web=False,
+            long_running=True,
+            exclusive_session=False,
+            evaluation_state="declared",
         )
     capability = capability_from_spec(spec)
     explicitly_unsupported = capability.tool_support is ToolSupport.NONE
@@ -155,7 +170,8 @@ def infer_task_requirements(
     aynı araçları çağırabilir. PNG üretmek de modele resim girdisi göndermek değildir.
     Açık taşıma gereksinimleri gerektiğinde TaskRequirements ile ayrıca verilir.
     """
-    lowered = task.casefold()
+    # `casefold` Türkçe `İ`yi birleşik noktalı 'i̇' yapar ("İnternet" ≠ "internet").
+    lowered = task.replace("İ", "i").replace("I", "i").casefold()
     web = any(word in lowered for word in ("internet", "webden", "web'den", "asset topla"))
     mutation_words = (
         "oluştur",

@@ -39,3 +39,12 @@ it("keeps rejected evaluations unselected and allows a retry", async () => {
   expect(await screen.findByText("Değerlendirmen kaydedildi")).toBeTruthy();
   expect(onEvaluate).toHaveBeenCalledTimes(2);
 });
+it("Kit'e gönder yanıt metnini verir; verilmezse düğme çizilmez", () => {
+  const onSendToKit = vi.fn();
+  const { unmount } = render(<Conversation mesajlar={[answer]} onSendToKit={onSendToKit} />);
+  fireEvent.click(screen.getByRole("button", { name: "Kit'e gönder" }));
+  expect(onSendToKit).toHaveBeenCalledWith("Yanıt");
+  unmount();
+  render(<Conversation mesajlar={[answer]} />);
+  expect(screen.queryByRole("button", { name: "Kit'e gönder" })).toBeNull();
+});

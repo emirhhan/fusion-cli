@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import stat
+from shutil import which as _gercek_which
+
 import pytest
 
 from fusion_cli.appserver import connectors
@@ -13,7 +17,9 @@ from tests.fakes import make_config
 @pytest.fixture(autouse=True)
 def komutlar_kurulu(monkeypatch):
     """Testler makinenin PATH'ine bağlı kalmasın: her komut "kurulu" sayılır."""
-    monkeypatch.setattr(connectors.shutil, "which", lambda command: f"/usr/bin/{command}")
+    monkeypatch.setattr(
+        connectors.shutil, "which", lambda command, path=None: f"/usr/bin/{command}"
+    )
 
 
 @pytest.fixture
@@ -271,3 +277,24 @@ async def test_dogrulanan_eklemede_bagli_sunucu_kaydedilir(config):
     assert yeni is not None
     assert sonuc["durum"] == "bagli"
     assert sonuc["metin"] == "'pw' bağlantısı eklendi."
+
+
+def test_komut_denetimi_calistirmadaki_genisletilmis_path_ile_yapilir(
+    config, tmp_path, monkeypatch
+):
+    """Dar GUI PATH'inde olmayan ama kurulu komut reddedilmemeli (S1-09)."""
+    bin_dizini = tmp_path / "homebrew-bin"
+    bin_dizini.mkdir()
+    komut = bin_dizini / "mg-ozel-mcp"
+    komut.write_text("#!/bin/sh\n", encoding="utf-8")
+    komut.chmod(komut.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")  # dar GUI PATH'i
+    monkeypatch.setattr(connectors.shutil, "which", _gercek_which)
+    monkeypatch.setattr(
+        connectors, "stdio_search_path", lambda: os.pathsep.join(["/usr/bin:/bin", str(bin_dizini)])
+    )
+
+    yeni, sonuc = connectors.add_connector(config, {"ad": "ozel", "komut": "mg-ozel-mcp --x"})
+
+    assert sonuc["ok"] is True, sonuc
+    assert yeni is not None and yeni.mcp_servers[0].command == "mg-ozel-mcp"

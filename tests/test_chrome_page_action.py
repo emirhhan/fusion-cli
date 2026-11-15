@@ -200,3 +200,139 @@ def test_tasarim_olcumu_eklentinin_sayfa_kodunda_calisir(sayfa):
     assert sonuc["url"] == "http://magaza.test/" and sonuc["title"] == "Test"
     assert {"fonts", "colors", "scale", "sections", "products", "images"} <= set(sonuc)
     assert any(gorsel["src"].endswith("/urun.png") for gorsel in sonuc["images"])
+
+
+# --- P-043: erişilebilirlik ağacı ve doğal dilli find ---------------------------------------
+
+
+def test_agac_rol_ad_ref_ve_girintiyle_doner_golge_ve_cerceveyi_kapsar(sayfa):
+    sonuc = sayfa.islem("tree", {"filter": "all"})
+
+    satirlar = sonuc["tree"].split("\n")
+    assert sonuc["lines"] == len(satirlar) and sonuc["truncated"] is False
+    assert any(s.startswith('heading "Mağaza" level=1') for s in satirlar)
+    assert any(re.fullmatch(r'\s*button "Sepete ekle" \[e\d+\]', s) for s in satirlar)
+    assert any('textbox "Ad soyad"' in s for s in satirlar)
+    assert any('combobox "Beden"' in s and 'value="S"' in s for s in satirlar)
+    metin = sonuc["tree"]
+    assert "Gölge düğme" in metin and "Çerçevedeki düğme" in metin
+    # Parola alanı ve görünmeyen düğme ağaçta yok; metin satırları girintili.
+    assert "Parola" not in metin and "Gizli düğme" not in metin
+    assert any(s.startswith("  ") for s in satirlar)
+
+
+def test_agac_etkilesimli_filtresi_derinlik_ve_alt_agac(sayfa):
+    etkilesimli = sayfa.islem("tree", {"filter": "interactive"})
+    assert all(re.search(r"\[e\d+\]", s) for s in etkilesimli["tree"].split("\n"))
+    assert not any(s.lstrip().startswith("text ") for s in etkilesimli["tree"].split("\n"))
+
+    sig = sayfa.islem("tree", {"filter": "all", "depth": 1})
+    assert sig["depth"] == 1 and sig["lines"] < etkilesimli["lines"] + 20
+
+    ref = _ref(sayfa, "Beden")
+    alt = sayfa.islem("tree", {"filter": "all", "ref": ref})
+    assert alt["lines"] >= 1 and 'combobox "Beden"' in alt["tree"]
+    # Alt ağaç mevcut ref'leri sıfırlamaz: aynı ref tıklanabilir kalır.
+    assert sayfa.islem("click", {"ref": ref})["clicked"] == ref
+
+
+def test_dogal_dilli_find_rol_ve_sozcukleri_anlar(sayfa):
+    dugme = sayfa.islem("find", {"query": "sepete ekle düğmesi"})
+    alan = sayfa.islem("find", {"query": "ad soyad alanı"})
+    yukle = sayfa.islem("find", {"query": "görsel yükleme alanı"})
+    eski = sayfa.islem("find", {"query": "hiçbir şey"})
+
+    assert dugme["matches"][0]["name"] == "Sepete ekle" and dugme["matches"][0]["tag"] == "button"
+    assert alan["matches"][0]["name"] == "Ad soyad" and alan["matches"][0]["tag"] == "input"
+    # "yükleme" → kök "yükl" eşleşir (Türkçe ek atma).
+    assert yukle["matches"][0]["name"] == "Görsel yükle"
+    # Eski alt dize davranışı korunur.
+    assert eski["matches"][0]["name"] == "Hiçbir şey yapmaz"
+
+
+def test_rol_sozcugune_esit_sorgu_o_adi_tasiyan_ogeyi_onde_dondurur(sayfa):
+    # Ölçüldü (31 Ekim, bağımsız inceleme): "Menü" sorgusunda sözcük kalmıyor, rol menuitem
+    # oluyor; sayfada herhangi bir menuitem varsa yedek ad araması hiç çalışmıyor ve "Menü"
+    # yazan hamburger düğmesi dönmüyordu. Eski alt dize davranışı doğru sonucu veriyordu.
+    sayfa.set_content(
+        '<button aria-label="Menü">☰</button>'
+        '<div role="menu"><div role="menuitem" tabindex="0">Profil</div>'
+        '<div role="menuitem" tabindex="0">Çıkış</div></div>'
+        '<button>Select all</button><select aria-label="Beden"><option>S</option></select>'
+    )
+
+    menu = sayfa.islem("find", {"query": "Menü"})
+    secim = sayfa.islem("find", {"query": "Select"})
+
+    assert menu["matches"][0]["name"] == "Menü"
+    # Rol eşleşmeleri (menü öğeleri) listede kalır, ad eşleşmesinin arkasında.
+    assert {m["name"] for m in menu["matches"]} >= {"Menü", "Profil", "Çıkış"}
+    assert secim["matches"][0]["name"] == "Select all"
+    assert any(m["tag"] == "select" for m in secim["matches"])
+
+
+_MERKEZ = (
+    "(s) => { const r = document.querySelector(s).getBoundingClientRect(); "
+    "return [r.left + r.width / 2, r.top + r.height / 2]; }"
+)
+_BAYRAK = (
+    "(s) => { window.__olay = null; document.querySelector(s).addEventListener('click', "
+    "(e) => { window.__olay = {meta: e.metaKey, shift: e.shiftKey, ctrl: e.ctrlKey, "
+    "alt: e.altKey}; }); }"
+)
+
+
+def test_degistirici_tuslu_tiklama_olay_bayraklarini_tasir(sayfa):
+    """#431: Claude computer `modifiers` (cmd+shift) tıklama olayına geçer."""
+    sayfa.evaluate(_BAYRAK, "#bos")
+    sayfa.islem("click", {"ref": _ref(sayfa, "Hiçbir şey yapmaz"), "mods": ["meta", "shift"]})
+    assert sayfa.evaluate("window.__olay") == {
+        "meta": True,
+        "shift": True,
+        "ctrl": False,
+        "alt": False,
+    }
+    x, y = sayfa.evaluate(_MERKEZ, "#bos")
+    sayfa.islem("click_at", {"x": x, "y": y, "mods": ["ctrl"]})
+    assert sayfa.evaluate("window.__olay")["ctrl"] is True
+
+
+def test_koordinatla_hover_noktadaki_ogeye_gider(sayfa):
+    sayfa.evaluate(
+        "window.__ustunde = false; document.querySelector('#bos')"
+        ".addEventListener('mouseover', () => { window.__ustunde = true; })"
+    )
+    x, y = sayfa.evaluate(_MERKEZ, "#bos")
+    sonuc = sayfa.islem("hover", {"x": x, "y": y})
+    assert sayfa.evaluate("window.__ustunde") is True
+    assert sonuc["name"] == "Hiçbir şey yapmaz"
+
+
+def test_baslangic_noktasindan_surukleme(sayfa):
+    sayfa.evaluate(
+        "window.__iz = []; document.querySelector('#bos').addEventListener('mousedown', "
+        "() => window.__iz.push('down')); document.querySelector('#sayac')"
+        ".addEventListener('mouseup', () => window.__iz.push('up'))"
+    )
+    fx, fy = sayfa.evaluate(_MERKEZ, "#bos")
+    tx, ty = sayfa.evaluate(_MERKEZ, "#sayac")
+    sonuc = sayfa.islem("drag", {"from_x": fx, "from_y": fy, "x": tx, "y": ty})
+    assert sayfa.evaluate("window.__iz") == ["down", "up"]
+    assert sonuc["name"] == "Hiçbir şey yapmaz"
+
+
+def test_dosyalar_noktadaki_birakma_alanina_suruklenip_birakilir(sayfa):
+    """#431: Claude upload_image coordinate: sürükle-bırak hedefine dosya bırakılır."""
+    sayfa.evaluate(
+        "window.__birakilan = null; const h = document.querySelector('#bos'); "
+        "h.addEventListener('dragover', (e) => e.preventDefault()); "
+        "h.addEventListener('drop', (e) => { e.preventDefault(); "
+        "window.__birakilan = [...e.dataTransfer.files].map((f) => f.name); })"
+    )
+    x, y = sayfa.evaluate(_MERKEZ, "#bos")
+    veri = base64.b64encode(b"jpeg").decode()
+    sonuc = sayfa.islem(
+        "upload", {"x": x, "y": y, "files": [{"name": "a.jpg", "mime": "image/jpeg", "data": veri}]}
+    )
+    assert sayfa.evaluate("window.__birakilan") == ["a.jpg"]
+    assert sonuc["dropped"] == ["a.jpg"]

@@ -8,6 +8,7 @@ const initialState: WorkspaceState = {
   selected: null,
   loading: true,
   error: null,
+  selectedError: null,
 };
 
 function messageFrom(payload: Record<string, unknown>, fallback: string): string {
@@ -32,6 +33,38 @@ function entriesFrom(payload: Record<string, unknown>): WorkspaceEntry[] {
     }
     return item as unknown as WorkspaceEntry;
   });
+}
+
+/** Tek dizin için çekilen en fazla sayfa; 200 × 50 = 10.000 girdi. */
+const MAX_LISTING_PAGES = 50;
+const PAGE_SIZE = 200;
+
+/**
+ * Dizini sayfa sayfa sonuna kadar okur. Ölçüldü (30 Ekim): tek `limit: 200` sayfası çekiliyor,
+ * 200'den fazla girdili dizinde (`node_modules`, `assets`) kalan dosyalar sessizce görünmüyordu (U4-42).
+ */
+async function listDirectory(
+  client: ProtocolClient,
+  path: string,
+): Promise<{ entries: WorkspaceEntry[]; truncated: boolean }> {
+  const entries: WorkspaceEntry[] = [];
+  let cursor = 0;
+  for (let page = 0; page < MAX_LISTING_PAGES; page += 1) {
+    const result = await client.request("proje.listele", { yol: path, cursor, limit: PAGE_SIZE });
+    entries.push(...entriesFrom(result));
+    const next = result.next_cursor;
+    if (result.has_more !== true || typeof next !== "number" || next <= cursor) return { entries, truncated: false };
+    cursor = next;
+  }
+  return { entries, truncated: true };
+}
+
+const TRUNCATED_NOTICE = `Çok büyük klasör: yalnız ilk ${MAX_LISTING_PAGES * PAGE_SIZE} girdi gösteriliyor.`;
+
+/** CRLF'li dosya textarea'da LF'ye dönüşür; kaydederken özgün satır sonu geri konur (U4-44). */
+function restoreLineEndings(original: string | null, edited: string): string {
+  if (!original || !original.includes("\r\n") || /(^|[^\r])\n/.test(original)) return edited;
+  return edited.replace(/\r?\n/g, "\r\n");
 }
 
 function fileFrom(payload: Record<string, unknown>): WorkspaceFile {
@@ -61,14 +94,13 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
 
   const loadDirectory = useCallback(async (path: string) => {
     const current = owner.current;
-    const result = await client.request("proje.listele", { yol: path, cursor: 0, limit: 200 });
-    const entries = entriesFrom(result);
+    const { entries, truncated } = await listDirectory(client, path);
     if (owner.current !== current || !current.active) return entries;
     setState((current) => ({
       ...current,
       directories: { ...current.directories, [path]: entries },
       loading: false,
-      error: null,
+      error: truncated ? TRUNCATED_NOTICE : null,
     }));
     return entries;
   }, [client]);
@@ -80,13 +112,14 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
     setState(initialState);
     void Promise.all([
       client.request("proje.durum", {}),
-      client.request("proje.listele", { yol: "", cursor: 0, limit: 200 }),
+      listDirectory(client, ""),
     ]).then(([, listing]) => {
       if (!active || owner.current !== current) return;
       setState({
         ...initialState,
-        directories: { "": entriesFrom(listing) },
+        directories: { "": listing.entries },
         loading: false,
+        error: listing.truncated ? TRUNCATED_NOTICE : null,
       });
     }).catch((reason) => {
       if (active && owner.current === current) setState({ ...initialState, loading: false, error: String(reason) });
@@ -105,11 +138,20 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
     const sequence = ++refresh.current;
     const paths = ["", ...stateRef.current.expanded];
     void Promise.all(paths.map(async (path) => {
-      const result = await client.request("proje.listele", { yol: path, cursor: 0, limit: 200 });
-      return [path, entriesFrom(result)] as const;
+      const { entries, truncated } = await listDirectory(client, path);
+      return [path, entries, truncated] as const;
     })).then((listings) => {
       if (owner.current !== current || !current.active || refresh.current !== sequence) return;
-      setState((value) => ({ ...value, directories: { ...value.directories, ...Object.fromEntries(listings) }, error: null }));
+      setState((value) => {
+        // Açık olmayan ama önbellekteki dizinler bayatladı: düşürülür, yeniden açılınca taze okunur (U4-43).
+        const taze = new Set(paths);
+        const korunan = Object.fromEntries(Object.entries(value.directories).filter(([path]) => taze.has(path)));
+        return {
+          ...value,
+          directories: { ...korunan, ...Object.fromEntries(listings.map(([path, entries]) => [path, entries])) },
+          error: listings.some(([, , truncated]) => truncated) ? TRUNCATED_NOTICE : null,
+        };
+      });
     }).catch((reason) => {
       if (owner.current === current && current.active && refresh.current === sequence) setState((value) => ({ ...value, error: String(reason) }));
     });
@@ -136,13 +178,19 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
 
   const selectFile = useCallback(async (path: string) => {
     const current = owner.current, sequence = ++current.selection;
-    setState((current) => ({ ...current, loading: true, error: null }));
+    setState((current) => ({ ...current, loading: true, error: null, selectedError: null }));
     try {
       const result = await client.request("proje.oku", { yol: path });
       if (owner.current !== current || !current.active || current.selection !== sequence) return;
-      setState((current) => ({ ...current, selected: fileFrom(result), loading: false }));
+      // fileFrom updater İÇİNDE çağrılırsa geçersiz/ok:false cevap render sırasında fırlar ve
+      // bileşen çöker (ölçüldü 29 Ekim: boş ekran); try/catch'e girmesi için dışarıda çözülür.
+      const file = fileFrom(result);
+      setState((current) => ({ ...current, selected: file, selectedError: null, loading: false }));
     } catch (reason) {
-      if (owner.current === current && current.active && current.selection === sequence) setState((value) => ({ ...value, error: String(reason), loading: false }));
+      // Tek dosyanın okuma hatası ağacı etkilemez (U4-02); eski dosya da yanıltmasın diye bırakılır.
+      if (owner.current === current && current.active && current.selection === sequence) {
+        setState((value) => ({ ...value, selected: null, selectedError: String(reason), loading: false }));
+      }
     }
   }, [client]);
 
@@ -150,9 +198,11 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
     const currentOwner = owner.current, selection = currentOwner.selection;
     const selected = state.selected;
     if (!selected || selected.tur !== "metin") throw new Error("Düzenlenebilir dosya seçilmedi.");
+    // Kesilmiş içerikle kaydetmek dosyanın gösterilmeyen kısmını siler.
+    if (selected.kesildi) throw new Error("Dosyanın yalnız bir bölümü açık; kısmi içerik kaydedilemez.");
     const result = await client.request("proje.yaz", {
       yol: selected.yol,
-      icerik: content,
+      icerik: restoreLineEndings(selected.icerik, content),
       expected_sha256: selected.sha256,
     });
     if (result.ok !== true || typeof result.sha256 !== "string") {
@@ -163,9 +213,9 @@ export function useWorkspace(client: ProtocolClient, root: string, revision = 0)
       ...current,
       selected: current.selected ? {
         ...current.selected,
-        icerik: content,
+        icerik: restoreLineEndings(selected.icerik, content),
         sha256: result.sha256 as string,
-        boyut: new TextEncoder().encode(content).length,
+        boyut: new TextEncoder().encode(restoreLineEndings(selected.icerik, content)).length,
         kesildi: false,
       } : null,
       error: null,

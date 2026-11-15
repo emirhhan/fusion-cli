@@ -179,6 +179,8 @@ def test_adaptor_sozlesmesi_plan_ve_onaya_kanca_vermez():
         "is_runnable",
         "preparation",
         "executable",
+        # E1-10: yalnız kapı komutunun yürütülebilir YOLUNU bulur; plan/onay kancası değil.
+        "executable_resolver",
         "output_failure_markers",
         "criteria",
         "task_markers",

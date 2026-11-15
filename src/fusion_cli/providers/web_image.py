@@ -14,6 +14,7 @@ doğrulamasındaydı; canlı ÖLÇÜLMEDİ.
 from __future__ import annotations
 
 import asyncio
+import base64
 import re
 import time
 from collections.abc import Sequence
@@ -34,21 +35,20 @@ from .web_browser import (
     WebBrowserError,
     _fill_editor,
     _first_visible,
+    _new_conversation_page,
     _open_ready_conversation,
     _raise_if_blocked_early,
     gemini_attach_file,
     provider_definition,
 )
+from .web_selectors import web_selectors
 from .web_session import WebSessionCredential
 
 #: Sağlayıcı başına üretilen görselin seçicileri (dardan genişe).
 IMAGE_SELECTORS: dict[str, tuple[str, ...]] = {
-    "gemini_web": ("generated-image img", "single-image img"),
-    "chatgpt_web": (
-        '[data-message-author-role="assistant"] img[alt]',
-        'img[alt*="Generated" i]',
-        'img[alt*="oluşturul" i]',
-    ),
+    provider_id: selectors.image
+    for provider_id, selectors in web_selectors().providers.items()
+    if selectors.image
 }
 #: Referans görsel yükleyebilen sağlayıcılar. Gemini web'de canlı ölçüldü (29 Eylül):
 #: FLUX ile üretilen kırmızı kask yüklendi, "kaskı mat siyah yap" istemiyle 34 sn'de
@@ -67,6 +67,8 @@ _POLL_S = 2.0
 _BLOCK_CHECK_EVERY = 8
 #: Reddi yoklama aralığı (yoklama sayısı): bu sıklıkta sayfa metni okunur.
 _REFUSAL_CHECK_EVERY = 2
+_CHATGPT_RETRY_LABEL = re.compile(r"^(?:Yeniden dene|Tekrar dene|Retry|Try again)$", re.I)
+_CHATGPT_RETRY_GRACE_S = 8.0
 #: Sağlayıcının "bunu üretemem" cümlesini tanıyan kalıplar (Türkçe ve İngilizce).
 _REFUSAL = re.compile(
     r"yerine getiremiyorum|oluşturamıyorum|üretemiyorum|yardımcı olamıyorum|yardımcı olamam"
@@ -177,11 +179,16 @@ _EXTRACT_JS = """(args) => {
     for (const img of document.querySelectorAll(sel)) {
       if (seen.has(img) || img.naturalWidth < minEdge || img.naturalHeight < minEdge) continue;
       seen.add(img);
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      out.push({ w: img.naturalWidth, h: img.naturalHeight,
-                 b64: c.toDataURL('image/png').split(',')[1] });
+      let b64 = '';
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        b64 = c.toDataURL('image/png').split(',')[1];
+      } catch (e) {
+        // Çapraz kaynaklı görselde tuval 'tainted' olur; bayt indirme Python tarafında.
+      }
+      out.push({ w: img.naturalWidth, h: img.naturalHeight, src: img.currentSrc, b64 });
     }
   }
   return out;
@@ -213,8 +220,9 @@ async def generate_images(
     manager = pool or _POOL
     async with manager.lock_for(session.provider, session.account):
         context = await manager.context_for(session, credential)
-        page = await context.new_page()
+        page = None
         try:
+            page = await _new_conversation_page(context, session)
             await _open_ready_conversation(page, definition)
             if reference is not None and not await gemini_attach_file(page, str(reference)):
                 raise WebBrowserError(
@@ -230,8 +238,34 @@ async def generate_images(
                 page, definition, selectors, out_dir, wait_s, prompt=image_prompt(prompt)
             )
         finally:
-            await page.close()
-            manager.schedule_idle_release(session.provider, session.account)
+            try:
+                if page is not None:
+                    await page.close()
+            finally:
+                manager.schedule_idle_release(session.provider, session.account)
+
+
+async def _fill_missing_bytes(
+    page: Any, payloads: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Tuvalden alınamayan (çapraz kaynak) görselleri bağlam isteğiyle indir.
+
+    Bağlam isteği sayfanın çerezleriyle gider ve sayfa CORS kuralına tabi değildir.
+    """
+    sonuc: list[dict[str, Any]] = []
+    for payload in payloads:
+        if payload.get("b64") or not payload.get("src"):
+            sonuc.append(payload)
+            continue
+        try:
+            yanit = await page.context.request.get(str(payload["src"]))
+            if yanit.ok:
+                veri = await yanit.body()
+                sonuc.append({**payload, "b64": base64.b64encode(veri).decode()})
+        except Exception:
+            # Tek görsel indirilemedi; diğerleri sürer.
+            continue
+    return sonuc
 
 
 async def _wait_and_extract(
@@ -242,11 +276,17 @@ async def _wait_and_extract(
     wait_s: float,
     prompt: str = "",
 ) -> list[GeneratedImage]:
-    basla = time.monotonic()
+    deadline = time.monotonic() + wait_s
     ilk_gorulen: float | None = None
     onceki: list[str] = []
     kontrol = 0
-    while time.monotonic() - basla < wait_s:
+    retried_at: float | None = None
+    retry = (
+        page.locator("main").get_by_role("button", name=_CHATGPT_RETRY_LABEL).first
+        if getattr(definition, "id", None) == "chatgpt_web"
+        else None
+    )
+    while time.monotonic() < deadline:
         await asyncio.sleep(_POLL_S)
         kontrol += 1
         if kontrol % _BLOCK_CHECK_EVERY == 0:
@@ -256,19 +296,50 @@ async def _wait_and_extract(
             if red:
                 # Sağlayıcı reddetti: 180 sn beklemeden, cümlesiyle birlikte bildir.
                 raise WebBrowserError(red)
-        bulunan = await page.evaluate(_FIND_IMAGES_JS, [list(selectors), MIN_IMAGE_EDGE])
+        try:
+            bulunan = await page.evaluate(_FIND_IMAGES_JS, [list(selectors), MIN_IMAGE_EDGE])
+        except Exception:
+            # Sayfa yenileniyor/gezintide olabilir: bu yoklama atlanır, süre dolarsa
+            # aşağıdaki açık hata verilir (ham Playwright hatası kullanıcıya gitmez).
+            continue
         kaynaklar = sorted(str(item.get("src", "")) for item in bulunan)
         if not kaynaklar:
+            if retry is None or kontrol % _REFUSAL_CHECK_EVERY != 0:
+                continue
+            try:
+                retry_visible = await retry.is_visible()
+            except Exception as error:
+                raise WebBrowserError("ChatGPT görsel sayfası kontrol edilemedi.") from error
+            if not retry_visible:
+                continue
+            now = time.monotonic()
+            if retried_at is not None:
+                if now - retried_at >= _CHATGPT_RETRY_GRACE_S:
+                    raise WebBrowserError("ChatGPT yeniden denemeye rağmen görseli üretemedi.")
+                continue
+            click_budget_ms = int((deadline - now - _CHATGPT_RETRY_GRACE_S) * 1000)
+            if click_budget_ms > 0:
+                try:
+                    await retry.click(timeout=min(3000, click_budget_ms))
+                except Exception as error:
+                    raise WebBrowserError(
+                        "ChatGPT görsel üretimini yeniden başlatamadı."
+                    ) from error
+                retried_at = time.monotonic()
             continue
         if kaynaklar != onceki:
             onceki, ilk_gorulen = kaynaklar, time.monotonic()
             continue
         if ilk_gorulen is not None and time.monotonic() - ilk_gorulen >= IMAGE_SETTLE_S:
-            kayitlar = await await_owned_thread(
-                save_images,
-                await page.evaluate(_EXTRACT_JS, [list(selectors), MIN_IMAGE_EDGE]),
-                out_dir,
-            )
+            try:
+                payloads = await page.evaluate(_EXTRACT_JS, [list(selectors), MIN_IMAGE_EDGE])
+            except Exception as error:
+                raise WebBrowserError(
+                    f"{definition.name if definition else 'Web'} görseli sayfadan alınamadı "
+                    f"({type(error).__name__})."
+                ) from error
+            payloads = await _fill_missing_bytes(page, payloads)
+            kayitlar = await await_owned_thread(save_images, payloads, out_dir)
             if kayitlar:
                 return kayitlar
     await _raise_if_blocked_early(page, definition)

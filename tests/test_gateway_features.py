@@ -576,3 +576,154 @@ async def test_arac_destegi_degisirse_olcum_tasinmaz(tmp_path):
 
     oturum = next(s for s in app._config.web_sessions if s.account == "test")
     assert oturum.tool_eval_passed is False
+
+
+# --- Dalga 4: önbellek anahtarı araçları ve çözülmüş modeli kapsar (E1-13) ---------- #
+
+
+def _sonuc(metin="cevap"):
+    from fusion_cli.core.types import ModelResult
+
+    return ModelResult(name="m", model="m", text=metin, latency_ms=1, ok=True)
+
+
+def test_cache_farkli_arac_listesi_ayni_cevabi_dondurmez():
+    """Ölçüldü (30 Ekim): aynı mesajlarla farklı `tools` eski düz metin cevabı alıyordu."""
+    cache = PromptCache()
+    araclar = ({"type": "function", "function": {"name": "oku"}},)
+    duz = _dc_replace(request(), tools=())
+    arac_var = _dc_replace(request(), tools=araclar)
+
+    cache.put("auto", duz, _sonuc())
+
+    assert cache.get("auto", arac_var) is None
+    assert cache.get("auto", duz) is not None
+
+
+def test_cache_bos_icerikli_farkli_arac_sonuclari_cakismaz():
+    from fusion_cli.core.types import ToolCall
+
+    cache = PromptCache()
+    ilk = _dc_replace(
+        request(),
+        messages=(
+            Message("assistant", "", tool_calls=(ToolCall("1", "oku", "{}"),)),
+            Message("tool", "tamam", tool_call_id="1", name="oku"),
+        ),
+    )
+    ikinci = _dc_replace(
+        request(),
+        messages=(
+            Message("assistant", "", tool_calls=(ToolCall("2", "yaz", "{}"),)),
+            Message("tool", "tamam", tool_call_id="2", name="yaz"),
+        ),
+    )
+
+    cache.put("auto", ilk, _sonuc())
+
+    assert cache.get("auto", ikinci) is None
+
+
+# --- Dalga 4: işlenmeyen istisna JSON hata gövdesi, panel çerçevelenemez (E1-15, E1-18) --- #
+
+
+async def test_bozuk_json_govdesi_json_400_doner(tmp_path):
+    """Ölçüldü (30 Ekim): bozuk gövde uvicorn'a kaçıp JSON olmayan 500 üretiyordu."""
+    async with _client(_app(tmp_path)) as client:
+        yanit = await client.post(
+            "/api/routing", content=b"{bozuk", headers={"content-type": "application/json"}
+        )
+
+    assert yanit.status_code == 400
+    assert "JSON" in yanit.json()["error"]["message"]
+
+
+async def test_depo_hatasi_json_hata_olarak_doner(tmp_path, monkeypatch):
+    from fusion_cli.core.errors import ConfigError
+
+    app = _app(tmp_path)
+
+    def _patlat(*args, **kwargs):
+        raise ConfigError("şifreli depo yazılamadı")
+
+    monkeypatch.setattr(app._secret_store, "set", _patlat)
+    async with _client(app) as client:
+        yanit = await client.post("/api/keys", json={"provider": "openrouter", "value": "sk-x"})
+
+    assert yanit.status_code == 400
+    assert "şifreli depo" in yanit.json()["error"]["message"]
+
+
+async def test_beklenmeyen_istisna_ic_ayrinti_sizdirmadan_json_500_doner(tmp_path, monkeypatch):
+    app = _app(tmp_path)
+
+    async def _patlat(*args, **kwargs):
+        raise RuntimeError("/Users/gizli/yol ve token=abc")
+
+    monkeypatch.setattr(app, "_api_set_routing", _patlat)
+    async with _client(app) as client:
+        yanit = await client.post("/api/routing", json={"strategy": "fast"})
+
+    assert yanit.status_code == 500
+    assert "gizli" not in yanit.text and "token" not in yanit.text
+
+
+async def test_panel_sayfasi_cerceveleme_basliklariyla_sunulur(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        yanit = await client.get("/dashboard")
+
+    assert yanit.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in yanit.headers["content-security-policy"]
+    assert yanit.headers["x-content-type-options"] == "nosniff"
+
+
+def test_bos_katalog_sonucu_ttl_boyunca_onbelleklenmez():
+    """Ölçüldü (30 Ekim): geçici ağ hatasındaki boş liste TTL (300 sn) boyunca saklanıyordu."""
+    from fusion_cli.gateway.catalog_cache import EMPTY_RETRY_S, CatalogCache, CatalogModel
+
+    cevaplar = [(), (CatalogModel("openrouter/a:free", "openrouter", True, 8000),)]
+    cagri = {"n": 0}
+    simdi = {"t": 0.0}
+
+    def _agg():
+        cagri["n"] += 1
+        return cevaplar[min(cagri["n"] - 1, 1)]
+
+    cache = CatalogCache(aggregator=_agg, ttl_s=300.0, clock=lambda: simdi["t"])
+    assert cache.get() == ()
+
+    simdi["t"] = EMPTY_RETRY_S + 1  # TTL dolmadan, kısa yeniden deneme süresi sonrası
+    assert [m.id for m in cache.get()] == ["openrouter/a:free"]
+    assert cagri["n"] == 2
+
+
+def test_bos_sonuc_eldeki_dolu_listeyi_silmez():
+    from fusion_cli.gateway.catalog_cache import CatalogCache, CatalogModel
+
+    dolu = (CatalogModel("m1", "openrouter", True, 1),)
+    sirali = iter([dolu, ()])
+    simdi = {"t": 0.0}
+    cache = CatalogCache(aggregator=lambda: next(sirali), ttl_s=10.0, clock=lambda: simdi["t"])
+    assert cache.get() == dolu
+
+    simdi["t"] = 11.0  # TTL doldu, yeniden çekim boş döner (ağ hatası)
+
+    assert cache.get() == dolu
+
+
+async def test_panelden_girilen_anahtar_havuza_hemen_girer(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim): havuzlar başlangıç ortam görüntüsünden kuruluyordu; yeni anahtar
+    yeniden başlatmaya kadar havuza girmiyordu (E1-17)."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    app = _app(tmp_path)
+    assert app._key_pools.for_env("OPENROUTER_API_KEY").size == 0
+
+    async with _client(app) as client:
+        yanit = await client.post("/api/keys", json={"provider": "openrouter", "value": "sk-yeni"})
+    assert yanit.status_code == 200
+
+    assert app._key_pools.for_env("OPENROUTER_API_KEY").size == 1
+
+    async with _client(app) as client:
+        await client.post("/api/keys/delete", json={"provider": "openrouter"})
+    assert app._key_pools.for_env("OPENROUTER_API_KEY").size == 0

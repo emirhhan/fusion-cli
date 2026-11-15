@@ -8,15 +8,25 @@ import json
 import os
 import plistlib
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, cast
 
+# Betik olarak çalıştırıldığında depo kökü içe aktarma yoluna eklenir.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from desktop_build.kits_bundle import Otool, describe, inspect_kits
+
 _TIMEOUT_SECONDS = 120
 
 
-def inspect_bundle(app: Path) -> dict[str, Any]:
-    """Bundle kimliğini, runtime manifestini, hedefi ve arşiv özetini doğrula."""
+def inspect_bundle(app: Path, otool: Otool | None = None) -> dict[str, Any]:
+    """Bundle kimliğini, runtime manifestini, hedefi, arşiv özetini ve Kits'i doğrula.
+
+    Kits bileşeni (sunucu, istemci, taşınabilir Node, manifest) yoksa paket düşer:
+    Kits'siz paket kullanıcıda "Kits bileşeni bulunamadı" hatası verir.
+    """
     plist = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     assert plist["CFBundleIdentifier"] == "com.fusion.desktop"
     resources = app / "Contents/Resources/runtime"
@@ -27,7 +37,8 @@ def inspect_bundle(app: Path) -> dict[str, Any]:
     archive = resources / manifest["archive"]
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == manifest["archive_sha256"]
     assert manifest["target"] in {"aarch64-apple-darwin", "x86_64-apple-darwin"}
-    return manifest
+    kits = inspect_kits(app / "Contents/Resources/kits", node_name="node", macos=True, otool=otool)
+    return {**manifest, "kits": kits}
 
 
 def _launch(app: Path, home: Path) -> None:
@@ -117,6 +128,7 @@ def main() -> None:
     if not args.inspect_only:
         launch_clean(app)
     print(f"Uygulama paketi doğrulandı: {manifest['runtime_version']} · {manifest['target']}")
+    print(f"Paketlenen {describe(manifest['kits'])}")
 
 
 if __name__ == "__main__":

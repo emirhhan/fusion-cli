@@ -44,6 +44,13 @@ function isValidEmail(deger) {
  * placeholderImage('Robot Süpürge') -> geçerli data URI
  */
 function placeholderImage(etiket, en = 400, boy = 400) {
+  // encodeURIComponent yalnız URI kaçışıdır: `&` ve `<` içeren bir etiket SVG'yi
+  // geçersiz yapar ve görsel hiç yüklenmez. XML kaçışı ayrıca uygulanır; ölçüler sayıya zorlanır.
+  en = Number(en) > 0 ? Number(en) : 400;
+  boy = Number(boy) > 0 ? Number(boy) : 400;
+  etiket = String(etiket).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c];
+  });
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${en} ${boy}">` +
     `<rect width="${en}" height="${boy}" fill="#e5e7eb"/>` +

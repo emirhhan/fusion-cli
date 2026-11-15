@@ -24,13 +24,31 @@ interface HistoryPickerProps {
   open: boolean;
 }
 
+/** Çekirdek saniye gönderir; milisaniye gelirse (1e11'den büyük) olduğu gibi kullanılır (U4-60). */
+function toDate(timestamp: number): Date {
+  return new Date(timestamp > 1e11 ? timestamp : timestamp * 1000);
+}
+
 function formatDate(timestamp: number | null): string {
   if (timestamp === null) return "Tarih yok";
   return new Intl.DateTimeFormat("tr-TR", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(timestamp * 1000));
+  }).format(toDate(timestamp));
+}
+
+function isoDate(timestamp: number | null): string | undefined {
+  if (timestamp === null || !Number.isFinite(timestamp)) return undefined;
+  return toDate(timestamp).toISOString();
+}
+
+/** Kaynak etiketi bilinmiyorsa (yeni kaynak eklendi) adın kendisi gösterilir. */
+const sourceLabel = (ad: HistorySourceName): string => SOURCE_LABELS[ad] ?? ad;
+
+/** "Error: …" öneki kullanıcıya gösterilmez. */
+function reasonText(reason: unknown): string {
+  return (reason instanceof Error ? reason.message : String(reason)).replace(/^Error:\s*/, "");
 }
 
 export function HistoryPicker({ history, onClose, onResume, onResumed, open }: HistoryPickerProps) {
@@ -38,12 +56,24 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
   const [query, setQuery] = useState("");
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  //: Devralma sürerken kullanıcı Vazgeç/× ile ayrıldıysa sonuç sohbete geçirmez (U4-18).
+  const abandoned = useRef(false);
+
+  // Açılışta odak diyaloga gider; kapanınca eski odak geri verilir.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement;
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     dialog.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      // Devralma sürerken Esc pencereyi kapatmaz: iş arka planda sürüp kullanıcıyı sonradan sohbete atardı.
+      if (event.key === "Escape" && !resuming) onClose();
       if (event.key !== "Tab") return;
       const focusable = Array.from(
         dialog.current?.querySelectorAll<HTMLElement>(
@@ -63,7 +93,7 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, open]);
+  }, [onClose, open, resuming]);
 
   // Arama çekirdeğe gider: seçicinin elindeki liste kaynağın yalnızca indirilmiş
   // sayfalarıdır ve Claude oturumlarının çoğunda başlık kaydı yoktur — yerel
@@ -86,23 +116,30 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
     if (!history.selected || resuming) return;
     setResuming(true);
     setResumeError(null);
+    abandoned.current = false;
     try {
       const result = await onResume(history.selected);
+      if (abandoned.current) return;
       // Devralınan konuşmaya doğrudan geçilir; ikinci bir "Konuşmaya geç"
       // tıklaması beklenmez (kullanıcı bildirdi, 30 Eylül). Hassas değer
       // uyarısını çağıran sohbet ekranında gösterir.
       onResumed?.(result);
       onClose();
     } catch (reason) {
-      setResumeError(String(reason));
+      if (!abandoned.current) setResumeError(reasonText(reason));
     } finally {
       setResuming(false);
     }
   };
 
+  const leave = () => {
+    if (resuming) abandoned.current = true;
+    onClose();
+  };
+
   return (
     <div className="history-picker-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
+      if (event.target === event.currentTarget && !resuming) onClose();
     }}>
       <div
         aria-labelledby="history-picker-title"
@@ -118,7 +155,7 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
             <h2 id="history-picker-title">Bir konuşma seçin</h2>
             <p>Bilgisayarınızda bulunan araçlardan bir konuşmayı önizleyip Fusion’da sürdürebilirsiniz.</p>
           </div>
-          <button aria-label="Kapat" className="history-picker__close" onClick={onClose} type="button">
+          <button aria-label="Kapat" className="history-picker__close" onClick={leave} type="button">
             <span aria-hidden="true">×</span>
           </button>
         </header>
@@ -127,7 +164,7 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
           <aside aria-label="Geçmiş kaynakları" className="history-picker__sources">
             {history.sources.map((source) => (
               <button
-                aria-label={SOURCE_LABELS[source.ad]}
+                aria-label={sourceLabel(source.ad)}
                 className="history-picker__source"
                 data-active={history.source === source.ad}
                 key={source.ad}
@@ -136,7 +173,7 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
               >
                 <span className="history-picker__source-mark"><SourceIcon size={20} source={source.ad} /></span>
                 <span>
-                  <strong>{SOURCE_LABELS[source.ad]}</strong>
+                  <strong>{sourceLabel(source.ad)}</strong>
                   <small>{source.komut}</small>
                 </span>
               </button>
@@ -168,7 +205,6 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
               )}
               {sessions.map((session) => (
                 <button
-                  aria-label={session.baslik}
                   className="history-picker__session"
                   data-active={history.selected?.oturum_id === session.oturum_id}
                   key={session.oturum_id}
@@ -180,7 +216,7 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
                     <em className="history-picker__snippet">{session.parca}</em>
                   )}
                   <span>
-                    <time>{formatDate(session.guncellendi)}</time>
+                    <time dateTime={isoDate(session.guncellendi)}>{formatDate(session.guncellendi)}</time>
                     {session.tur_sayisi !== null && <span>{session.tur_sayisi} tur</span>}
                   </span>
                 </button>
@@ -230,7 +266,7 @@ export function HistoryPicker({ history, onClose, onResume, onResumed, open }: H
         )}
 
         <footer className="history-picker__footer">
-          <Button onClick={onClose} variant="ghost">Vazgeç</Button>
+          <Button onClick={leave} variant="ghost">Vazgeç</Button>
           <Button
             disabled={!history.selected}
             loading={resuming}

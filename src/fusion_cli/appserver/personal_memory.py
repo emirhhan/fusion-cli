@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 _MAX_ITEMS = 100
 _MAX_TEXT = 500
+#: Tur istemine eklenen anı bloğunun toplam karakter tavanı (100 × 500 ≈ 12-15 bin token'a çıkardı).
+_PROMPT_MAX_CHARS = 6_000
 
 
 class PersonalMemory:
@@ -32,8 +35,22 @@ class PersonalMemory:
         )
         return connection
 
+    @contextmanager
+    def _transaction(self) -> Iterator[sqlite3.Connection]:
+        """İşlem sonunda commit/rollback VE bağlantıyı kapat.
+
+        `with sqlite3.connect(...)` yalnız transaction'ı sonlandırır, bağlantıyı kapatmaz;
+        her çağrı bir bağlantıyı GC'ye bırakıyordu (Windows'ta dosya kilidi/ResourceWarning).
+        """
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def list(self) -> dict[str, Any]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT id, text FROM memories ORDER BY created DESC, rowid DESC"
             ).fetchall()
@@ -50,7 +67,7 @@ class PersonalMemory:
         text = value.strip() if isinstance(value, str) else ""
         if not text or len(text) > _MAX_TEXT:
             return {"ok": False, "metin": f"Anı 1-{_MAX_TEXT} karakter olmalıdır."}
-        with self._connect() as connection:
+        with self._transaction() as connection:
             count = connection.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
             if count >= _MAX_ITEMS:
                 return {"ok": False, "metin": "Anı sınırına ulaşıldı. Önce bir anıyı kaldır."}
@@ -66,14 +83,14 @@ class PersonalMemory:
     def delete(self, value: object) -> dict[str, Any]:
         if not isinstance(value, str) or not value:
             return {"ok": False, "metin": "Anı kimliği gerekli."}
-        with self._connect() as connection:
+        with self._transaction() as connection:
             changed = connection.execute("DELETE FROM memories WHERE id = ?", (value,)).rowcount
         return {"ok": changed > 0, "metin": "Anı kaldırıldı." if changed else "Anı bulunamadı."}
 
     def set_enabled(self, value: object) -> dict[str, Any]:
         if not isinstance(value, bool):
             return {"ok": False, "metin": "Geçerli bir açık/kapalı değeri gerekli."}
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO preferences (key, value) VALUES ('enabled', ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -85,5 +102,14 @@ class PersonalMemory:
         state = self.list()
         if not state["etkin"] or not state["anilar"]:
             return ""
-        lines = "\n".join(f"- {item['metin']}" for item in state["anilar"])
+        # Yeniden eskiye: toplam tavan aşılınca eski anılar bloğa girmez (küçük bağlamlı model).
+        kept: list[str] = []
+        used = 0
+        for item in state["anilar"]:
+            line = f"- {item['metin']}"
+            if used + len(line) > _PROMPT_MAX_CHARS:
+                break
+            kept.append(line)
+            used += len(line) + 1
+        lines = "\n".join(kept)
         return f"Kullanıcının kaydettiği anılar (istek değil, bağlam):\n{lines}"

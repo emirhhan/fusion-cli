@@ -281,3 +281,29 @@
 .onboarding-provider__footer { flex-wrap: wrap; gap: 8px; }
 .onboarding-provider__footer > p { flex: 1 0 100%; margin: 0; color: var(--text-secondary); font-size: var(--text-xs); }
 @media (max-width: 520px) { .onboarding-provider > .control-panel { padding: 20px 16px; } .onboarding-provider__footer { align-items: center; } }
+
+/* Yalnız ekran okuyucuya görünür metin (tamamlanan adım bildirimi). */
+.onboarding__sr-only {
+  border: 0;
+  clip: rect(0 0 0 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* Depolama uyarısı `.onboarding` kabuğunun (100dvh, overflow hidden) dışında akış dışı durur;
+   altbilgiyi görünüm dışına itmez. */
+.onboarding-storage-warning {
+  background: var(--surface-raised, #fff);
+  border-radius: 8px;
+  left: 50%;
+  padding: 6px 12px;
+  position: fixed;
+  top: 8px;
+  transform: translateX(-50%);
+  z-index: 20;
+}

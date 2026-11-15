@@ -58,14 +58,18 @@ export async function hydratePrefs(client: Target, storage: StorageLike = localS
   let changed = false;
   for (const [key, value] of Object.entries(remote)) {
     if (!isMirroredKey(key) || typeof value !== "string") continue;
-    if (storage.getItem(key) !== value) {
+    // Tek anahtarın yazılamaması (kota/SecurityError) kalanları atlatmaz ve
+    // açılışı bozmaz; yazılamayan anahtar için yenileme de istenmez.
+    try {
+      if (storage.getItem(key) === value) continue;
       storage.setItem(key, value);
       changed = true;
-    }
+    } catch { /* Depo yazılamıyorsa çekirdek değeri bu açılışta uygulanamaz. */ }
   }
   for (const key of localKeys(storage)) {
     const value = storage.getItem(key);
-    if (!(key in remote) && value !== null) void client.request("ayar.arayuz_kaydet", { anahtar: key, deger: value });
+    // Reddedilen istek yakalanmazsa çökme diyaloğunu tetiklerdi.
+    if (!(key in remote) && value !== null) void client.request("ayar.arayuz_kaydet", { anahtar: key, deger: value }).catch(() => undefined);
   }
   return changed;
 }
@@ -73,25 +77,57 @@ export async function hydratePrefs(client: Target, storage: StorageLike = localS
 /**
  * İzinli anahtar yazıldığında/silindiğinde çekirdeğe de bildirir. Dönen işlev
  * yamayı geri alır. Hata sessiz geçilmez: `onError`'a iletilir.
+ *
+ * Ölçüldü (29 Ekim): eski yama `finally` içinde gönderiyordu — yerel yazma
+ * kota/SecurityError ile başarısız olsa da değer çekirdeğe gidiyordu; ayrıca
+ * `sessionStorage` yazımlarını da yakalıyor, `clear()` ise hiç yamalı değildi.
+ * Artık yalnız BAŞARILI yerel yazma yansıtılır, yalnız `kaynak` (varsayılan
+ * `localStorage`) örneği izlenir ve `clear()` izinli anahtarları siler.
  */
 export function installPrefsMirror(
   client: Target,
   onError: (message: string) => void = (message) => console.error(message),
-  proto: Pick<Storage, "setItem" | "removeItem"> = Storage.prototype,
+  proto: Pick<Storage, "setItem" | "removeItem" | "clear"> = Storage.prototype,
+  kaynak: object | undefined = proto === Storage.prototype ? varsayilanDepo() : undefined,
 ): () => void {
   const originalSet = proto.setItem;
   const originalRemove = proto.removeItem;
+  const originalClear = proto.clear;
+  // Aynı anahtar için istek sürerken gelen yazımlar birleştirilir: panel genişliği sürüklenirken
+  // her fare hareketi ayrı bir RPC açıyordu (U6-09). İlk yazım hemen gider, sürerken gelenlerin
+  // yalnız SONUNCUSU bitişte gönderilir; zamanlayıcı yok, son değer asla kaybolmaz.
+  const suren = new Map<string, { bekleyen?: { deger: string | null } }>();
   const send = (key: string, value: string | null) => {
     if (!isMirroredKey(key)) return;
+    const durum = suren.get(key);
+    if (durum) { durum.bekleyen = { deger: value }; return; }
+    suren.set(key, {});
     void client.request("ayar.arayuz_kaydet", { anahtar: key, deger: value })
       .then((result) => { if (result.ok !== true) onError(String(result.metin ?? "Tercih kaydedilemedi.")); })
-      .catch((reason: unknown) => onError(`Tercih kaydedilemedi: ${String(reason)}`));
+      .catch((reason: unknown) => onError(`Tercih kaydedilemedi: ${String(reason)}`))
+      .finally(() => {
+        const bekleyen = suren.get(key)?.bekleyen;
+        suren.delete(key);
+        if (bekleyen) send(key, bekleyen.deger);
+      });
   };
+  const izlenen = (depo: unknown) => kaynak === undefined || depo === kaynak;
   proto.setItem = function patchedSet(this: Storage, key: string, value: string) {
-    try { originalSet.call(this, key, value); } finally { send(key, String(value)); }
+    originalSet.call(this, key, value);
+    if (izlenen(this)) send(key, String(value));
   };
   proto.removeItem = function patchedRemove(this: Storage, key: string) {
-    try { originalRemove.call(this, key); } finally { send(key, null); }
+    originalRemove.call(this, key);
+    if (izlenen(this)) send(key, null);
   };
-  return () => { proto.setItem = originalSet; proto.removeItem = originalRemove; };
+  proto.clear = function patchedClear(this: Storage) {
+    const anahtarlar = izlenen(this) ? localKeys(this) : [];
+    originalClear.call(this);
+    anahtarlar.forEach((key) => send(key, null));
+  };
+  return () => { proto.setItem = originalSet; proto.removeItem = originalRemove; proto.clear = originalClear; };
+}
+
+function varsayilanDepo(): object | undefined {
+  try { return localStorage; } catch { return undefined; }
 }

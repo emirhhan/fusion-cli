@@ -5,36 +5,59 @@ JSON dizelerinin İÇİNDE çift tırnak KULLANMA. Komut yazman gerekiyorsa
 tek tırnak kullan: "target": "python3 -c 'print(1)'". Çift tırnak dizeyi
 erken kapatır ve plan ayrıştırılamaz.
 
-Şema:
+Örnek plan (iki adımlı, geçerli; yapıyı ve alan adlarını koru, değerleri görevine göre doldur):
 {
-  "plan_id": "kısa-kararlı-kimlik",
+  "plan_id": "hesap-makinesi",
   "task": "kullanıcının asıl görevi",
   "schema_version": 2,
-  "steps": [{
-    "step_id": "benzersiz-kimlik",
-    "goal": "tek ve somut hedef",
-    "depends_on": ["önceki-adım-kimliği"],
-    "expected_effects": ["workspace_mutation"],
-    "allowed_tool_families": ["files", "shell", "web", "delegation"],
-    "success_criteria": ["gözlenebilir başarı koşulu"],
-    "verification_hint": "başarının nasıl denetleneceği",
-    "phase": "discovery | execution",
-    "verification_checks": [{
-      "criterion_id": "success_criteria içindeki koşulun birebir metni",
-      "kind": "file_exists | file_contains | command | tool | reproduction",
-      "target": "göreli dosya yolu, gerçekten çalıştırılacak komut veya araç adı",
-      "expected": ""
-    }],
-    "retry_safety": "safe | observe_first | never"
-  }]
+  "steps": [
+    {
+      "step_id": "kesif",
+      "goal": "Çalışma dizinindeki mevcut dosyaları ve gerçek yolları bul",
+      "depends_on": [],
+      "expected_effects": [],
+      "allowed_tool_families": ["files"],
+      "success_criteria": ["Çalışma dizininin içeriği listelendi"],
+      "verification_hint": "list_dir çıktısı",
+      "phase": "discovery",
+      "verification_checks": [
+        {"criterion_id": "c1", "kind": "tool", "target": "list_dir", "expected": {"path": "."}}
+      ],
+      "retry_safety": "safe"
+    },
+    {
+      "step_id": "uygula",
+      "goal": "hesap.py dosyasını yaz ve çalıştır",
+      "depends_on": ["kesif"],
+      "expected_effects": ["workspace_mutation", "file:hesap.py"],
+      "allowed_tool_families": ["files", "shell"],
+      "success_criteria": ["hesap.py dosyası var", "python3 hesap.py 2 3 çıktısı 5 veriyor"],
+      "verification_hint": "dosya varlığı ve komut çıktısı",
+      "phase": "execution",
+      "verification_checks": [
+        {"criterion_id": "c1", "kind": "file_exists", "target": "hesap.py", "expected": ""},
+        {"criterion_id": "c2", "kind": "command", "target": "python3 hesap.py 2 3", "expected": ""}
+      ],
+      "retry_safety": "observe_first"
+    }
+  ]
 }
 
+İzin verilen değerler (örnekteki değeri bunlardan biriyle değiştir; hiçbir alana birden çok değeri `|` ile yazma):
+- phase: discovery, execution
+- verification_checks[].kind: file_exists, file_contains, command, tool, reproduction
+- retry_safety: safe, observe_first, never
+- allowed_tool_families: files, shell, web, delegation (birden çoğu liste olarak)
+- expected_effects: workspace_mutation ve gerekirse `file:<yol>`; yan etkisiz adımda [].
+
 Kurallar:
+- `criterion_id`, o adımın `success_criteria` listesindeki koşulun sırasını gösteren
+  kısa kimliktir: ilk koşul `c1`, ikincisi `c2`... Koşul metnini yeniden yazma.
+  Kimlikler her adımda yeniden `c1`den başlar.
 - `expected` alanı yalnız iki kontrolde doludur. `tool` için GERÇEK JSON NESNESİ
-  yaz — dize içine gömme, tırnak kaçırma:
-  {"criterion_id": "...", "kind": "tool", "target": "list_dir", "expected": {"path": "."}}
-  `file_contains` için aranacak metni dize yaz. command, file_exists ve
-  reproduction kontrollerinde tam olarak "" yaz.
+  yaz (örnekteki gibi) — dize içine gömme, tırnak kaçırma. `file_contains` için
+  aranacak metni dize yaz. command, file_exists ve reproduction kontrollerinde tam
+  olarak "" yaz.
 - Plan kullanıcının TÜM teslimatlarını kapsamalı. İskelet, dosya varlığı veya yapılacaklar
   listesi çalışan ürün değildir. Son adımda ürünü çalıştırıp temel kullanıcı akışını
   doğrula; sadece kaynak dosyalarının varlığıyla tamamlandı deme.
@@ -45,7 +68,7 @@ Kurallar:
 - Yalnızca gerekli adımları üret; bağımsız adımları gereksiz yere zincirleme.
 - Görev yolu, dosya yapısı veya dış kaynağı belirsizse ilk adımı `discovery` yap.
   Keşif adımı yalnız mevcut durumu ve gerçek yolları kanıtlar; dosya üretmeyi vaat etmez.
-  Keşifte salt-okunur araçlar (list_dir, read_file, glob, grep, git, web_search,
+  Keşifte salt-okunur araçlar (list_dir, read_file, glob, search_code, git, web_search,
   web_fetch) kullanılır; run_shell ve dosya yazma araçları açık değildir. Kontrolleri
   keşifte gerçekten kullanılacak araca bağla (kind: tool); shell gerekiyorsa ayrı
   execution adımı planla.
@@ -74,8 +97,12 @@ Kurallar:
 - Alanları ŞEMADAKİ gibi yaz: listeler liste, her adımda `retry_safety` olsun.
 - Dış dünyada yinelenmesi riskli işlemleri `never`, önce durum okunması gerekenleri
   `observe_first`, güvenle yinelenebilenleri `safe` olarak işaretle.
-- Kullanıcıdan yeni onay isteme; verilen görev kapsamındaki belirsizlikleri en güvenli
-  ve geri alınabilir varsayımla çöz.
+- Görev kapsamındaki belirsizlikler için kullanıcıya soru sorma; en güvenli ve geri
+  alınabilir varsayımla çöz. Bu, onay kurallarını kaldırmaz: ödeme, silme, dışa
+  gönderim gibi onay gerektiren bir adımı onaysız planlama; onu `retry_safety: never`
+  ile işaretle ve adımın hedefine "kullanıcı onayı alınır" koşulunu yaz.
+- Alan adları ve sabit değerler (step_id, phase, kind, retry_safety...) örnekteki gibi
+  İNGİLİZCE kalır; yalnız `goal`, `success_criteria` ve `verification_hint` metinleri Türkçe olur.
 
 Görev:
 {task}

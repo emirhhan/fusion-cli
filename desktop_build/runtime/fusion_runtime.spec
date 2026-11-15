@@ -19,6 +19,11 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 # dizinden tetiklenirse tetiklensin aynı sonucu üretir.
 _repo_root = os.path.dirname(os.path.dirname(SPECPATH))  # noqa: F821
 
+# Tarifi doğrudan çalıştıranlar da build_runtime.py korumasını atlayamaz.
+_metadata_guard = runpy.run_path(os.path.join(SPECPATH, "metadata_guard.py"))  # noqa: F821
+_source_version = _metadata_guard["checkout_version"](_repo_root)
+_metadata_guard["require_project_metadata_version"](_source_version)
+
 datas = []
 binaries = []
 hiddenimports = []
@@ -57,6 +62,10 @@ for package in (
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hidden
+# Sürüm notları (P-071) tek kaynaktan, deponun CHANGELOG'undan okunur. Ölçüldü (31 Ekim): dosya
+# pakete girmediği için Ayarlar › Güncellemeler › Sürüm notları gerçek kullanıcıda her zaman
+# "bu kurulumda yok" diyordu. Çalışma zamanı köküne konur; `changelog_path` orada arar.
+datas.append((os.path.join(_repo_root, "CHANGELOG.md"), "."))
 for distribution in (
     "fusion-cli",
     "litellm",

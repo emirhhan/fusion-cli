@@ -7,16 +7,27 @@ adımdı ve hiçbiri bunları anmıyordu. Koşu "tamamlandı" raporladı, teslim
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
 from fusion_cli.engines.agent.plan_coverage import (
     coverage_instruction,
     missing_deliverables,
 )
 
+from .fakes import make_config
+
 GOREV = (
     "bana internetten free assetler toplayarak 2d bir oyun yapar mısın? hikayeler "
     "ara sahneler ve kaliteli bir UI olmalı"
 )
+
+
+@pytest.fixture
+def plan_deps():
+    return SimpleNamespace(config=make_config())
 
 
 def _adim(step_id: str, goal: str, *, kosul: str = "dosya yazıldı", etki: str = "file:a.gd"):
@@ -118,7 +129,7 @@ def _plan_json(*adimlar: tuple[str, str]) -> str:
     )
 
 
-async def test_eksik_kapsam_onarim_istemiyle_yeniden_sorulur(monkeypatch):
+async def test_eksik_kapsam_onarim_istemiyle_yeniden_sorulur(monkeypatch, plan_deps):
     """İlk plan eksikse model ikinci kez, EKSİK ADLARIYLA çağrılır."""
     from fusion_cli.engines.agent import plan_generation
     from fusion_cli.engines.agent.loop import AgentOutcome
@@ -138,7 +149,7 @@ async def test_eksik_kapsam_onarim_istemiyle_yeniden_sorulur(monkeypatch):
         return AgentOutcome(final_text=cevaplar[len(istemler) - 1], messages=[], model_calls_made=1)
 
     sonuc = await plan_generation.generate_plan(
-        GOREV, object(), _sahte_agent, 4, check_coverage=True
+        GOREV, plan_deps, _sahte_agent, 4, check_coverage=True
     )
 
     assert len(istemler) == 2
@@ -147,7 +158,7 @@ async def test_eksik_kapsam_onarim_istemiyle_yeniden_sorulur(monkeypatch):
     assert sonuc.missing == ()
 
 
-async def test_onarim_da_eksik_kalirsa_plan_calisir_ama_eksik_bildirilir(monkeypatch):
+async def test_onarim_da_eksik_kalirsa_plan_calisir_ama_eksik_bildirilir(monkeypatch, plan_deps):
     """Çalışan planı çöpe atmak kullanıcıya hiçbir şey teslim etmemektir."""
     from fusion_cli.engines.agent import plan_generation
     from fusion_cli.engines.agent.loop import AgentOutcome
@@ -160,7 +171,7 @@ async def test_onarim_da_eksik_kalirsa_plan_calisir_ama_eksik_bildirilir(monkeyp
         )
 
     sonuc = await plan_generation.generate_plan(
-        GOREV, object(), _sahte_agent, 4, check_coverage=True
+        GOREV, plan_deps, _sahte_agent, 4, check_coverage=True
     )
 
     assert sonuc.plan is not None
@@ -171,7 +182,7 @@ async def test_onarim_da_eksik_kalirsa_plan_calisir_ama_eksik_bildirilir(monkeyp
     )
 
 
-async def test_yeniden_planlamada_kapsama_kapisi_calismaz():
+async def test_yeniden_planlamada_kapsama_kapisi_calismaz(plan_deps):
     """Yeniden plan tek adımın yerine dal üretir; bütün teslimatları kapsamaz."""
     from fusion_cli.engines.agent import plan_generation
     from fusion_cli.engines.agent.loop import AgentOutcome
@@ -187,7 +198,7 @@ async def test_yeniden_planlamada_kapsama_kapisi_calismaz():
             model_calls_made=1,
         )
 
-    sonuc = await plan_generation.generate_plan(GOREV, object(), _sahte_agent, 4)
+    sonuc = await plan_generation.generate_plan(GOREV, plan_deps, _sahte_agent, 4)
 
     assert cagri == 1
     assert sonuc.plan is not None

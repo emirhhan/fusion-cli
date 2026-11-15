@@ -12,33 +12,47 @@ from __future__ import annotations
 import hashlib
 import sys
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from ..config.models import Config
+from ..config.browser_profiles import browser_session_from
+from ..config.models import Config, mcp_secret_env_names
+from ..config.permission_rules import PermissionRule, PermissionRuleSet, load_permission_rules
 from ..config.permissions import load_allowed_commands
+from ..config.sandbox_config import fusion_secret_paths, sandbox_policy
 from ..core.artifacts import ArtifactStore
+from ..core.background_events import BackgroundEvents
+from ..core.browser_session import BrowserSession
+from ..core.changeset import ChangeSet
 from ..core.concurrency import BackgroundTasks
+from ..core.errors import ConfigError
+from ..core.event_scope import TurnPublisher, new_trace_id
 from ..core.events import (
+    DesktopEscapeStopped,
     ErrorOccurred,
+    Event,
     EventSink,
     FilesChanged,
     FollowupsSuggested,
     FusionCompleted,
     NoFileChanges,
+    StatusChanged,
     TurnFinished,
     TurnOutcome,
 )
 from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
+from ..core.plan_switch import PlanModeSwitch
 from ..core.protocols import TurnJournal
 from ..core.remotion_browser import RemotionBrowser
+from ..core.session_cron import SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
-from ..core.tools import ChromeControl, ToolContext
+from ..core.tools import ChromeControl, TodoList, ToolContext
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import (
     CompletionRequest,
@@ -47,16 +61,29 @@ from ..core.types import (
     VerdictSource,
     is_rate_limit_error,
 )
+from ..core.worktree import WorktreeSwitch
 from ..engines.agent import AgentOutcome, run_agent
-from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
+from ..engines.agent.approval import (
+    ApprovalMemory,
+    ApprovalMode,
+    ApprovalPolicy,
+    build_policy,
+    may_run_unasked_commands,
+)
 from ..engines.agent.child_runs import ChildRuns
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.remotion_bridge import FrameTransport
+from ..engines.agent.skill_grants import grant as grant_skill_rules
+from ..engines.agent.tool_filter import DeniedToolsPolicy
 from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
+from ..engines.hooks.notify import notifying
+from ..engines.hooks.session import HookSession, open_hook_session
+from ..engines.retention import purge_local_state_daily
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..memory.factory import Memory, build_memory, null_memory
+from ..memory.plain_memory import PlainMemory, build_plain_memory
 from ..observability.audit import AuditSink
 from ..observability.bus import EventBus
 from ..observability.cost import CostTracker
@@ -64,13 +91,18 @@ from ..observability.json_sink import JsonRenderer
 from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..providers.health_setup import build_health
+from ..tools import desktop_turn
 from ..tools.capabilities import CapabilityRegistry
+from ..tools.capability_overrides import registry_from_config
 from ..tools.remotion_observe import browser_transport
 from ..ui import messages
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from ..engines.agent.approval import Prompter
     from ..engines.agent.engine_tools import UserAsker
+    from ..engines.agent.team import Persona
+    from ..mcp_bridge.pool import McpToolPool
+    from ..tools.registry import ToolRegistry
 
     class AgentPrompter(Prompter, UserAsker, Protocol):
         """Hem onay soran hem soru sorabilen arayüz (terminal uygulaması ikisini de yapar)."""
@@ -143,6 +175,41 @@ def _failure_message(result: FusionResult) -> str:
     return messages.ERROR_NO_ANSWER
 
 
+def conversation_job_scope(memory_dir: Path, conversation_id: str) -> str:
+    """Sohbetin iş ve computer use kilidi belirteci (`ToolContext.job_scope`)."""
+    return hashlib.sha256(f"{memory_dir.resolve()}\0{conversation_id}".encode()).hexdigest()
+
+
+def apply_runtime_settings(tool_context: ToolContext, config: Config) -> ToolContext:
+    """Yapılandırmadaki araç ayarlarını bağlama işle (tek yer; her tur yolu bunu çağırır).
+
+    Ölçüldü (31 Ekim): REPL kendi `ToolContext`'ini kurup `run_agent`'a doğrudan veriyordu;
+    `runtime.desktop_screenshot_max_width`, `desktop_exclude_fusion_window` ve daha önce
+    `shell_sandbox`/`edit_fuzzy_match`/`shell_workspace_fingerprint` orada sessizce varsayılanda
+    kalıyordu. TUI ve `fusion run` `run_agent_task` üzerinden geçtiği için etkilenmiyordu.
+    """
+    return replace(
+        tool_context,
+        # MCP sırları ortamda yaşar; araç çocuk süreçleri (run_shell) onları miras almaz.
+        hidden_env=tool_context.hidden_env | mcp_secret_env_names(config.mcp_servers),
+        # run_shell işletim sistemi sandbox'ı yapılandırmadan gelir (Q1-16).
+        shell_sandbox=config.runtime.shell_sandbox,
+        # Okuma engeli, ağ allowlist'i, ek yazma kökleri (P-010); Fusion sırları her zaman engelli.
+        sandbox_policy=sandbox_policy(
+            config.sandbox,
+            home=Path.home(),
+            root=tool_context.root,
+            extra_deny=fusion_secret_paths(),
+        ),
+        edit_fuzzy_match=config.runtime.edit_fuzzy_match,
+        post_edit_syntax_check=config.runtime.post_edit_syntax_check,
+        shell_fingerprint=config.runtime.shell_workspace_fingerprint,
+        desktop_screenshot_max_width=config.runtime.desktop_screenshot_max_width,
+        desktop_exclude_fusion_window=config.runtime.desktop_exclude_fusion_window,
+        desktop_settings=getattr(config, "desktop", tool_context.desktop_settings),
+    )
+
+
 async def run_agent_task(
     task: str,
     config: Config,
@@ -160,11 +227,15 @@ async def run_agent_task(
     history: list[Message] | None = None,
     background: BackgroundTasks | None = None,
     tool_context: ToolContext | None = None,
+    changes: ChangeSet | None = None,
     chrome_bridge: ChromeControl | None = None,
     capabilities: CapabilityRegistry | None = None,
+    plain_memory: PlainMemory | None = None,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     conversation_id: str = "cli",
+    attempt_id: str | None = None,
+    event_correlator: Callable[[Event], Event] | None = None,
     step_limit: int | None = None,
     approval_memory: ApprovalMemory | None = None,
     steering: SteeringQueue | None = None,
@@ -174,33 +245,74 @@ async def run_agent_task(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    bootstrap_mcp: bool = True,
+    denied_tools: frozenset[str] = frozenset(),
+    #: Becerinin tur izin kuralları (`allowed-tools` ön onayı, `disallowed-tools` deseni; #142).
+    skill_grants: tuple[tuple[str, str], ...] = (),
     health: HealthRegistry | None = None,
     journal: TurnJournal | None = None,
     require_remotion_kit: bool = False,
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     deadline: TurnDeadline | None = None,
+    turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
+    cron: SessionCron | None = None,
+    background_events: BackgroundEvents | None = None,
+    todos: TodoList | None = None,
+    strict_tool_names: bool = False,
+    worktree_switch: WorktreeSwitch | None = None,
+    plan_mode_switch: PlanModeSwitch | None = None,
+    hooks: HookSession | None = None,
+    browser: BrowserSession | None = None,
+    session_persona: Persona | None = None,
+    main_config_applied: bool = False,
+    extra_permission_rules: tuple[PermissionRule, ...] = (),
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
+
+    `turn_runner` verilirse `run_agent` yerine o koşar (aynı imza): `/subtask` turu fork alt
+    ajanda yürüten `team_fork.run_forked_turn` böyle takılır (P-054).
+
+    `denied_tools` (headless `--disallowed-tools`, oturum kişiliğinin `disallowedTools`u;
+    P-026/P-053) adı geçen araçları modelin kümesinden çıkarır ve sormadan engelleyen bir
+    sarmalayıcıyı seçili onay politikasının üstüne koyar.
+
+    `strict_tool_names` (headless) izin/yasak listesinde bu oturumda bulunmayan bir ad
+    varsa modeli hiç çağırmadan başarısız döner: yazım hatası sessizce araçsız tur ya da
+    kapanmamış bir yasak demekti (31 Ekim).
 
     `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
 
     `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
     soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
 
+    `browser` (P-045) paylaşılan tarayıcıdır (masaüstü Tarayıcı paneli): verilirse tur onu
+    kullanır, yerel izin kümesi onunkidir ve tur sonunda kapatılmaz (`persistent`).
+
     `background` verilirse ders çıkarımı gibi tur SONRASI işler fire-and-forget çalışır
     ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
     """
+    home = home or Path.home()
+    if session_persona is not None and not main_config_applied:
+        from ..engines.agent.team_settings import main_agent_config, main_approval_mode
+
+        persona_root = tool_context.root if tool_context else root or Path.cwd()
+        config = main_agent_config(config, session_persona, root=persona_root, home=home)
+        mode = main_approval_mode(config, session_persona, mode, root=persona_root, home=home)
     can_ask = sys.stdin.isatty() if interactive is None else interactive
     started_at = time.monotonic()
+    attempt_id = attempt_id or new_trace_id()
 
-    async with EventBus() as bus:
+    async with EventBus(event_correlator=event_correlator) as bus:
         for sink in sinks:
             bus.subscribe(sink)
         # Her araç sonucu kalıcı denetim günlüğüne de yazılır (silinmez).
-        bus.subscribe(
-            AuditSink(config.memory_dir / "audit", conversation_id, root=root or Path.cwd())
-        )
+        # Denetim kökü ARAÇ kökü ile aynı olmalı: çağıran `tool_context` verdiyse gerçek
+        # kök odur, `root` değil (göreli yol raporu kayıyordu; L1-31).
+        audit_root = tool_context.root if tool_context is not None else (root or Path.cwd())
+        bus.subscribe(AuditSink(config.memory_dir / "audit", conversation_id, root=audit_root))
+        # 30 günden eski iz/artifact/tamamlanmış checkpoint (günde en çok bir kez; L1-30, M1-44).
+        purge_local_state_daily(config.memory_dir, now=time.time())
 
         # Prompter veriyolunu tanır: terminali devralmadan önce bekleyen olayları
         # boşaltır, böylece onay paneli akan çıktının ortasına düşmez.
@@ -217,16 +329,41 @@ async def run_agent_task(
             chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
+            browser=browser or browser_session_from(config),
+            local_origins=(
+                browser.origins if browser is not None and browser.origins is not None else set()
+            ),
+            block_reads_outside_root=config.runtime.block_reads_outside_root,
+            block_writes_outside_root=config.runtime.block_writes_outside_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
             # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
             artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
+        grant_skill_rules(tool_context, skill_grants)
+        tool_context = apply_runtime_settings(tool_context, config)
+        if cron is not None:
+            # Oturum zamanlayıcısı (masaüstü): `cron_*` araçları sohbetin listesine yazar.
+            tool_context = replace(tool_context, cron=cron)
+        if todos is not None:
+            # Oturum boyu görev listesi (masaüstü sekmesi; #331): turlar arasında kalır.
+            tool_context = replace(tool_context, todos=todos)
+        if background_events is not None:
+            # Biten arka plan işi ve `monitor` satırı sohbete bildirim olarak girer (#336).
+            tool_context = replace(tool_context, background_events=background_events)
+        if changes is not None:
+            # Çağıran (masaüstü oturumu) turun ilk-hâl anlık görüntülerini geri alma
+            # günlüğüne aktarabilsin diye kümeyi kendisi verir.
+            tool_context = replace(tool_context, changes=changes)
+        if worktree_switch is not None:
+            # `enter_worktree`/`exit_worktree` isteği tur bitince çağıranda (masaüstü, tek
+            # atış) okunur; verilmezse istek bağlamın kendi anahtarında kalır ve kaybolur.
+            tool_context = replace(tool_context, worktree_switch=worktree_switch)
+        if plan_mode_switch is not None:
+            # `enter_plan_mode` isteği tur bitince çağıranda kipe uygulanır (#324).
+            tool_context = replace(tool_context, plan_mode_switch=plan_mode_switch)
         if conversation_id:
             tool_context = replace(
-                tool_context,
-                job_scope=hashlib.sha256(
-                    f"{config.memory_dir.resolve()}\0{conversation_id}".encode()
-                ).hexdigest(),
+                tool_context, job_scope=conversation_job_scope(config.memory_dir, conversation_id)
             )
         if remotion_browser is not None:
             tool_context = replace(tool_context, remotion_browser=remotion_browser)
@@ -234,19 +371,51 @@ async def run_agent_task(
             remotion_transport = browser_transport(tool_context.remotion_browser)
         if require_remotion_kit:
             tool_context.remotion_contract.require()
+
+        # Kancalar (P-009): oturum vermediyse (tek atış) bu tur için kurulur ve sonda kapanır.
+        hook_session = hooks or open_hook_session(
+            tool_context.root,
+            config,
+            session_id=conversation_id,
+            permission_mode=lambda: (current_approval() if current_approval else mode).value,
+            # Tek atış (`fusion -p`/`fusion agent`): Claude gibi etkileşimsiz oturum.
+            interactive=False,
+        )
+        confirm_prompter = notifying(prompter, hook_session)
+
+        def _policy(active_mode: ApprovalMode) -> ApprovalPolicy:
+            policy: ApprovalPolicy = build_policy(
+                active_mode,
+                confirm_prompter,
+                approval_memory,
+                use_auto_mode_during_plan=getattr(
+                    config.runtime, "use_auto_mode_during_plan", True
+                ),
+            )
+            return DeniedToolsPolicy(policy, denied_tools) if denied_tools else policy
+
+        # MCP sunucusu görev ortasında girdi isterse bu taraf sorar (#257).
+        _register_elicitation(prompter if can_ask else None)
         deps = AgentDeps(
             config=config,
             deadline=deadline,
-            publisher=bus,
+            publisher=TurnPublisher(
+                bus,
+                session_id=conversation_id,
+                attempt_id=attempt_id,
+                should_assign_event_ids=event_correlator is None,
+            ),
             # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
             # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
-            policy=build_policy(mode, prompter, approval_memory),
+            policy=_policy(mode),
+            denied_tools=frozenset(denied_tools),
             steering=steering,
             child_runs=child_runs if child_runs is not None else ChildRuns(),
             selected_skill=selected_skill,
-            policy_factory=(lambda: build_policy(current_approval(), prompter, approval_memory))
-            if current_approval
-            else None,
+            policy_factory=(lambda: _policy(current_approval())) if current_approval else None,
+            # Alt ajan kipi (P-034) üst kipten SIKILAŞTIRILIR; aynı yasak sarmalayıcısıyla kurulur.
+            approval_mode=current_approval or (lambda: mode),
+            policy_for_mode=_policy,
             approval_revision=(
                 lambda: (current_approval(), approval_memory.revision if approval_memory else 0)
             )
@@ -257,15 +426,40 @@ async def run_agent_task(
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
             capabilities=capabilities
-            or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
+            or (
+                registry_from_config(
+                    config, home, tool_context.root, extra_roots=tool_context.extra_roots
+                )
+                if home is not None
+                else None
+            ),
+            # Düz metin bellek (P-036): çağıran vermezse yapılandırmaya göre projeninki.
+            # `--no-memory` (boş depo) belleği de kapatır: kullanıcı "yazma" demiştir.
+            plain_memory=plain_memory
+            if plain_memory is not None
+            else (build_plain_memory(config, tool_context.root) if store.enabled else None),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
+            permission_rules=_with_session_rules(
+                load_permission_rules(
+                    tool_context.root,
+                    block_reads_outside_root=config.runtime.block_reads_outside_root,
+                    block_writes_outside_root=config.runtime.block_writes_outside_root,
+                ),
+                extra_permission_rules,
+            ),
+            hooks=hook_session,
+            # Otomatik kip denetçisi (P-011): sayaçlar oturum hafızasıyla yaşar.
+            auto_review=approval_memory.auto_review if approval_memory is not None else None,
             verifier=build_verifier(
                 config,
                 root=tool_context.root,
                 tool_context=tool_context,
                 remotion_state=tool_context.remotion_contract,
                 remotion_transport=remotion_transport,
+                dev_server_allowed=lambda: may_run_unasked_commands(
+                    current_approval() if current_approval else mode
+                ),
             ),
             task_type=task_type,
             background=background,
@@ -275,26 +469,46 @@ async def run_agent_task(
                 conversation_id=conversation_id,
             ),
             conversation_id=conversation_id,
+            attempt_id=attempt_id,
             # Kayıt verilmezse tur kendi kaydını kurar: circuit breaker ve ortak hız
             # defteri tek atışlık `fusion agent`ta da çalışmalı (eskiden hiç yoktu).
             health=health or build_health(config),
             journal=journal,
+            session_persona=session_persona,
+            interactive=can_ask,
+            main_config_applied=main_config_applied or session_persona is not None,
+            mcp_connector=agent_mcp_scope,
         )
-        outcome = await _run_agent_with_mcp(
-            task,
-            deps,
-            config,
-            bus,
-            history=history,
-            mode=mode,
-            extra_system=extra_system,
-            system_prompt=system_prompt,
-            images=images,
-            step_limit=step_limit,
-            chat_mode=chat_mode,
-            workflow=workflow,
-            allowed_tools=allowed_tools,
-        )
+        # Masaüstü oturumu turun görevine bağlanır: Esc iptali bu görevi keser (P-033).
+        desktop_turn.begin(tool_context)
+        try:
+            outcome = await _run_agent_with_mcp(
+                task,
+                deps,
+                config,
+                bus,
+                history=history,
+                mode=mode,
+                extra_system=extra_system,
+                system_prompt=system_prompt,
+                images=images,
+                step_limit=step_limit,
+                chat_mode=chat_mode,
+                workflow=workflow,
+                allowed_tools=allowed_tools,
+                bootstrap_mcp=bootstrap_mcp,
+                denied_tools=denied_tools,
+                turn_runner=turn_runner,
+                strict_tool_names=strict_tool_names,
+            )
+        finally:
+            # Masaüstü kilidi TUR ile sınırlıdır: iptal ya da hatada da bırakılır; yoksa başka
+            # sohbet 300 sn "o tur bitince yeniden dene" alır (bkz. `tools/desktop_lock`).
+            # Esc dinleyicisi kapanır, gizlenen uygulamalar geri gelir (P-033); kilidi de bırakır.
+            if desktop_turn.finish(tool_context):
+                bus.publish(DesktopEscapeStopped())
+            if hooks is None:
+                await hook_session.end("other")
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt
@@ -352,6 +566,10 @@ async def _run_agent_with_mcp(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    bootstrap_mcp: bool = True,
+    denied_tools: frozenset[str] = frozenset(),
+    turn_runner: Callable[..., Awaitable[AgentOutcome]] | None = None,
+    strict_tool_names: bool = False,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -363,15 +581,23 @@ async def _run_agent_with_mcp(
     MCP'siz devam eder (REPL ile aynı davranış).
     """
     plan_mode = mode is ApprovalMode.PLAN
+    runner = turn_runner or run_agent
 
     async def _run() -> AgentOutcome:
-        return await run_agent(
+        if strict_tool_names:
+            # MCP araçları bağlandıktan SONRA denetlenir: `<sunucu>__<araç>` adları ancak
+            # o zaman defterdedir.
+            rejected = _reject_unknown_tools(deps, allowed_tools, bus)
+            if rejected is not None:
+                return rejected
+        return await runner(
             task,
             deps,
             history=history,
             plan_mode=plan_mode,
             chat_mode=chat_mode,
             allowed_tools=allowed_tools,
+            denied_tools=denied_tools,
             extra_system=extra_system,
             system_prompt=system_prompt,
             images=images,
@@ -379,35 +605,70 @@ async def _run_agent_with_mcp(
             workflow=workflow,
         )
 
-    if not config.mcp_servers and not config.hosted_connectors:
-        return await _run()
+    from ..mcp_bridge.discovery import prepare_mcp_turn
+
+    owner, expansion = await prepare_mcp_turn(
+        task, deps, allowed=allowed_tools, denied=denied_tools, enabled=bootstrap_mcp
+    )
     try:
-        from ..mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
-    except ImportError:
-        bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
+        for note in expansion.notes:
+            bus.publish(StatusChanged(note))
+        for warning in expansion.warnings:
+            bus.publish(ErrorOccurred(warning, fatal=False))
+        if expansion.error:
+            bus.publish(ErrorOccurred(expansion.error, fatal=True))
+            return AgentOutcome(final_text=expansion.error, messages=list(history or []), ok=False)
+        task = expansion.task
+        if expansion.context:
+            extra_system = "\n\n".join(part for part in (extra_system, expansion.context) if part)
         return await _run()
-    eklenen: tuple[str, ...] = ()
-    if config.mcp_servers:
-        try:
-            # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
-            # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
-            # kapanışında yapılır, tur içinde değil.
-            eklenen += await ensure_mcp_tools(
-                config.mcp_servers, deps.base_registry, retry_delays_s=config.runtime.retry_delays_s
-            )
-        except Exception as error:
-            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-    if config.hosted_connectors:
-        # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
-        # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
-        try:
-            eklenen += await ensure_hosted_tools(config, deps.base_registry)
-        except Exception as error:
-            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-    # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
-    # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
-    deps.tool_context.available_tools.update(eklenen)
-    return await _run()
+    finally:
+        owner.close()
+
+
+def _with_session_rules(
+    rules: PermissionRuleSet, extra: tuple[PermissionRule, ...]
+) -> PermissionRuleSet:
+    """Oturumluk kuralları (`fusion -p --allowedTools`, `--settings`) katmanlara ekle."""
+    return rules.with_rules((*rules.rules, *extra)) if extra else rules
+
+
+def _reject_unknown_tools(
+    deps: AgentDeps, allowed_tools: set[str] | None, bus: EventBus
+) -> AgentOutcome | None:
+    """İzin/yasak listesinde defterde olmayan ad varsa başarısız sonuç; yoksa None."""
+    from ..engines.agent.engine_tools import build_agent_registry
+    from ..engines.agent.loop import ALWAYS_ALLOWED
+    from .headless import unknown_tool_message
+
+    requested = set(allowed_tools or ()) | set(deps.denied_tools)
+    if not requested:
+        return None
+    known = set(build_agent_registry(deps, depth=0, run_agent=run_agent).names())
+    # `runtime.disabled_tools` ile kapatılmış araç geçerli bir addır; "bilinmeyen" denmez.
+    from ..mcp_bridge.discovery import DISCOVER_MCP_TOOLS
+
+    known |= (
+        ALWAYS_ALLOWED
+        | {DISCOVER_MCP_TOOLS}
+        | set(getattr(deps.config.runtime, "disabled_tools", ()))
+    )
+    from ..tools.capabilities import expand_tool_patterns
+
+    # Validate a projection without discarding the caller's original wildcard
+    # restrictions, which are needed when selected discovery updates the runtime.
+    requested = expand_tool_patterns(requested, tuple(known))
+    from ..core.mcp_tool_names import canonical_mcp_name
+
+    canonical_known = {canonical_mcp_name(name) for name in known}
+    unknown = {
+        name for name in requested - known if canonical_mcp_name(name) not in canonical_known
+    }
+    if not unknown:
+        return None
+    text = unknown_tool_message(unknown, known)
+    bus.publish(ErrorOccurred(text, fatal=True))
+    return AgentOutcome(final_text=text, messages=[], ok=False)
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
@@ -455,6 +716,7 @@ def build_observers(
     renderer: EventSink | None = None,
     as_json: bool = False,
     trace_dir: Path | None = None,
+    usage_log: EventSink | None = None,
 ) -> Observers:
     """Turu izleyecek dinleyicileri kur.
 
@@ -473,6 +735,9 @@ def build_observers(
     elif renderer is not None:
         sinks.append(renderer)
     sinks.extend((cost, tracer))
+    # Kalıcı kullanım günlüğü (P-056): maliyet toplayıcıyla AYNI olayları dinler.
+    if usage_log is not None:
+        sinks.append(usage_log)
     trace = open_trace(trace_dir)
     if trace is not None:
         sinks.append(trace)
@@ -492,3 +757,36 @@ def open_trace(trace_dir: Path | None) -> TraceWriter | None:
 def _artifact_id() -> str:
     """Oturum artifact dizininin adı — iz kimliğiyle aynı zaman damgası biçimi."""
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+
+@asynccontextmanager
+async def agent_mcp_scope(
+    config: Config, registry: ToolRegistry, *, lazy: bool = False
+) -> AsyncIterator[McpToolPool]:
+    """Alt ajanın inline MCP bağlantılarını kendi mevcut havuz örneğinde sahiplen."""
+    from ..mcp_bridge.pool import McpToolPool
+
+    pool = McpToolPool()
+    try:
+        if not lazy:
+            clients = await pool.clients_for(
+                config.mcp_servers, retry_delays_s=config.runtime.retry_delays_s
+            )
+            if len(clients) != len(config.mcp_servers):
+                raise ConfigError("Alt ajanın MCP bağlantısı kurulamadı.")
+            for client in clients:
+                await client.register_into(registry)
+        yield pool
+    finally:
+        await pool.aclose()
+
+
+agent_mcp_scope.supports_lazy_discovery = True  # type: ignore[attr-defined]
+
+
+def _register_elicitation(asker: object) -> None:
+    try:
+        from ..mcp_bridge.elicitation import register_elicitation_asker
+    except ImportError:  # `mcp` paketi kurulu değil
+        return
+    register_elicitation_asker(asker)  # type: ignore[arg-type]

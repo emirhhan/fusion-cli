@@ -22,15 +22,23 @@ import "./Inspector.css";
 
 type InspectorStatus = "ready" | "loading" | "error";
 /** Proje araçları ve canlı alt ajanlar için bağlamsal sekmeler. */
-export type InspectorTabId = "files" | "changes" | "terminal" | "preview" | "agents";
+export type InspectorTabId = "files" | "changes" | "terminal" | "preview" | "browser" | "agents";
 
 const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
   { id: "agents", label: "Ajanlar", icon: "sparkle" },
   { id: "files", label: "Dosyalar", icon: "files" },
   { id: "changes", label: "Değişiklikler", icon: "changes" },
   { id: "terminal", label: "Terminal", icon: "terminal" },
-  { id: "preview", label: "Önizleme", icon: "preview" },
+  // Claude Desktop'taki tek "Browser" bölmesi (#439): Önizleme ve canlı Tarayıcı aynı sekmede,
+  // içte "Önizleme / Canlı" seçimiyle. `preview` kimliği iç kip olarak yaşar (⌘⇧B onu açar).
+  { id: "browser", label: "Tarayıcı", icon: "globe" },
 ];
+/** Tarayıcı sekmesinin iç kipleri. */
+const BROWSER_MODES: { id: InspectorTabId; label: string }[] = [
+  { id: "preview", label: "Önizleme" },
+  { id: "browser", label: "Canlı" },
+];
+const tabOf = (id: InspectorTabId): InspectorTabId => (id === "preview" ? "browser" : id);
 
 interface InspectorProps {
   activeTab?: InspectorTabId;
@@ -72,7 +80,7 @@ export function Inspector({
   useEffect(() => {
     if (collapsed) resizeCleanup.current();
   }, [collapsed]);
-  const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const activeIndex = tabs.findIndex((tab) => tab.id === tabOf(activeTab));
   const selectAt = (index: number) => {
     const tab = tabs[(index + tabs.length) % tabs.length];
     setActiveTab(tab.id);
@@ -94,7 +102,10 @@ export function Inspector({
       selectAt(tabs.length - 1);
     }
   };
-  const active = tabs[activeIndex];
+  // Saklı/eski bir sekme kimliği (kaldırılmış sekme) gelirse panel düşmez, ilk sekmeye döner (U1-62).
+  const active = tabs[activeIndex] ?? tabs[0];
+  /** Çizilecek içerik: Tarayıcı sekmesinde iç kip (önizleme ya da canlı). */
+  const paneId: InspectorTabId = active.id === "browser" && activeTab === "preview" ? "preview" : active.id;
   const safeWidth = clampInspectorWidth(width);
   const safeHeight = clampInspectorHeight(height);
   const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -118,6 +129,8 @@ export function Inspector({
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!(placement === "bottom" ? onHeightChange : onWidthChange) || event.button !== 0) return;
     event.preventDefault();
+    // İmleç önizleme iframe'inin üstüne girse de olaylar bu tutamaca gelmeye devam eder (U1-63).
+    try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch { /* yakalama desteklenmiyor */ }
     resizeCleanup.current();
     const startX = event.clientX;
     const startY = event.clientY;
@@ -127,7 +140,11 @@ export function Inspector({
       if (placement === "bottom") onHeightChange?.(clampInspectorHeight(startHeight + startY - nextEvent.clientY));
       else onWidthChange?.(clampInspectorWidth(startWidth + startX - nextEvent.clientX));
     };
+    // Sürükleme boyunca kabuktaki sütun geçişini kapat (CSS1-01).
+    const kabuk = event.currentTarget.closest<HTMLElement>(".app-shell");
+    kabuk?.setAttribute("data-resizing", "true");
     const stop = () => {
+      kabuk?.removeAttribute("data-resizing");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
@@ -159,8 +176,8 @@ export function Inspector({
         <div aria-label="Denetçi araçları" className="inspector__tabs" role="tablist">
           {tabs.map((tab) => (
             <button
-              aria-controls={!collapsed && activeTab === tab.id ? `inspector-panel-${tab.id}` : undefined}
-              aria-selected={activeTab === tab.id}
+              aria-controls={!collapsed && active.id === tab.id ? `inspector-panel-${tab.id}` : undefined}
+              aria-selected={active.id === tab.id}
               id={`inspector-tab-${tab.id}`}
               key={tab.id}
               onClick={() => {
@@ -169,7 +186,7 @@ export function Inspector({
               }}
               onKeyDown={onTabKeyDown}
               role="tab"
-              tabIndex={activeTab === tab.id ? 0 : -1}
+              tabIndex={active.id === tab.id ? 0 : -1}
               title={tab.label}
               type="button"
             >
@@ -194,13 +211,28 @@ export function Inspector({
             <p className="inspector__state">Yükleniyor…</p>
           ) : status === "error" ? (
             <p className="inspector__state inspector__state--error" role="alert">{errorMessage}</p>
-          ) : content[active.id] ? (
-            content[active.id]
+          ) : active.id === "terminal" && content.terminal ? null : content[paneId] ? (
+            <>
+              {active.id === "browser" && content.preview && content.browser && (
+                <div aria-label="Tarayıcı kipi" className="inspector__modes" role="group">
+                  {BROWSER_MODES.map((mode) => (
+                    <button aria-pressed={paneId === mode.id} key={mode.id} onClick={() => setActiveTab(mode.id)} type="button">{mode.label}</button>
+                  ))}
+                </div>
+              )}
+              {content[paneId]}
+            </>
           ) : (
             <div className="inspector__empty">
               <p>Henüz bir proje seçilmedi.</p>
               <span>Bir proje açtığında {active.label.toLocaleLowerCase("tr")} burada görünür.</span>
             </div>
+          )}
+          {/* Terminal sekmesi başka sekmeye geçilince SÖKÜLMEZ, yalnız gizlenir: söküm tüm terminal
+              oturumlarını kapatıp uzun süren işleri (dev sunucusu, build) öldürüyordu (U4-30).
+              Panel daraltılırsa (bölüm hiç çizilmez) yine kapanır. */}
+          {status === "ready" && content.terminal && (
+            <div className="inspector__keep-alive" hidden={active.id !== "terminal"}>{content.terminal}</div>
           )}
         </section>
       )}

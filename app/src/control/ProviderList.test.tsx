@@ -174,6 +174,18 @@ describe("ProviderList — web oturumu", () => {
     expect(await screen.findByText(/giriş yarım kalmış olabilir/i)).toBeTruthy();
   });
 
+  it("7 günden eski araç ölçümü için yeniden ölç uyarısını gösterir (S2-30)", async () => {
+    const uyari = "Araç ölçümü 7 günden eski; yeniden ölç.";
+    const satirlar = [
+      { ...SATIRLAR[0], bagli: true, olcum_gecti: true, olcum_uyari: uyari },
+      { ...SATIRLAR[1], olcum_uyari: null },
+    ];
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: satirlar } })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    expect(await screen.findByText(uyari)).toBeTruthy();
+  });
+
   it("web oturumunun pencere kipini ve gizleme uyarısını gösterir", async () => {
     // Gizleme izni yoksa ChatGPT penceresi ekranda kalır; kullanıcı SEBEBİNİ görmeli.
     const uyari = "Fusion'ın tarayıcı penceresi gizlenemedi. Otomasyon iznini aç.";
@@ -218,18 +230,110 @@ it("bekleyen anahtar kaydı sırasında alan ve sağlayıcı seçimi kilitlidir"
   expect(input.value).toBe("SYNTHETIC_PENDING_KEY"); // kaydedilen anahtar alanda kalır
 });
 
+// Ölçüldü (30 Ekim): kart açılır açılmaz kasadaki TAM anahtar webview belleğine iniyordu (U5-37); liste her
+// yenilendiğinde yeniden indirilip yazılmakta olan değeri eziyordu (U5-38); sondaki boşluk anahtarı bozuyordu (U5-39).
+describe("kayıtlı anahtar gizliliği (30 Ekim)", () => {
+  function nvidia(goster: () => Record<string, unknown>) {
+    return vi.fn(async (name: string) => {
+      if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "nvidia_nim", ad: "NVIDIA NIM", bagli: true, eylem: "anahtar", tur: "anahtar", ortam: "NVIDIA_API_KEY" }] };
+      if (name === "kontrol.anahtar_goster") return goster();
+      return { ok: true };
+    });
+  }
 
-it("kayıtlı anahtar açılışta kasadan okunur ve göz düğmesiyle görünür", async () => {
-  const request = vi.fn(async (name: string) => {
-    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [{ id: "nvidia_nim", ad: "NVIDIA NIM", bagli: true, eylem: "anahtar", tur: "anahtar", ortam: "NVIDIA_API_KEY" }] };
-    if (name === "kontrol.anahtar_goster") return { ok: true, deger: "nvapi-KAYITLI" };
-    return { ok: true };
+  it("kart açılınca anahtar istenmez; göz düğmesine basınca kasadan okunur ve görünür", async () => {
+    const request = nvidia(() => ({ ok: true, deger: "nvapi-KAYITLI" }));
+    render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
+    const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(request.mock.calls.map(([ad]) => ad)).not.toContain("kontrol.anahtar_goster");
+    fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+    await waitFor(() => expect(input.value).toBe("nvapi-KAYITLI"));
+    expect(input.type).toBe("text");
   });
-  render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
-  fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
-  const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
-  await waitFor(() => expect(input.value).toBe("nvapi-KAYITLI"));
-  expect(input.type).toBe("password");
-  fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
-  expect(input.type).toBe("text");
+
+  it("kullanıcı yazarken göz düğmesi yazılan değerin üzerine yazmaz", async () => {
+    const request = nvidia(() => ({ ok: true, deger: "nvapi-KAYITLI" }));
+    render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA NIM/ }));
+    const input = (await screen.findByLabelText("API anahtarı")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "yeni-anahtar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Anahtarı göster" }));
+    await Promise.resolve();
+    expect(input.value).toBe("yeni-anahtar");
+  });
+
+  it("kaydedilen anahtar kırpılarak gönderilir (U5-39)", async () => {
+    const request = vi.fn(async (name: string) => name === "saglayici.katalog"
+      ? { ok: true, saglayicilar: [{ id: "openai", ad: "OpenAI", bagli: false, eylem: "anahtar", tur: "anahtar", ortam: "OPENAI_API_KEY" }] }
+      : { ok: true });
+    render(<ProviderList client={{ request } as unknown as ProtocolClient} />);
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.change(await screen.findByLabelText("API anahtarı"), { target: { value: "  sk-abc123\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet", exact: true }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", { saglayici: "openai", deger: "sk-abc123" }));
+  });
+});
+
+// Ölçüldü (30 Ekim): liste her yenilendiğinde web model menüsü yeniden okunuyordu (U5-38).
+it("liste yenilense de web model menüsü yeniden okunmaz (U5-38)", async () => {
+  const taban = client();
+  // Gerçek çekirdek her yanıtta yeni nesneler döndürür; aynı dizi referansı yeniden render tetiklemez.
+  const fake = { request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "saglayici.katalog"
+    ? { ok: true, saglayicilar: SATIRLAR.map((satir) => ({ ...satir })) }
+    : taban.request(name, data)) } as unknown as ProtocolClient;
+  render(<ProviderList client={fake} initialProviderId="gemini_web" />);
+  await screen.findByRole("button", { name: "Bağlantıyı sına" });
+  await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.model_secenekleri", expect.anything()));
+  const menuIstegi = () => vi.mocked(fake.request).mock.calls.filter(([ad]) => ad === "web.model_secenekleri").length;
+  const once = menuIstegi();
+  const katalogOnce = vi.mocked(fake.request).mock.calls.filter(([ad]) => ad === "saglayici.katalog").length;
+  fireEvent.click(screen.getByRole("button", { name: "Araç desteğini ölç" }));
+  await waitFor(() => expect(vi.mocked(fake.request).mock.calls.filter(([ad]) => ad === "saglayici.katalog").length).toBe(katalogOnce + 1));
+  await waitFor(() => expect((screen.getByRole("button", { name: "Bağlantıyı sına" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(menuIstegi()).toBe(once);
+});
+
+describe("ProviderList çoklu hesap (P1-39)", () => {
+  // P1-39: aynı sağlayıcının ikinci hesabı kendi kartıyla görünür. `id` her kartta sağlayıcı
+  // kimliği kalır (RPC bağımsız değişkeni); kartı `kart_id` ayırt eder.
+  const IKI_HESAP = [
+    { id: "chatgpt_web", kart_id: "chatgpt_web", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: true, hesap: "main" },
+    { id: "chatgpt_web", kart_id: "chatgpt_web:is", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: false, hesap: "is" },
+  ];
+
+  it("aynı sağlayıcının ikinci hesabı ayrı kart olarak çizilir", async () => {
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: IKI_HESAP } })} />);
+
+    await screen.findByRole("button", { name: /ChatGPT Web · is/ });
+    expect(screen.getAllByRole("button", { name: /ChatGPT Web/ })).toHaveLength(2);
+  });
+
+  it("ikinci hesap kartı açılınca eylemler sağlayıcı kimliği ve KENDİ hesabıyla gider", async () => {
+    const istemci = client({ "saglayici.katalog": { ok: true, saglayicilar: IKI_HESAP } });
+    render(<ProviderList client={istemci} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web · is/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oturum aç" }));
+
+    await waitFor(() =>
+      expect(istemci.request).toHaveBeenCalledWith("web.giris", { saglayici: "chatgpt_web", hesap: "is" }),
+    );
+  });
+
+  it("eski çekirdek kart_id göndermese de sağlayıcı kimliğiyle çalışır", async () => {
+    render(<ProviderList client={client()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+
+    expect(await screen.findByRole("button", { name: "Oturum aç" })).toBeTruthy();
+  });
+
+  it("açık kart yalnız tıklanan hesabın ayrıntısını gösterir", async () => {
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: IKI_HESAP } })} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web · is/ }));
+
+    const ayrinti = await screen.findByRole("region", { name: /ChatGPT Web · is ayrıntıları/ });
+    expect(ayrinti).toBeTruthy();
+    expect(screen.queryByRole("region", { name: /^ChatGPT Web ayrıntıları/ })).toBeNull();
+  });
 });

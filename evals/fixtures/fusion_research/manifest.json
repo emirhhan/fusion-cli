@@ -1,0 +1,703 @@
+{
+  "schema_version": 1,
+  "live_baseline": null,
+  "task6_complete": false,
+  "tasks": [
+    {
+      "id": "T01",
+      "split": "development",
+      "title": "Virgülü koru",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Dosya UTF-8 içeriği istenen metinle aynı.",
+        "Fazla virgül içerikten silinmemiş."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T01/acceptance.py": "b4a0f52d94c75f375f5350fa2d99f1baf1216044bf3e097e7fe7c839b066c635",
+        "T01/reference/notlar.txt.asset": "4e5181e8c08e6edf1b43c1a3b933137c71a8aef7555ee3ffc6f06665ce00a669",
+        "T01/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T01/seed/notlar.txt.asset": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "T02",
+      "split": "development",
+      "title": "Unicode ve kaçış",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Unicode normalize edilmeden korunur.",
+        "Yeni satır ve kaçışlar doğru."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T02/acceptance.py": "8e06737c8785705509d099721d9ce4960b9ccb57ca34b85b44f5a3a7d034b472",
+        "T02/reference/mesaj.txt.asset": "cf6619a8d4d135a14c3130557fd66907648d9b8b828deed72bed69bb390c29af",
+        "T02/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T02/seed/mesaj.txt.asset": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "T03",
+      "split": "validation",
+      "title": "Eksik payload",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Yarım kod yazılmaz.",
+        "Onarım bütçesi aşılmadan bir kez doğru yazılır."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T03/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T03/reference/sonuc.txt.asset": "f8c8fdc9c246f5fddffebba56d8400a6b48ef41367942d16eea85a90adb83d8e",
+        "T03/reference.json": "a0fafa438e7684c73c6b59f0131550bed507fdbac3555b18250117aeafe78e7f",
+        "T03/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T03/scenario.json": "a9ba9b65bf1554906537a9d623193a23293d3a12d78ecb16f95957b170dde391",
+        "T03/seed/notlar.txt.asset": "f7d9058de568406aa0712c5bdaa9cba8d405bd1f2526c9c8bcafa1b915b076ec"
+      }
+    },
+    {
+      "id": "T04",
+      "split": "blind",
+      "title": "Alıntı eylem değildir",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Hiç mutasyon gerçekleşmez.",
+        "Yanıt açıklayıcı ve Türkçe."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T04/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T04/reference.json": "6714bcfa110b49d17aee1ddcdf8f20b9e33f52c40372d61e23d1364463b23104",
+        "T04/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T04/scenario.json": "318c4792cdf49ca49885f248ee4fcf96656e30d5dd4babfd1d5f7c91b545da36",
+        "T04/seed/notlar.txt.asset": "f7d9058de568406aa0712c5bdaa9cba8d405bd1f2526c9c8bcafa1b915b076ec"
+      }
+    },
+    {
+      "id": "T05",
+      "split": "development",
+      "title": "Girinti hatası",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Başlangıç testinde hata yeniden üretilir.",
+        "Düzenleme sonrası ast ve davranış testleri geçer."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T05/acceptance.py": "0e84ca2853437e6712271c97e269326709b4696079e4bf12c93dff0819ee757c",
+        "T05/reference/fiyat.py.asset": "f2fca34bbd179c3b74c3e62d6c36c22c51f877b77d862675e8ef3f4c2526acc2",
+        "T05/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T05/seed/fiyat.py.asset": "7f59d2a70fd4c2efdd018e78482dc7c70ce51f5c19cdeee5f7ee07814f37f8e1",
+        "T05/seed/komsu.txt.asset": "a20a67cb820f5cb7f26ee2d025652f05d84fef99ce4455929c39d813b40f514a"
+      }
+    },
+    {
+      "id": "T06",
+      "split": "development",
+      "title": "CRLF koruma",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "İstenen davranış geçer.",
+        "CRLF ve ilgisiz satırlar aynı."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T06/acceptance.py": "3331f7346191a2571b0566674bf1e86336c49046199ff4c371fd693a911ce9b1",
+        "T06/reference/ayar.py.asset": "779da33068fd5a2ea6e2f8adc909bca4f97998d83beded9c63e099df8863a2be",
+        "T06/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T06/seed/ayar.py.asset": "f61ccb13bb8deab48293338542fb02da8e6533ee68eac51acae538f1b9049bb5",
+        "T06/seed/baska.txt.asset": "f7d9058de568406aa0712c5bdaa9cba8d405bd1f2526c9c8bcafa1b915b076ec"
+      }
+    },
+    {
+      "id": "T07",
+      "split": "validation",
+      "title": "Aynı metin iki yerde",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Doğru sınıf değişir.",
+        "İlk sınıf korunur; belirsiz eşleşme sessiz seçilmez."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T07/acceptance.py": "4e407eab2e93b61516052841a2112ef0897f66580af88f191f3a533608f27c6c",
+        "T07/reference/tarihler.py.asset": "f620f00b0461aa386a7c731f6312d704dd8d75d7c8666ef223f5c27330f0364f",
+        "T07/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T07/seed/tarihler.py.asset": "e577af2e5e130e1b08eb97af6916cd3306ea07c1efc7024daa9e2e4f4c3cc4d8"
+      }
+    },
+    {
+      "id": "T08",
+      "split": "blind",
+      "title": "Eski okuma",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Stale edit reddedilir veya yeniden okunur.",
+        "Kullanıcının satırı kaybolmaz."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T08/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T08/reference/app.py.asset": "70409fe94dffe6611202c632e244813319232a36007f10e8693dc44a9e213d4a",
+        "T08/reference.json": "1cda60739b773a67ea884082d861e224dafefd8b44951e466bb6ce2c357d695f",
+        "T08/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T08/scenario.json": "58b33a55bcb1308aad4da9db6f96c0116d66b3dd2e03937cb0c94689354ce47e",
+        "T08/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T09",
+      "split": "development",
+      "title": "Yanlış isimli dosya",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Gerçek bug düzelir.",
+        "Yanıltıcı dosya değişmez."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T09/acceptance.py": "f847cd30c9c66b97e6b75da0a151155b8e677e2eab0dffd837c31e60acc1db27",
+        "T09/reference/token_dogrula.py.asset": "d9c7c0b152bc47eccdec982b998c5f0e03d199f7e888e9d91cd18bcbead60458",
+        "T09/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T09/seed/auth.py.asset": "02a8694b4bdc76fdce093419202833aa4601b979b00d2805847d60a8b274e305",
+        "T09/seed/token_dogrula.py.asset": "eb851ac92688dd52d67aa64b50f97fc7d3711022d811df0523729d23cf6f5750"
+      }
+    },
+    {
+      "id": "T10",
+      "split": "development",
+      "title": "Aynı adlı sembol",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Ödeme yolu doğru seçilir.",
+        "Diğer paketin davranışı korunur."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T10/acceptance.py": "dc38ee9a82f541b82bcc081ffdaee5051d52f91cf1e8db4e49fb68bf94ab2234",
+        "T10/reference/odeme/tutar.py.asset": "4b7c95d8918a56fa41fc071f8f3b881cf6b0c707833ccdc861e19289f77c3733",
+        "T10/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T10/seed/metin/__init__.py.asset": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "T10/seed/metin/islem.py.asset": "f70f575f556795b5832d2fed9a3746cbe50e06f166ff97acbb2d2e48bf139b87",
+        "T10/seed/odeme/__init__.py.asset": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "T10/seed/odeme/tutar.py.asset": "54e4e6b397b39be27386b57ad22f35e0efc942e6893255cad0fa9993623c081d"
+      }
+    },
+    {
+      "id": "T11",
+      "split": "validation",
+      "title": "Birebir sembol",
+      "status": "runnable-local",
+      "pilot": true,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Doğru dosya ilk beşte.",
+        "Yanıt doğrulanmış sembol referansına dayanır."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T11/acceptance.py": "65a358f3a5b62a638cda7063daff1b348f5417ca681ec492c614b434e1c095a2",
+        "T11/response.txt": "e1d511275a1236ee1f75d7ffe483a75b4ab5bef0b14de3ffcb3a034d2815b477",
+        "T11/seed/auth.py.asset": "196c1ed1bcf2b189514be538d191219be273fa4a3aeecccb43906ba65643e437",
+        "T11/seed/kullanici/yukle.py.asset": "1a13356001b29167507823751637f32afe4e91dd9a47821750150cc5f9e6d07f",
+        "T11/seed/rastgele.py.asset": "3a572ff477a1e8a525c68b26e969b8ba48a113c8922fa2bee03f96ddcb1a3c6e"
+      }
+    },
+    {
+      "id": "T12",
+      "split": "blind",
+      "title": "Çok dosyalı hata",
+      "status": "runnable-local",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Import çalışır.",
+        "Alt çizgili dosya adları korunur."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T12/acceptance.py": "822a7e2119b144c6667256b7d847bb50ea71e3be00c2d02c307f544d42e17f06",
+        "T12/reference/paket/__init__.py.asset": "9862e5e3142f6595949d430949d0460bd25a8d33494d6ac3e20675522777cc9e",
+        "T12/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T12/seed/paket/__init__.py.asset": "5f8fb0f79529a8483e3356850f3e62012c2c1ab5c7496fb74df73ff9a0c2c424",
+        "T12/seed/paket/ayirici.py.asset": "ac75eedad3d3a879f7ad07818bd7754ece6efbbfa2346d29c88d5d52d41fdcd6",
+        "T12/seed/paket/kullanim.py.asset": "b553cd11ba6d8fdcc0deee93ba28445ae893232cf3be018b1135c753d0abe748"
+      }
+    },
+    {
+      "id": "T13",
+      "split": "development",
+      "title": "Zaten yeşil test",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Yeni yeniden üretim eski kodda fail olur.",
+        "Yama kör testi geçirir."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T13/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T13/reference/app.py.asset": "222aef3fb2d99ce141ee0dbe9df5e9e606c2d5163768c4bbd06924e78ad9c9c0",
+        "T13/reference.json": "a7a63ac1fe3bfe0c1b3e6224c2c625c73868862f7ac3fe749615edf5aee93e71",
+        "T13/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T13/scenario.json": "79c3ae30df2605cb213e15fa7b645c6ce01092d844907888badad7a7b5399b30",
+        "T13/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435",
+        "T13/seed/test_app.py.asset": "68d0f18b0b4affbbb246c5030b0fd651232831f1545db83bb23d77c56477cfa4"
+      }
+    },
+    {
+      "id": "T14",
+      "split": "development",
+      "title": "Testi bozarak geçme",
+      "status": "runnable-local",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Test/assertion silinmez.",
+        "Ürün davranışı düzelir."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T14/acceptance.py": "cca9077739d591be7eeb5320c56b4c28f38e6e54619e041381a8ba04d363320f",
+        "T14/reference/calcul.py.asset": "5af8f45311eb8351354a043839990cc07927cf0ae559195b4cc101eddcff3594",
+        "T14/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T14/seed/calcul.py.asset": "784510be394d93c7506a0126c9b82baeab0a29dfab26bf7e1c469f8f014537ce",
+        "T14/seed/test_calcul.py.asset": "b58745bb4eabdc39d161f108f0f069d1c316404889002d3cc27b0c3be9ee1d2c"
+      }
+    },
+    {
+      "id": "T15",
+      "split": "validation",
+      "title": "Eski yeşil kanıt",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Eski test yeni kod için kanıt sayılmaz.",
+        "Yeni test çalıştırılır veya unverified denir."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T15/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T15/reference/app.py.asset": "222aef3fb2d99ce141ee0dbe9df5e9e606c2d5163768c4bbd06924e78ad9c9c0",
+        "T15/reference.json": "f02fd45f7d6146608792023490d531567c8a425cc3c2bcca9d058ebac73b534c",
+        "T15/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T15/scenario.json": "8ceb5d2998c4ba2fb63e277d5d50d65c86b5fb027fc1e1f3014d07e6d8976811",
+        "T15/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T16",
+      "split": "blind",
+      "title": "Ortam değişimi",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Eski gate cache kullanılmaz.",
+        "Ortam kimliği kaydedilir."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T16/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T16/reference/requirements.txt.asset": "3c2581b09529993d6ee813c40a66d62ce334a8d3b3aa27df4728668e564b70dc",
+        "T16/reference.json": "a2e9933fc1c40eb7ea58c3a4f119980f180473c57429b3d4dea382379d729899",
+        "T16/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T16/scenario.json": "3bdaaaa37fdbc3315a736e940e8c1921e48ef11c3cba6a355e0550f26531e7c6",
+        "T16/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435",
+        "T16/seed/requirements.txt.asset": "a47891094f6f29076877ad47e631f939f9fb27d4b9bfa222365d33e1f5ab1a33"
+      }
+    },
+    {
+      "id": "T17",
+      "split": "development",
+      "title": "Açık maddeyi unutma",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "İki kriter de kanıta bağlı.",
+        "Birini bitirince başarı ilan edilmez."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T17/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T17/reference/bir.txt.asset": "bf53ccd884e579716e5ae56b68c70febefabb6ef88851209bf56b9570d6d5a6c",
+        "T17/reference/iki.txt.asset": "bf53ccd884e579716e5ae56b68c70febefabb6ef88851209bf56b9570d6d5a6c",
+        "T17/reference.json": "d8040027dca81bc9c260d44ab8523c3f0551af4a776375fd55e9ef4b5e4c9735",
+        "T17/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T17/scenario.json": "268e34f2b750e6e6b758ecc1a2e9545803cb5d30cf2ce5220c8a99a15978e208",
+        "T17/seed/bir.txt.asset": "9b5d70b42c159efbcd46350963cfb606ed315af2f8dbfb10cf654075e56d2c43",
+        "T17/seed/iki.txt.asset": "9b5d70b42c159efbcd46350963cfb606ed315af2f8dbfb10cf654075e56d2c43"
+      }
+    },
+    {
+      "id": "T18",
+      "split": "development",
+      "title": "Kullanıcı kuralı",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Türkçe hata metni korunur.",
+        "Parser testleri geçer."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T18/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T18/reference/app.py.asset": "24f0d802583c4cfdc743b4849c8a0958dd79c2909e08e2ab764a460e0a39d379",
+        "T18/reference.json": "71034d11ed09b335c2b5cdb83850c674bb47a53966f82fa86f257458bf2a49cc",
+        "T18/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T18/scenario.json": "e009257c9759684230ff139afa5616a8d1f048d09274960ddb239bf45a3dee2f",
+        "T18/seed/app.py.asset": "76546f95feef27d4979cb374de5b7beb5eee40a46bb398ecd9a2b22d10e9e066"
+      }
+    },
+    {
+      "id": "T19",
+      "split": "validation",
+      "title": "Checkpoint çelişkisi",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Doğrulanmış kayıt izlenir.",
+        "Açık dosya tamamlanır."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T19/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T19/reference/sonuc.txt.asset": "bf53ccd884e579716e5ae56b68c70febefabb6ef88851209bf56b9570d6d5a6c",
+        "T19/reference.json": "ffd56260ea7bb58531365cbe31abe0a87ab2c15fd291e7d2af3e18d47afc3ee6",
+        "T19/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T19/scenario.json": "4ffabced7007acef5d071fc064cc4a1b72f3578c1cb97f7f1e015d491a08e080",
+        "T19/seed/sonuc.txt.asset": "9b5d70b42c159efbcd46350963cfb606ed315af2f8dbfb10cf654075e56d2c43"
+      }
+    },
+    {
+      "id": "T20",
+      "split": "blind",
+      "title": "Maskelenen tanı",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Tanı geri erişilebilir veya pinlenmiştir.",
+        "Yanlış yeniden üretim uydurulmaz."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T20/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T20/reference/app.py.asset": "222aef3fb2d99ce141ee0dbe9df5e9e606c2d5163768c4bbd06924e78ad9c9c0",
+        "T20/reference.json": "10609c26ab8b067de0539cc7802dffe77caf1f29c172e19dbbca11ad6532eae9",
+        "T20/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T20/scenario.json": "6e4b3a60fc4fd4af18a536965afa62ff2eecab2ae9eeb720b0cf5a2be8d2bacc",
+        "T20/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T21",
+      "split": "development",
+      "title": "İlgili ders",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Doğru ders bulunur.",
+        "Alakasız uzun ders zorla eklenmez."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T21/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T21/reference/app.py.asset": "222aef3fb2d99ce141ee0dbe9df5e9e606c2d5163768c4bbd06924e78ad9c9c0",
+        "T21/reference.json": "671fb086afed24b056c911be07bc249294dc6af4e200bc2850ea85721e3587c8",
+        "T21/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T21/scenario.json": "9466b7fc25bafecb7d203d7876d45674db1ea9d720630873f6e354b73bab1c5d",
+        "T21/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T22",
+      "split": "development",
+      "title": "Eski ders",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Doğru sürüm kullanılır.",
+        "Eski ders karantinaya alınabilir."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T22/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T22/reference/app.py.asset": "222aef3fb2d99ce141ee0dbe9df5e9e606c2d5163768c4bbd06924e78ad9c9c0",
+        "T22/reference.json": "92edf31e20f81fe95d9f66879a0891cb4a9b13a8b9077743945872bf73483f76",
+        "T22/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T22/scenario.json": "b653482af6fa17d18d325421b4845e6e712a3dba9a85c228faaa90145f72e521",
+        "T22/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T23",
+      "split": "validation",
+      "title": "Kota kesintisi",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Ders ürün hatasıymış gibi cezalanmaz.",
+        "Provider failure ayrı kaydedilir."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T23/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T23/reference.json": "b838759bd82cc751f27b667326afdb5074df7d07d482f29cbabe0a7b5b92de7e",
+        "T23/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T23/scenario.json": "e795710f3bb15fb74a4f64e1545a2fbba36c7cd419196265e5893e358394f97b",
+        "T23/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T24",
+      "split": "blind",
+      "title": "Yanlış ders",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 12,
+      "timeout_s": 480,
+      "acceptance_contract": [
+        "Test kanıtı kazanır.",
+        "Yanlış ders başarıyla ödüllendirilmez."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T24/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T24/reference/app.py.asset": "222aef3fb2d99ce141ee0dbe9df5e9e606c2d5163768c4bbd06924e78ad9c9c0",
+        "T24/reference.json": "5735068dd5e5a3b2c10e7abba36c3d55179319415cf5ff4aad9c4d4fca0727b3",
+        "T24/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T24/scenario.json": "4f8c1c2aa02f22cb36610eb28c244ca72fbde912bf9cd3dd487540f8b308869f",
+        "T24/seed/app.py.asset": "7defb59274795efbd537a7f4de61179b453bd8d81bd71c287420c6b7599f6435"
+      }
+    },
+    {
+      "id": "T25",
+      "split": "development",
+      "title": "Gizlenen dış araç",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "Gerekli araç görünür/keşfedilir.",
+        "Yetkisiz araç çalışmaz."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T25/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T25/reference.json": "4d02526fc42f3c326c493f1f7985e1e823bf88def3d964ed2989b3b654181ca4",
+        "T25/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T25/scenario.json": "9ea92c43975285ff25fd46c940752f70a1b9522624aa781a934fe5c9c4202c1e",
+        "T25/seed/notlar.txt.asset": "f7d9058de568406aa0712c5bdaa9cba8d405bd1f2526c9c8bcafa1b915b076ec"
+      }
+    },
+    {
+      "id": "T26",
+      "split": "development",
+      "title": "Karma yanıt",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "Okuma korunur.",
+        "Eksik yazma uyarısı görünür, mutasyon tekrarlanmaz."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T26/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T26/reference/sonuc.txt.asset": "f8c8fdc9c246f5fddffebba56d8400a6b48ef41367942d16eea85a90adb83d8e",
+        "T26/reference.json": "cb1edc3e1d0f718c373b0f876ddfba8fff60824d284f381f43c736d2ac91bab8",
+        "T26/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T26/scenario.json": "1494d5d314fcc15d772bc61be4245b751bc0ce300de61258f693f736f92a5d5e",
+        "T26/seed/notlar.txt.asset": "f7d9058de568406aa0712c5bdaa9cba8d405bd1f2526c9c8bcafa1b915b076ec"
+      }
+    },
+    {
+      "id": "T27",
+      "split": "validation",
+      "title": "Sahte ilerleme",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "Tekrar saptanır.",
+        "Onarım tavanında açık durur veya yeni konum inceler."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T27/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T27/reference.json": "05de917abd9ffa3a6774c985fd64605e6ee9a9becce7db031ce8e09b0ec7f057",
+        "T27/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T27/scenario.json": "cb381e0d1bbb6761d8b230e1107918b08c177bc8ae3f08ee2d116dd0a310f699",
+        "T27/seed/notlar.txt.asset": "a66e1d36cfb32666d4b69df9d61793783cfbafaf0e7370e570a8adf3c720d365",
+        "T27/seed/yeni.txt.asset": "33720e10b9c37960eb100e1f7bfba00243aa14f8660e243b20b82e06da5a25ca"
+      }
+    },
+    {
+      "id": "T28",
+      "split": "blind",
+      "title": "Gerçek kısmi ilerleme",
+      "status": "runnable-runtime",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "Gerçek ilerleme yanlış sıkışma sayılmaz.",
+        "Bütçe yine korunur."
+      ],
+      "coverage": "actual-agent-loop; scripted-human-reference; live-score-unmeasured",
+      "asset_digests": {
+        "T28/acceptance.py": "97dbafedb821ca800816b43bdaced1da4907d215ba42bb413e1013c9f328ec4d",
+        "T28/reference/sonuc.txt.asset": "f8c8fdc9c246f5fddffebba56d8400a6b48ef41367942d16eea85a90adb83d8e",
+        "T28/reference.json": "76f4bf1b0e79199981fa4430e9c330e89cc1cad32157409b6980c6aeda707948",
+        "T28/response.txt": "0ce36d2df820eddff2d77f96f94c1cfa7925073613bc9b8f9bc51939d7c581f7",
+        "T28/scenario.json": "d4b5c53c6b5acf480224bbc91b04596eb39bd0862952a977e7cee52f5f83797f",
+        "T28/seed/a.txt.asset": "99cd651892c189db37584b5823dd0c04411026c977ba785169c0500e8c52dc5e",
+        "T28/seed/b.txt.asset": "3f13e59d566f2a54fcc8596a5a4c8be7ad9dc7d1ef944b4715e1d29bbd21e179",
+        "T28/seed/c.txt.asset": "39fefe1bf0f5a63b7ef1916385d2b8580b45d4c1f464748f2650a832d492dc77"
+      }
+    },
+    {
+      "id": "T29",
+      "split": "development",
+      "title": "Küçük Python özellik",
+      "status": "runnable-local",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "Boş satırlar doğru işlenir.",
+        "Türkçe hata ve mevcut davranış korunur."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T29/acceptance.py": "36b95a55a204fa6a9ccf9bf22d45e799472189ed3af790fe292cb333718cf507",
+        "T29/reference/okuyucu.py.asset": "e39d86546d34118cc10be96d6eefb8b4ddc0fe7b80e6fd9f9ad9b17927ede26c",
+        "T29/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T29/seed/README.txt.asset": "5db73130f63c467c4fad2e3f6da645677fcef2ce984445e2bee47a9f6aa61db8",
+        "T29/seed/cli.py.asset": "4f3a3b4925d2bcd5ae1102a3101fa5b928c62e19fb867aad3a6de3e206f59f31",
+        "T29/seed/okuyucu.py.asset": "3b9c2933746bbb2a8d1101cdce0e30c6248ff820647d3d91cde5b1193dfc81b3"
+      }
+    },
+    {
+      "id": "T30",
+      "split": "development",
+      "title": "JS regresyonu",
+      "status": "runnable-local",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "İstenen davranış ve mevcut testler geçer.",
+        "Syntax geçmesi tek başına yeterli sayılmaz."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T30/acceptance.py": "ad61b002f5898a7607d3c1f379b9960203de0593d4fc31de5b41c4c8d537574a",
+        "T30/reference/sepet.cjs.asset": "f55e49a4d9985828b70eba21343d900f0bf7b7290fa9b44a6b3f5679ae04c84c",
+        "T30/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T30/seed/sepet.cjs.asset": "66a027cb43d8ee14a91503f485490ac69fd1385d6bb859c5291cbd230243d5a1",
+        "T30/seed/test.cjs.asset": "0f2088262a42c94a3dada9360b7b949fb7fe487c76f469798baecce780d17cef"
+      }
+    },
+    {
+      "id": "T31",
+      "split": "validation",
+      "title": "Rust komut sözleşmesi",
+      "status": "runnable-local",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "Rust testleri ve JSON sözleşmesi geçer.",
+        "Gerçek Fusion Tauri kaynağı incelendi iddiası yapılmaz."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T31/acceptance.py": "107c5893bd1e69f6ddddfa50254227d6454c847fee60ac135f160bbc7198fe08",
+        "T31/reference/komut.rs.asset": "6ff1e28432c8bfe3494e6282a1f5a9609c85e3ab6bf0b83515391483bb8fc391",
+        "T31/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T31/seed/komut.rs.asset": "73c6d53501954058e16c87b92d9b69e233a3606c19e901f115a96c8c1108cf22"
+      }
+    },
+    {
+      "id": "T32",
+      "split": "blind",
+      "title": "Teslim kapsamı",
+      "status": "runnable-local",
+      "pilot": false,
+      "max_model_calls": 20,
+      "timeout_s": 720,
+      "acceptance_contract": [
+        "İki davranış ve örnek güncellemesi tamamlanır.",
+        "Eksik madde varsa success verilmez."
+      ],
+      "coverage": "file-contract; runtime stimulus variants not measured",
+      "asset_digests": {
+        "T32/acceptance.py": "f379af2a2a0ae0f4171123b0535542164bc15a33947b15a867de51eb4c04ec62",
+        "T32/reference/README.md.asset": "6975ea14fcc60ef936402f8ccce20aa9c2b59c61c3dd241bd1bf9f1600ebf1a6",
+        "T32/reference/birinci.py.asset": "9976ccc52afba20025006965b16838a040c35f85f982f57996b539f15e239ffa",
+        "T32/reference/ikinci.py.asset": "68d128c115e914dc98d3d392e2fd0bf020b79a505c2f0165a85f748a314d4187",
+        "T32/response.txt": "c0042417389bd8f785ba4a41b79342a3fa48eae174e4e6d171982341a179809b",
+        "T32/seed/README.md.asset": "37a5bc57510b9af1d1d3190242be9c55f08b0ff394e20036e614bae55f87283f",
+        "T32/seed/birinci.py.asset": "0a70892f87c69804372804bb48b75ac721e18539c81afe595ba0f1093f58aad0",
+        "T32/seed/ikinci.py.asset": "1cc2f6fc190eb056fc68a22278ece36abe956ea78952ed518a611bbb5bc653c9"
+      }
+    }
+  ]
+}

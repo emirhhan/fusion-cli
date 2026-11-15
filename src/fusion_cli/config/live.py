@@ -45,28 +45,48 @@ def revision(config: Config) -> ConfigRevision:
     return ConfigRevision(source.resolve(), stat.st_mtime_ns, stat.st_size)
 
 
-def reload_if_changed(
-    config: Config, previous: ConfigRevision | None = None
-) -> tuple[Config, ConfigRevision, bool]:
-    """Yapılandırma dosyasının sürümü değiştiyse yeniden yükle.
+@dataclass(frozen=True, slots=True)
+class ReloadOutcome:
+    """Yeniden yükleme sonucu. `error` doluysa dosya DEĞİŞTİ ama okunamadı."""
+
+    config: Config
+    revision: ConfigRevision
+    reloaded: bool
+    error: str = ""
+
+
+def reload_checked(config: Config, previous: ConfigRevision | None = None) -> ReloadOutcome:
+    """Yapılandırma dosyasının sürümü değiştiyse yeniden yükle; okunamazsa nedenini taşı.
 
     `previous`'ın sahibi çağırandır. Kaynak kaybolursa ya da başka bir süreç yazarken
     yeni içerik geçici olarak geçersizse, son bilinen-iyi yapılandırma korunur. Atomik
     yazma bu pencereyi seyrek kılar; yine de etkileşimli terminal için güvenli-başarısız
     davranış önemlidir.
+
+    Ölçüldü (30 Ekim): hata yalnız `_logger.warning`e gidiyordu; panelde ya da elle
+    yapılan değişikliğin UYGULANMADIĞINI kullanıcı hiçbir yerde göremiyordu. Hata artık
+    `error` alanında döner (sürüm ilerletilir; aynı bozuk dosya için tekrar denenmez).
     """
     current = revision(config)
     if previous is None:
-        return config, current, False
+        return ReloadOutcome(config, current, False)
     if current == previous:
-        return config, previous, False
+        return ReloadOutcome(config, previous, False)
     if current.path is None or not current.path.is_file():
-        return config, current, False
+        return ReloadOutcome(config, current, False)
     try:
         loaded = load_config(current.path)
     except Exception as error:
         # Sınır davranışı: yükleme başarısızsa (yarım yazılmış dosya vb.) son iyi
-        # yapılandırmayla devam edilir; sessizce yutulmaz, teşhis için log'lanır.
+        # yapılandırmayla devam edilir; log'lanır VE çağırana bildirilir.
         _logger.warning("Yapılandırma yeniden yüklenemedi (%s): %s", current.path, error)
-        return config, current, False
-    return loaded, revision(loaded), True
+        return ReloadOutcome(config, current, False, error=str(error))
+    return ReloadOutcome(loaded, revision(loaded), True)
+
+
+def reload_if_changed(
+    config: Config, previous: ConfigRevision | None = None
+) -> tuple[Config, ConfigRevision, bool]:
+    """`reload_checked`in üçlü (yapılandırma, sürüm, yüklendi-mi) hâli (hata alanı atılır)."""
+    outcome = reload_checked(config, previous)
+    return outcome.config, outcome.revision, outcome.reloaded

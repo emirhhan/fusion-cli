@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ...core.assets import is_asset_inventory
@@ -16,27 +17,43 @@ from ...core.failure import (
 )
 from .step_verification import StepVerificationResult, evaluate_file_check
 
+#: Hata sınıfı kalıpları. Düz alt dize eşlemesi `5030 bayt`, `iç bağlantı sınıfı`, `izinli`
+#: gibi sıradan metni geçici/izin hatası sayıyordu (ölçüldü 29 Ekim, A3-11): PERMISSION
+#: otomatik duraklatır, yanlış sınıf turu boşuna keser. Sayılar ve kökler sözcük sınırıyla,
+#: Türkçe kökler başlangıç sınırıyla eşlenir.
+_TIMEOUT_RE = re.compile(r"zaman aş|\btimeout\b|\btimed out\b")
+_TRANSIENT_RE = re.compile(
+    r"\bgeçici (?:hata|olarak|bir)|\btemporar(?:y|ily)\b"
+    r"|\bbağlantı (?:hata|kesil|kurulamad|reddedil|zaman)"
+    r"|\bconnection (?:refused|reset|error|closed|lost)"
+    r"|\b(?:429|503)\b"
+)
+_PERMISSION_RE = re.compile(
+    r"onaylanmadı|\bizin (?:ver|yok|reddedil|gerek)|\bpermission\b|\bdenied\b"
+)
+_CONTRACT_RE = re.compile(r"geçersiz argüman|\binvalid argument\b|\bşema\b")
+
+
+def _fold(text: str) -> str:
+    """Küçük harfe çevir; Türkçe `İ` birleşik noktalı `i̇` üretip eşleşmeyi bozmasın."""
+    return text.replace("İ", "i").lower()
+
 
 def classify_failure(outcome: object, verification: StepVerificationResult) -> FailureRecord:
     """Agent sonucunu ve post-condition bulgularını deterministik sınıflandır."""
     final_text = str(getattr(outcome, "final_text", ""))
     failed_tools = int(getattr(outcome, "failed_tool_calls", 0))
-    combined = " ".join((final_text, *verification.findings)).lower()
+    combined = _fold(" ".join((final_text, *verification.findings)))
 
     if verification.findings and bool(getattr(outcome, "ok", True)):
         return FailureRecord(FailureCategory.VERIFICATION, " ".join(verification.findings))
-    if any(marker in combined for marker in ("zaman aş", "timeout", "timed out")):
+    if _TIMEOUT_RE.search(combined):
         return FailureRecord(FailureCategory.TIMEOUT, combined.strip(), observed=False)
-    if any(
-        marker in combined
-        for marker in ("geçici", "temporary", "bağlantı", "connection", "429", "503")
-    ):
+    if _TRANSIENT_RE.search(combined):
         return FailureRecord(FailureCategory.TRANSIENT, combined.strip(), observed=False)
-    if any(marker in combined for marker in ("onaylanmadı", "izin", "permission", "denied")):
+    if _PERMISSION_RE.search(combined):
         return FailureRecord(FailureCategory.PERMISSION, combined.strip(), observed=False)
-    if failed_tools or any(
-        marker in combined for marker in ("geçersiz argüman", "invalid argument", "şema")
-    ):
+    if failed_tools or _CONTRACT_RE.search(combined):
         return FailureRecord(FailureCategory.TOOL_CONTRACT, combined.strip(), observed=False)
     if verification.findings:
         return FailureRecord(FailureCategory.VERIFICATION, " ".join(verification.findings))

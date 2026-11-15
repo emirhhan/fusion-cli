@@ -98,4 +98,87 @@ describe("UsagePanel", () => {
     expect(await screen.findByText(/henüz model çağrısı yapılmadı/i)).toBeTruthy();
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  /* Ölçüldü (31 Ekim): `gecmis`/`atif` alanları için test yoktu; günlük kapalıyken
+     bölümler sessizce gizleniyor, kullanıcıya nedeni söylenmiyordu. */
+  const bos = { cagri: 0, girdi_token: 0, cikti_token: 0, toplam_token: 0, maliyet_usd: 0, modeller: [] };
+
+  it("kalıcı günlükten son dönem ve kim harcadı bölümlerini gösterir", async () => {
+    render(
+      <UsagePanel
+        client={client({
+          ok: true,
+          kullanim: bos,
+          saglik: [],
+          gunluk_acik: true,
+          gecmis: [
+            { pencere: "son 24 saat", cagri: 4, toplam_token: 1500, maliyet_usd: 0.02, maliyet_tam: true },
+            { pencere: "son 7 gün", cagri: 9, toplam_token: 3000, maliyet_usd: 0.05, maliyet_tam: false },
+          ],
+          atif: {
+            pencere: "son 7 gün",
+            kaynaklar: [{ ad: "alt ajan", cagri: 2, toplam_token: 400, maliyet_usd: 0.01 }],
+            mcp: [{ ad: "github", cagri: 3 }],
+            beceriler: [{ ad: "pdf", cagri: 1 }],
+          },
+        })}
+      />,
+    );
+    expect(await screen.findByText("Son dönem")).toBeTruthy();
+    expect(screen.getByText("son 24 saat")).toBeTruthy();
+    expect(screen.getByText("en az $0.0500")).toBeTruthy();
+    expect(screen.getByText("Kim harcadı (son 7 gün)")).toBeTruthy();
+    expect(screen.getByText("MCP · github")).toBeTruthy();
+    expect(screen.getByText("Beceri · pdf")).toBeTruthy();
+    expect(screen.queryByText(/günlüğü kapalı/)).toBeNull();
+  });
+
+  it("günlük kapalıysa nedenini ve nasıl açılacağını söyler", async () => {
+    render(<UsagePanel client={client({ ok: true, kullanim: bos, saglik: [], gunluk_acik: false })} />);
+    expect(await screen.findByText(/Kullanım günlüğü kapalı/)).toBeTruthy();
+    expect(screen.getByText(/runtime\.usage_log/)).toBeTruthy();
+    expect(screen.queryByText("Son dönem")).toBeNull();
+  });
+
+  it("eski çekirdek gunluk_acik göndermezse kapalı notu çıkmaz", async () => {
+    render(<UsagePanel client={client({ ok: true, kullanim: bos, saglik: [] })} />);
+    expect(await screen.findByText(/henüz model çağrısı yapılmadı/i)).toBeTruthy();
+    expect(screen.queryByText(/Kullanım günlüğü kapalı/)).toBeNull();
+  });
+});
+
+// Ölçüldü (31 Ekim, P-066): panel `limitler` alanını okumuyordu; "sağlayıcı beni bekletiyor mu" görünmüyordu.
+describe("UsagePanel hız sınırları ve kota", () => {
+  it("kota bekleten modeli ve ayarlı dakikalık sınırı gösterir", async () => {
+    render(
+      <UsagePanel
+        client={client({
+          ok: true,
+          kullanim: { cagri: 0, girdi_token: 0, cikti_token: 0, toplam_token: 0, maliyet_usd: 0, modeller: [] },
+          saglik: [],
+          limitler: {
+            dakikaLimitleri: [{ saglayici: "nvidia_nim", dakikaLimiti: 40 }],
+            kotaBekleyen: [{ model: "nim/llama", seri: 2, yenidenSn: 90 }],
+          },
+        })}
+      />,
+    );
+    expect(await screen.findByText("nim/llama")).toBeTruthy();
+    expect(screen.getByText(/90 sn sonra yeniden/)).toBeTruthy();
+    expect(screen.getByText(/40 istek\/dk/)).toBeTruthy();
+  });
+
+  it("eski çekirdek limit göndermezse hata vermez ve 'bekletmiyor' der", async () => {
+    render(
+      <UsagePanel
+        client={client({
+          ok: true,
+          kullanim: { cagri: 0, girdi_token: 0, cikti_token: 0, toplam_token: 0, maliyet_usd: 0, modeller: [] },
+          saglik: [],
+        })}
+      />,
+    );
+    expect(await screen.findByText("Şu an hiçbir sağlayıcı kota bekletmiyor.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });

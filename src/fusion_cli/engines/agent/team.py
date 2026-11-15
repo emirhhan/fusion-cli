@@ -9,21 +9,44 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import logging
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...config.models import McpServerConfig
+from ...config.worktree_settings import enter_configured_worktree
 from ...core.clock import SystemClock
+from ...core.errors import ConfigError, PathAccessError, WorktreeError
 from ...core.events import Channel, Event, EventPublisher, SubAgentFinished, SubAgentStarted
-from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...tools.capabilities import CapabilityRegistry, load_agent_prompt, map_tools
+from ...core.hooks.events import HookSet
+from ...core.tools import ToolContext
+from ...core.worktree import (
+    LeaveOutcome,
+    Worktree,
+    WorktreeHookCalls,
+    leave_worktree,
+)
+from ...memory.plain_memory import AGENT_MEMORY_SCOPES
+from ...tools import job_lifetime
+from ...tools.capabilities import (
+    CapabilityRegistry,
+    agent_prompt,
+    expand_tool_patterns,
+    map_tools,
+    unmapped_tools,
+)
+from ..hooks.worktree_hooks import worktree_hook_calls
+from . import team_fork, team_settings
 from .team_policy import allowed_tools as _allowed_tools
 from .team_policy import child_execution as _child_execution
 from .team_policy import member_brief as _member_brief
 from .team_policy import summary as _summary
-from .team_policy import team_report as _team_report
 from .team_scope import changed_paths
 from .team_scope import derive_sub_context as derive_sub_context
 from .team_scope import schedule_waves as schedule_waves
@@ -31,12 +54,76 @@ from .team_scope import schedule_waves as schedule_waves
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
-#: Alt ajan derinliği: alt ajan başka alt ajan başlatamaz. Ölçülmüş bir sınırdır
-#: (bkz. `engine_tools.MAX_AGENT_DEPTH` tarihçesi); iç içe ajanlar bağlamı ve hız
-#: kotasını katlayarak tüketir.
+_LOG = logging.getLogger(__name__)
+
+#: Alt ajan derinliğinin YEDEK tavanı: yapılandırma okunamazsa alt ajan başka alt ajan
+#: başlatamaz. Asıl değer `runtime.max_agent_depth` (Claude Code: ana konuşmanın altında 3
+#: kat) ya da `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`.
 MAX_AGENT_DEPTH = 1
 #: Kartta gösterilecek sonuç satırının en fazla karakteri.
 SUMMARY_CHARS = 160
+DEPTH_LIMIT_MESSAGE = "Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap."
+#: maxTurns sınırına ulaşan alt ajan sonucunun başı.
+PARTIAL_PREFIX = "[Kısmi çıktı: alt ajan maxTurns sınırına ulaştı; SendMessage ile sürdürülebilir.]"
+#: Claude Code'un eşzamanlı alt ajan sınırı iletisi (aynen).
+CONCURRENT_LIMIT_MESSAGE = "Concurrent subagent limit reached ({limit} alt ajan çalışıyor)."
+SUBAGENT_BUDGET_MESSAGE = (
+    "Bu turda alt ajan bütçesi doldu ({limit} alt ajan başlatıldı); kalan işi kendin yap."
+)
+
+
+def max_agent_depth(deps: AgentDeps) -> int:
+    """Claude ortam değişkeni → yapılandırılmış tavan; eski yapılandırmada yedek sabit."""
+    launch = getattr(getattr(deps.config, "agent_launch", None), "max_spawn_depth", 0) or 0
+    if launch > 0:
+        return int(launch)
+    return max(1, int(getattr(deps.config.runtime, "max_agent_depth", MAX_AGENT_DEPTH)))
+
+
+def concurrent_limit(deps: AgentDeps) -> int:
+    """Aynı anda çalışabilecek alt ajan sayısı (Claude Code varsayılanı 20)."""
+    launch = getattr(getattr(deps.config, "agent_launch", None), "max_concurrent_subagents", 0)
+    if launch:
+        return int(launch)
+    return max(1, int(getattr(deps.config.runtime, "max_parallel_agents", 20)))
+
+
+def concurrent_limit_reached(deps: AgentDeps) -> str | None:
+    """Oturumda sınır kadar alt ajan çalışıyorsa modele dönecek ileti."""
+    limit = concurrent_limit(deps)
+    active = getattr(deps.child_runs, "active_count", 0)
+    return CONCURRENT_LIMIT_MESSAGE.format(limit=limit) if active >= limit else None
+
+
+def depth_limit_reached(deps: AgentDeps, depth: int) -> bool:
+    """`depth` derinliğindeki ajan yeni bir alt ajan açamaz mı?"""
+    return depth >= max_agent_depth(deps)
+
+
+def subagent_budget_exhausted(deps: AgentDeps) -> str | None:
+    """Kök turun toplam alt ajan bütçesi dolduysa modele dönecek mesaj, değilse None."""
+    limit = int(getattr(deps.config.runtime, "max_subagents_per_turn", 0) or 0)
+    started = deps.child_runs.started_for_current_turn + getattr(
+        deps.child_runs, "pending_starts", 0
+    )
+    if limit > 0 and started >= limit:
+        return SUBAGENT_BUDGET_MESSAGE.format(limit=limit)
+    return None
+
+
+def child_step_limit(deps: AgentDeps, depth: int, requested: int | None = None) -> int | None:
+    """Alt ajanın adım tavanı: tanımdaki `maxTurns` olduğu gibi uygulanır (#36).
+
+    Claude Code derinliğe göre bütçe yarılamaz (#29). Kullanıcının `agent_max_steps`
+    tavanı aşılmaz (ölçüldü, 31 Ekim: depodan gelen `maxTurns: 500` deliyordu); `depth`
+    eski çağıranlar için imzada kalır.
+    """
+    del depth
+    base = deps.config.runtime.agent_max_steps
+    if requested and base:
+        return min(requested, base)
+    return requested or None
+
 
 RunAgent = Callable[..., Awaitable["AgentOutcome"]]
 
@@ -54,6 +141,36 @@ class Persona:
     prompt: str = ""
     #: Üyenin bildirdiği araç seti (Fusion adlarıyla); `None` = tam set.
     tools: frozenset[str] | None = None
+    #: Tanımdaki ayarlar (P-034; bkz. `team_settings`). Boş/0 = üst ajandan miras.
+    model: str = ""
+    permission_mode: str = ""
+    max_turns: int = 0
+    skills: tuple[str, ...] = ()
+    mcp_servers: tuple[str, ...] = ()
+    #: user | project | local: alt ajanın kalıcı belleği (P-055); boş = yok.
+    memory_scope: str = ""
+    effort: str = ""
+    #: `disallowedTools` Fusion adlarıyla; `tools`'tan sonra çıkarılır.
+    disallowed_tools: frozenset[str] = frozenset()
+    #: Tanımda geçen ama Fusion'da karşılığı olmayan araç adları (uyarı için).
+    unknown_tools: tuple[str, ...] = ()
+    #: Yerleşik keşif/plan ajanında ilk proje talimatları yüklenmez.
+    omit_initial_instructions: bool = False
+    initial_prompt: str = ""
+    #: `autoCompactWindow` (belirteç): alt ajanın özetleme eşiğini düşürür; 0 = oturumunki.
+    auto_compact_window: int = 0
+    #: `experimental.cacheTtl` (`5m` | `1h`).
+    cache_ttl: str = ""
+    hook_definitions: HookSet = field(default_factory=HookSet, repr=False)
+    inline_mcp_servers: tuple[McpServerConfig, ...] = field(default=(), repr=False)
+    background: bool = False
+    #: Tanımdaki `isolation`; `worktree` ise çağrı istemese de ajan ayrı ağaçta koşar (#22).
+    isolation: str = ""
+    source: str = ""
+    definition_path: Path | None = None
+    allowed_agent_types: tuple[str, ...] | None = None
+    #: Tanımdaki `tools` girdileri (Claude adlarıyla); sıfır araç reddi bunları gruplar.
+    tool_entries: tuple[str, ...] = ()
 
 
 #: Adı verilmeyen ya da kütüphanede bulunmayan görevler için genel yardımcı.
@@ -69,6 +186,34 @@ class SubTask:
     read_only: bool = False
     #: Yazılabilecek yollar (köke göreli). Boş + `read_only=False` = alan belirsiz.
     write_scope: tuple[str, ...] = ()
+    #: Ana konuşmanın bağlamını devral (fork, P-054): alt ajan temiz değil, ana geçmişin
+    #: kırpılmış görünümüyle başlar. `/subtask`, `baglam_miras: true` ve `context: fork`.
+    inherit_context: bool = False
+    #: Üst turun bu göreve kattığı ek sistem notu (oturum kişiliği, seçilen beceri metni,
+    #: kip istemi): üyenin kendi talimatından SONRA brife girer. Ölçüldü (31 Ekim): fork
+    #: turu bunları atıyordu, `context: fork` becerisi boş çalışıyordu.
+    brief: str = ""
+    #: Üst turun araç TAVANI (`None` = sınırsız): üyenin kümesiyle kesişir, genişletmez.
+    #: Salt-okur oturum kişiliği fork içinde yazamasın diye.
+    tool_cap: frozenset[str] | None = None
+    #: Üst turun yasak araçları (oturum kişiliğinin `disallowedTools`u); desen açılır.
+    tool_deny: frozenset[str] = frozenset()
+    #: Görev mesajına eklenen görseller (data URI); fork turunda kullanıcının ekleri.
+    images: tuple[str, ...] = ()
+    #: Üst turun adım tavanı; kişiliğin `maxTurns`'ü ve derinlik bütçesiyle en küçüğü geçer.
+    step_limit: int | None = None
+    #: "worktree" ise üye kendi git çalışma ağacında yazar; ana proje değişmez.
+    isolation: str = ""
+    model: str = ""
+    name: str = ""
+    resume: str = ""
+    agent_id: str = ""
+    background: bool = False
+    #: Çağrıdaki `effort`; tanımdaki `effort` alanını yalnız bu koşu için ezer.
+    effort: str = ""
+    #: `context: fork` becerisinin `allowed-tools`/`disallowed-tools` kuralları (#141, #142):
+    #: ana tura değil, yalnız bu alt ajanın bağlamına girer.
+    skill_grants: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +248,8 @@ class ScopedPublisher:
 
 def new_agent_id(persona: str) -> str:
     """Okunur ve çakışmaz alt ajan kimliği (`tasarimci-3f9a1c`)."""
-    return f"{persona}-{uuid.uuid4().hex[:6]}"
+    prefix = re.sub(r"[^a-zA-Z0-9_-]", "-", persona)[:48].strip("-") or "ajan"
+    return f"{prefix}-{uuid.uuid4().hex}"
 
 
 def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
@@ -113,14 +259,45 @@ def resolve_persona(library: CapabilityRegistry | None, name: str) -> Persona:
     agent = library.get_agent(name.strip())
     if agent is None:
         return GENERIC_PERSONA
-    allowed = map_tools(agent.tools)
+    from .agent_runtime_context import agent_type_subset, child_tool_names
+
+    allowed = map_tools(child_tool_names(agent.tools))
+    disallowed = map_tools(agent.disallowed_tools) if agent.disallowed_tools else None
+    unknown = unmapped_tools(child_tool_names(agent.tools)) + unmapped_tools(agent.disallowed_tools)
+    if unknown:
+        _LOG.warning(
+            "ajan tanımında tanınmayan araç adı", extra={"ajan": agent.name, "araclar": unknown}
+        )
     return Persona(
         name=agent.name,
         title=agent.title or agent.name,
         avatar=agent.avatar or agent.name,
         color=agent.color,
-        prompt=load_agent_prompt(agent.path),
+        prompt=agent_prompt(agent),
         tools=frozenset(allowed) if allowed is not None else None,
+        model=agent.model,
+        permission_mode=team_settings.agent_permission_mode(agent),
+        max_turns=agent.max_turns,
+        skills=agent.skills,
+        mcp_servers=agent.mcp_servers,
+        memory_scope=agent.memory if agent.memory in AGENT_MEMORY_SCOPES else "",
+        effort=agent.effort,
+        disallowed_tools=frozenset(disallowed or ()),
+        unknown_tools=unknown,
+        omit_initial_instructions=(
+            agent.omit_claude_md or (agent.source == "fusion" and agent.name in {"explore", "plan"})
+        ),
+        initial_prompt=agent.initial_prompt,
+        auto_compact_window=agent.auto_compact_window,
+        cache_ttl=agent.cache_ttl,
+        hook_definitions=agent.hook_definitions,
+        inline_mcp_servers=agent.inline_mcp_servers,
+        background=agent.background,
+        isolation=agent.isolation,
+        source=agent.source,
+        definition_path=agent.path,
+        allowed_agent_types=agent_type_subset(agent.tools),
+        tool_entries=child_tool_names(agent.tools),
     )
 
 
@@ -133,13 +310,32 @@ async def run_subagent(
     group_size: int = 1,
 ) -> SubRun:
     """Tek bir alt ajanı kişiliğiyle başlat, olaylarını kimliğiyle akıt."""
+    cap = deps.runtime_tool_cap
+    if cap is not None:
+        subtask = dataclasses.replace(
+            subtask, tool_cap=cap if subtask.tool_cap is None else cap & subtask.tool_cap
+        )
+    subtask = dataclasses.replace(subtask, tool_deny=subtask.tool_deny | deps.denied_tools)
     persona_error = ""
     try:
         persona = resolve_persona(deps.capabilities, subtask.persona)
     except Exception as error:
         persona = GENERIC_PERSONA
         persona_error = type(error).__name__
-    sub_id = new_agent_id(persona.name)
+    if subtask.effort:
+        persona = dataclasses.replace(persona, effort=subtask.effort)
+    if persona.memory_scope and not getattr(deps.config.runtime, "auto_memory", True):
+        # Claude Code: ajan belleği otomatik belleğin parçasıdır; kapalıyken alan etkisizdir.
+        persona = dataclasses.replace(persona, memory_scope="")
+    from .agent_runtime_context import launch_denial
+    from .agent_zero_tools import zero_tools_denial
+
+    denial = launch_denial(deps, persona, subtask.persona) or zero_tools_denial(
+        deps, persona, depth=depth, background=subtask.background and not subtask.inherit_context
+    )
+    if denial:
+        return SubRun("", persona, denial, False, 0, status="denied")
+    sub_id = subtask.agent_id or new_agent_id(persona.name)
     deps.publisher.publish(
         SubAgentStarted(
             task=subtask.task,
@@ -150,6 +346,7 @@ async def run_subagent(
             color=persona.color,
             group_size=group_size,
             started_at=(deps.budget.clock if deps.budget is not None else SystemClock()).now(),
+            depth=depth + 1,
         )
     )
     started = time.monotonic()
@@ -162,7 +359,22 @@ async def run_subagent(
         if persona_error:
             text = f"Üye yüklenemedi ({persona_error})."
             return SubRun(sub_id, persona, text, False, 0)
-        context = derive_sub_context(deps.tool_context, subtask)
+        budget_message = subagent_budget_exhausted(deps)
+        if subtask.agent_id and deps.child_runs.running(subtask.agent_id):
+            limit = deps.config.runtime.max_subagents_per_turn
+            if not limit or deps.child_runs.started_for_current_turn < limit:
+                budget_message = None
+        if budget_message is not None:
+            text = budget_message
+            status = "budget"
+            return SubRun(sub_id, persona, text, False, 0, status=status)
+        if persona.isolation == "worktree" and not subtask.isolation:
+            subtask = dataclasses.replace(subtask, isolation="worktree")
+        tree_hooks = worktree_hook_calls(getattr(deps, "hooks", None))
+        worktree = await _isolated_worktree(deps.tool_context, subtask, sub_id, tree_hooks)
+        context = derive_sub_context(
+            deps.tool_context, subtask, root=worktree.path if worktree is not None else None
+        )
         owned = deps.child_runs.start(
             sub_id, lambda: _run_child(deps, subtask, persona, sub_id, depth, run_agent, context)
         )
@@ -170,7 +382,11 @@ async def run_subagent(
             outcome = await owned
         finally:
             deps.child_runs.detach(sub_id, owned)
+            # Claude: ön plan alt ajanının başlattığı komut, alt ajanın koşusu bitince durur.
+            await asyncio.to_thread(job_lifetime.stop_group, context.job_group)
         text = outcome.final_text or "Alt ajan boş yanıt verdi."
+        if worktree is not None:
+            text += await asyncio.to_thread(_settle_worktree, worktree, tree_hooks)
         ok = outcome.ok and bool(outcome.final_text.strip())
         tool_calls = outcome.tool_calls_made
         status = (
@@ -180,12 +396,20 @@ async def run_subagent(
             if getattr(outcome, "budget_stopped", False)
             else "failed"
         )
+        if ok and getattr(outcome, "hit_step_limit", False):
+            # Claude Code: maxTurns'e ulaşan çıktı kısmi işaretlenir ve sürdürülebilir (#36).
+            status = "partial"
+            text = f"{PARTIAL_PREFIX}\n{text}"
     except asyncio.CancelledError:
         text = "Alt ajan iptal edildi."
         status = "cancelled"
         current = asyncio.current_task()
         if current is not None and current.cancelling():
             raise
+    except (PathAccessError, WorktreeError) as error:
+        # Yazma alanı kök dışı/izinsiz ya da çalışma ağacı kurulamadı: mesaj Fusion'ın
+        # kendi denetiminden gelir (sır taşımaz) ve modelin düzeltebileceği bilgidir (A4-39).
+        text = f"Alt ajan başlatılamadı: {error}"
     except Exception as error:
         # Ham hata metni credential veya dış araç içeriği taşıyabilir.
         text = f"Alt ajan tamamlanamadı ({type(error).__name__})."
@@ -222,12 +446,42 @@ async def _run_child(
     run_agent: RunAgent,
     context: ToolContext,
 ) -> AgentOutcome:
+    from .engine_tools import build_agent_registry
     from .loop import AgentDeps as _Deps
+    from .loop import AgentOutcome as _Outcome
 
+    is_fork = (
+        subtask.inherit_context and deps.config.runtime.subagent_context_mode != "evidence_bundle"
+    )
+    from .agent_runtime_hooks import scoped_hooks
+
+    try:
+        team_settings.validate_agent_hooks(persona)
+        selected_model = deps.active_model_override or deps.config.agent
+        if not is_fork:
+            selected_model = (
+                team_settings.child_model(
+                    persona,
+                    selected_model,
+                    candidates=deps.config.candidates,
+                    launch=deps.config.agent_launch,
+                    invocation_model=subtask.model,
+                )
+                or selected_model
+            )
+    except ConfigError as error:
+        return _Outcome(final_text=str(error), messages=[], tool_calls_made=0, ok=False)
+    policy_parent = dataclasses.replace(deps, active_model_override=selected_model)
+    # Tanımdaki `memory` alanı: ajana özel MEMORY.md (P-055, #24); dizin dosya araçlarına açılır.
+    child_memory = team_settings.child_memory(deps, persona)
+    context = team_settings.with_memory_roots(context, child_memory)
+    label = team_settings.agent_label(persona, sub_id)
+    policy, policy_factory = team_settings.child_policies(policy_parent, persona, label)
     sub_deps = _Deps(
-        config=deps.config,
+        config=team_settings.child_config(deps.config, persona),
+        active_model_override=selected_model,
         publisher=ScopedPublisher(deps.publisher, sub_id),
-        policy=deps.policy,
+        policy=policy,
         tool_context=context,
         base_registry=deps.base_registry,
         asker=deps.asker,
@@ -236,29 +490,267 @@ async def _run_child(
         capabilities=deps.capabilities,
         health=deps.health,
         channel=Channel.SUBAGENT,
+        # Aynı sistem istemli paralel alt ajanlar web taşımasında ayrı sohbet tutsun (P1-31).
+        conversation_id="/".join(part for part in (deps.conversation_id, sub_id) if part),
         budget=deps.budget,
         deadline=deps.deadline,
         child_runs=deps.child_runs,
         execution=_child_execution(deps, subtask),
-        policy_factory=deps.policy_factory,
+        policy_factory=policy_factory,
         approval_revision=deps.approval_revision,
+        # Torun, bu ajan için matrisle seçilmiş güncel kipi temel alır.
+        approval_mode=team_settings.child_approval_mode(policy_parent, persona),
+        policy_for_mode=getattr(deps, "policy_for_mode", None),
+        plain_memory=child_memory,
+        prompt_cache_ttl=persona.cache_ttl,
+        # Belleği olan ajan derslerini de kendine ayırır; olmayan ortak havuza yazar (P-055).
+        lesson_owner=persona.name if persona.memory_scope else "",
         effect_recorder=deps.effect_recorder,
+        lesson_context=deps.lesson_context,
+        invocation_budget=deps.invocation_budget,
+        clock=deps.clock,
         ancestor_mutation_barrier=deps.mutation_blocked_by_pending_input,
+        # Kancalar (P-009) alt ajanda da çalışır; `SubagentStop` eşleştiricisi türe bakar.
+        hooks=scoped_hooks(deps, persona, child=True, identifier=sub_id),
+        agent_type=persona.name,
+        home=deps.home,
+        omit_initial_instructions=persona.omit_initial_instructions and not is_fork,
+        include_external_memory=is_fork,
+        allowed_agent_types=deps.allowed_agent_types,
+        runtime_parent_session=deps.conversation_id or deps.child_runs.session_id,
+        runtime_agent_id=sub_id,
+        omit_git_snapshot=is_fork
+        or (persona.source == "fusion" and persona.name in {"explore", "plan"}),
+        permission_rules=deps.permission_rules,
+        steering=deps.child_runs.message_queue(sub_id) if subtask.agent_id else None,
+        mcp_connector=deps.mcp_connector,
+        mcp_discovery=deps.mcp_discovery,
+        mcp_external_content=deps.mcp_external_content,
+        attempt_id=deps.trace_id_factory(),
+        trace_id_factory=deps.trace_id_factory,
     )
-    try:
-        return await run_agent(
-            subtask.task,
-            sub_deps,
-            depth=depth + 1,
-            self_review=False,
-            extra_system=_member_brief(persona, subtask),
-            allowed_tools=_allowed_tools(deps, persona, subtask),
-        )
-    finally:
+    from .agent_runtime_hooks import child_mcp_scope
+
+    async with AsyncExitStack() as lifetime:
+
+        def retain_external_content() -> None:
+            # Child results can carry server-authored data even when the parent's
+            # only recorded tool is Agent. Keep provenance across every exit.
+            deps.mcp_external_content = deps.mcp_external_content or sub_deps.mcp_external_content
+
+        lifetime.callback(retain_external_content)
         try:
-            await sub_deps.questions.close()
+            await lifetime.enter_async_context(child_mcp_scope(sub_deps, persona, subtask))
+        except ConfigError:
+            return _Outcome(
+                final_text="Ajanın MCP bağlantısı kurulamadı; bağlantı ayarlarını denetleyin.",
+                messages=[],
+                tool_calls_made=0,
+                ok=False,
+            )
+        available = build_agent_registry(sub_deps, depth=depth + 1, run_agent=run_agent).names()
+        # Fork (P-054): ana geçmişin sistemsiz, kırpılmış görünümü alt ajanın başlangıcı olur.
+        parent_messages = team_fork.parent_history(deps) if subtask.inherit_context else []
+        inherited = team_fork.fork_history(parent_messages) if subtask.inherit_context else None
+        parent_prompt = (
+            parent_messages[0].content
+            if parent_messages and parent_messages[0].role == "system"
+            else None
+        )
+        from .evidence_handoff import compile_handoff
+
+        if deps.config.runtime.subagent_context_mode == "evidence_bundle":
+            inherited = None
+        handoff = await asyncio.to_thread(
+            compile_handoff,
+            deps,
+            _member_brief(
+                persona if inherited is not None else dataclasses.replace(persona, prompt=""),
+                subtask,
+                skills=team_settings.preloaded_skills(deps, persona),
+                fork_note=team_fork.FORK_BRIEF if inherited is not None else "",
+            ),
+        )
+        from .agent_runtime_records import child_journal, resumed_history
+        from .approval import ApprovalMode
+
+        if (
+            sub_deps.approval_mode is not None and sub_deps.approval_mode() is ApprovalMode.PLAN
+        ) or (sub_deps.execution is not None and not sub_deps.execution.allow_mutation):
+            subtask = dataclasses.replace(subtask, read_only=True)
+        effective_tools = _capped_tools(
+            _allowed_tools(sub_deps, persona, subtask, available=available),
+            subtask.tool_cap,
+            available,
+            deny=subtask.tool_deny,
+        )
+        if subtask.background and not is_fork:
+            from .agent_runtime_context import background_tools
+
+            effective_tools = background_tools(sub_deps, effective_tools, available)
+        if sub_deps.mcp_discovery is not None:
+            from .runtime_surface import RuntimeToolSurface
+
+            parent_surface = deps.runtime_surface
+            discovery = sub_deps.mcp_discovery
+            surface_subtask = subtask
+
+            # Keep the persona/subtask inputs; effective_tools is only today's
+            # projection and must not exclude tools discovered later in this turn.
+            def child_surface(_incoming_cap: frozenset[str] | None) -> RuntimeToolSurface:
+                return RuntimeToolSurface(
+                    task=surface_subtask.task,
+                    allowed=surface_subtask.tool_cap,
+                    denied=surface_subtask.tool_deny | sub_deps.denied_tools,
+                    parent=parent_surface,
+                    validate=discovery.permitted_names,
+                    fixed_names=frozenset(effective_tools)
+                    if subtask.background and not is_fork and effective_tools is not None
+                    else None,
+                    project=lambda current: _allowed_tools(
+                        sub_deps,
+                        persona,
+                        surface_subtask,
+                        available=current.names(),
+                        registry=current,
+                    ),
+                    server_filter=frozenset(persona.mcp_servers),
+                    admission_caps=(frozenset(persona.tools),) if persona.tools is not None else (),
+                )
+
+            sub_deps.mcp_surface_factory = child_surface
+        subtask = dataclasses.replace(
+            subtask, tool_cap=frozenset(effective_tools) if effective_tools is not None else None
+        )
+        if persona.auto_compact_window:
+            from .context_budget import CHARS_PER_TOKEN_ESTIMATE, HISTORY_SHARE
+
+            window_chars = round(
+                persona.auto_compact_window * HISTORY_SHARE * CHARS_PER_TOKEN_ESTIMATE
+            )
+            learned = sub_deps.learned_compression_chars
+            sub_deps.learned_compression_chars = (
+                window_chars if learned is None else min(learned, window_chars)
+            )
+        sub_deps.journal = await child_journal(deps, subtask, persona, sub_id)
+        if sub_deps.journal is not None:
+            from ...memory.subagent_journal import AgentTranscript, agent_lease
+            from ...memory.turn_journal import FileTurnJournal
+
+            assert isinstance(sub_deps.journal, FileTurnJournal)
+            await lifetime.enter_async_context(agent_lease(sub_deps.journal))
+            saved = deps.child_runs.record(sub_id)
+            sub_deps.agent_transcript = AgentTranscript(
+                sub_deps.journal,
+                history=deps.child_runs.history(sub_id),
+                complete_history=bool(saved and saved.complete_history)
+                if subtask.resume
+                else not subtask.inherit_context,
+            )
+        if subtask.resume:
+            # Legacy saved summaries/history have opaque source provenance.
+            sub_deps.mcp_external_content = True
+            inherited = resumed_history(deps, sub_id)
+            if saved is not None and not saved.complete_history:
+                from ...core.types import Message
+
+                inherited.append(
+                    Message(
+                        "user",
+                        "Devam kaydı eksiksiz özgün geçmiş değildir; "
+                        "yalnız saklanmış bağlam kullanılabilir.",
+                        harness_note=True,
+                    )
+                )
+            parent_prompt = (
+                inherited[0].content if inherited and inherited[0].role == "system" else None
+            )
+        sub_deps.original_cursor.excluded_call_ids = frozenset(
+            call.id for message in inherited or () for call in message.tool_calls
+        )
+        if sub_deps.hooks is not None:
+            from ...core.hooks.events import HookEvent
+
+            gate = await sub_deps.hooks.emit(
+                HookEvent.SUBAGENT_START,
+                subjects=(persona.name,),
+                fields={"agent_id": sub_id, "agent_type": persona.name},
+            )
+            if gate.blocked or gate.halt:
+                return _Outcome(
+                    final_text=gate.reason
+                    or gate.stop_reason
+                    or "Alt ajan başlangıç kancası engelledi.",
+                    messages=[],
+                    ok=False,
+                )
+            handoff = "\n\n".join(part for part in (handoff, gate.context_text) if part)
+        if inherited is None:  # çatallı alt ajan konuşmanın kendi istemini kullanır
+            from .subagent_prompt import current as subagent_append
+
+            handoff = "\n\n".join(part for part in (handoff, subagent_append()) if part)
+        try:
+            outcome = await run_agent(
+                subtask.task,
+                sub_deps,
+                history=inherited,
+                depth=depth + 1,
+                self_review=False,
+                extra_system=handoff,
+                system_prompt=parent_prompt if inherited is not None else persona.prompt.strip(),
+                allowed_tools=None if sub_deps.mcp_surface_factory is not None else effective_tools,
+                step_limit=child_step_limit(
+                    deps, depth, requested=_min_limit(persona.max_turns or None, subtask.step_limit)
+                ),
+                images=subtask.images,
+            )
+            if sub_deps.agent_transcript is not None and isinstance(
+                sub_deps.journal, FileTurnJournal
+            ):
+                state = sub_deps.journal.agent_state
+                if state is not None:
+                    deps.child_runs.remember(state, tuple(outcome.messages))
+            from .agent_runtime_records import remember_outcome
+
+            await remember_outcome(deps, subtask, persona, sub_id, outcome)
+            return outcome
         finally:
-            deps.tool_context.touched.update(sub_deps.tool_context.touched)
+            if sub_deps.agent_transcript is not None and isinstance(
+                sub_deps.journal, FileTurnJournal
+            ):
+                state = sub_deps.journal.agent_state
+                cached = deps.child_runs.record(sub_id)
+                if state is not None and cached is not None and cached.status == "running":
+                    deps.child_runs.remember(state, sub_deps.agent_transcript.messages)
+            try:
+                await sub_deps.questions.close()
+            finally:
+                deps.tool_context.touched.update(sub_deps.tool_context.touched)
+                # Alt ajanın `play_probe` ile sınadığı oyun parent kapanışında yeniden oynanmasın
+                # (A4-41): kanıt da parent'a döner.
+                deps.tool_context.probed_games.update(sub_deps.tool_context.probed_games)
+
+
+def _capped_tools(
+    allowed: set[str] | None,
+    cap: frozenset[str] | None,
+    available: tuple[str, ...],
+    *,
+    deny: frozenset[str] = frozenset(),
+) -> set[str] | None:
+    """Üst turun araç tavanıyla kesişim ve yasak kümesinin farkı: yalnız daralır."""
+    if cap is not None:
+        expanded = expand_tool_patterns(set(cap), available)
+        allowed = expanded if allowed is None else allowed & expanded
+    if deny:
+        base = set(available) if allowed is None else allowed
+        allowed = base - expand_tool_patterns(set(deny), available)
+    return allowed
+
+
+def _min_limit(*limits: int | None) -> int | None:
+    values = [limit for limit in limits if limit is not None and limit > 0]
+    return min(values) if values else None
 
 
 async def run_team(
@@ -300,101 +792,56 @@ async def run_team(
 # Araçlar
 # --------------------------------------------------------------------------- #
 
-_SUBTASK_PROPERTIES: dict[str, object] = {
-    "task": {**_STRING, "description": "alt ajana verilecek net, bağımsız görev"},
-    "uzman": {
-        **_STRING,
-        "description": "ekip üyesinin adı (ör. mimar, kodcu, tasarimci, testci, "
-        "arastirmaci, tarayici, gorselci, yonetmen); find_agent ile başkaları aranabilir",
-    },
-    "salt_okunur": {"type": "boolean", "description": "görev dosya değiştirmeyecekse true"},
-    "yazma_alani": {
-        "type": "array",
-        "items": _STRING,
-        "description": "görevin yazacağı dosya/dizinler (köke göreli); paralel koşu için gerekli",
-    },
-}
 
+async def _isolated_worktree(
+    context: ToolContext, subtask: SubTask, sub_id: str, hooks: WorktreeHookCalls | None = None
+) -> Worktree | None:
+    """`izolasyon: "worktree"` ise üyeye `.claude/worktrees/ajan-<kimlik>` ağacı aç.
 
-def spawn_agent_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
-    """Tek bir alt görevi bir ekip üyesine devreden araç."""
-
-    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-        subtask = _parse_subtask(args)
-        if isinstance(subtask, str):
-            return ToolResult.failure(subtask)
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap.")
-        run = await run_subagent(deps, subtask, depth=depth, run_agent=run_agent)
-        return ToolResult(run.text)
-
-    return Tool(
-        name="spawn_agent",
-        description="Odaklı bir ALT-GÖREVİ temiz bağlamlı bir ekip üyesine devret; üye işi "
-        "kendi araçlarıyla yapıp özet döner. Birden çok bağımsız iş varsa spawn_agents ile "
-        "AYNI ANDA başlat. Basit işlerde kullanma.",
-        parameters={
-            "type": "object",
-            "properties": _SUBTASK_PROPERTIES,
-            "required": ["task"],
-        },
-        run=_run,
+    Ağaç oturumun KENDİ kökünün HEAD'inden dallanır (oturum bir ağaçtaysa o dalından).
+    Üye bitince `_settle_worktree` karar verir: iş kaldıysa ağaç kalır, kalmadıysa
+    kaldırılır. Salt okuyan üye için ağaç açılmaz.
+    """
+    if subtask.isolation != "worktree" or subtask.read_only:
+        return None
+    name = "ajan-" + re.sub(r"[^A-Za-z0-9._-]", "-", sub_id)[:48]
+    return await asyncio.to_thread(
+        lambda: enter_configured_worktree(context.root, name, hooks=hooks)
     )
 
 
-def spawn_agents_tool(deps: AgentDeps, *, depth: int, run_agent: RunAgent) -> Tool:
-    """Birden çok bağımsız alt görevi aynı anda koşturan araç."""
+def _settle_worktree(worktree: Worktree, hooks: WorktreeHookCalls | None = None) -> str:
+    """Üye bittikten sonra ağacın akıbeti: iş varsa korunur ve yolu söylenir, yoksa kaldırılır.
 
-    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-        raw = args.get("gorevler")
-        if not isinstance(raw, list) or not raw:
-            return ToolResult.failure("'gorevler' boş olmayan bir liste olmalı.")
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; görevleri kendin yap.")
-        subtasks: list[SubTask] = []
-        for index, item in enumerate(raw):
-            parsed = _parse_subtask(item if isinstance(item, dict) else {})
-            if isinstance(parsed, str):
-                return ToolResult.failure(f"gorevler[{index}]: {parsed}")
-            subtasks.append(parsed)
-        runs = await run_team(deps, subtasks, depth=depth, run_agent=run_agent)
-        return ToolResult(_team_report(runs))
-
-    return Tool(
-        name="spawn_agents",
-        description="Birbirinden BAĞIMSIZ birden çok alt görevi ekip üyelerine dağıt ve AYNI "
-        "ANDA koştur (ör. biri araştırırken öteki tasarlasın). Dosya yazan her görev için "
-        "yazma_alani ver; alanlar ayrıksa paralel, belirsizse sırayla koşar. Sonuçlar "
-        "görev sırasıyla döner.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "gorevler": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": _SUBTASK_PROPERTIES,
-                        "required": ["task"],
-                    },
-                }
-            },
-            "required": ["gorevler"],
-        },
-        run=_run,
+    Ölçüldü (31 Ekim): her çağrıda ajan-<kimlik> ağacı ve dalı kalıyor, üye dosya
+    değiştirmese de birikiyordu. Kaldırma `leave_worktree`'nin kendi temizlik kanıtına dayanır.
+    """
+    try:
+        result = leave_worktree(worktree, hooks=hooks)
+    except WorktreeError as error:
+        return f"\n\n[Çalışma ağacı] {worktree.path} korunuyor; temizlik ölçülemedi: {error}"
+    if result.outcome is LeaveOutcome.REMOVED:
+        return ""
+    if worktree.hooked:
+        return f"\n\n[Çalışma ağacı] {worktree.path} korunuyor (WorktreeCreate kancası kurdu)."
+    return (
+        f"\n\n[Çalışma ağacı] Değişiklikler ana projede DEĞİL, {worktree.path} içinde "
+        f"(dal {worktree.branch}). Birleştirmek için: git merge {worktree.branch}"
     )
 
 
-def _parse_subtask(args: ToolArgs) -> SubTask | str:
-    task = args.get("task")
-    if not isinstance(task, str) or not task.strip():
-        return "'task' alanı boş olmayan bir metin olmalı."
-    persona = args.get("uzman", "")
-    scope = args.get("yazma_alani", ())
-    if not isinstance(scope, (list, tuple)) or not all(isinstance(item, str) for item in scope):
-        return "'yazma_alani' metin listesi olmalı."
-    return SubTask(
-        task=task.strip(),
-        persona=persona if isinstance(persona, str) else "",
-        read_only=args.get("salt_okunur") is True,
-        write_scope=tuple(item.strip() for item in scope if item.strip()),
-    )
+# Araç tanımları ayrı modülde (dosya ≤800 satır); eski içe aktarma yolları korunur.
+from .team_spawn_tools import (  # noqa: E402
+    _AGENT_PARAMETERS as _AGENT_PARAMETERS,
+)
+from .team_spawn_tools import (  # noqa: E402
+    _LEGACY_SPAWN_PARAMETERS as _LEGACY_SPAWN_PARAMETERS,
+)
+from .team_spawn_tools import (  # noqa: E402
+    _SUBTASK_PROPERTIES as _SUBTASK_PROPERTIES,
+)
+from .team_spawn_tools import _parse_read_only as _parse_read_only  # noqa: E402
+from .team_spawn_tools import _parse_subtask as _parse_subtask  # noqa: E402
+from .team_spawn_tools import _parse_true as _parse_true  # noqa: E402
+from .team_spawn_tools import spawn_agent_tool as spawn_agent_tool  # noqa: E402
+from .team_spawn_tools import spawn_agents_tool as spawn_agents_tool  # noqa: E402

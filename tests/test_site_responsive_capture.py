@@ -454,3 +454,27 @@ async def test_unstable_right_viewport_cannot_pair_with_stable_left_signature():
     assert result.transitions == ()
     assert counts == {600: 2, 601: 2}
     assert any("kararsız" in problem for problem in result.problems)
+
+
+async def test_cok_sayida_kirilim_olcumu_sinirlanir_ve_bildirilir():
+    """Kırılım başına 4+ yakalama (~7 sn) dakikalar sürüyordu; üst sınır + açık problem."""
+    from fusion_cli.tools.site_responsive import (
+        MAX_WIDTH_CONDITIONS,
+        CapturedVariant,
+        verify_variants,
+    )
+
+    sorgular = tuple(f"(max-width: {400 + 20 * i}px)" for i in range(MAX_WIDTH_CONDITIONS + 6))
+    yakalanan: list[int] = []
+
+    def variant(width: int, signature: str) -> CapturedVariant:
+        return CapturedVariant(width, 900, "", "", "", 0, "", signature, sorgular)
+
+    async def capture(width: int, height: int) -> CapturedVariant:
+        yakalanan.append(width)
+        return variant(width, "ara")
+
+    sonuc = await verify_variants((variant(1440, "masaustu"), variant(390, "mobil")), capture)
+
+    assert len(set(yakalanan)) <= 2 * MAX_WIDTH_CONDITIONS
+    assert any("doğrulanmadı" in p and str(MAX_WIDTH_CONDITIONS) in p for p in sonuc.problems)

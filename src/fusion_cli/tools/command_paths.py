@@ -17,6 +17,7 @@ sorulur — göreli yol kullanan komut sorulmaz.
 
 from __future__ import annotations
 
+import fnmatch
 import posixpath
 import re
 from pathlib import Path
@@ -85,8 +86,28 @@ def _escapes(candidate: str, root: Path | None = None) -> bool:
         if candidate in _HARMLESS_ABSOLUTE_PATHS:
             return False
         return root is None or not _inside(candidate, root)
+    if _dotdot_glob(candidate):
+        return True
     normalized = posixpath.normpath(candidate)
     return normalized == ".." or normalized.startswith("../")
+
+
+_GLOB_CHARS = frozenset("*?[")
+
+
+def _dotdot_glob(candidate: str) -> bool:
+    """Bileşenlerden biri kabukta `..`'yi de kapsayan bir joker mi? (`.*`, `..*`, `.?`)
+
+    Ölçüldü (30 Ekim): `normpath(".*") == ".*"` "içeride" sayılıyordu; bash `.*` desenini
+    `. .. .gizli` diye açar, `grep -r gizli .*` üst dizini özyinelemeli tarardı. Kabuk
+    baştaki noktayı yalnız DESEN de nokta ile başlıyorsa eşler; bu yüzden `*` ve `?` ile
+    başlayan bileşenler (dosya adı jokerleri) güvenli, `.` ile başlayanlar sınanır.
+    """
+    for component in candidate.split("/"):
+        is_glob = component.startswith(".") and _GLOB_CHARS & set(component)
+        if is_glob and fnmatch.fnmatchcase("..", component):
+            return True
+    return False
 
 
 def _inside(candidate: str, root: Path) -> bool:

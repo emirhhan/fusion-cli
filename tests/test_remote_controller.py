@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -142,3 +143,132 @@ async def test_tunel_ve_loopback_gercekten_dinler_ve_durdurulur(controller: Any)
     assert (await controller.dispatch("uzak.durum", {}))["dinliyor"] is True
     await controller.dispatch("uzak.durdur", {})
     assert (await controller.dispatch("uzak.durum", {}))["dinliyor"] is False
+
+
+async def test_port_doluysa_baslatma_hata_doner_ve_dongu_dusmez(controller: Any) -> None:
+    import socket
+
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        port = busy.getsockname()[1]
+        started = await controller.dispatch("uzak.baslat", {"port": port})
+        assert started["ok"] is False and str(port) in started["metin"]
+        status = await controller.dispatch("uzak.durum", {})
+        assert status["dinliyor"] is False and status["adres"] == ""
+
+
+async def test_durmayan_sunucu_zorla_kapatilir_ve_gorev_bitirilir(
+    controller: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1-28. Ölçüldü (30 Ekim): 5 sn'de durmayan sunucu görev sürerken durum 'durdu' sayılıyor,
+    port hâlâ bağlı kalabiliyordu; artık force_exit istenir ve görev iptal edilir."""
+    import asyncio
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("fusion_cli.remote.controller.SERVER_STOP_TIMEOUT_SECONDS", 0.05)
+    server = SimpleNamespace(should_exit=False, force_exit=False)
+
+    async def stubborn() -> None:
+        while True:
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                if server.force_exit:
+                    raise
+
+    task = asyncio.create_task(stubborn())
+    controller._server, controller._server_task = server, task
+    await controller.dispatch("uzak.durdur", {})
+    assert server.should_exit and server.force_exit
+    assert task.done()
+
+
+async def test_telegram_http_istemcisi_kesilince_kapatilir(controller: Any) -> None:
+    import httpx
+
+    from fusion_cli.remote.telegram import HttpTelegramApi
+
+    client = httpx.AsyncClient()
+    controller._telegram_api = HttpTelegramApi("123:abc", client)
+    await controller._stop_telegram()
+    assert client.is_closed and controller._telegram_api is None
+
+
+async def test_ayar_dosyasi_atomik_yazilir(controller: Any) -> None:
+    result = await controller.dispatch("uzak.ayar", {"onayIste": True})
+    assert result["ok"] is True
+    path = controller._settings_path
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "requireApproval": True,
+        "requireApprovalTrust": False,
+    }
+    assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
+
+
+# R1-25 — Ölçüldü (30 Ekim): `media.get` kökleri arasında `home` vardı ve üretimde
+# `home=Path.home()` (kullanıcının TÜM ev dizini): eşleşmiş bir telefon `project.read` ile
+# ~/Pictures altındaki her görseli okuyabiliyordu. Kökler artık Fusion'ın ürettiği klasörlerle
+# ve bilinen proje köküyle sınırlı.
+@pytest.fixture
+async def media_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    data = tmp_path / "veri"
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: data)
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    for folder in (home / "Pictures", root, data / "gallery", data / "memory"):
+        folder.mkdir(parents=True)
+    instance = RemoteController(
+        home=home,
+        root=root,
+        secrets=MemorySecrets(),
+        session_factory=lambda writer: object(),
+        clock=FakeClock(),
+        data_dir=data / "remote",
+    )
+    yield instance, tmp_path
+    await instance.aclose()
+
+
+def _png(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x89PNG....")
+    return path
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["proje/ekran.png", "veri/gallery/g.png", "veri/remote/uploads/abc-ek.png"],
+)
+async def test_telefon_fusionin_urettigi_ve_proje_gorsellerini_gorur(
+    media_rig: Any, relative: str
+) -> None:
+    controller, base = media_rig
+    image = _png(base / relative)
+
+    media_type, data = controller._service._mobile._media.read(str(image))
+
+    assert media_type == "image/png" and data.startswith(b"\x89PNG")
+
+
+@pytest.mark.parametrize("relative", ["ev/Pictures/ozel.png", "veri/memory/x.png", "ev/x.png"])
+async def test_telefon_ev_dizinindeki_ozel_gorselleri_goremez(
+    media_rig: Any, relative: str
+) -> None:
+    from fusion_cli.remote.uploads import UploadError
+
+    controller, base = media_rig
+    image = _png(base / relative)
+
+    with pytest.raises(UploadError):
+        controller._service._mobile._media.read(str(image))
+
+
+async def test_telefon_eslestirilmis_proje_kokunun_gorselini_gorur(media_rig: Any) -> None:
+    controller, base = media_rig
+    other = base / "baska-proje"
+    _png(other / "sonuc.png")
+    controller._projects.replace([{"id": "p_1", "name": "Diğer", "root": str(other)}], {})
+
+    media_type, _ = controller._service._mobile._media.read(str(other / "sonuc.png"))
+
+    assert media_type == "image/png"

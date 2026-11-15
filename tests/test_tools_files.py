@@ -467,9 +467,11 @@ def test_girinti_farki_teshis_edilir(tmp_path):
     # Dosyada SEKME, modelin gönderdiğinde BOŞLUK var: alt-dize olarak da eşleşmez.
     dosya.write_text("def f():\n\treturn 1\n", encoding="utf-8")
 
+    # Esnek eşleşme (varsayılan) bu farkı artık tolere eder; teşhis mesajı ayar
+    # kapalıyken ve esnek yolun da reddettiği durumlarda hâlâ gerekli yedektir.
     sonuc = files.edit_file(
         {"path": "a.py", "old": "    return 1", "new": "    return 2"},
-        ToolContext(root=tmp_path),
+        ToolContext(root=tmp_path, edit_fuzzy_match=False),
     )
 
     assert not sonuc.ok

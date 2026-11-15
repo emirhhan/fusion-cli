@@ -15,10 +15,13 @@ import shlex
 import shutil
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
-from ..config.models import Config, McpServerConfig, McpTransport, McpTrust
+from ..config.mcp_json import remove_project_mcp_server
+from ..config.models import Config, McpScope, McpServerConfig, McpTransport, McpTrust
 from ..config.writer import write_mcp_servers
+from ..core.redaction import redact
 from ..mcp_bridge.client import McpConnectionStatus
 from ..mcp_bridge.failures import (
     STATE_CONNECTED,
@@ -27,11 +30,25 @@ from ..mcp_bridge.failures import (
 )
 from ..mcp_bridge.identity import connection_identity, duplicate_of
 from ..mcp_bridge.oauth import DEFAULT_CALLBACK_PORT, validate_remote_mcp_url
+from ..mcp_bridge.transport import stdio_search_path
 from ..mcp_bridge.trust import effective_trust, review_identity
+from ..ui import mcp_messages, messages
 from .hosted_connectors import hosted_connector_rows
 
 #: Komutun PATH'te olup olmadığını söyleyen arama (test yerine geçebilsin diye).
 CommandFinder = Callable[[str], str | None]
+
+
+def find_stdio_command(command: str) -> str | None:
+    """Komutu stdio sunucusunun ÇALIŞTIRMADA kullanacağı PATH ile ara.
+
+    Finder'dan açılan uygulamanın PATH'i dardır (`/usr/bin:/bin`); `shutil.which` Homebrew
+    ya da `~/.local/bin` altındaki `npx`/`uvx`'i bulamayıp kullanıcıya "komut yok" derdi.
+    Aynı genişletilmiş PATH başlatmada da kullanılır (bkz. `mcp_bridge.transport`).
+    """
+    return shutil.which(command, path=stdio_search_path())
+
+
 #: Kaydetmeden önce bağlantıyı deneyen yoklama (bkz. `McpConnectionService.verify`).
 ConnectorProbe = Callable[[McpServerConfig], Awaitable[McpConnectionStatus]]
 
@@ -137,15 +154,18 @@ def list_connectors(
             {
                 "ad": server.name,
                 "komut": server.command,
-                "argumanlar": list(server.args),
+                # Argümana/URL'ye gömülmüş anahtar listeye sızmasın (yalnız gösterim).
+                "argumanlar": [redact(argument) for argument in server.args],
                 "tasima": server.transport.value,
-                "url": server.url,
+                # `project`: kayıt kökteki `.mcp.json`'dan geldi (P-049); arayüz rozet gösterir.
+                "kapsam": server.scope.value,
+                "url": redact(server.url) if server.url else server.url,
                 "kapsamlar": list(server.scopes),
                 "client_id": server.client_id,
                 "ortam_degiskenleri": list(server.env_names),
                 # Yalnız token'ın VAR olduğu bildirilir; değer hiçbir yanıta girmez.
                 "token_var": bool(server.token_env),
-                "guven": effective_trust(server).value,
+                "guven": effective_trust(server, _observed_tools(statuses, server.name)).value,
                 "inceleme_kimligi": review_identity(server),
                 **_row_status((statuses or {}).get(server.name)),
                 **_duplicate_fields(duplicates.get(server.name)),
@@ -156,6 +176,15 @@ def list_connectors(
         # "bağlantı"dır, farkı `tasima` alanı taşır.
         + hosted_connector_rows(config),
     }
+
+
+def _observed_tools(
+    statuses: Mapping[str, McpConnectionStatus | dict[str, Any]] | None, name: str
+) -> str | None:
+    """Sunucudan son keşfedilen araç özeti; keşif yoksa `None` (yalnız kaynak denetlenir)."""
+    status = (statuses or {}).get(name)
+    digest = status.tools_digest if isinstance(status, McpConnectionStatus) else ""
+    return digest or None
 
 
 def _duplicate_fields(original: str | None) -> dict[str, Any]:
@@ -189,15 +218,35 @@ def _row_status(status: McpConnectionStatus | dict[str, Any] | None) -> dict[str
     if isinstance(status, dict):
         return {
             "durum": str(status.get("durum", "yapilandirildi")),
-            "arac_sayisi": int(status.get("arac_sayisi", 0)),
-            "gecikme_ms": int(status.get("gecikme_ms", 0)),
+            "arac_sayisi": _count(status.get("arac_sayisi")),
+            "gecikme_ms": _count(status.get("gecikme_ms")),
             "mesaj": status.get("mesaj"),
         }
     return {"durum": "yapilandirildi", "arac_sayisi": 0, "gecikme_ms": 0, "mesaj": None}
 
 
+def _count(value: object) -> int:
+    """Durum satırındaki sayı alanı; bozuk değer satırı (ve listeyi) düşürmez."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return 0
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
+def _scopes(raw: object) -> tuple[str, ...]:
+    """OAuth kapsamları: boşlukla ayrılmış metin ya da metin listesi.
+
+    Ölçüldü (30 Ekim): liste gelirse `str(list).split()` `"['a',"` gibi bozuk kapsamlar üretiyordu.
+    """
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return tuple(str(raw or "").split())
+
+
 def add_connector(
-    config: Config, data: object, *, find_command: CommandFinder = shutil.which
+    config: Config, data: object, *, find_command: CommandFinder = find_stdio_command
 ) -> tuple[Config | None, dict[str, Any]]:
     """`baglanti.ekle`: yeni MCP sunucusu tanımla ve kaydet.
 
@@ -218,7 +267,7 @@ async def add_connector_verified(
     data: object,
     *,
     probe: ConnectorProbe,
-    find_command: CommandFinder = shutil.which,
+    find_command: CommandFinder = find_stdio_command,
 ) -> tuple[Config | None, dict[str, Any]]:
     """`baglanti.ekle`'nin DOĞRULAYAN hâli: önce bağlan, başarılıysa kaydet.
 
@@ -246,7 +295,7 @@ async def add_connector_verified(
 
 
 def build_connector(
-    config: Config, data: object, *, find_command: CommandFinder = shutil.which
+    config: Config, data: object, *, find_command: CommandFinder = find_stdio_command
 ) -> tuple[McpServerConfig | None, dict[str, Any]]:
     """RPC girdisini doğrulanmış bir `McpServerConfig`'e çevir; yazmaz.
 
@@ -315,7 +364,7 @@ def _remote_server(
         name=ad,
         transport=transport,
         url=url,
-        scopes=tuple(str(data.get("kapsamlar", "")).split()),
+        scopes=_scopes(data.get("kapsamlar", "")),
         client_id=str(data.get("client_id", "")).strip(),
         token_env=token_env,
         env_names=(token_env,) if token_env else (),
@@ -349,13 +398,28 @@ def review_connector(config: Config, data: object) -> tuple[Config | None, dict[
     decision = data.get("guven")
     if server is None or not isinstance(decision, str) or decision not in {"trusted", "revoked"}:
         return None, {"ok": False, "metin": "Bağlantı veya güven kararı geçersiz."}
+    if server.scope is McpScope.PLUGIN:
+        # Eklenti sunucusu hiçbir ayar dosyasına yazılmaz: karar bellekte kalıp açılışta
+        # kayboluyor, arayüz yine "güncellendi" diyordu (ölçüldü 31 Ekim).
+        return None, {"ok": False, "metin": messages.EKLENTI_MCP_TRUST.format(name=server.name)}
+    if server.scope is McpScope.MANAGED:
+        return None, {"ok": False, "metin": mcp_messages.MANAGED_TRUST.format(name=server.name)}
     fingerprint = review_identity(server)
     if decision == "trusted" and (not fingerprint or fingerprint != data.get("inceleme_kimligi")):
         return None, {
             "ok": False,
             "metin": "Kaynak değişti veya incelenebilir sürüm taşımıyor. Listeyi yenile.",
         }
-    reviewed = replace(server, trust=McpTrust(decision), reviewed_source=fingerprint or "")
+    # Araç özeti yalnız güvenilir kararında ve arayüzün/oturumun okuduğu katalogdan gelirse
+    # kaydedilir; yoksa (sunucuya ulaşılamadı, geri çekme) boş kalır ve araç tanımı denetlenmez.
+    tools = data.get("arac_ozeti")
+    pinned_tools = tools if decision == "trusted" and isinstance(tools, str) else ""
+    reviewed = replace(
+        server,
+        trust=McpTrust(decision),
+        reviewed_source=fingerprint or "",
+        reviewed_tools=pinned_tools,
+    )
     updated = replace(
         config,
         mcp_servers=tuple(
@@ -367,15 +431,44 @@ def review_connector(config: Config, data: object) -> tuple[Config | None, dict[
     )
 
 
-def remove_connector(config: Config, data: object) -> tuple[Config | None, dict[str, Any]]:
-    """`baglanti.sil`: MCP sunucusunu kaldır."""
+def remove_connector(
+    config: Config, data: object, *, root: Path | None = None
+) -> tuple[Config | None, dict[str, Any]]:
+    """`baglanti.sil`: MCP sunucusunu kaldır.
+
+    Proje kapsamlı kayıt (`.mcp.json`) kendi dosyasından silinir; `root` proje köküdür
+    (verilmezse çalışma dizini). Kullanıcı kaydı `config.yaml`'dan düşer (P-049).
+    """
     if not isinstance(data, dict):
         return None, {"ok": False, "metin": "Geçersiz bağlantı."}
     ad = str(data.get("ad", "")).strip()
-    kalan = tuple(server for server in config.mcp_servers if server.name != ad)
-    if len(kalan) == len(config.mcp_servers):
+    silinen = next((server for server in config.mcp_servers if server.name == ad), None)
+    if silinen is None:
         return None, {"ok": False, "metin": f"'{ad}' adlı bağlantı yok."}
-    return _persist(replace(config, mcp_servers=kalan), f"'{ad}' bağlantısı kaldırıldı.")
+    if silinen.scope is McpScope.PLUGIN:
+        return None, {"ok": False, "metin": messages.EKLENTI_MCP_REMOVE.format(name=ad)}
+    if silinen.scope is McpScope.MANAGED:
+        from ..config.mcp_policy import remove_refusal
+
+        return None, {"ok": False, "metin": remove_refusal(silinen, root or Path.cwd()) or ""}
+    kalan = tuple(server for server in config.mcp_servers if server.name != ad)
+    yeni = replace(config, mcp_servers=kalan)
+    if silinen.scope is McpScope.PROJECT:
+        try:
+            # Yalnız ilgili ad silinir; dosyadaki diğer girdiler (ve güvenilmeyen dosya) korunur.
+            remove_project_mcp_server(root or Path.cwd(), ad)
+        except Exception as error:  # ConfigError ve OSError türevleri
+            return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
+        return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı projeden kaldırıldı."}
+    if silinen.scope is McpScope.LOCAL:
+        from ..config.mcp_local import remove_local_mcp_server
+
+        try:
+            remove_local_mcp_server(root or Path.cwd(), ad)
+        except Exception as error:  # ConfigError ve OSError türevleri
+            return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
+        return yeni, {"ok": True, "metin": f"'{ad}' bağlantısı yerel kapsamdan kaldırıldı."}
+    return _persist(yeni, f"'{ad}' bağlantısı kaldırıldı.")
 
 
 def _persist(config: Config, message: str) -> tuple[Config | None, dict[str, Any]]:

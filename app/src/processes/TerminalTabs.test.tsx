@@ -20,7 +20,7 @@ function runtime(): TerminalRuntime & { sessions: Array<TerminalSession & { emit
   const value = {
     open: vi.fn(async (cwd, cols, rows) => ({ terminalId: `terminal-${++id}`, cwd, cols, rows, pid: 100 + id })),
     write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
-    onOutput: vi.fn(async () => vi.fn()), onClosed: vi.fn(async () => vi.fn()),
+    onClosed: vi.fn(async () => vi.fn()),
     openSession: vi.fn(async (cwd: string, cols: number, rows: number) => {
       const terminalId = `terminal-${++id}`;
       const closedHandlers = new Set<(event: { reason: string; exitCode: number | null }) => void>();
@@ -113,6 +113,19 @@ describe("TerminalTabs", () => {
 
     await waitFor(() => expect(tab.textContent).toContain("Hata (1)"));
     expect(tab.querySelector(".terminal-tabs__dot--hata")).not.toBeNull();
+  });
+
+  // Ölçüldü (30 Ekim): aria-label durum metnini eziyordu; ekran okuyucu terminalin bittiğini duymuyordu (U4-50).
+  it("kapanan terminalin erişilebilir adı durumunu da taşır, panel sekmeye bağlıdır (U4-50)", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
+    await screen.findByRole("tab", { name: "Terminal 1" });
+
+    value.sessions[0].emitClosed({ reason: "süreç kapandı", exitCode: 1 });
+
+    expect(await screen.findByRole("tab", { name: "Terminal 1, Hata (1)" })).toBeTruthy();
+    expect(screen.getByRole("tabpanel", { hidden: true }).getAttribute("aria-labelledby")).toBe("terminal-tab-terminal-1");
   });
 
   it("kullanıcı kapatmasını nötr durduruldu durumu olarak gösterir", async () => {

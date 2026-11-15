@@ -22,6 +22,20 @@ interface Status {
   bayraklar: Flag[];
 }
 
+/**
+ * Sunucu yanıtındaki eksik listeler `TypeError` ile ekranı çökertmesin (U2-50): eksik alan boş listeye düşer.
+ */
+function normalizeStatus(raw: Partial<Status>): Status {
+  return {
+    motor: raw.motor ?? "",
+    motorlar: raw.motorlar ?? [],
+    planKipi: raw.planKipi ?? "",
+    planKipleri: raw.planKipleri ?? [],
+    ogretmenTanimli: raw.ogretmenTanimli === true,
+    bayraklar: raw.bayraklar ?? [],
+  };
+}
+
 export function Intelligence({ client }: { client: ProtocolClient }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -30,12 +44,14 @@ export function Intelligence({ client }: { client: ProtocolClient }) {
   const load = useCallback(async () => {
     const result = await client.request("zeka.durum", {});
     if (result.ok !== true) throw new Error(String(result.metin ?? "Zeka ayarları alınamadı."));
-    setStatus(result as unknown as Status);
+    setStatus(normalizeStatus(result as unknown as Partial<Status>));
   }, [client]);
 
-  useEffect(() => {
+  const retry = useCallback(() => {
+    setError(null);
     void load().catch((reason) => setError(errorMessage(reason)));
   }, [load]);
+  useEffect(() => { retry(); }, [retry]);
 
   const change = async (anahtar: string, deger: string | boolean) => {
     setBusy(anahtar);
@@ -43,7 +59,7 @@ export function Intelligence({ client }: { client: ProtocolClient }) {
     try {
       const result = await client.request("zeka.ayarla", { anahtar, deger });
       if (result.ok !== true) throw new Error(String(result.metin ?? "Ayar kaydedilemedi."));
-      setStatus(result as unknown as Status);
+      setStatus(normalizeStatus(result as unknown as Partial<Status>));
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -54,8 +70,12 @@ export function Intelligence({ client }: { client: ProtocolClient }) {
   if (!status) {
     return (
       <article className="settings__card" id="settings-intelligence">
-        <h3 className="settings__section-heading">Zeka</h3>
-        {error ? <p className="px-error" role="alert">{error}</p> : <p className="px-empty">Okunuyor…</p>}
+        {error ? (
+          <p className="px-error" role="alert">
+            {error}{" "}
+            <button className="settings__error-retry" onClick={retry} type="button">Yeniden dene</button>
+          </p>
+        ) : <p className="px-empty">Okunuyor…</p>}
       </article>
     );
   }

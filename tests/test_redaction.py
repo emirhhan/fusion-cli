@@ -7,7 +7,7 @@ import io
 import pytest
 
 from fusion_cli.core.events import ModelCallFinished
-from fusion_cli.core.redaction import REDACTED_MARK, redact
+from fusion_cli.core.redaction import REDACTED_MARK, contains_sensitive, redact
 from fusion_cli.core.types import ModelResult
 from fusion_cli.observability.json_sink import JsonRenderer
 
@@ -79,3 +79,136 @@ def test_openrouter_ve_nim_anahtar_bicimleri_maskelenir():
 )
 def test_redact_fast_path_cannot_skip_known_secret_patterns(secret):
     assert redact(secret) == REDACTED_MARK
+
+
+def test_akis_gizleyicisi_parca_sinirindaki_sirri_yakalar():
+    from fusion_cli.core.redaction import StreamRedactor
+
+    gizleyici = StreamRedactor()
+    cikti = [gizleyici.feed("a ghp_SENTINEL01234"), gizleyici.feed("56789ABCDEFGHIJKLMNOP b\n")]
+    cikti.append(gizleyici.flush())
+
+    assert "SENTINEL" not in "".join(cikti)
+    assert "".join(cikti).startswith("a ")
+
+
+def test_akis_gizleyicisi_kapanmamis_pem_blogunu_bitene_dek_tutar():
+    from fusion_cli.core.redaction import StreamRedactor
+
+    gizleyici = StreamRedactor()
+    parcalar = [
+        gizleyici.feed("anahtar:\n-----BEGIN PRIVATE KEY-----\nSENTINELBODY1\n"),
+        gizleyici.feed("SENTINELBODY2\n-----END PRIVATE KEY-----\nbitti\n"),
+        gizleyici.flush(),
+    ]
+
+    toplam = "".join(parcalar)
+    assert "SENTINELBODY" not in toplam
+    assert "bitti" in toplam
+    assert "SENTINELBODY" not in parcalar[0]
+
+
+def test_akis_gizleyicisi_sirsiz_metni_aynen_birlestirir():
+    from fusion_cli.core.redaction import StreamRedactor
+
+    gizleyici = StreamRedactor()
+    parcalar = ["merhaba ", "dünya\n", "ikinci ", "satır"]
+    toplam = "".join(gizleyici.feed(p) for p in parcalar) + gizleyici.flush()
+
+    assert toplam == "merhaba dünya\nikinci satır"
+
+
+def test_uzun_bosluksuz_govde_redaksiyonu_karesel_yavaslatmaz():
+    """Ölçüldü (30 Ekim): anahtar=değer deseninin sınırsız önek/soneki uzun boşluksuz gövdede
+    karesel çalışıyordu (3 200 karakter 1,3 sn; 50 000 karakter dakikalar). Önek/sonek 64 ile
+    sınırlandı; sır yine maskelenir."""
+    import time
+
+    from fusion_cli.core.redaction import redact
+
+    metin = (
+        "Authorization: Bearer abcdef1234567890xyz\n" + "x" * 50_000 + " ANTHROPIC_API_KEY=sk-gizli"
+    )
+    baslangic = time.monotonic()
+
+    sonuc = redact(metin)
+
+    assert time.monotonic() - baslangic < 5
+    assert "abcdef1234567890xyz" not in sonuc and "sk-gizli" not in sonuc
+
+
+def test_redact_cookie_basligini_maskeler():
+    """P-023: içe aktarılan çerez hata metnine ya da transkripte dönerse değeri gizlenir."""
+    cikti = redact(
+        "istek başlığı\nCookie: sid=GIZLI-9f8e7d; pref=tr\nSet-Cookie: a=b; Path=/\nsonraki satır"
+    )
+
+    assert "GIZLI-9f8e7d" not in cikti
+    assert "a=b" not in cikti
+    assert "sonraki satır" in cikti
+    assert "istek başlığı" in cikti
+
+
+def test_cookie_deseni_kaynak_kodu_ve_duz_metni_yakmaz():
+    """Ölçüldü (31 Ekim): `cookie\\s*:\\s*[^\\r\\n]+` satır sonuna kadar maskeliyordu; grep
+    sonucundaki `cookie: string` tip bildirimi '[gizlendi]' oluyordu ve `cookie: ...`
+    içeren ders metinleri (`learning.py`) atılıyordu. Gerçek başlık `ad=değer` taşır."""
+    kod = "interface Req { cookie: string }\nconst Cookie: foo = bar()\n// cookie: isteğe bağlı"
+
+    assert redact(kod) == kod
+    assert contains_sensitive(kod) is False
+    # Gerçek başlık biçimi yine maskelenir.
+    assert "GIZLI" not in redact("Cookie: sid=GIZLI; pref=tr")
+    assert "GIZLI" not in redact("set-cookie:sid=GIZLI")
+
+
+def test_recursive_redaction_masks_decoded_secret_values_and_sensitive_keys():
+    from fusion_cli.core.redaction import redact_value
+
+    payload = {
+        "authorization": "plain-secret",
+        "nested": [{"token": "short-secret"}],
+        "person@example.com": "public",
+        "prompt_tokens": 3,
+    }
+    cleaned = redact_value(payload)
+    assert "plain-secret" not in str(cleaned)
+    assert "short-secret" not in str(cleaned)
+    assert "person@example.com" not in str(cleaned)
+    assert cleaned["prompt_tokens"] == 3
+
+
+@pytest.mark.parametrize("field", ["passwd", "api-key", "access-token"])
+@pytest.mark.parametrize("value", ["IN02_CONTROL_VALUE", 982766, {"value": "IN02_NESTED"}, [False]])
+def test_decoded_redaction_preserves_established_aliases_and_usage(field, value):
+    from fusion_cli.core.redaction import redact_value
+
+    payload = {
+        field: value,
+        "password": 982761,
+        "credentials": {"value": "IN02_ORIGINAL_NESTED"},
+        "safe": [1, True, "visible"],
+        "usage": {
+            "prompt_tokens": 7,
+            "completion_tokens": 11,
+            "total_tokens": 18,
+            "input_tokens": 7,
+            "output_tokens": 11,
+            "cache_read_input_tokens": 4,
+        },
+    }
+
+    cleaned = redact_value(payload)
+
+    assert cleaned[field] == REDACTED_MARK
+    assert cleaned["password"] == REDACTED_MARK
+    assert cleaned["credentials"] == REDACTED_MARK
+    assert cleaned["safe"] == [1, True, "visible"]
+    assert cleaned["usage"] == {
+        "prompt_tokens": 7,
+        "completion_tokens": 11,
+        "total_tokens": 18,
+        "input_tokens": 7,
+        "output_tokens": 11,
+        "cache_read_input_tokens": 4,
+    }

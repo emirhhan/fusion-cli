@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import sys
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
@@ -19,6 +22,7 @@ from ..config.models import McpServerConfig
 from .oauth_flow import SerializedOAuth
 from .oauth_page import callback_page
 from .tokens import KeyringTokenStorage
+from .types import McpConfigError
 
 #: Loopback OAuth dönüşünün SABİT portu.
 #
@@ -32,6 +36,49 @@ from .tokens import KeyringTokenStorage
 # Host da `localhost`tur: Facebook yönlendirme adresinde `localhost`u kabul eder ve
 # kullanıcı panele bunu yazar. Dinleme yine yalnız loopback arayüzündedir.
 DEFAULT_CALLBACK_PORT = 8765
+#: Claude Code dönüş yolu (`http://localhost:PORT/callback`).
+CALLBACK_PATH = "/callback"
+#: Eski Fusion yolu; yalnız `client_id`'si olup dönüş portu verilmemiş eski kayıtlarda
+#: kullanılır (sağlayıcıda `localhost:8765/oauth/callback` kayıtlı olabilir).
+LEGACY_CALLBACK_PATH = "/oauth/callback"
+CALLBACK_PORT_ENV = "MCP_OAUTH_CALLBACK_PORT"
+
+
+#: `fusion mcp login --no-browser` bu bağlamda True yapar.
+FORCE_NO_BROWSER: ContextVar[bool] = ContextVar("fusion_mcp_no_browser", default=False)
+
+
+def use_paste_flow(environ: Mapping[str, str] | None = None) -> bool:
+    """Tarayıcı yerine adres yapıştırma: `--no-browser` ya da SSH oturumu (etkileşimli tty)."""
+    source = os.environ if environ is None else environ
+    if not sys.stdin.isatty():
+        return False
+    return FORCE_NO_BROWSER.get() or bool(source.get("SSH_CONNECTION") or source.get("SSH_TTY"))
+
+
+def _ask_pasted_redirect(url: str) -> str:
+    print(f"Yetkilendirme adresi:\n{url}", file=sys.stderr)
+    print("Tarayıcıda aç, sonra adres çubuğundaki dönüş adresini yapıştır:", file=sys.stderr)
+    return sys.stdin.readline()
+
+
+def callback_settings(
+    config: McpServerConfig, environ: Mapping[str, str] | None = None
+) -> tuple[int, str]:
+    """(port, yol): `oauth.callbackPort` > `MCP_OAUTH_CALLBACK_PORT` > rastgele (#248).
+
+    Eski kayıt (client_id var, port yok, ortam değişkeni yok) sağlayıcıda kayıtlı adresi
+    bozmamak için `8765` + `/oauth/callback` ile kalır.
+    """
+    source = os.environ if environ is None else environ
+    if config.oauth_callback_port is not None:
+        return config.oauth_callback_port, CALLBACK_PATH
+    raw = source.get(CALLBACK_PORT_ENV, "").strip()
+    if raw.isdigit() and 0 < int(raw) < 65536:
+        return int(raw), CALLBACK_PATH
+    if config.client_id:
+        return DEFAULT_CALLBACK_PORT, LEGACY_CALLBACK_PATH
+    return 0, CALLBACK_PATH
 
 
 def validate_remote_mcp_url(url: str) -> None:
@@ -40,11 +87,17 @@ def validate_remote_mcp_url(url: str) -> None:
         return
     if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
         return
-    raise ValueError("Uzak MCP adresi HTTPS olmalı; düz HTTP yalnız loopback için kullanılabilir.")
+    raise McpConfigError(
+        "Uzak MCP adresi HTTPS olmalı; düz HTTP yalnız loopback için kullanılabilir."
+    )
 
 
 class McpLoginRequiredError(RuntimeError):
     """Sunucu giriş istiyor ama bu bağlamda giriş penceresi açılamaz."""
+
+
+class McpBrowserOpenError(RuntimeError):
+    """Giriş sayfası açılamadı (başsız/yapılandırılmamış tarayıcı); adres mesajdadır."""
 
 
 #: SDK'nın OAuth akışındaki her hatayı yığın dökümüyle yazdığı logger.
@@ -82,17 +135,21 @@ class LoopbackOAuthCallback:
         on_waiting: Callable[[bool], None] | None = None,
         port: int = DEFAULT_CALLBACK_PORT,
         interactive: bool = True,
+        path: str = LEGACY_CALLBACK_PATH,
     ) -> None:
         self._timeout_seconds = timeout_seconds
         self._port = port
+        self._path = path
         #: Tarayıcı açılabilir mi? Tur yolunda AÇILAMAZ (bkz. `open_redirect`).
         self._interactive = interactive
         #: Kullanıcının tarayıcıda giriş yaptığı süreyi bildirir (True: başladı,
         #: False: bitti). Bağlantı süresi bu aralıkta işlememelidir.
         self._on_waiting = on_waiting
         self._server: asyncio.Server | None = None
+        #: Yetkilendirme adresindeki `state`; dönüşte eşleşmeyen istek yok sayılır.
+        self._expected_state: str | None = None
         self._result: asyncio.Future[tuple[str, str | None]] | None = None
-        self.redirect_uri = f"http://localhost:{port}/oauth/callback" if port else ""
+        self.redirect_uri = f"http://localhost:{port}{path}" if port else ""
 
     async def start(self) -> None:
         if self._server is not None:
@@ -111,8 +168,10 @@ class LoopbackOAuthCallback:
             ) from error
         socket = self._server.sockets[0]
         port = int(socket.getsockname()[1])
-        host = "localhost" if self._port else "127.0.0.1"
-        self.redirect_uri = f"http://{host}:{port}/oauth/callback"
+        # Claude Code yönlendirmeyi `http://localhost:PORT/callback` biçiminde gönderir;
+        # sabit port verilmemişse de aynı `localhost` biçimi (rastgele port) kullanılır.
+        host = "localhost" if self._port or self._path == CALLBACK_PATH else "127.0.0.1"
+        self.redirect_uri = f"http://{host}:{port}{self._path}"
 
     async def open_redirect(self, url: str) -> None:
         """Yetkilendirme sayfasını aç — YALNIZ kullanıcının açık eyleminde.
@@ -129,9 +188,30 @@ class LoopbackOAuthCallback:
                 "tur sırasında giriş penceresi açılmaz."
             )
         await self.start()
+        self._expected_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+        if use_paste_flow():
+            # Claude Code `login --no-browser` / SSH: adres basılır, dönüş adresi yapıştırılır.
+            self._accept_pasted(await asyncio.to_thread(_ask_pasted_redirect, url))
+            return
+        # Ölçüldü (30 Ekim): dönüş değeri yok sayılıyordu; tarayıcı açılamayınca
+        # bağlantı süresi askıya alınıp 300 sn boşuna beklenir, adres görünmezdi.
+        opened = await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
+        if not opened:
+            await self.close()
+            logging.getLogger(__name__).warning("OAuth giriş sayfası açılamadı: %s", url)
+            raise McpBrowserOpenError(
+                "Tarayıcı açılamadı. Giriş adresini elle aç ve 'Bağlan'ı yeniden dene: " + url
+            )
         if self._on_waiting is not None:
             self._on_waiting(True)
-        await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
+
+    def _accept_pasted(self, pasted: str) -> None:
+        query = parse_qs(urlparse(pasted.strip()).query)
+        code = query.get("code", [None])[0]
+        state = query.get("state", [None])[0]
+        if not code or state != self._expected_state:
+            raise McpConfigError("Yapıştırılan dönüş adresi bu girişe ait değil (code/state yok).")
+        self._set_result((code, state))
 
     async def wait_for_code(self) -> tuple[str, str | None]:
         if self._result is None:
@@ -160,11 +240,17 @@ class LoopbackOAuthCallback:
             state = query.get("state", [None])[0]
             error = query.get("error", [None])[0]
             code = query.get("code", [None])[0]
-            if parsed.path != "/oauth/callback" or (not code and not error):
-                self._set_error(RuntimeError("Geçersiz OAuth callback isteği."))
-                status = "400 Bad Request"
+            if parsed.path != self._path or (not code and not error):
+                # Ölçüldü (30 Ekim): her yabancı istek (başka sekme, ön-yükleyici, kötü
+                # niyetli `fetch`) akışı düşürüyordu; sabit port tahmin edilebilir.
+                status = "404 Not Found"
                 page = callback_page(
                     ok=False, title="Geçersiz dönüş", message="Bu adres bir giriş dönüşü değil."
+                )
+            elif self._expected_state is not None and state != self._expected_state:
+                status = "400 Bad Request"
+                page = callback_page(
+                    ok=False, title="Geçersiz dönüş", message="Bu dönüş bu girişe ait değil."
                 )
             elif error:
                 self._set_error(RuntimeError("OAuth girişi reddedildi veya iptal edildi."))
@@ -212,7 +298,9 @@ class OAuthBundle:
     storage: KeyringTokenStorage
 
 
-def registration_is_stale(client: OAuthClientInformationFull | None, redirect_uri: str) -> bool:
+def registration_is_stale(
+    client: OAuthClientInformationFull | None, redirect_uri: str, client_id: str = ""
+) -> bool:
     """Saklanan istemci kaydı, ŞU ANKİ yönlendirme adresini kapsıyor mu?
 
     Kayıt, kaydedildiği adrese BAĞLIDIR. Ölçüldü (11 Eylül, Notion MCP): istemci
@@ -221,10 +309,15 @@ def registration_is_stale(client: OAuthClientInformationFull | None, redirect_ur
     `Invalid redirect_uri for OAuth client` ile reddetti. Kullanıcının bunu kendi
     başına çözmesi mümkün değil: bayat kayıt anahtarlıkta, hata ekranda.
 
+    Ayarlardaki `client_id` değiştiyse de kayıt bayattır (30 Ekim: eski kimlik
+    kullanılmaya devam ediyordu). Ayarda `client_id` yoksa sunucunun verdiği korunur.
+
     Bayat kayıt SAKLANMAZ; atılır ve sunucuya yeniden kaydolunur.
     """
     if client is None:
         return False
+    if client_id and client.client_id != client_id:
+        return True
     # `redirect_uris` None olabilir: kayıt hiç adres taşımıyorsa eşleşme de yoktur.
     kayitli = {str(item).rstrip("/") for item in (client.redirect_uris or ())}
     return redirect_uri.rstrip("/") not in kayitli
@@ -240,7 +333,10 @@ async def oauth_provider_for(
     validate_remote_mcp_url(config.url)
     if not interactive:
         _silence_expected_login_errors()
-    callback = LoopbackOAuthCallback(on_waiting=on_waiting, interactive=interactive)
+    port, path = callback_settings(config)
+    callback = LoopbackOAuthCallback(
+        on_waiting=on_waiting, interactive=interactive, port=port, path=path
+    )
     if not callback.redirect_uri:
         await callback.start()
     storage = KeyringTokenStorage(config.url)
@@ -255,12 +351,19 @@ async def oauth_provider_for(
     lock = mcp_oauth_flows().lock_for(storage.debug_identity())
     async with lock:
         kayitli = await storage.get_client_info()
-        if registration_is_stale(kayitli, callback.redirect_uri):
+        if registration_is_stale(kayitli, callback.redirect_uri, config.client_id):
             await storage.clear()
             kayitli = None
         if config.client_id and kayitli is None:
+            secret = await storage.get_client_secret()
+            fields = metadata.model_dump()
+            if secret:
+                # Gizli istemci: sır token isteğinde gönderilir (Claude Code `--client-secret`).
+                fields["token_endpoint_auth_method"] = "client_secret_post"
             await storage.set_client_info(
-                OAuthClientInformationFull(**metadata.model_dump(), client_id=config.client_id)
+                OAuthClientInformationFull(
+                    **fields, client_id=config.client_id, client_secret=secret or None
+                )
             )
 
     def fresh_provider() -> httpx.Auth:

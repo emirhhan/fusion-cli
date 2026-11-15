@@ -14,6 +14,7 @@ export interface VoicePrefs {
 }
 
 export function VoiceSettings({
+  busy = false,
   disabled = false,
   onChange,
   onTopChange,
@@ -21,6 +22,8 @@ export function VoiceSettings({
   onTop,
   showOnTop = true,
 }: {
+  /** Kaydediliyor: sürgü devre dışı BIRAKILMAZ (odak kaybolurdu), yalnız `aria-busy` işaretlenir. */
+  busy?: boolean;
   disabled?: boolean;
   onChange: (next: VoicePrefs) => void;
   onTop: boolean;
@@ -32,12 +35,15 @@ export function VoiceSettings({
   const [taslak, setTaslak] = useState(prefs);
   const taslakRef = useRef(prefs);
   const sonPropsRef = useRef(prefs);
+  /** Son iletilen değer; değişmediyse (Tab bırakma, aynı konumda fare bırakma) yeniden kaydedilmez. */
+  const sonKaydedilen = useRef(prefs.hiz);
   useEffect(() => {
     // İlk mount'ta state zaten `prefs` ile kuruldu. Aynı değeri pasif effect'te
     // yeniden yazmak, hızlı bir ilk sürüklemenin hemen ardından çalışıp kullanıcı
     // taslağını eski değere döndürebiliyordu (özellikle yavaş CI/WebView'da).
     if (sonPropsRef.current === prefs) return;
     sonPropsRef.current = prefs;
+    sonKaydedilen.current = prefs.hiz;
     taslakRef.current = prefs;
     setTaslak(prefs);
   }, [prefs]);
@@ -49,13 +55,18 @@ export function VoiceSettings({
     taslakRef.current = next;
     setTaslak(next);
   };
-  const kaydet = () => onChange(taslakRef.current);
+  const kaydet = () => {
+    if (taslakRef.current.hiz === sonKaydedilen.current) return;
+    sonKaydedilen.current = taslakRef.current.hiz;
+    onChange(taslakRef.current);
+  };
 
   return (
-    <div className="voice-settings">
+    <div aria-busy={busy || undefined} className="voice-settings">
       <label className="voice-settings__row" htmlFor="ses-hiz">
         <span>Hız</span>
         <input
+          aria-valuetext={`${taslak.hiz.toFixed(2)} kat hız`}
           disabled={disabled}
           id="ses-hiz"
           max={1.6}

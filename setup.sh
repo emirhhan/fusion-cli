@@ -16,6 +16,10 @@
 set -eu
 
 MIN_MINOR=11
+# Geliştirici ekstraları `Makefile` `EXTRAS` ile BİREBİR aynıdır (Q1-21): `make setup` ile kurulan
+# ortamda `make check` voice/gateway testlerini atlamasın ya da kırmasın. `make setup` değeri
+# dışarıdan verir; elle çalıştırmada bu varsayılan geçerlidir.
+DEV_EXTRAS="${FUSION_DEV_EXTRAS:-dev,desktop,mcp,gateway,voice,web}"
 VENV=.venv
 DEV=0
 [ "${1:-}" = "--dev" ] && DEV=1
@@ -127,11 +131,11 @@ PIP="$VENV/bin/python -m pip"
 # gösterilir, yoksa kullanıcı "Kurulum başarısız" cümlesiyle baş başa kalır.
 adim "Bağımlılıklar kuruluyor (chromadb büyük; ilk kurulum birkaç dakika sürebilir)…"
 $PIP install --quiet --upgrade pip
-if ! $PIP install --quiet -e ".[dev,mcp,web]"; then
+if ! $PIP install --quiet -e ".[$DEV_EXTRAS]"; then
     uyari "Sessiz kurulum başarısız; gerçek hata aşağıda:"
-    $PIP install -e ".[dev,mcp,web]" || hata "Kurulum başarısız."
+    $PIP install -e ".[$DEV_EXTRAS]" || hata "Kurulum başarısız."
 fi
-bitti "Paket, MCP, web ve geliştirme araçları kuruldu (editable)."
+bitti "Paket ve geliştirme ekstraları ($DEV_EXTRAS) kuruldu (editable)."
 
 adim "Playwright Chromium kuruluyor…"
 "$VENV/bin/python" -m playwright install chromium || hata "Playwright Chromium kurulamadı."

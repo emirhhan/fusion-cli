@@ -8,3 +8,9 @@
 .mcp-tool-catalog summary { cursor: pointer; }
 .mcp-tool-catalog details li { padding: 6px 0; }
 .mcp-tool-catalog summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.mcp-reference-list { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.mcp-reference-list h3 { margin: 0; font-size: var(--text-sm); }
+.mcp-reference-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 0; }
+.mcp-reference-list li code { overflow-wrap: anywhere; }
+.mcp-reference-list li p { grid-column: 1; }
+.mcp-reference-list li button { grid-column: 2; grid-row: 1 / span 2; }

@@ -15,6 +15,12 @@ describe("isProjectRoot", () => {
     expect(isProjectRoot("/home/kullanici")).toBe(false);
   });
 
+  it("Windows ev dizinini ve sürücü kökünü proje saymaz (U4-57)", () => {
+    expect(isProjectRoot("C:\\Users\\ad")).toBe(false);
+    expect(isProjectRoot("C:\\")).toBe(false);
+    expect(isProjectRoot("C:\\Users\\ad\\Desktop")).toBe(true);
+  });
+
   it("gerçek klasörleri proje sayar", () => {
     expect(isProjectRoot("/Users/kullanici/Desktop")).toBe(true);
     expect(isProjectRoot("/Users/kullanici/Desktop/fusion-cli")).toBe(true);

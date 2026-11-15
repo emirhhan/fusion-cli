@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 from typing import cast
 
@@ -19,6 +20,7 @@ from fusion_cli.core.execution_plan import (
     VerificationCheckKind,
     validate_plan,
 )
+from fusion_cli.core.routine_codec import decode_routine
 
 
 class PlanParseError(FusionError):
@@ -61,6 +63,35 @@ def _strip_code_fence(raw: str) -> str:
     return text
 
 
+#: Planı aramak için denenen en çok `{` sayısı (uzun çıktıda ikinci dereceden tarama olmasın).
+_MAX_OBJECT_STARTS = 20
+
+_TRAILING_COMMA = re.compile(r",(\s*[\]}])")
+
+
+def _drop_trailing_commas(text: str) -> str:
+    """`[1, 2,]` / `{"a": 1,}` gibi sondaki virgülleri at (yalnız yedek yol)."""
+    return _TRAILING_COMMA.sub(r"\1", text)
+
+
+def _first_plan_object(text: str) -> object | None:
+    """Metindeki ilk `steps` taşıyan geçerli JSON nesnesi; yoksa None."""
+    decoder = json.JSONDecoder()
+    position = -1
+    for _ in range(_MAX_OBJECT_STARTS):
+        position = text.find("{", position + 1)
+        if position == -1:
+            return None
+        for candidate in (text[position:], _drop_trailing_commas(text[position:])):
+            try:
+                decoded, _ = decoder.raw_decode(candidate)
+            except (json.JSONDecodeError, RecursionError):
+                continue
+            if isinstance(decoded, dict) and "steps" in decoded:
+                return cast("object", decoded)
+    return None
+
+
 def _decode_plan_object(raw: str) -> object:
     """Model çıktısındaki plan nesnesini ayıkla ve çöz.
 
@@ -81,6 +112,11 @@ def _decode_plan_object(raw: str) -> object:
     start = text.find("{")
     if start == -1:
         raise PlanParseError("Plan JSON olarak ayrıştırılamadı: nesne bulunamadı")
+    # Planın önünde `{görev}` gibi süslü ayraçlı bir ifade varsa ilk `{` yanlış nesneyi
+    # seçerdi (A3-09): `steps` taşıyan ilk geçerli nesne tercih edilir.
+    plan_object = _first_plan_object(text)
+    if plan_object is not None:
+        return plan_object
     try:
         decoded, _ = json.JSONDecoder().raw_decode(text, start)
     except json.JSONDecodeError as exc:
@@ -88,8 +124,8 @@ def _decode_plan_object(raw: str) -> object:
         # sözlüğü döndürüyor. `literal_eval` kod çalıştırmaz; yalnız literal
         # değerleri çözer. Sonuç aşağıda aynı katı plan şemasından geçer.
         try:
-            decoded = ast.literal_eval(text[start:].strip())
-        except (SyntaxError, ValueError) as repair_exc:
+            decoded = ast.literal_eval(_drop_trailing_commas(text[start:].strip()))
+        except (SyntaxError, ValueError, RecursionError, MemoryError) as repair_exc:
             raise PlanParseError(_parse_error_message(text, exc)) from repair_exc
     return cast("object", decoded)
 
@@ -109,7 +145,13 @@ def _require_string(data: dict[str, object], field: str) -> str:
     return value
 
 
-def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
+#: Zayıf modellerin "yok" yerine yazdığı değerler (A3-08).
+_EMPTY_WORDS = frozenset({"yok", "hiçbiri", "none", "n/a", "-"})
+
+
+def _require_strings(
+    data: dict[str, object], field: str, *, may_be_empty: bool = False
+) -> tuple[str, ...]:
     """Dize listesi bekle; tek dize gelirse tek elemanlı liste say.
 
     Ölçüldü (6 Eylül canlı koşusu): model `success_criteria` alanını liste yerine
@@ -118,8 +160,17 @@ def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
 
     Tolerans UYDURMA DEĞİLDİR: boş dize ya da yanlış tip hâlâ reddedilir; yalnız
     "tek değer" ile "tek elemanlı liste" arasındaki biçim farkı onarılır.
+
+    `may_be_empty` alanlar (bağımlılık, beklenen etki, araç ailesi) gerçekten boş olabilir;
+    ölçüldü (29 Ekim, A3-08): zayıf modeller "bağımlılık yok" için `""`/`null`/`"yok"`
+    yazıyor ve bu tek onarım hakkını harcatıp planı düşürüyordu. Bunlar boş demektir.
     """
     value = data.get(field)
+    if may_be_empty and (
+        value is None
+        or (isinstance(value, str) and value.strip(" .").casefold() in _EMPTY_WORDS | {""})
+    ):
+        return ()
     if isinstance(value, str):
         if not value.strip():
             raise PlanParseError(f"Eksik veya geçersiz plan alanı: {field}")
@@ -129,15 +180,22 @@ def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def _parse_retry_safety(data: dict[str, object]) -> RetrySafety:
+def _parse_retry_safety(data: dict[str, object], phase: PlanPhase) -> RetrySafety:
     """Eksik politika ilk yürütmeyi engellemez; otomatik yinelemeye izin vermez.
 
     Boş veya tanınmayan etki etiketi salt-okunurluk kanıtı değildir: adımın
     araçları yine değişiklik yapabilir. Bu yüzden güvenliği modelin etki
     metninden çıkarmayız. Açıkça verilmiş geçersiz değerler reddedilir.
+
+    Tek istisna YAPISAL olandır: KEŞİF fazındaki adım salt-okunur açılır
+    (`plan_context.step_deps`: değiştirici araçlar kapalı, `allow_mutation=False`);
+    yan etkisi olamayan adımın yeniden denenmesi her zaman güvenlidir. Ölçüldü
+    (29 Ekim, A3-01): alanı unutan zayıf model planında keşif adımları da ilk
+    doğrulama hatasında duraklıyor, yeniden deneme/replan/final onarımı hiç
+    devreye girmiyordu.
     """
     if "retry_safety" not in data:
-        return RetrySafety.NEVER
+        return RetrySafety.SAFE if phase is PlanPhase.DISCOVERY else RetrySafety.NEVER
     value = data["retry_safety"]
     if not isinstance(value, str):
         raise PlanParseError("Eksik veya geçersiz plan alanı: retry_safety")
@@ -182,7 +240,40 @@ def _drop_invented_asset_files(effects: tuple[str, ...]) -> tuple[str, ...]:
     )
 
 
-def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationCheck, ...]:
+_KISA_KIMLIK = re.compile(r"c(\d+)", re.IGNORECASE)
+
+
+def _kosul_anahtari(metin: str) -> str:
+    """Koşul metnini boşluk, büyük/küçük harf ve sondaki noktalamadan arındır."""
+    return " ".join(metin.casefold().split()).rstrip(" .;:!,")
+
+
+def _resolve_criterion_id(raw: str, criteria: tuple[str, ...]) -> str:
+    """`criterion_id`'yi `success_criteria` içindeki koşula bağla.
+
+    Ölçüldü (30 Ekim, Z1-05): kimlik koşulun BİREBİR metni olmak zorundaydı;
+    küçük model metni yeniden yazarken noktalama ya da boşluk değiştirince
+    kontrol hiçbir koşula bağlanmıyor ve tüm plan reddediliyordu. Sıra:
+    birebir metin, sonra kısa kimlik (`c1` = ilk koşul), sonra TEK bir koşula
+    uyan normalleştirilmiş metin. Belirsiz ya da aralık dışı değer olduğu gibi
+    bırakılır; doğrulayıcı onu `bilinmeyen başarı koşulu` diye reddeder.
+    """
+    if raw in criteria:
+        return raw
+    kisa = _KISA_KIMLIK.fullmatch(raw.strip())
+    if kisa is not None:
+        sira = int(kisa.group(1))
+        if 1 <= sira <= len(criteria):
+            return criteria[sira - 1]
+        return raw
+    anahtar = _kosul_anahtari(raw)
+    adaylar = [item for item in criteria if _kosul_anahtari(item) == anahtar]
+    return adaylar[0] if len(adaylar) == 1 else raw
+
+
+def _parse_checks(
+    data: dict[str, object], index: int, criteria: tuple[str, ...] = ()
+) -> tuple[VerificationCheck, ...]:
     """İsteğe bağlı tipli kontrolleri ayrıştır; eski planlar boş listeyle yaşar."""
     raw_checks = data.get("verification_checks", [])
     if not isinstance(raw_checks, list):
@@ -225,7 +316,9 @@ def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationChec
             )
         checks.append(
             VerificationCheck(
-                criterion_id=_require_string(check_data, "criterion_id"),
+                criterion_id=_resolve_criterion_id(
+                    _require_string(check_data, "criterion_id"), criteria
+                ),
                 kind=kind,
                 target=_require_string(check_data, "target"),
                 expected=expected,
@@ -250,12 +343,13 @@ def _parse_step(value: object, index: int) -> PlanStep:
         raise PlanParseError(f"Eksik plan alanları (steps[{index}]): {', '.join(missing_fields)}")
     step_id = _require_string(data, "step_id")
     goal = _require_string(data, "goal")
-    depends_on = _require_strings(data, "depends_on")
-    expected_effects = _drop_invented_asset_files(_require_strings(data, "expected_effects"))
-    allowed_tool_families = _require_strings(data, "allowed_tool_families")
+    depends_on = _require_strings(data, "depends_on", may_be_empty=True)
+    expected_effects = _drop_invented_asset_files(
+        _require_strings(data, "expected_effects", may_be_empty=True)
+    )
+    allowed_tool_families = _require_strings(data, "allowed_tool_families", may_be_empty=True)
     success_criteria = _require_strings(data, "success_criteria")
     verification_hint = _require_string(data, "verification_hint")
-    retry_safety = _parse_retry_safety(data)
     phase_value = data.get("phase", PlanPhase.EXECUTION.value)
     if not isinstance(phase_value, str):
         raise PlanParseError("Eksik veya geçersiz plan alanı: phase")
@@ -263,6 +357,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
         phase = PlanPhase(phase_value)
     except ValueError as exc:
         raise PlanParseError(f"Geçersiz phase değeri: {phase_value}") from exc
+    retry_safety = _parse_retry_safety(data, phase)
 
     revision = data.get("revision", 0)
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
@@ -278,7 +373,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
         verification_hint=verification_hint,
         retry_safety=retry_safety,
         status=StepStatus.PENDING,
-        verification_checks=_parse_checks(data, index),
+        verification_checks=_parse_checks(data, index, success_criteria),
         phase=phase,
         revision=revision,
     )
@@ -295,12 +390,17 @@ def parse_execution_plan(raw: str) -> ExecutionPlan:
     if not isinstance(schema_version, int) or isinstance(schema_version, bool):
         raise PlanParseError("Eksik veya geçersiz plan alanı: schema_version")
 
+    try:
+        routine = decode_routine(data.get("routine"))
+    except ValueError as error:
+        raise PlanParseError(str(error)) from error
     plan = ExecutionPlan(
         plan_id=_require_string(data, "plan_id"),
         task=_require_string(data, "task"),
         steps=tuple(_parse_step(step, index) for index, step in enumerate(steps_value)),
         status=PlanStatus.PENDING,
         schema_version=schema_version,
+        routine=routine,
     )
     validation = validate_plan(plan)
     if not validation.ok:

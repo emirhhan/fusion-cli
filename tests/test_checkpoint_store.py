@@ -240,3 +240,115 @@ def test_checkpoint_gecersiz_kapsama_listesini_reddeder(tmp_path):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert store.load("plan-1") is None
+
+
+def test_okunamayan_checkpoint_kenara_alinir_ve_plan_yeniden_kaydedilir(tmp_path):
+    """Ölçüldü (29 Ekim): bozuk dosya save'i 'Checkpoint değişmiş' diye KALICI engelliyordu."""
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path)
+    store.save(checkpoint)
+    bozuk = next(directory.glob("*.json"))
+    bozuk.write_text("{bozuk", encoding="utf-8")
+
+    store.save(checkpoint)
+
+    assert store.load("plan-1") == replace(checkpoint, storage_revision=1)
+    yedek = bozuk.with_suffix(".corrupt")
+    assert yedek.read_text(encoding="utf-8") == "{bozuk"
+
+
+def test_desteklenmeyen_sema_veri_kaybetmeden_kenara_alinir(tmp_path):
+    directory = tmp_path / "checkpoints"
+    store = JsonCheckpointStore(directory)
+    checkpoint = _checkpoint(tmp_path)
+    store.save(checkpoint)
+    hedef = next(directory.glob("*.json"))
+    ham = json.loads(hedef.read_text(encoding="utf-8"))
+    ham["schema_version"] = 99
+    hedef.write_text(json.dumps(ham), encoding="utf-8")
+
+    store.save(checkpoint)
+
+    assert (
+        json.loads(hedef.with_suffix(".corrupt").read_text(encoding="utf-8"))["schema_version"]
+        == 99
+    )
+    assert store.load("plan-1") is not None
+
+
+def test_okunamayan_checkpoint_neden_loglanir(tmp_path, caplog):
+    directory = tmp_path / "checkpoints"
+    directory.mkdir()
+    (directory / "plan-1.json").write_text("{bozuk", encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        JsonCheckpointStore(directory).load("plan-1")
+
+    assert any(getattr(kayit, "dosya", "") == "plan-1.json" for kayit in caplog.records)
+
+
+def test_kriter_kaniti_artifact_alani_da_maskelenir():
+    """Ölçüldü (30 Ekim): `summary/command/output` maskeleniyordu ama `artifact`
+    `asdict` ile olduğu gibi diske yazılıyordu (M1-46)."""
+    from fusion_cli.core.checkpoint import StepCheckpointEvidence
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload
+
+    sir = "sk-or-v1-" + "a" * 48
+    kanit = CriterionEvidence(
+        criterion_id="c1",
+        kind=next(iter(VerificationCheckKind)),
+        status=next(iter(EvidenceStatus)),
+        summary="ok",
+        artifact=f"https://x.test/?api_key={sir}",
+    )
+
+    yuk = evidence_payload((StepCheckpointEvidence(step_id="s1", criteria=(kanit,)),))
+
+    assert sir not in json.dumps(yuk)
+
+
+def test_checkpoint_preserves_evidence_identity_and_nonbehavioral_flag():
+    from fusion_cli.core.evidence import EvidenceEnvironment
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload, parse_evidence
+
+    identity = EvidenceEnvironment("pytest -q", "/repo", "python", "dependencies", "config")
+    criterion = CriterionEvidence(
+        "criterion",
+        VerificationCheckKind.COMMAND,
+        EvidenceStatus.PASSED,
+        "ölçüldü",
+        behavioral=False,
+        source_digest="source",
+        source_after_digest="source",
+        environment=identity,
+        call_id="call",
+    )
+    use = ToolUse(
+        "run_shell",
+        source_digest="source",
+        source_after_digest="source",
+        environment=identity,
+        call_id="call",
+    )
+    saved = StepCheckpointEvidence("step", criteria=(criterion,), tool_uses=(use,))
+    assert parse_evidence(evidence_payload((saved,))) == (saved,)
+
+
+def test_legacy_reproduction_criterion_without_identity_loads_unverified():
+    from fusion_cli.memory.checkpoint_evidence import evidence_payload, parse_evidence
+
+    legacy = StepCheckpointEvidence(
+        "step",
+        criteria=(
+            CriterionEvidence(
+                "bug", VerificationCheckKind.REPRODUCTION, EvidenceStatus.PASSED, "önceki kayıt"
+            ),
+        ),
+    )
+    payload = evidence_payload((legacy,))
+    for field in ("source_digest", "source_after_digest", "environment", "call_id"):
+        payload[0]["criteria"][0].pop(field)
+    loaded = parse_evidence(payload)
+    assert loaded[0].criteria[0].status is EvidenceStatus.UNVERIFIED

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 from ..config.models import Config, HostedConnectorConfig, hosted_connector_ready
@@ -176,13 +177,16 @@ def remove_hosted_connector(config: Config, data: object) -> tuple[Config | None
     return yeni, {"ok": True, "ad": ad}
 
 
-async def _discover_tools(connector: HostedConnectorConfig) -> Sequence[str]:
-    """Gerçek keşif: connector'ın araçlarını sağlayıcı oturumuna sorarak al."""
-    from ..config.loader import load_config
+async def _discover_tools(connector: HostedConnectorConfig, *, config: Config) -> Sequence[str]:
+    """Gerçek keşif: connector'ın araçlarını sağlayıcı oturumuna sorarak al.
+
+    `config` çağıranın bellek-içi yapılandırmasıdır. Ölçüldü (30 Ekim): eskiden diskten
+    `load_config()` ile yeni bir yapılandırma okunuyordu; oturum henüz kaydetmediyse farklı
+    bir oturum sorgulanabilirdi.
+    """
     from ..mcp_bridge.hosted import HostedConnectorClient
     from ..providers.hosted_bridge import HostedSessionChannel
 
-    config = load_config()
     # Doğrulama turu sağlayıcının kendi tur süresinden UZUN olabilir; taban
     # yükseltilir (bkz. `HOSTED_VERIFY_TIMEOUT_S`).
     client = HostedConnectorClient(
@@ -219,7 +223,7 @@ async def verify_hosted_connector(
             "ok": False,
             "metin": f"{definition.name} oturumu bağlı değil; doğrulama yapılamaz.",
         }
-    probe = discover or _discover_tools
+    probe = discover or partial(_discover_tools, config=config)
     try:
         tools = await probe(connector)
     except Exception as error:

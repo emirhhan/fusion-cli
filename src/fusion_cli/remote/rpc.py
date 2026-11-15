@@ -9,23 +9,32 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ..accounts.workspaces import LOCAL_TENANT
 from ..core.protocols import Clock
+from ..core.task_protocol import IdempotencyConflictError, args_digest
 from .approval_confirmation import ApprovalConfirmations
 from .approvals import classify_question, is_approval
 from .backend import EventSink, TaskBackend
-from .constants import DELTA_FLUSH_SECONDS, RPC_VERSION
+from .constants import (
+    APPROVAL_TIMEOUT_SECONDS,
+    DELTA_FLUSH_SECONDS,
+    EVENTS_PAGE_LIMIT,
+    RPC_VERSION,
+)
 from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
 from .mobile import MobileApi, MobileError
-from .redaction import notification_summary
+from .redaction import notification_summary, split_flushable
 from .scopes import Scope, allows
 from .screen import ScreenCapture, ScreenShareGate, ScreenUnavailableError
 from .tasks import (
-    STATE_CANCELLED,
+    STATE_CANCELLING,
     STATE_DONE,
     STATE_FAILED,
     STATE_PAUSED,
@@ -34,6 +43,7 @@ from .tasks import (
     STATE_WAITING_APPROVAL,
     TERMINAL_STATES,
     TaskStore,
+    device_context,
 )
 
 HOST_OFFLINE_NOTICE = (
@@ -42,6 +52,29 @@ HOST_OFFLINE_NOTICE = (
 )
 
 Handler = Callable[[Device, dict[str, Any]], Awaitable["RpcResult"]]
+
+#: Hesaptan bağımsız yöntemler. Görev yöntemleri cihaz bağlamıyla kendi tenant'ına
+#: daraltılır; geri kalan HER yöntem (sohbet, medya, ekran, proje, kit, zamanlama)
+#: masaüstünde açık hesabın verisine dokunur ve yalnız o hesabın cihazına açıktır.
+_LOG = logging.getLogger(__name__)
+
+_TENANT_NEUTRAL_METHODS = frozenset(
+    {
+        "service.status",
+        "devices.revoke",
+        "tasks.list",
+        "tasks.status",
+        "tasks.events",
+        "tasks.cancel",
+    }
+)
+_OTHER_ACCOUNT = (
+    "Bu bilgisayarda başka bir hesap açık; bu işlem yalnız o hesabın cihazlarından yapılır."
+)
+_UNBOUND_DEVICE = (
+    "Bu cihaz eşleştirildiğinde bir hesaba bağlanmadı. Masaüstünden kaldırıp açık hesapla "
+    "yeniden bağlan."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +112,17 @@ class RemoteService:
         screen_capture: ScreenCapture | None = None,
         mobile: MobileApi | None = None,
         run_lock: asyncio.Lock | None = None,
+        host_tenant: str | Callable[[], str] = LOCAL_TENANT,
+        require_approval_trust: Callable[[], bool] = lambda: False,
     ) -> None:
+        #: Açıkken uzaktan ONAY (red değil) yalnız masaüstünün süreli yetki verdiği cihazdan
+        #: kabul edilir (P-040; Claude Code "Trusted Devices"). Varsayılan kapalı: eski
+        #: kurulumlarda telefon kapsam + ikinci teyit kuralıyla onaylamaya devam eder.
+        self._require_approval_trust = require_approval_trust
+        #: Bu bilgisayarda ŞU AN açık hesabın tenant'ı; her çağrıda yeniden okunur çünkü
+        #: masaüstünde hesap değişebilir. Yürütücü o hesabın yapılandırması ve sırlarıyla
+        #: çalıştığı için görev ve masaüstü verisi yalnız bu hesabın cihazlarına açıktır.
+        self._host_tenant = host_tenant if callable(host_tenant) else (lambda: host_tenant)
         self._clock = clock
         self._registry = registry
         self._store = store
@@ -95,13 +138,22 @@ class RemoteService:
         self._runs: set[asyncio.Task[None]] = set()
         self._confirmations = ApprovalConfirmations(clock)
         self._questions: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._question_timers: dict[str, asyncio.TimerHandle] = {}
+        self._expiries: set[asyncio.Task[None]] = set()
         self._active_run: str | None = None
 
     async def call(self, device: Device, method: str, params: dict[str, Any]) -> RpcResult:
         handler = self._handlers().get(method)
         if handler is None:
             return _fail("yontem_yok", f"Bilinmeyen yöntem: {method}")
+        if method not in _TENANT_NEUTRAL_METHODS and not self._is_host_account(device):
+            return _fail(
+                "baska_hesap", _UNBOUND_DEVICE if not device.account_id else _OTHER_ACCOUNT
+            )
         return await handler(device, params)
+
+    def _is_host_account(self, device: Device) -> bool:
+        return device_context(device).tenant_id == self._host_tenant()
 
     def _handlers(self) -> dict[str, Handler]:
         return {
@@ -156,10 +208,14 @@ class RemoteService:
         item = await self._mobile.find_schedule(str(params.get("id", "")))
         if item is None:
             return _fail("gorev_yok", "Zamanlanan görev bulunamadı.")
+        key = str(params.get("idempotencyKey", ""))
+        # Sohbet kimliği anahtardan türer: aynı anahtarla yeniden deneme aynı içeriği
+        # üretir ve tekil makbuzu döndürür (rastgele kimlik çatışma üretiyordu).
+        chat_seed = hashlib.sha256(f"{item.get('id', '')}:{key}".encode()).hexdigest()
         request: dict[str, Any] = {
             "prompt": str(item.get("gorev", "")),
-            "chatId": "z_" + uuid.uuid4().hex[:16],
-            "idempotencyKey": str(params.get("idempotencyKey", "")),
+            "chatId": "z_" + (chat_seed[:16] if key else uuid.uuid4().hex[:16]),
+            "idempotencyKey": key,
         }
         try:
             self._mobile.root_for(item.get("kok"))
@@ -167,6 +223,16 @@ class RemoteService:
         except MobileError:
             pass  # klasör masaüstünden bildirilmemiş: varsayılan kökte çalışır
         return await self._create(device, request)
+
+    @staticmethod
+    def _need_for_approval(device: Device, scope: str) -> RpcResult | None:
+        if allows(device.scopes, scope):
+            return None
+        return _fail(
+            "yetki_yok",
+            f"Bu onay için '{scope}' yetkisi gerekir; masaüstünden onaylayabilir ya da "
+            "telefonu bu yetkiyle yeniden eşleştirebilirsin.",
+        )
 
     @staticmethod
     def _need(device: Device, scope: str) -> RpcResult | None:
@@ -183,7 +249,28 @@ class RemoteService:
                 "activeRun": self._active_run,
                 "scopes": sorted(device.scopes),
                 "notice": HOST_OFFLINE_NOTICE,
+                "approvalAuthority": self.approval_authority(device.device_id),
             },
+        )
+
+    def approval_authority(self, device_id: str) -> dict[str, Any]:
+        """Cihazın uzaktan onay durumu: yetki zorunlu mu, kaç saniye kaldı (P-040)."""
+        remaining = self._registry.approval_trust_remaining(device_id)
+        return {
+            "required": self._require_approval_trust(),
+            "secondsLeft": int(remaining),
+            "canApprove": not self._require_approval_trust() or remaining > 0,
+        }
+
+    def _approval_trust_refusal(self, device: Device) -> RpcResult | None:
+        if not self._require_approval_trust() or self._registry.has_approval_trust(
+            device.device_id
+        ):
+            return None
+        return _fail(
+            "onay_yetkisi_yok",
+            "Bu cihaza uzaktan onay yetkisi verilmemiş ya da süresi dolmuş; masaüstünde "
+            "Ayarlar › Uzaktan Erişim'den yetki ver. Reddetmek her zaman serbest.",
         )
 
     async def _create(self, device: Device, params: dict[str, Any]) -> RpcResult:
@@ -200,13 +287,24 @@ class RemoteService:
                 options = self._mobile.run_options(params)
             except MobileError as error:
                 return _fail(error.code, error.message)
-        record, is_new = self._store.create(
-            device.device_id,
-            notification_summary(prompt),
-            project=str(params.get("project", ""))[:200],
-            idempotency_key=key if isinstance(key, str) else "",
-            chat_id=str(options.get("chat_id", "")),
-        )
+        context = device_context(device)
+        if not self._is_host_account(device):
+            return _fail("baska_hesap", _OTHER_ACCOUNT)
+        project = str(params.get("project", ""))[:200]
+        try:
+            record, is_new = self._store.create(
+                context,
+                notification_summary(prompt),
+                args_digest=args_digest({"prompt": prompt, "project": project, "options": options}),
+                project=project,
+                idempotency_key=key if isinstance(key, str) else "",
+                chat_id=str(options.get("chat_id", "")),
+            )
+        except IdempotencyConflictError:
+            return _fail(
+                "istek_cakismasi",
+                "Aynı istek anahtarı farklı içerikle gönderildi; yeni anahtar kullan.",
+            )
         if is_new:
             if options:
                 self._backend.prepare_run(record.run_id, options)
@@ -220,9 +318,11 @@ class RemoteService:
 
     async def _run(self, run_id: str, prompt: str) -> None:
         async with self._run_lock:
-            record = self._store.get(run_id)
+            record = self._store.owned(run_id)
             if record is None or record.state in TERMINAL_STATES:
                 return  # sıradayken iptal edildi
+            # Yürütmeden ÖNCE kalıcı: süreç burada ölürse iş tekrar çalıştırılmaz.
+            self._store.mark_dispatching(run_id)
             self._active_run = run_id
             try:
                 await self._backend.start(run_id, prompt, self._sink_for(run_id))
@@ -231,6 +331,10 @@ class RemoteService:
                 self._store.set_state(run_id, STATE_FAILED)
             finally:
                 self._active_run = None
+                after = self._store.owned(run_id)
+                if after is not None and after.state == STATE_CANCELLING:
+                    # Tur döndü: yürütücü gerçekten durdu, iptal kanıtlandı.
+                    self._store.finish_cancel(run_id, stopped=True)
 
     def _sink_for(self, run_id: str) -> EventSink:
         def sink(kind: str, payload: dict[str, Any]) -> None:
@@ -239,6 +343,11 @@ class RemoteService:
                     self._buffer_delta(run_id, str(payload.get("text", "")))
                 return
             self._flush_delta(run_id)
+            current = self._store.owned(run_id)
+            if kind == "failed" and current is not None and current.state == STATE_CANCELLING:
+                # İptal edilen tur yürütücüden başarısız döner: bu, duruşun kanıtıdır.
+                self._store.finish_cancel(run_id, stopped=True)
+                return
             if kind == "started":
                 self._store.set_state(run_id, STATE_RUNNING)
             elif kind == "question":
@@ -258,8 +367,11 @@ class RemoteService:
         pending += text
         if self._clock.now() - last >= DELTA_FLUSH_SECONDS:
             self._deltas.pop(run_id, None)
-            self._store.append(run_id, "delta", {"text": pending})
-            self._deltas[run_id] = ("", self._clock.now())
+            # Yarım belirteç bir sonraki parçaya kalır: bölünmüş sır parça parça sızmasın.
+            ready, tail = split_flushable(pending)
+            if ready:
+                self._store.append(run_id, "delta", {"text": ready})
+            self._deltas[run_id] = (tail, self._clock.now())
         else:
             self._deltas[run_id] = (pending, last)
 
@@ -271,7 +383,12 @@ class RemoteService:
     def _on_question(self, run_id: str, payload: dict[str, Any]) -> None:
         question_id = str(payload.get("questionId", ""))
         self._questions[question_id] = (run_id, payload)
+        self._arm_question_timer(question_id)
         self._store.set_state(run_id, STATE_WAITING_APPROVAL)
+        self._store.append(run_id, "approval_request", self._question_view(question_id, payload))
+
+    @staticmethod
+    def _question_view(question_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         view: dict[str, Any] = {
             "questionId": question_id,
             "title": payload.get("baslik", ""),
@@ -283,24 +400,74 @@ class RemoteService:
             "reason": payload.get("neden"),
             "diff": payload.get("diff", ""),
             "options": payload.get("secenekler", []),
+            "agent": payload.get("ajan"),
+            # Masaüstü hedefi (P-007): uzak istemci hangi uygulamaya dokunulacağını görsün.
+            "desktop": payload.get("masaustu"),
         }
         if is_approval(payload):
             approval = classify_question(payload)
             view["stepUp"] = approval.step_up
             view["requiredScope"] = approval.required_scope
-        self._store.append(run_id, "approval_request", view)
+        return view
+
+    def _arm_question_timer(self, question_id: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # döngü dışı (eşzamanlı test) çağrı: zamanlayıcı kurulamaz
+        self._question_timers[question_id] = loop.call_later(
+            APPROVAL_TIMEOUT_SECONDS, self._start_expiry, question_id
+        )
+
+    def _close_question(self, question_id: str) -> None:
+        """Soru cevaplandı ya da kapandı: bekleyen kaydı ve zamanlayıcıyı kaldır."""
+        self._questions.pop(question_id, None)
+        timer = self._question_timers.pop(question_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _start_expiry(self, question_id: str) -> None:
+        task = asyncio.ensure_future(self._expire_question(question_id))
+        self._expiries.add(task)
+        task.add_done_callback(self._expiries.discard)
+
+    async def _expire_question(self, question_id: str) -> None:
+        """Cevap gelmedi: onay REDDEDİLİR, düz soruda tur kesilir; kuyruk açılır (R1-16)."""
+        self._question_timers.pop(question_id, None)
+        entry = self._questions.get(question_id)
+        if entry is None:
+            return
+        run_id, question = entry
+        try:
+            if is_approval(question):
+                if not await self._backend.answer(question_id, {"secim": "deny"}):
+                    return
+                self._close_question(question_id)
+                self._store.set_state(run_id, STATE_RUNNING)
+                self._store.append(
+                    run_id,
+                    "approval_answered",
+                    {"questionId": question_id, "choice": "deny", "by": "timeout"},
+                )
+            else:
+                self._close_question(question_id)
+                self._store.append(run_id, "approval_timeout", {"questionId": question_id})
+                await self._backend.cancel(run_id)
+        except Exception:  # zaman aşımı yolu servisi düşürmez; tur kendi sınırında biter
+            _LOG.exception("Onay zaman aşımı işlenemedi: %s", question_id)
 
     async def _list(self, device: Device, _params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.PROJECT_READ.value)
         if denied:
             return denied
-        return RpcResult(True, {"tasks": [task.view() for task in self._store.list_tasks()]})
+        tasks = self._store.list_tasks(device_context(device))
+        return RpcResult(True, {"tasks": [task.view() for task in tasks]})
 
     async def _task_status(self, device: Device, params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.PROJECT_READ.value)
         if denied:
             return denied
-        record = self._store.get(str(params.get("runId", "")))
+        record = self._store.get(device_context(device), str(params.get("runId", "")))
         if record is None:
             return _fail("gorev_yok", "Görev bulunamadı.")
         return RpcResult(True, record.view())
@@ -310,34 +477,49 @@ class RemoteService:
         if denied:
             return denied
         run_id = str(params.get("runId", ""))
-        record = self._store.get(run_id)
+        context = device_context(device)
+        record = self._store.get(context, run_id)
         if record is None:
             return _fail("gorev_yok", "Görev bulunamadı.")
         after = params.get("afterSeq", 0)
         after_seq = after if isinstance(after, int) and after >= 0 else 0
-        events = self._store.events_after(run_id, after_seq)
+        events = self._store.events_after(context, run_id, after_seq)
+        page = events[:EVENTS_PAGE_LIMIT]
+        # Bekleyen sorular olay günlüğünden BAĞIMSIZ döner: günlük sınırı eski
+        # approval_request olayını atsa da onay telefonda görünür kalır.
+        pending = [
+            self._question_view(question_id, question)
+            for question_id, (owner, question) in self._questions.items()
+            if owner == run_id
+        ]
         return RpcResult(
-            True, {"events": [event.view() for event in events], "state": record.state}
+            True,
+            {
+                "events": [event.view() for event in page],
+                "state": record.state,
+                "hasMore": len(events) > len(page),
+                "pending": pending,
+            },
         )
 
     async def _cancel(self, device: Device, params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.AGENT_CANCEL.value)
         if denied:
             return denied
-        record = self._store.get(str(params.get("runId", "")))
+        context = device_context(device)
+        record = self._store.get(context, str(params.get("runId", "")))
         if record is None:
             return _fail("gorev_yok", "Görev bulunamadı.")
-        if record.state in TERMINAL_STATES:
+        if record.state in TERMINAL_STATES or record.state == STATE_CANCELLING:
             return RpcResult(True, {**record.view(), "changed": False})
-        if record.state == STATE_QUEUED:
-            self._store.set_state(record.run_id, STATE_CANCELLED)
-            self._store.append(record.run_id, "cancelled", {})
-            return RpcResult(True, {**record.view(), "changed": True})
-        stopped = await self._backend.cancel(record.run_id)
-        if stopped:
-            self._store.set_state(record.run_id, STATE_CANCELLED)
-            self._store.append(record.run_id, "cancelled", {})
-        return RpcResult(True, {**record.view(), "changed": stopped})
+        was_queued = record.state == STATE_QUEUED
+        record = self._store.request_cancel(context, record.run_id)
+        if not was_queued and not await self._backend.cancel(record.run_id):
+            # Yürütücü bu işi tanımıyor: durduğu kanıtlanamaz, sonuç uzlaştırma ister.
+            self._store.finish_cancel(record.run_id, stopped=False)
+        # Kuyruktaki iş hemen "cancelled"; yürütülen iş tur bitene kadar "cancelling".
+        current = self._store.get(context, record.run_id) or record
+        return RpcResult(True, {**current.view(), "changed": True})
 
     async def _pause(self, device: Device, _params: dict[str, Any]) -> RpcResult:
         denied = self._need(device, Scope.AGENT_PAUSE.value)
@@ -351,7 +533,7 @@ class RemoteService:
 
     async def _respond(self, device: Device, params: dict[str, Any]) -> RpcResult:
         question_id = str(params.get("questionId", ""))
-        entry = self._questions.get(question_id)
+        entry = self._visible_question(device, question_id)
         if entry is None:
             return _fail("soru_yok", "Soru bulunamadı veya zaten kapandı.")
         run_id, question = entry
@@ -374,13 +556,26 @@ class RemoteService:
         accepted = await self._backend.answer(question_id, answer)
         if not accepted:
             return _fail("cevap_reddedildi", "Soru cevabı yürütücü tarafından kabul edilmedi.")
-        if accepted:
-            self._questions.pop(question_id, None)
-            self._store.set_state(run_id, STATE_RUNNING)
-            self._store.append(
-                run_id, "approval_answered", {"questionId": question_id, "choice": choice}
-            )
+        self._close_question(question_id)
+        self._store.set_state(run_id, STATE_RUNNING)
+        event: dict[str, Any] = {"questionId": question_id}
+        if choice is not None:  # düz metin sorusunda seçim yoktur; boş değer kaydedilmez
+            event["choice"] = choice
+        self._store.append(run_id, "approval_answered", event)
         return RpcResult(True, {"accepted": accepted})
+
+    def _visible_question(
+        self, device: Device, question_id: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Soru bu bilgisayarın görevine aittir; yalnız açık hesabın cihazı cevaplar.
+
+        Görevleri yalnız açık hesabın cihazları başlatabildiği için başka hesabın
+        cihazına soru yokmuş gibi davranılır; okuma kapsamı istenmez (eski davranış).
+        """
+        entry = self._questions.get(question_id)
+        if entry is None or not self._is_host_account(device):
+            return None
+        return entry
 
     @staticmethod
     def _choices(question: dict[str, Any]) -> set[str]:
@@ -391,7 +586,7 @@ class RemoteService:
 
     async def _challenge(self, device: Device, params: dict[str, Any]) -> RpcResult:
         question_id = str(params.get("questionId", ""))
-        entry = self._questions.get(question_id)
+        entry = self._visible_question(device, question_id)
         if entry is None:
             return _fail("soru_yok", "Soru bulunamadı veya zaten kapandı.")
         run_id, question = entry
@@ -404,6 +599,12 @@ class RemoteService:
             or choice not in self._choices(question)
         ):
             return _fail("gecersiz_istek", "Sunulmayan onay seçeneği.")
+        if choice != "deny":
+            denied = self._approval_trust_refusal(device) or self._need_for_approval(
+                device, classify_question(question).required_scope
+            )
+            if denied:
+                return denied
         token = self._confirmations.issue(
             device.device_id, run_id, question_id, str(choice), question
         )
@@ -427,8 +628,15 @@ class RemoteService:
                 return denied
         if choice == "deny":
             return None
+        trust_refusal = self._approval_trust_refusal(device)
+        if trust_refusal is not None:
+            return trust_refusal
         approval = classify_question(question)
         if device.channel == CHANNEL_SIGNED:
+            # İkinci teyit, işlemin gerektirdiği kapsamın eksikliğini KAPATMAZ (R1-01).
+            denied = self._need_for_approval(device, approval.required_scope)
+            if denied:
+                return denied
             if (approval.step_up or choice == "session") and not self._confirmations.consume(
                 params.get("confirmation"),
                 device.device_id,
@@ -497,18 +705,19 @@ class RemoteService:
             return denied
         if device.channel != CHANNEL_SIGNED:
             return _fail("yetki_yok", "Ekran yalnız imzalı telefondan istenebilir.")
+        # "Hatırla" tercihi her istekte yeniden alınır; eski istek sonraki onaya taşınmaz.
         if params.get("remember") is True:
             self._remember_screen.add(device.device_id)
+        else:
+            self._remember_screen.discard(device.device_id)
         state = self._screen_gate.request(device.device_id)
-        current = self._registry.active(device.device_id)
-        if state == "pending" and (
-            (current is not None and current.screen_trusted) or params.get("confirmed") is True
-        ):
-            self.approve_screen(device.device_id)
-            current = self._registry.active(device.device_id)
+        # Telefonun kendi "onayladım" beyanı (`confirmed`) yetki DEĞİLDİR: ekran yalnız
+        # masaüstü onayıyla ya da masaüstünde verilmiş süreli güvenle açılır (R1-02).
+        if state == "pending" and self._registry.has_screen_trust(device.device_id):
+            self._screen_gate.approve(device.device_id)
             state, _remaining = self._screen_gate.status(device.device_id)
         return RpcResult(
-            True, {"state": state, "remembered": bool(current and current.screen_trusted)}
+            True, {"state": state, "remembered": self._registry.has_screen_trust(device.device_id)}
         )
 
     async def _screen_status(self, device: Device, _params: dict[str, Any]) -> RpcResult:
@@ -516,13 +725,12 @@ class RemoteService:
         if denied:
             return denied
         state, remaining = self._screen_gate.status(device.device_id)
-        current = self._registry.active(device.device_id)
         return RpcResult(
             True,
             {
                 "state": state,
                 "secondsLeft": remaining,
-                "remembered": bool(current and current.screen_trusted),
+                "remembered": self._registry.has_screen_trust(device.device_id),
             },
         )
 
@@ -545,6 +753,9 @@ class RemoteService:
             frame = await self._screen_capture.frame()
         except ScreenUnavailableError as error:
             return _fail("ekran_kullanilamaz", str(error))
+        except Exception as error:  # özel yakalayıcılar da 500'e değil ekran hatasına dönsün
+            _LOG.warning("Ekran karesi alınamadı: %s", error)
+            return _fail("ekran_kullanilamaz", "Ekran alınamadı.")
         if isinstance(sequence, int):
             self._last_frames[device.device_id] = (sequence, frame, self._clock.now())
         return RpcResult(
@@ -585,7 +796,7 @@ class RemoteService:
         run_id, _question = entry
         accepted = await self._backend.answer(question_id, {"secim": choice})
         if accepted:
-            self._questions.pop(question_id, None)
+            self._close_question(question_id)
             self._store.set_state(run_id, STATE_RUNNING)
             self._store.append(
                 run_id,
@@ -595,6 +806,9 @@ class RemoteService:
         return accepted
 
     async def aclose(self) -> None:
-        for task in list(self._runs):
+        for timer in self._question_timers.values():
+            timer.cancel()
+        self._question_timers.clear()
+        for task in [*self._runs, *self._expiries]:
             task.cancel()
-        await asyncio.gather(*self._runs, return_exceptions=True)
+        await asyncio.gather(*self._runs, *self._expiries, return_exceptions=True)

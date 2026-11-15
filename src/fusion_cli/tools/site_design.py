@@ -24,15 +24,17 @@ import contextlib
 import hashlib
 import json
 import re
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+import httpx
+
+from ..core.constants import MAX_WEB_REDIRECTS
 from ..core.tools import ChromeControl
+from .pinned_http import PinnedTransport
 
 PROBE_SOURCE = Path(__file__).parent / "assets" / "design_probe.js"
 #: Ölçüm ve indirilen varlıkların varsayılan klasörü (proje kökünde).
@@ -71,6 +73,7 @@ _HIDE_CONSENT = (
     "el.getBoundingClientRect().top > innerHeight * 0.4) el.style.display = 'none'; } }"
 )
 _CART = re.compile(r"sepet|cart|basket|\bbag\b|alışveriş çantası", re.IGNORECASE)
+_ASSET_TIMEOUT_S = 30
 _USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Fusion site_design"
 
 
@@ -250,7 +253,11 @@ def _image_queue(report: DesignReport) -> list[str]:
         for section in page.get("sections", []):
             video = section.get("video") or {}
             sectional.extend(
-                [section.get("backgroundImage", ""), video.get("poster", ""), *section["images"]]
+                [
+                    section.get("backgroundImage", ""),
+                    video.get("poster", ""),
+                    *section.get("images", []),
+                ]
             )
     products = [item["image"] for page in report.pages for item in page.get("products", [])]
     galleries = [
@@ -372,21 +379,41 @@ async def _fetch_all(urls: list[str], folder: Path, limit: int) -> dict[str, str
 
 
 def _fetch(url: str, folder: Path, limit: int) -> str | None:
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    """Sayfanın gösterdiği varlığı indir; her adım (yönlendirmeler dahil) genel adrese gider.
+
+    Ölçüldü (29 Ekim incelemesi): adresler ölçülen sayfadan gelir ve yalnız `http`
+    önekiyle süzülüyordu; `urlopen` yönlendirmeyi denetimsiz izliyordu. Düşman bir sayfa
+    `<img src=http://169.254.169.254/...>` yazarak bulut metadata yanıtını diske,
+    ajanın okuyabileceği yere kaydettirebilirdi.
+    """
+    data = bytearray()
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = response.read(limit + 1)
-            kind = response.headers.get_content_type()
-    except (urllib.error.URLError, OSError, ValueError):
+        with (
+            httpx.Client(
+                follow_redirects=True,
+                max_redirects=MAX_WEB_REDIRECTS,
+                timeout=_ASSET_TIMEOUT_S,
+                transport=PinnedTransport(),
+                headers={"User-Agent": _USER_AGENT},
+            ) as client,
+            client.stream("GET", url) as response,
+        ):
+            response.raise_for_status()
+            kind = response.headers.get("content-type", "").partition(";")[0].strip()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > limit:
+                    return None
+    except (httpx.HTTPError, ValueError):
         return None
-    if len(data) > limit or not data:
+    if not data:
         return None
     name = Path(urlparse(url).path).name or "dosya"
     stem = re.sub(r"[^A-Za-z0-9._-]", "-", Path(name).stem)[:60] or "dosya"
     suffix = Path(name).suffix.lower() or _suffix_for(kind)
     digest = hashlib.sha1(url.encode()).hexdigest()[:8]
     target = folder / f"{stem}-{digest}{suffix}"
-    target.write_bytes(data)
+    target.write_bytes(bytes(data))
     return target.name
 
 
@@ -465,13 +492,15 @@ def summarize(report: DesignReport, folder_label: str) -> str:
     filled = [
         b
         for b in home.get("buttons", [])
-        if b["background"] not in ("rgba(0, 0, 0, 0)", "transparent") and len(b.get("text", "")) > 3
+        if b.get("background", "") not in ("", "rgba(0, 0, 0, 0)", "transparent")
+        and len(b.get("text", "")) > 3
     ]
     if filled:
         b = filled[0]
         lines.append(
-            f"BUTON: zemin {b['background']}, yazı {b['color']}, köşe {b['radius']}, "
-            f"dolgu {b['padding']}, örnek '{b.get('text', '')}'"
+            f"BUTON: zemin {b.get('background', '?')}, yazı {b.get('color', '?')}, "
+            f"köşe {b.get('radius', '?')}, dolgu {b.get('padding', '?')}, "
+            f"örnek '{b.get('text', '')}'"
         )
     if home.get("prices"):
         fiyat = home["prices"][0]
@@ -565,7 +594,8 @@ def _section_lines(
 
     lines = [f"BÖLÜMLER ({name}, yukarıdan aşağı — bu sırayla kur):"]
     for index, section in enumerate(sections, start=1):
-        parts = [f"{_SECTION_NAMES.get(section['kind'], section['kind'])} {section['height']}px"]
+        kind = str(section.get("kind", "bölüm"))
+        parts = [f"{_SECTION_NAMES.get(kind, kind)} {section.get('height', '?')}px"]
         video = section.get("video") or {}
         media = [
             path
@@ -583,16 +613,17 @@ def _section_lines(
             parts.append("medya " + ", ".join(dict.fromkeys(media)))
         if section.get("headings"):
             heading = section["headings"][0]
-            font = heading["font"]
+            font = heading.get("font") or {}
+            family = str(font.get("family", "?")).split(",")[0]
             parts.append(
-                f"başlık '{heading['text']}' ({font['family'].split(',')[0]} "
-                f"{font['size']}/{font['weight']} {font['color']})"
+                f"başlık '{heading.get('text', '')}' ({family} "
+                f"{font.get('size', '?')}/{font.get('weight', '?')} {font.get('color', '?')})"
             )
         if section.get("buttons"):
             parts.append("düğme " + ", ".join(f"'{text}'" for text in section["buttons"][:3]))
         if section.get("items"):
             parts.append(f"{section['items']} fiyatlı öğe")
-        if section["background"] not in ("rgba(0, 0, 0, 0)", "transparent"):
+        if section.get("background", "") not in ("", "rgba(0, 0, 0, 0)", "transparent"):
             parts.append(f"zemin {section['background']}")
         lines.append(f"  {index}. " + " | ".join(parts))
     return lines

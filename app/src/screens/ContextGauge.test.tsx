@@ -101,7 +101,7 @@ describe("ContextGauge", () => {
       fireEvent.click(screen.getByRole("meter"));
       expect(screen.getByRole("dialog")).toBeTruthy();
 
-      fireEvent.keyDown(document, { key: "Escape" });
+      expect(fireEvent.keyDown(document, { key: "Escape" })).toBe(false);
       expect(screen.queryByRole("dialog")).toBeNull();
 
       fireEvent.click(screen.getByRole("meter"));

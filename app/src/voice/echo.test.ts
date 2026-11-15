@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { yankiMi } from "./echo";
+import { cevapYankisiMi, yankiMi } from "./echo";
 
 describe("yankiMi", () => {
   const konusulan = "Bugün hava çok güzel, dışarı çıkmak için ideal bir gün";
@@ -30,5 +30,22 @@ describe("yankiMi", () => {
 
   it("araya giren soz yanki kelimeleri tasisa da yeni soz baskinsa gecer", () => {
     expect(yankiMi("dur bir saniye başka bir şey soracağım güzel", konusulan)).toBe(false);
+  });
+});
+
+describe("cevapYankisiMi", () => {
+  const okunan = "Dosya yazılsın mı? Evet ya da hayır de.";
+
+  it("okunan metinde geçen tek kelimelik cevabı yankı sayar", () => {
+    expect(cevapYankisiMi("evet", okunan)).toBe(true);
+  });
+
+  it("okunan metinde geçmeyen cevabı kullanıcıdan sayar", () => {
+    expect(cevapYankisiMi("onayla", okunan)).toBe(false);
+  });
+
+  it("Fusion konuşmuyorsa ya da söz boşsa yankı değildir", () => {
+    expect(cevapYankisiMi("evet", null)).toBe(false);
+    expect(cevapYankisiMi("", okunan)).toBe(false);
   });
 });

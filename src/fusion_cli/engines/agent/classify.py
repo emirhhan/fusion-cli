@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+from ...core.text_fold import fold_tr
+
 
 class TaskKind(Enum):
     """Bir isteğin kaba görev türü. Ders kapsamı (scope) olarak kullanılır."""
@@ -65,6 +67,11 @@ _GAME_CREATION_RE = re.compile(
     r"\b(?:oyun|game|godot|unity|dead\s*cells|deadcells)\b",
     re.IGNORECASE,
 )
+_ANALYSIS_RE = re.compile(
+    r"\b(?:analiz|incele|inceleme|rapor|denetle|değerlendir|degerlendir|review|audit)"
+    r"[a-zçğıöşü]*\b",
+    re.IGNORECASE,
+)
 _CREATION_RE = re.compile(
     r"\b(?:yap|oluştur|olustur|geliştir|gelistir|kur|inşa\s+et|insa\s+et)[a-zçğıöşü]*\b",
     re.IGNORECASE,
@@ -90,7 +97,12 @@ _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
             "calismiyor",
         ),
     ),
-    (TaskKind.TEST, ("test", "pytest", "unittest", "kapsam", "coverage", "assert")),
+    # "kapsam" tek başına Türkçede "scope"tur ("projenin kapsamını açıkla"); test anlamı
+    # ancak "test/kod kapsamı" biçiminde taşınır (A1-28).
+    (
+        TaskKind.TEST,
+        ("test", "pytest", "unittest", "test kapsam", "kod kapsam", "coverage", "assert"),
+    ),
     (
         TaskKind.REFACTOR,
         (
@@ -170,6 +182,7 @@ _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
         TaskKind.EXPLORE,
         (
             "nerede",
+            "analiz",
             "nasıl çalışıyor",
             "nasil calisiyor",
             "açıkla",
@@ -281,13 +294,23 @@ _HEAD_INTENT_RULES: dict[TaskKind, tuple[re.Pattern[str], int]] = {
 }
 
 
+#: Tür etiketini ezen gündelik sözcük öbekleri: "hata yönetimi ekle" BUGFIX değildir,
+#: "hata sayfası tasarla" WEBSITE'tır. Eşleşmeden ÖNCE metinden çıkarılır (A1-28).
+_NEUTRAL_PHRASES = re.compile(
+    r"\bhata(?=\s+(?:yönetim|yonetim|sayfa|işleme|isleme|yakalama|mesaj))|"
+    r"\bsayfa(?=\s+say)",
+    re.IGNORECASE,
+)
+
+
 def _classification_scores(request: str) -> tuple[tuple[TaskKind, int], ...]:
     """Bütün prompt + ağırlaştırılmış ilk bölüm için deterministik skorlar."""
 
-    lowered = request.lower()
+    request = _NEUTRAL_PHRASES.sub(" ", fold_tr(request))
+    lowered = fold_tr(request)
     tokens = set(re.split(r"[^0-9a-zçğıöşü]+", lowered))
 
-    head = request[:_PRIMARY_HEAD_CHARS].lower()
+    head = fold_tr(request[:_PRIMARY_HEAD_CHARS])
     head_tokens = set(re.split(r"[^0-9a-zçğıöşü]+", head))
 
     scores: list[tuple[TaskKind, int]] = []
@@ -317,7 +340,7 @@ def classify_task_details(request: str) -> TaskClassification:
     görünür ama primary'yi kolayca ele geçiremez.
     """
 
-    lowered = request.lower()
+    lowered = fold_tr(request)
 
     # "yap" tek başına mutation niyetini kanıtlamaz. Kullanıcının ne yapılacağını
     # belirtmediği bu tip kısa emirlerde FEATURE seçmek ask_user akışını gereksiz
@@ -333,7 +356,13 @@ def classify_task_details(request: str) -> TaskClassification:
     forced_feature = (
         (_OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered))
         or (_MAKE_OPERATIONAL_RE.search(lowered) and not _EXPLANATION_RE.search(lowered))
-        or (_GAME_CREATION_RE.search(lowered) and _CREATION_RE.search(lowered))
+        or (
+            _GAME_CREATION_RE.search(lowered)
+            and _CREATION_RE.search(lowered)
+            # "Godot oyununu analiz et ve rapor yap": "yap" burada rapor üretir, oyun
+            # değil (A1-29); salt analiz görevi yazmaya zorlanmaz.
+            and not _ANALYSIS_RE.search(lowered)
+        )
     )
 
     scores = _classification_scores(request)

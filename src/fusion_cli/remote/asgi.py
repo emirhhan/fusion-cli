@@ -5,12 +5,15 @@ Bu katman yalnız kimlik doğrular ve yönlendirir; iş mantığı `RemoteServic
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from .account_login import AccountLogin, LoginError
-from .constants import MAX_BODY_BYTES, RPC_VERSION
+from .constants import BODY_READ_TIMEOUT_SECONDS, MAX_BODY_BYTES, RPC_VERSION
 from .devices import CHANNEL_SIGNED, DeviceRegistry
 from .pairing import PairingError, PairingService
 from .rate_limit import FailureLimiter
@@ -18,11 +21,14 @@ from .rpc import RemoteService
 from .signing import SignatureVerifier, SignedRequest
 
 PWA_DIRECTORY = Path(__file__).parent / "pwa"
+_LOG = logging.getLogger(__name__)
 _JS = "text/javascript; charset=utf-8"
 _PNG = "image/png"
 _STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/InterVariable.woff2": ("InterVariable.woff2", "font/woff2"),
+    "/Inter-LICENSE.txt": ("Inter-LICENSE.txt", "text/plain; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
     "/icon-192.png": ("icon-192.png", _PNG),
@@ -37,6 +43,7 @@ _STATIC = {
             "chat",
             "dom",
             "media",
+            "pair-link",
             "screen-stream",
             "screen-view",
             "dock",
@@ -57,7 +64,7 @@ _SECURITY_HEADERS = [
     (b"cache-control", b"no-store"),
     (
         b"content-security-policy",
-        b"default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+        b"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
         b"style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'",
     ),
 ]
@@ -84,17 +91,27 @@ class RemoteApp:
         self._limiter = limiter
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:  # noqa: ANN401
+        if scope["type"] == "lifespan":
+            await _lifespan(receive, send)
+            return
         if scope["type"] != "http":
+            # websocket vb. desteklenmez: sessizce dönmek uvicorn'da uyarı üretiyordu (R1-36).
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
             return
         method, path = scope["method"], scope["path"]
-        client = (scope.get("client") or ("?", 0))[0]
+        client = _client_identity(scope)
         if method == "GET" and path in _STATIC:
             await self._static(send, path)
             return
         if method != "POST":
             await self._json(send, 405, {"error": "yontem_izinsiz"})
             return
-        body = await _read_body(receive)
+        try:
+            body = await asyncio.wait_for(_read_body(receive), BODY_READ_TIMEOUT_SECONDS)
+        except TimeoutError:
+            await self._json(send, 408, {"error": "govde_zaman_asimi"})
+            return
         if body is None:
             await self._json(send, 413, {"error": "govde_buyuk"})
             return
@@ -121,6 +138,7 @@ class RemoteApp:
                 str(payload.get("code", "")),
                 str(payload.get("deviceName", "")),
                 channel=CHANNEL_SIGNED,
+                claim_key=str(payload.get("claimKey", ""))[:128],
             )
         except PairingError as error:
             self._limiter.record_failure(f"pair:{client}")
@@ -139,7 +157,9 @@ class RemoteApp:
             return
         payload = _parse(body)
         try:
-            device = self._pairing.claim(str(payload.get("code", "")))
+            device = self._pairing.claim(
+                str(payload.get("code", "")), str(payload.get("claimKey", ""))[:128]
+            )
         except PairingError as error:
             self._limiter.record_failure(f"pair:{client}")
             await self._json(send, 400, {"error": "eslestirme", "message": str(error)})
@@ -208,14 +228,21 @@ class RemoteApp:
             await self._json(send, 401, {"error": "kimlik_dogrulanamadi", "reason": reason})
             return
         self._limiter.record_success(key)
+        # İlk imzalı istek, eşleştirme sırrının telefona ulaştığının kanıtıdır.
+        self._pairing.acknowledge(device.device_id)
         request = _parse(body)
         method, params = request.get("method"), request.get("params")
         if not isinstance(method, str):
             await self._json(send, 400, {"error": "gecersiz_istek"})
             return
-        result = await self._service.call(
-            device, method, params if isinstance(params, dict) else {}
-        )
+        try:
+            result = await self._service.call(
+                device, method, params if isinstance(params, dict) else {}
+            )
+        except Exception:  # işlenmemiş istisna bağlantıyı yarım bırakmasın; ayrıntı günlükte
+            _LOG.exception("Uzak RPC işlenemedi: %s", method)
+            await self._json(send, 500, {"error": "sunucu_hatasi"})
+            return
         await self._json(send, 200, result.view())
 
     async def _static(self, send: Any, path: str) -> None:  # noqa: ANN401
@@ -236,6 +263,41 @@ class RemoteApp:
         headers = [(b"content-type", content_type.encode()), *_SECURITY_HEADERS]
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})
+
+
+async def _lifespan(receive: Any, send: Any) -> None:  # noqa: ANN401
+    """Uvicorn yaşam döngüsü iletilerine yanıt verir; başlatma/kapatma işi yoktur."""
+    while True:
+        message = await receive()
+        if message["type"] == "lifespan.startup":
+            await send({"type": "lifespan.startup.complete"})
+        elif message["type"] == "lifespan.shutdown":
+            await send({"type": "lifespan.shutdown.complete"})
+            return
+
+
+def _client_identity(scope: dict[str, Any]) -> str:
+    """Hız sınırı için istemci kimliği.
+
+    Güvenilir tünel/Tailscale proxy'si (`tailscale serve`) loopback'ten bağlanır; eş adresi
+    hep 127.0.0.1 olunca bütün dünya aynı kilit anahtarını paylaşır (R1-11). Eş loopback ise
+    proxy'nin eklediği `X-Forwarded-For` zincirinin SON girdisi kullanılır (ilk girdi
+    istemci tarafından sahtelenebilir). Loopback olmayan eşte başlık yok sayılır.
+    """
+    peer = str((scope.get("client") or ("?", 0))[0])
+    try:
+        if not ipaddress.ip_address(peer).is_loopback:
+            return peer
+    except ValueError:
+        return peer
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"x-forwarded-for":
+            last = value.decode("latin-1").split(",")[-1].strip()
+            try:
+                return str(ipaddress.ip_address(last))
+            except ValueError:
+                return peer
+    return peer
 
 
 async def _read_body(receive: Any) -> bytes | None:  # noqa: ANN401

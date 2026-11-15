@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 
 import httpx
 
+from ..config.keys import environ_snapshot
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.types import ToolCall
 
@@ -151,8 +153,7 @@ def probe_nim_tools(model_id: str, timeout_s: float = 90.0) -> tuple[bool, str]:
             response.raise_for_status()
             result = response.json()
     except (httpx.HTTPError, ValueError) as error:
-        status = getattr(getattr(error, "response", None), "status_code", None)
-        return False, f"NIM doğrulaması başarısız ({status or type(error).__name__})."
+        return False, _nim_probe_failure(model_id, error)
     choices = result.get("choices") if isinstance(result, dict) else None
     message = (
         choices[0].get("message")
@@ -163,6 +164,46 @@ def probe_nim_tools(model_id: str, timeout_s: float = 90.0) -> tuple[bool, str]:
     if not isinstance(calls, list) or not any(_valid_sum_call(call) for call in calls):
         return False, "Model geçerli bir araç çağrısı üretmedi."
     return True, ""
+
+
+#: NIM sondasının HTTP durumlarına göre kullanıcıya söylenen neden. Ölçüldü (2 Kasım 2026):
+#: yalın "NIM doğrulaması başarısız (404)" kullanıcıya bağlam ya da Fusion hatası gibi
+#: göründü; 404, `/models` listesinde görünen ama bu hesap için sunulmayan modeldir.
+_NIM_STATUS_REASONS = {
+    401: "NIM anahtarı reddedildi (401); anahtarı NVIDIA hesabından yenileyip yeniden gir.",
+    403: "NIM anahtarının bu modele erişim izni yok (403); başka bir NIM modeli seç.",
+    404: (
+        "{model} NIM'de bu hesap için sunulmuyor (404): model listede görünse de uç kapalı "
+        "ya da kaldırılmış. Başka bir NIM modeli seç."
+    ),
+    429: "NIM istek sınırı doldu (429); biraz bekleyip yeniden dene.",
+}
+#: NVIDIA hata gövdesindeki hesap kimliği kullanıcı metnine taşınmaz.
+_NIM_ACCOUNT = re.compile(r"\s*for account '[^']*'", re.IGNORECASE)
+
+
+def _nim_probe_failure(model_id: str, error: Exception) -> str:
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(error, httpx.TimeoutException):
+        return "NIM modeli zamanında yanıt vermedi (zaman aşımı); başka bir model dene."
+    template = _NIM_STATUS_REASONS.get(status) if isinstance(status, int) else None
+    if template is None:
+        return f"NIM doğrulaması başarısız ({status or type(error).__name__})."
+    reason = template.format(model=model_id.removeprefix("nvidia_nim/"))
+    detail = _nim_error_detail(response)
+    return f"{reason} NVIDIA: {detail}" if detail else reason
+
+
+def _nim_error_detail(response: object) -> str:
+    try:
+        body = response.json()  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        return ""
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if not isinstance(detail, str):
+        return ""
+    return _NIM_ACCOUNT.sub("", detail).strip()[:200]
 
 
 def valid_capability_call(call: ToolCall) -> bool:
@@ -180,7 +221,20 @@ def _valid_sum_call(call: object) -> bool:
         arguments = json.loads(function.get("arguments", ""))
     except (TypeError, ValueError):
         return False
-    return isinstance(arguments, dict) and arguments.get("a") == 2 and arguments.get("b") == 3
+    if not isinstance(arguments, dict):
+        return False
+    # Bazı modeller sayıyı "2" diye metin döndürür; araç yine çağrılabilirdir.
+    return _as_number(arguments.get("a")) == 2 and _as_number(arguments.get("b")) == 3
+
+
+def _as_number(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 
 def _as_int(value: object) -> int:
@@ -202,11 +256,33 @@ def _is_free(item: dict[str, object]) -> bool:
     )
 
 
+def ollama_base_url() -> str:
+    """Ollama taban adresi: `OLLAMA_API_BASE` (LiteLLM'in okuduğu), yoksa `OLLAMA_HOST`.
+
+    Katalog sabit 127.0.0.1:11434'e bakıyor, LiteLLM ise `OLLAMA_API_BASE`'i okuyordu;
+    Ollama başka portta/uzak makinedeyse liste boş görünüyordu (ölçüldü 30 Ekim).
+    """
+    environ = environ_snapshot()
+    base = environ.get("OLLAMA_API_BASE", "").strip()
+    if base:
+        return base.rstrip("/")
+    host = environ.get("OLLAMA_HOST", "").strip()
+    if not host:
+        return _OLLAMA_DEFAULT_BASE
+    if "://" not in host:
+        host = f"http://{host}"
+    # `OLLAMA_HOST=0.0.0.0:11500` DİNLEME adresidir; bağlanılacak adres loopback'tir.
+    return host.replace("//0.0.0.0", "//127.0.0.1").rstrip("/")
+
+
+_OLLAMA_DEFAULT_BASE = "http://127.0.0.1:11434"
+
+
 def fetch_ollama(timeout_s: float = 0.75) -> tuple[CatalogEntry, ...]:
     """Discover optional local models without cloud keys or proxy credentials."""
     try:
         with httpx.Client(timeout=timeout_s, trust_env=False) as client:
-            response = client.get("http://127.0.0.1:11434/api/tags")
+            response = client.get(f"{ollama_base_url()}/api/tags")
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError):

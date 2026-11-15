@@ -42,5 +42,7 @@ tek manuel adım Chrome'un kendi onay ekranıdır.
 - Fusion Chrome profil verisine yazmaz, çerez/oturum okumaz; yalnız eklentinin kurulu olup
   olmadığını `Preferences` dosyasından okur.
 - Panoya yalnız eklenti klasörünün yolu yazılır.
+- Eklenti bağlandıktan sonra aynı ekranda **Eklenti ayarları** görünür: konsol/ağ izleme anahtarı ve
+  `/ad` kısayolları (panelle aynı liste) buradan da yönetilir.
 - Eklenti sayfaları yalnız izin verdiğin sitelerde okur; ekran, fare ve klavye adımları panelin
   **denetim şeridinde** görünür ve izin kipine göre (Otomatik, Manuel, Plan…) onay ister.

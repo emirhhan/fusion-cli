@@ -58,10 +58,22 @@ def store_avatar_image(account_id: str, source: str) -> str:
         raise ValueError(f"Avatar {AVATAR_MAX_BYTES // (1024 * 1024)} MB'tan büyük olamaz.")
     hedef_dizin = account_config_dir(account_id)
     hedef_dizin.mkdir(parents=True, exist_ok=True)
+    hedef = hedef_dizin / f"{_BASENAME}{uzanti}"
+    if kaynak.resolve() == hedef.resolve():
+        # Kullanıcı hesabın MEVCUT kopyasını yeniden seçti: silip kopyalamak kaynağı yok ederdi.
+        return str(hedef)
+    # Önce geçici dosyaya kopyala: disk dolu vb. bir hata eski avatarı silmeden önce
+    # patlar. Ölçüldü (30 Ekim): eski avatar kopyadan ÖNCE siliniyor, kopya başarısız
+    # olursa kullanıcı avatarsız kalıyordu.
+    gecici = hedef_dizin / f".{_BASENAME}.yeni{uzanti}"
+    try:
+        shutil.copy2(kaynak, gecici)
+    except OSError as hata:
+        gecici.unlink(missing_ok=True)
+        raise ValueError(f"Avatar kopyalanamadı: {hata.strerror or type(hata).__name__}.") from hata
     # Eski avatar kalmasın: her uzantıdan yalnız bir kopya tutulur, yoksa
     # png'den jpg'ye geçen kullanıcının eski dosyası dizinde öksüz kalırdı.
     for eski in AVATAR_SUFFIXES:
         (hedef_dizin / f"{_BASENAME}{eski}").unlink(missing_ok=True)
-    hedef = hedef_dizin / f"{_BASENAME}{uzanti}"
-    shutil.copy2(kaynak, hedef)
+    gecici.replace(hedef)
     return str(hedef)

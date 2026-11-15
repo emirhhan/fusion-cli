@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { resetModelApprovals } from "./modelApprovals";
 import { ModelPicker, shortModelName, type ModelOption } from "./ModelPicker";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); resetModelApprovals(); });
 
 const SECENEKLER: ModelOption[] = [
   { deger: "/model agent gemini_web/main", etiket: "Gemini Web", aciklama: "Tarayıcı oturumu" },
@@ -54,14 +55,14 @@ describe("ModelPicker", () => {
     expect(screen.getByText("Gemini Web")).toBeTruthy();
   });
 
-  test("seçim komutu olduğu gibi iletilir ve liste kapanır", () => {
+  test("seçilen seçenek nesnesi olduğu gibi iletilir ve liste kapanır", () => {
     const onSelect = vi.fn();
     render(<ModelPicker active="a" onSelect={onSelect} options={SECENEKLER} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
     fireEvent.click(screen.getByText("GPT-OSS 20B"));
 
-    expect(onSelect).toHaveBeenCalledWith("/model agent openrouter/openai/gpt-oss-20b:free");
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ deger: "/model agent openrouter/openai/gpt-oss-20b:free" }));
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
@@ -83,7 +84,8 @@ describe("ModelPicker", () => {
     render(<ModelPicker active="a" onSelect={vi.fn()} options={SECENEKLER} />);
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    // Tüketilen Esc (preventDefault) Shell'in denetçi kapatmasını tetiklemez (U1-01).
+    expect(fireEvent.keyDown(document, { key: "Escape" })).toBe(false);
 
     expect(screen.queryByRole("listbox")).toBeNull();
   });
@@ -127,4 +129,59 @@ describe("shortModelName — kısa çip adı", () => {
     expect(shortModelName("nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")).toBe("nemotron-3-nano-omni-reasoning");
     expect(shortModelName("nvidia_nim/z-ai/glm-5.3")).toBe("glm-5.3");
   });
+});
+
+describe("ModelPicker — araç desteği doğrulanmamış model (U1-45)", () => {
+  const BILINMEYEN: ModelOption[] = [
+    { deger: "/model agent nim/yeni-model", etiket: "Yeni Model", toolSupport: "unknown" },
+    { deger: "/model agent nim/bilinen", etiket: "Bilinen Model", toolSupport: "supported" },
+  ];
+
+  test("doğrulanmamış model satır içi onay ister; Vazgeç seçimi uygulamaz", () => {
+    const onSelect = vi.fn();
+    render(<ModelPicker active="a" onSelect={onSelect} options={BILINMEYEN} />);
+    fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Yeni Model/ }));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "Yeni Model seçimini onayla" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  test("Yine de seç modeli uygular ve aynı oturumda tekrar sormaz", () => {
+    const onSelect = vi.fn();
+    render(<ModelPicker active="a" onSelect={onSelect} options={BILINMEYEN} />);
+    fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Yeni Model/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Yine de seç" }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ deger: "/model agent nim/yeni-model" }));
+    fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Yeni Model/ }));
+    expect(onSelect).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  test("doğrulanmış model onaysız seçilir", () => {
+    const onSelect = vi.fn();
+    render(<ModelPicker active="a" onSelect={onSelect} options={BILINMEYEN} />);
+    fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Bilinen Model/ }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ deger: "/model agent nim/bilinen" }));
+  });
+});
+
+test.each([
+  { state: "ready", activePending: false, activeError: "", suffix: "" },
+  { state: "pending", activePending: true, activeError: "", suffix: " · Etkin model okunuyor…" },
+  { state: "error", activePending: false, activeError: "Etkin model okunamadı.", suffix: " · yenilenemedi" },
+  { state: "stale", activePending: false, activeError: "Etkin model yenilenemedi; son okunan model gösteriliyor.", suffix: " · yenilenemedi" },
+])("$state keeps the full configured identity accessible and the visual name compact", ({ activePending, activeError, suffix }) => {
+  const active = "provider/model-550b-a55b:free";
+  const { rerender } = render(<ModelPicker active={active} activePending={activePending} activeError={activeError} onSelect={vi.fn()} options={[]} />);
+  const trigger = screen.getByRole("button", { name: `Model: ${active}${suffix}. Değiştirmek için tıkla.` });
+  expect(trigger.textContent).toBe(`model${suffix}`);
+  rerender(<ModelPicker active={active} activeLabel="Custom model label" activePending={activePending} activeError={activeError} onSelect={vi.fn()} options={[]} />);
+  const labeled = screen.getByRole("button", { name: `Model: Custom model label${suffix}. Değiştirmek için tıkla.` });
+  expect(labeled.textContent).toBe(`Custom model label${suffix}`);
 });

@@ -124,7 +124,14 @@ def test_olu_yedek_ayiklanir_arac_gecen_web_oturumu_eklenir(tmp_path: Path, monk
     yol = tmp_path / "c.yaml"
     yol.write_text(YAML, encoding="utf-8")
     config = _dogrulanmis(load_config(yol))
-    spec: ModelSpec = live_fallbacks(config.agent, config)
+    # Varsayılan KAPALI (P1-15): önce varsayılanda web oturumunun eklenmediği,
+    # sonra kullanıcı açıkça açınca eklendiği sınanır.
+    varsayilan: ModelSpec = live_fallbacks(config.agent, config)
+    assert not any(model.endswith("_web/main/auto") for model in varsayilan.fallback)
+    from dataclasses import replace
+
+    acik = replace(config, runtime=replace(config.runtime, auto_web_fallback=True))
+    spec: ModelSpec = live_fallbacks(acik.agent, acik)
     assert "nvidia_nim/x/olu" not in spec.fallback
     assert spec.fallback == ("gemini_web/main/auto",)
 
@@ -138,3 +145,30 @@ def test_web_yedegi_kapatilabilir(tmp_path: Path, monkeypatch) -> None:
     config = _dogrulanmis(load_config(yol))
     kapali = replace(config, runtime=replace(config.runtime, auto_web_fallback=False))
     assert live_fallbacks(kapali.agent, kapali).fallback == ()
+
+
+def test_anahtarsiz_api_saglayici_ve_giriş_yapilmamis_codex_yedekten_ayiklanir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Ölçüldü (30 Ekim): `_usable` yalnız NIM/OpenRouter anahtarına bakıyordu; anahtarı
+    olmayan OpenAI/Anthropic/Gemini yedeği ve `codex_cli/…` (kurulu/girişli mi hiç
+    bakılmıyordu) her turda 'anahtar yok' hatasıyla zincirde kalıyordu (P1-13, P1-14)."""
+    from dataclasses import replace
+
+    yol = tmp_path / "c.yaml"
+    yol.write_text(YAML, encoding="utf-8")
+    config = load_config(yol)
+    config = replace(config, runtime=replace(config.runtime, auto_web_fallback=False))
+    spec = replace(
+        config.agent, fallback=("openai/gpt-4o", "anthropic/claude-x", "codex_cli/default")
+    )
+    ortam: dict[str, str] = {}
+    monkeypatch.setattr("fusion_cli.providers.fallback_plan.environ_snapshot", lambda: ortam)
+    monkeypatch.setattr("fusion_cli.providers.fallback_plan.codex_ready", lambda: False)
+
+    assert live_fallbacks(spec, config).fallback == ()
+
+    ortam["OPENAI_API_KEY"] = "sk-test"
+    monkeypatch.setattr("fusion_cli.providers.fallback_plan.codex_ready", lambda: True)
+    kalan = live_fallbacks(spec, config).fallback
+    assert kalan == ("openai/gpt-4o", "codex_cli/default")

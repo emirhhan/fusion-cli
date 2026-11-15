@@ -7,7 +7,10 @@ kodu verebiliyor; "açıldı" ile "hatasız açıldı" ayrı şeylerdir. Bu mod�
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 from ....core.constants import SKIP_DIRECTORIES
@@ -17,8 +20,78 @@ from .contract import DomainAdapter
 _MAIN_SCENE = re.compile(r"^\s*run/main_scene\s*=\s*\S")
 _SECTION = re.compile(r"^\s*\[")
 
-#: Godot'un içe aktarma gerektiren görsel/ses uzantıları.
-_GODOT_IMPORTED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".ogg", ".wav", ".mp3"})
+#: Godot'un içe aktarma gerektiren görsel/ses/3B/yazı tipi uzantıları.
+#
+# Ölçüldü (30 Ekim): küme yalnız 2B görsel ve sesi kapsıyordu; Meshy→Blender→Godot
+# zincirinin `.glb/.gltf/.obj/.fbx` varlıkları, `.svg`, yazı tipleri ve HDR/EXR dokular
+# `.import`suz kalınca `load()` çalışma anında düşüyor ama içe aktarma hiç tetiklenmiyordu.
+_GODOT_IMPORTED_SUFFIXES = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".tga",
+        ".svg",
+        ".exr",
+        ".hdr",
+        ".ogg",
+        ".wav",
+        ".mp3",
+        ".glb",
+        ".gltf",
+        ".obj",
+        ".fbx",
+        ".dae",
+        ".ttf",
+        ".otf",
+    }
+)
+
+
+#: Godot'nun macOS uygulama paketindeki çalıştırılabilir dosyalar (PATH'te olmayabilir).
+GODOT_APP_BUNDLES = (
+    Path("/Applications/Godot.app/Contents/MacOS/Godot"),
+    Path("/Applications/Godot_mono.app/Contents/MacOS/Godot"),
+    Path.home() / "Applications" / "Godot.app" / "Contents" / "MacOS" / "Godot",
+)
+
+
+def find_godot_executable(
+    environ: Mapping[str, str] | None = None,
+    *,
+    which: Callable[[str], str | None] | None = None,
+    bundles: Iterable[Path] | None = None,
+) -> str | None:
+    """Godot yürütülebilirini bul: `GODOT_BIN` → PATH'te `godot` → uygulama paketi.
+
+    Ölçüldü (30 Ekim, E1-10): kapı komutu hep literal `godot`'tu; macOS'ta Godot çoğu
+    kurulumda PATH'te değildir ve kapı "command not found" (127) ile doğrulanamıyordu.
+    Bulunamazsa None döner (komut olduğu gibi kalır, 127 zaten "doğrulanamadı" sayılır).
+    `GODOT_BIN` geçersizse (dosya değil / çalıştırılamaz) atlanır.
+    """
+    env = os.environ if environ is None else environ
+    custom = env.get("GODOT_BIN", "").strip()
+    if custom and _is_executable_file(Path(custom).expanduser()):
+        return str(Path(custom).expanduser())
+    on_path = (which or shutil.which)("godot")
+    if on_path:
+        return on_path
+    for bundle in GODOT_APP_BUNDLES if bundles is None else bundles:
+        if _is_executable_file(bundle):
+            return str(bundle)
+    return None
+
+
+def _is_executable_file(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _godot_gate_executable() -> str | None:
+    """Kapı komutunda kullanılacak yol; PATH'teki `godot` ise adı olduğu gibi kalır."""
+    found = find_godot_executable()
+    return "godot" if found is not None and found == shutil.which("godot") else found
 
 
 def godot_has_main_scene(root: Path) -> bool:
@@ -46,12 +119,46 @@ def godot_has_main_scene(root: Path) -> bool:
     return False
 
 
+_RES_YOLU = re.compile(r'res://(?P<yol>[^"\']+)')
+_UID_DEGERI = re.compile(r'(?P<uid>uid://[^"\'\s]+)')
+_SAHNE_UID_BASLIGI = re.compile(r'^\[gd_scene\b[^\]]*\buid="(?P<uid>uid://[^"]+)"')
+
+
 def _declared_main_scene_exists(root: Path, line: str) -> bool:
-    """`run/main_scene` satırındaki sahne dosyası diskte var mı?"""
-    eslesme = re.search(r'res://(?P<yol>[^"\']+)', line)
-    if eslesme is None:
+    """`run/main_scene` satırındaki sahne dosyası diskte var mı?
+
+    Ölçüldü (29 Ekim): Godot 4.x `run/main_scene="uid://..."` yazabilir; yalnız
+    `res://` tanıyan eşleme geçerli projeyi "ana sahne yok" diye reddediyordu.
+    uid, sahne dosyasının `[gd_scene ... uid="uid://..."]` başlığında çözülür
+    (motorun `.godot/uid_cache.bin` önbelleği kullanılmaz, editör açılmamış
+    projede yoktur).
+    """
+    eslesme = _RES_YOLU.search(line)
+    if eslesme is not None:
+        return (root / eslesme.group("yol").strip()).is_file()
+    uid = _UID_DEGERI.search(line)
+    if uid is None:
         return False
-    return (root / eslesme.group("yol").strip()).is_file()
+    return _scene_with_uid_exists(root, uid.group("uid"))
+
+
+def _scene_with_uid_exists(root: Path, uid: str) -> bool:
+    """Proje içinde başlığı bu uid'i taşıyan bir `.tscn` var mı?"""
+    for path in root.rglob("*.tscn"):
+        if any(
+            part in SKIP_DIRECTORIES or part.startswith(".")
+            for part in path.relative_to(root).parts
+        ):
+            continue
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                ilk = handle.readline()
+        except OSError:
+            continue
+        baslik = _SAHNE_UID_BASLIGI.match(ilk)
+        if baslik is not None and baslik.group("uid") == uid:
+            return True
+    return False
 
 
 def godot_needs_import(root: Path) -> bool:
@@ -65,13 +172,20 @@ def godot_needs_import(root: Path) -> bool:
     yüklüyordu ve motor `No loader found for resource:
     res://assets/Tiles/Default/tile_0000.png` bastı — üstelik çıkış kodu 0'dı.
     """
-    for path in root.rglob("*"):
-        if path.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES:
-            continue
-        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in path.parts):
-            continue
-        if not path.with_suffix(path.suffix + ".import").exists():
-            return True
+    # `os.walk` ile BUDAMA: `node_modules`/`.git`/`.godot` ağacına hiç girilmez (eskiden
+    # `rglob("*")` hepsini gezip sonra süzüyordu; her kapı çağrısında tekrarlanırdı).
+    # Süzgeç kökten GÖRELİ olduğundan `~/.projects/oyun` gibi gizli üst dizin projeyi
+    # görünmez kılmaz (C1-04 ile aynı ilke).
+    for dizin, alt_dizinler, dosyalar in os.walk(root):
+        alt_dizinler[:] = [
+            ad for ad in alt_dizinler if ad not in SKIP_DIRECTORIES and not ad.startswith(".")
+        ]
+        for ad in dosyalar:
+            yol = Path(dizin) / ad
+            if yol.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES or ad.startswith("."):
+                continue
+            if not yol.with_suffix(yol.suffix + ".import").exists():
+                return True
     return False
 
 
@@ -97,6 +211,7 @@ def godot_adapter() -> DomainAdapter:
         is_runnable=godot_has_main_scene,
         preparation=_godot_preparation,
         executable="godot",
+        executable_resolver=_godot_gate_executable,
         # "no loader found" sıfır çıkışla basılır ve oyunun varlığı yükleyemediğini
         # söyler; kapının sessiz kalması tam da bu yüzden yanlıştır.
         output_failure_markers=(

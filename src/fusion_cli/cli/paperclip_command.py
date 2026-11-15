@@ -21,7 +21,9 @@ import typer
 
 from ..config.keys import environ_snapshot
 from ..config.loader import load_config
-from ..engines.agent.approval import ApprovalMode
+from ..engines.agent.approval import ApprovalAnswer, ApprovalMode
+from ..ui import messages
+from .cleanup import with_web_cleanup
 from .session import run_agent_task
 
 #: Görevi kuran uyanma alanları (Paperclip skill'inin belgelediği adlar).
@@ -67,17 +69,21 @@ def paperclip() -> None:
         typer.echo(str(error), err=True)
         raise typer.Exit(2) from error
     config = load_config()
+    # Web temizliği ŞART: Ölçüldü (`app.py` ile aynı sebep) temizlik yoksa headless
+    # Chrome ve MCP stdio süreçleri kalıyor; heartbeat'ler tekrarlandıkça birikir.
     outcome = asyncio.run(
-        run_agent_task(
-            task,
-            config,
-            sinks=(),
-            prompter_factory=_no_prompter,
-            mode=ApprovalMode.AUTO,
-            root=Path.cwd(),
-            home=Path.home(),
-            interactive=False,
-            conversation_id="paperclip-" + environ_snapshot().get("PAPERCLIP_RUN_ID", "elle"),
+        with_web_cleanup(
+            run_agent_task(
+                task,
+                config,
+                sinks=(),
+                prompter_factory=_no_prompter,
+                mode=ApprovalMode.AUTO,
+                root=Path.cwd(),
+                home=Path.home(),
+                interactive=False,
+                conversation_id="paperclip-" + environ_snapshot().get("PAPERCLIP_RUN_ID", "elle"),
+            )
         )
     )
     typer.echo(outcome.final_text)
@@ -86,15 +92,20 @@ def paperclip() -> None:
 
 
 class _UnattendedPrompter:
-    """Heartbeat etkileşimsizdir: onay gerektiren her işlem REDDEDİLİR, soru sorulmaz."""
+    """Heartbeat etkileşimsizdir: onay gerektiren işlem ÇALIŞTIRILMAZ, soru sorulmaz.
 
-    async def confirm(self, request: object) -> bool:
-        return False
+    Cevap `False` değil `UNAVAILABLE`: kimseye sorulamadı, kullanıcı reddetmedi. `False`
+    motorda "kullanıcı reddetti" sayılıp model başka yol denemeye ve ret ders olarak
+    öğrenilmeye gidiyordu (L1-07; `ConsolePrompter` etkileşimsizde aynısını döndürür).
+    """
+
+    async def confirm(self, request: object) -> ApprovalAnswer:
+        return ApprovalAnswer.UNAVAILABLE
 
     async def ask(
         self, question: str, options: tuple[object, ...] = (), recommended: str | None = None
     ) -> str:
-        return "Paperclip heartbeat'i etkileşimsizdir; soruyu Paperclip yorumu olarak sor."
+        return messages.NO_ANSWER_AVAILABLE
 
 
 def _no_prompter(_flush: object) -> _UnattendedPrompter:

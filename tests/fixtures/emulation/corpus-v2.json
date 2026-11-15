@@ -1,0 +1,249 @@
+{
+  "version": 2,
+  "cases": [
+    {
+      "case_id": "single-read",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"a.txt\"}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "a.txt"
+          },
+          "schema": {
+            "name": "read_file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "ordered-two-reads",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"a.txt\"}}\nFUSION_TOOL_CALL_END\nFUSION_TOOL_CALL\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"b.txt\"}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "a.txt"
+          },
+          "schema": {
+            "name": "read_file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "b.txt"
+          },
+          "schema": {
+            "name": "read_file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "read-then-write",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\"}}\nFUSION_TOOL_CALL_END\nFUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"b\", \"content\": \"satır\\niki\"}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "a"
+          },
+          "schema": {
+            "name": "read_file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "b",
+            "content": "satır\niki"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "unicode-arguments",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{\"name\": \"search_code\", \"arguments\": {\"pattern\": \"İstanbul / ölçüm\", \"path\": \"şema.py\"}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "İstanbul / ölçüm",
+            "path": "şema.py"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "raw-payload-byte-preservation",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_PAYLOAD id=\"body\"\nsatır 1\n\"alıntı\" \\ yol\nson satır\n\nFUSION_PAYLOAD_END\nFUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"out.txt\", \"content\": {\"$ref\": \"body\"}}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out.txt",
+            "content": "satır 1\n\"alıntı\" \\ yol\nson satır\n"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "multiple-payloads",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_PAYLOAD id=\"first\"\nilk\n\nFUSION_PAYLOAD_END\nFUSION_PAYLOAD id=\"second\"\nson\n\nFUSION_PAYLOAD_END\nFUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"one\", \"content\": {\"$ref\": \"first\"}}}\nFUSION_TOOL_CALL_END\nFUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"two\", \"content\": {\"$ref\": \"second\"}}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "one",
+            "content": "ilk\n"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "two",
+            "content": "son\n"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "literal-json-strings",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"json.txt\", \"content\": \"{\\\"nested\\\": [1, 2], \\\"escaped\\\": \\\"\\\\n\\\"}\"}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "json.txt",
+            "content": "{\"nested\": [1, 2], \"escaped\": \"\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "legacy-call",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"old\"}}</tool_call>",
+      "expected_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "old"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "negative-plain-answer",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "Bu yalnız açıklamadır.",
+      "expected_calls": []
+    },
+    {
+      "case_id": "negative-escaped-quoted-example",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "```text\nF​USION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"example\", \"content\": \"yok\"}}\nF​USION_TOOL_CALL_END\n```",
+      "expected_calls": []
+    },
+    {
+      "case_id": "negative-malformed-json",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{bozuk\nFUSION_TOOL_CALL_END",
+      "expected_calls": []
+    },
+    {
+      "case_id": "negative-missing-payload",
+      "provider": "synthetic",
+      "transport": "synthetic",
+      "split": "diagnostic",
+      "provenance": "synthetic",
+      "output": "FUSION_TOOL_CALL\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"missing\", \"content\": {\"$ref\": \"absent\"}}}\nFUSION_TOOL_CALL_END",
+      "expected_calls": []
+    }
+  ]
+}

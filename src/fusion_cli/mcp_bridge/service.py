@@ -10,7 +10,7 @@ from dataclasses import replace
 from ..config.models import McpServerConfig
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED
-from .pool import forget_mcp_failure, mcp_oauth_flows, mcp_pool_statuses
+from .pool import drop_mcp_connection, forget_mcp_failure, mcp_oauth_flows, mcp_pool_statuses
 from .tokens import KeyringTokenStorage
 
 Probe = Callable[[McpServerConfig], Awaitable[McpConnectionStatus]]
@@ -25,8 +25,10 @@ class McpConnectionService:
         quiet_probe: Probe | None = None,
         pool_statuses: PoolStatuses = mcp_pool_statuses,
         clock: Callable[[], float] = time.monotonic,
+        drop_connection: Callable[[str], Awaitable[None]] = drop_mcp_connection,
     ) -> None:
         self._clock = clock
+        self._drop_connection = drop_connection
         self._probe = probe or self._probe_server
         #: Giriş penceresi AÇMAYAN deneme: kaydetmeden önceki doğrulama bunu
         #: kullanır; giriş isteyen sunucu "giris_gerekli" döner, tarayıcı fırlamaz.
@@ -37,6 +39,9 @@ class McpConnectionService:
         self._sources: dict[str, McpServerConfig] = {}
         self._generations: dict[str, int] = {}
         self._retired: set[asyncio.Task[McpConnectionStatus]] = set()
+        #: Kullanıcının başlattığı giriş bağlanarak bitince (sunucu adıyla); kanca katmanı
+        #: `Notification(auth_success)` gönderir.
+        self.on_login_success: Callable[[str], None] | None = None
 
     @property
     def statuses(self) -> dict[str, McpConnectionStatus]:
@@ -106,7 +111,7 @@ class McpConnectionService:
         self._admit(config)
         current = self._tasks.get(config.name)
         if current is None or current.done():
-            self._tasks[config.name] = asyncio.create_task(self._run_probe(config))
+            self._tasks[config.name] = asyncio.create_task(self._run_login(config))
         pending = McpConnectionStatus(
             server=config.name, state="giris_bekleniyor", observed_at=self._clock()
         )
@@ -134,6 +139,13 @@ class McpConnectionService:
     def pending_task(self, name: str) -> asyncio.Task[McpConnectionStatus] | None:
         return self._tasks.get(name)
 
+    async def reconnect(self, config: McpServerConfig) -> McpConnectionStatus:
+        """Havuzdaki canlı/park edilmiş bağlantıyı kapatıp yeniden bağlan (Claude Code
+        `/mcp reconnect`; P-049). Giriş gerektiren sunucuda pencere açılabilir."""
+        await self._drop_connection(config.name)
+        forget_mcp_failure(config.name)
+        return await self.test(config)
+
     async def logout(self, config: McpServerConfig) -> McpConnectionStatus:
         task = self._tasks.get(config.name)
         self.invalidate(config.name)
@@ -146,6 +158,7 @@ class McpConnectionService:
                 if generation != self._generations.get(config.name, 0):
                     return self.login_status(config.name)
                 await storage.clear()
+                await self._drop_connection(config.name)
         status = McpConnectionStatus(server=config.name, state="kapali", observed_at=self._clock())
         if generation == self._generations.get(config.name, 0):
             self._statuses[config.name] = status
@@ -163,6 +176,12 @@ class McpConnectionService:
 
     async def _run_probe(self, config: McpServerConfig) -> McpConnectionStatus:
         return await self._probe(config)
+
+    async def _run_login(self, config: McpServerConfig) -> McpConnectionStatus:
+        status = await self._probe(config)
+        if status.state == STATE_CONNECTED and self.on_login_success is not None:
+            self.on_login_success(config.name)
+        return status
 
     @staticmethod
     async def _probe_server(

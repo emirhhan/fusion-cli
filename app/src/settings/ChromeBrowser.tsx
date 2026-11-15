@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import type { ProtocolClient } from "../protocol/client";
+import { ChromeExtensionSettings } from "./ChromeExtensionSettings";
 
 interface ChromeStatus {
   ok: boolean;
@@ -15,6 +16,14 @@ interface ChromeStatus {
   yol?: string;
   adimlar?: string[];
   asama?: "yuklendi" | "izin_gerekli" | "elle" | "desteklenmiyor" | "hata";
+  tarayicilar?: ConnectedBrowser[];
+}
+
+/** Köprüye bağlı tarayıcı (Claude `list_connected_browsers` biçimi, #432). */
+export interface ConnectedBrowser {
+  deviceId: string;
+  name: string;
+  inUse: boolean;
 }
 
 type Check = "ok" | "wait" | "off";
@@ -32,6 +41,9 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
   const [state, setState] = useState<ChromeStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Yoklama hatası eylem hatasından ayrı tutulur: yoklama düzelince kendiliğinden kalkar (U2-40).
+  const [pollError, setPollError] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [extensionPath, setExtensionPath] = useState("");
   const [steps, setSteps] = useState<string[]>([]);
 
@@ -47,14 +59,23 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
 
   useEffect(() => {
     let mounted = true;
-    const refresh = () => client.request("chrome.durum", {}).then((value) => {
-      if (mounted) setState((previous) => {
-        const next = value as unknown as ChromeStatus;
-        return next.calisiyor && previous?.port === next.port
-          ? { ...next, anahtar: previous.anahtar ?? next.anahtar }
-          : next;
-      });
-    }).catch(() => { if (mounted) setError("Chrome durumu okunamadı."); });
+    let inFlight = false;
+    // Uçuştaki yoklama bitmeden yenisi başlamaz; yavaş çekirdekte istekler üst üste binmez.
+    const refresh = () => {
+      if (inFlight) return Promise.resolve();
+      inFlight = true;
+      return client.request("chrome.durum", {}).then((value) => {
+        if (!mounted) return;
+        setPollError("");
+        setState((previous) => {
+          const next = value as unknown as ChromeStatus;
+          return next.calisiyor && previous?.port === next.port
+            ? { ...next, anahtar: previous.anahtar ?? next.anahtar }
+            : next;
+        });
+      }).catch(() => { if (mounted) setPollError("Chrome durumu okunamadı."); })
+        .finally(() => { inFlight = false; });
+    };
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 4000);
     return () => { mounted = false; window.clearInterval(timer); };
@@ -90,7 +111,20 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
     }
   };
 
+  const selectBrowser = async (deviceId: string) => {
+    setError("");
+    try {
+      const result = await client.request("chrome.tarayici_sec", { deviceId }) as unknown as { ok: boolean; metin?: string };
+      if (!result.ok) throw new Error(result.metin || "Tarayıcı seçilemedi.");
+      const browsers = (state?.tarayicilar ?? []).map((item) => ({ ...item, inUse: item.deviceId === deviceId }));
+      setState((previous) => (previous ? { ...previous, tarayicilar: browsers } : previous));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Tarayıcı seçilemedi.");
+    }
+  };
+
   const checks = installChecks(state);
+  const browsers = state?.tarayicilar ?? [];
   const complete = checks.loaded === "ok" && checks.paired === "ok";
 
   return (
@@ -123,12 +157,38 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
           <label htmlFor="chrome-port">Yerel port</label>
           <input id="chrome-port" readOnly value={state.port ?? ""} />
           <label htmlFor="chrome-key">Eşleştirme anahtarı</label>
-          <input id="chrome-key" readOnly value={state.anahtar} />
+          {/* Anahtar ekran görüntüsü/paylaşımında sızmasın: varsayılan gizli, istenince açılır (U2-40). */}
+          <input id="chrome-key" readOnly type={showKey ? "text" : "password"} value={state.anahtar} />
+          <button onClick={() => setShowKey((open) => !open)} type="button">{showKey ? "Anahtarı gizle" : "Anahtarı göster"}</button>
         </div>
       )}
       <p className="settings__hint">Kurulum bittikten sonra Fusion açıkken eklenti kendiliğinden bağlanır; port ve anahtar yalnız elle bağlanmak için gerekir. Oturumlarınıza ve çerezlerinize dokunulmaz.</p>
+      <ul className="settings__hint" aria-label="Eklentinin yapabildikleri">
+        <li>Sayfa konsolu ve ağ istekleri okunur (hata ayıklama izni istenmez; aşağıdan ya da panelden kapatılabilir).</li>
+        <li>Ekran kaydı GIF olarak projenin <code>.fusion/kayitlar</code> klasörüne yazılır (plan kipinde yapılmaz, Manuel kipte sorulur).</li>
+        <li>Kısayollar: <kbd>Ctrl/⌘+Shift+F</kbd> paneli açar, <kbd>Ctrl/⌘+Shift+.</kbd> görevi durdurur; kayıtlı görevler <code>/ad</code> ile çağrılır.</li>
+      </ul>
+      {browsers.length > 1 && (
+        <section aria-label="Bağlı tarayıcılar">
+          <h4>Bağlı tarayıcılar</h4>
+          {!browsers.some((item) => item.inUse) && (
+            <p className="settings__hint">Birden çok tarayıcı bağlı; Fusion'ın kullanacağını seç. Seçmezsen ilk tarayıcı eyleminde sana sorulur.</p>
+          )}
+          <ul className="settings__checks">
+            {browsers.map((item) => (
+              <li data-state={item.inUse ? "ok" : "off"} key={item.deviceId}>
+                <span>{item.name} <small>{item.deviceId}</small></span>
+                {item.inUse
+                  ? <b>Kullanılıyor</b>
+                  : <button onClick={() => void selectBrowser(item.deviceId)} type="button">Bunu kullan</button>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {state?.bagli && <ChromeExtensionSettings client={client} />}
       {extensionPath && <p className="settings__hint">Paketli eklenti klasörü: <code>{extensionPath}</code></p>}
-      {error && <p className="settings__inline-error" role="alert">{error}</p>}
+      {(error || pollError) && <p className="settings__inline-error" role="alert">{error || pollError}</p>}
     </article>
   );
 }

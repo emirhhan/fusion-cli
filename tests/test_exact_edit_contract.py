@@ -11,15 +11,20 @@ satırı hiç görmedi. Sözleşme artık iki şeyi kilitler:
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 import pytest
 
 from fusion_cli.core.constants import MAX_PREVIEW_LINES
+from fusion_cli.core.events import ToolOutcome
 from fusion_cli.core.tool_emulation import render_tool_instructions
 from fusion_cli.core.tools import ToolContext
+from fusion_cli.core.types import ToolCall
 from fusion_cli.tools import build_registry
 from fusion_cli.tools.files import edit_file, multi_edit, read_file, write_file
+from tests.test_gate_matrix import _dene
 
 _STOK = (
     "def sat(urun, adet):\n"
@@ -148,3 +153,62 @@ def test_emulasyon_talimatlari_replace_range_onermez() -> None:
 
     assert "replace_range" not in metin
     assert '"name":"edit_file"' in metin.replace(" ", "")
+
+
+_REPLAY_CASES = json.loads(
+    (Path(__file__).parent / "fixtures/edit_profiles/replay.json").read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize("case", _REPLAY_CASES, ids=lambda case: case["name"])
+@pytest.mark.parametrize("edit_format", ["exact", "whole"])
+async def test_ayni_24_duzenleme_iki_gercek_executor(tmp_path, case, edit_format) -> None:
+    """48 yerel uygulama: biçim farkı ve bütün mevcut retler açık snapshot ile ölçülür."""
+    root = tmp_path / "alan"
+    root.mkdir()
+    target = root / case["path"]
+    target.write_bytes(case["seed"].encode("utf-8"))
+    context = ToolContext(root=root, edit_fuzzy_match=False, post_edit_syntax_check=False)
+    if case.get("symlink"):
+        outside = tmp_path / "disarisi.txt"
+        target.rename(outside)
+        target.symlink_to(outside)
+    if case.get("read", True) and not case.get("symlink"):
+        read_file({"path": case["path"]}, context)
+    if "external" in case:
+        target.write_text(case["external"], encoding="utf-8")
+        stamp = target.stat().st_mtime_ns + 5_000_000_000
+        os.utime(target, ns=(stamp, stamp))
+    name = (
+        "write_file"
+        if edit_format == "whole"
+        else ("edit_file" if len(case["edits"]) == 1 else "multi_edit")
+    )
+    arguments = {"path": case["path"]}
+    arguments.update(
+        {"content": case["content"]}
+        if edit_format == "whole"
+        else (case["edits"][0] if name == "edit_file" else {"edits": case["edits"]})
+    )
+    before = target.read_bytes()
+    expected_ok = case.get(f"{edit_format}_ok", True)
+    if case.get("web"):
+
+        def prepared(kok, deps, budget):
+            del kok, budget
+            deps.tool_context = context
+
+        outcome, output = await _dene(
+            root, prepared, lambda: ToolCall("replay", name, json.dumps(arguments))
+        )
+        ok = outcome is ToolOutcome.OK
+    else:
+        outcome = await build_registry().execute(name, arguments, context)
+        ok, output = outcome.ok, outcome.output
+    assert ok is expected_ok, output
+    expected = (
+        case.get("exact_final", case.get("expected_final", case["content"]))
+        if edit_format == "exact"
+        else case.get("expected_final", case["content"])
+    )
+    assert target.read_bytes() == (expected.encode("utf-8") if ok else before)

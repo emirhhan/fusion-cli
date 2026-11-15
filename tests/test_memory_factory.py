@@ -58,3 +58,23 @@ def test_kilitli_depo_turu_kilitlemez_bos_bellege_duser(
 
     assert not memory.enabled
     assert "kilit" in (memory.unavailable_reason or "").lower()
+
+
+def test_factory_opsiyonlari_gercek_indeks_aramasini_degistirir(tmp_path, monkeypatch):
+    from .test_hybrid_retrieval import LocalRetrievalEmbedding, local_retrieval_project
+
+    monkeypatch.setattr(
+        factory, "build_embedding_function", lambda *a, **k: (LocalRetrievalEmbedding(), "")
+    )
+    root = local_retrieval_project(tmp_path / "project")
+    config = make_config(memory_dir=tmp_path / "memory")
+    baseline = factory.build_memory(config, root=root)
+    baseline.code_index.reindex()
+    assert all(
+        match.path != "target00.py"
+        for match in baseline.code_index.search("UnicornDispatch00", limit=5)
+    )
+    enabled = factory.build_memory(
+        config, root=root, code_lexical_candidates=4, code_chunk_strategy="lines"
+    )
+    assert enabled.code_index.search("UnicornDispatch00", limit=5)[0].path == "target00.py"

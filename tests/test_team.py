@@ -96,7 +96,8 @@ def test_kullanicinin_ayni_adli_ajani_yerlesigi_ezer(tmp_path):
     ajanlar = tmp_path / ".claude" / "agents"
     ajanlar.mkdir(parents=True)
     (ajanlar / "tasarimci.md").write_text(
-        "---\nname: tasarimci\nunvan: Benim Tasarımcım\navatar: ozel\n---\nkendi talimatım\n",
+        "---\nname: tasarimci\ndescription: d\nunvan: Benim Tasarımcım\navatar: ozel\n---\n"
+        "kendi talimatım\n",
         encoding="utf-8",
     )
 
@@ -208,7 +209,8 @@ async def test_spawn_agents_alt_ajanda_derinlik_sinirina_takilir(tmp_path):
     async def _hic(*_args, **_kwargs):
         raise AssertionError("çağrılmamalı")
 
-    arac = spawn_agents_tool(deps, depth=1, run_agent=_hic)
+    # Varsayılan `max_agent_depth` 3 (Claude Code): derinlik 3'teki ajan yeni ajan açamaz.
+    arac = spawn_agents_tool(deps, depth=3, run_agent=_hic)
     sonuc = await arac.run({"gorevler": [{"task": "a"}]}, deps.tool_context)
 
     assert "derinlik" in sonuc.output
@@ -522,3 +524,194 @@ async def test_model_delegation_runs_real_child_and_serializes_live_lifecycle(
     assert finished["tool_calls"] == 1
     assert finished["summary"] == summary
     assert wire.index(started) < wire.index(child_events[0]) < wire.index(finished)
+
+
+def test_salt_okunur_zayif_model_degerleriyle_yazma_yetkisi_vermez():
+    """Ölçüldü (29 Ekim): `is True` yüzünden "true"/1/"evet" yazma yetkisi veriyordu (A4-09)."""
+    from fusion_cli.engines.agent.team import _parse_subtask
+
+    for deger in (True, "true", "True", " evet ", 1, "yes", ["x"]):
+        sonuc = _parse_subtask({"task": "a", "salt_okunur": deger})
+        assert not isinstance(sonuc, str) and sonuc.read_only is True, deger
+    for deger in (None, False, "false", "hayır", 0):
+        sonuc = _parse_subtask({"task": "a", "salt_okunur": deger})
+        assert not isinstance(sonuc, str) and sonuc.read_only is False, deger
+    assert _parse_subtask({"task": "a"}).read_only is False  # type: ignore[union-attr]
+
+
+async def test_alt_ajanlar_web_sohbeti_icin_ayri_conversation_id_alir(tmp_path):
+    """P1-31: aynı sistem istemli paralel alt ajanlar tek sohbeti çekiştirmesin."""
+    sink = RecordingSink()
+    deps = replace(_deps(tmp_path, sink), conversation_id="oturum-1")
+    gorulen: list[str] = []
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        gorulen.append(sub_deps.conversation_id)
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    await run_team(
+        deps,
+        [SubTask("a", read_only=True), SubTask("b", read_only=True)],
+        depth=0,
+        run_agent=_sahte_ajan,
+    )
+
+    assert len(set(gorulen)) == 2
+    assert all(kimlik.startswith("oturum-1/") for kimlik in gorulen)
+
+
+# --- Derinlik, bütçe ve ağaç (P-035) ------------------------------------------- #
+
+
+async def test_derinlik_tavani_yapilandirmadan_okunur(tmp_path):
+    """Ölçüldü (31 Ekim): `MAX_AGENT_DEPTH = 1` sabitti; alt ajan alt ajan açamazdı."""
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink, max_agent_depth=3)
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        return SimpleNamespace(final_text=f"{task} bitti", ok=True, tool_calls_made=0)
+
+    arac = spawn_agents_tool(deps, depth=1, run_agent=_sahte_ajan)
+    sonuc = await arac.run({"gorevler": [{"task": "a", "salt_okunur": True}]}, deps.tool_context)
+
+    assert "derinlik" not in sonuc.output and "a bitti" in sonuc.output
+    basladi = [olay for olay in sink.events if isinstance(olay, SubAgentStarted)]
+    assert basladi and basladi[0].depth == 2
+
+    kapali = spawn_agents_tool(deps, depth=3, run_agent=_sahte_ajan)
+    sonuc = await kapali.run({"gorevler": [{"task": "b"}]}, deps.tool_context)
+    assert "derinlik" in sonuc.output
+
+
+async def test_tur_basina_alt_ajan_butcesi_dolunca_spawn_reddedilir(tmp_path):
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink, max_subagents_per_turn=2)
+    kosan: list[str] = []
+
+    async def _sahte_ajan(task, sub_deps, **kwargs):
+        kosan.append(task)
+        return SimpleNamespace(final_text="ok", ok=True, tool_calls_made=0)
+
+    sonuclar = await run_team(
+        deps, [SubTask(f"g{i}", read_only=True) for i in range(3)], depth=0, run_agent=_sahte_ajan
+    )
+
+    assert kosan == ["g0", "g1"]
+    assert sonuclar[2].status == "budget" and "bütçesi doldu" in sonuclar[2].text
+
+
+def test_cocuk_adim_butcesi_derinlikle_yarilanmaz_maxturns_aynen_uygulanir(tmp_path):
+    """Claude Code'da derinlik adım bütçesini yarılamaz; `maxTurns` olduğu gibi uygulanır
+    (#29, #36). Kullanıcının `agent_max_steps` tavanı yine aşılmaz."""
+    from fusion_cli.engines.agent.team import child_step_limit
+
+    deps = _deps(tmp_path, RecordingSink(), agent_max_steps=64)
+
+    assert child_step_limit(deps, 0) is None
+    assert child_step_limit(deps, 1) is None
+    assert child_step_limit(deps, 2) is None
+    assert child_step_limit(deps, 1, requested=5) == 5
+    assert child_step_limit(deps, 2, requested=40) == 40
+    assert child_step_limit(deps, 0, requested=500) == 64
+
+
+def test_varsayilan_derinlik_uc_kat_ve_eszamanlilik_yirmi(tmp_path):
+    from fusion_cli.config.models import RuntimeConfig
+    from fusion_cli.engines.agent.team import depth_limit_reached
+
+    deps = _deps(tmp_path, RecordingSink())
+    assert RuntimeConfig.__dataclass_fields__["max_agent_depth"].default == 3
+    assert RuntimeConfig.__dataclass_fields__["max_parallel_agents"].default == 20
+    assert RuntimeConfig.__dataclass_fields__["max_subagents_per_turn"].default == 0
+    assert not depth_limit_reached(deps, 2) and depth_limit_reached(deps, 3)
+
+
+def test_claude_derinlik_ve_eszamanlilik_ortam_degiskenleri_okunur(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.config.agent_launch_compat import read_agent_launch
+    from fusion_cli.config.agent_launch_settings import AgentLaunchConfig
+    from fusion_cli.engines.agent.team import concurrent_limit, depth_limit_reached
+
+    loaded = read_agent_launch(
+        AgentLaunchConfig(),
+        home=tmp_path / "ev",
+        root=tmp_path,
+        environ={
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "5",
+        },
+    )
+    deps = _deps(tmp_path, RecordingSink())
+    deps = replace(deps, config=replace(deps.config, agent_launch=loaded))
+
+    assert depth_limit_reached(deps, 1) and not depth_limit_reached(deps, 0)
+    assert concurrent_limit(deps) == 5
+
+
+def test_yerlesik_explore_ve_plan_ajanlari_salt_okur(tmp_path):
+    """P-053: Claude Code'un Explore/Plan karşılığı yerleşik ekipte; ikisi de yazmaz."""
+    kutuphane = CapabilityRegistry(tmp_path / "ev", tmp_path)
+
+    explore = resolve_persona(kutuphane, "explore")
+    plan = resolve_persona(kutuphane, "plan")
+
+    assert explore is not GENERIC_PERSONA and explore.title == "Kâşif"
+    assert explore.tools is not None and explore.tools.isdisjoint({"write_file", "edit_file"})
+    assert plan is not GENERIC_PERSONA and plan.title == "Planlayıcı"
+    # Claude Code: Plan da Explore gibi salt okur araçlar + Bash; plan kipi değiştireni engeller.
+    assert plan.tools is not None and plan.tools.isdisjoint({"write_file", "edit_file"})
+    assert "run_shell" in plan.tools
+    assert plan.permission_mode == "plan"
+
+
+async def test_maxturns_sinirina_ulasan_alt_ajan_kismi_isaretlenir(tmp_path):
+    """Claude Code: `maxTurns`'e ulaşan alt ajanın çıktısı 'kısmi' döner, sürdürülebilir (#36)."""
+    from fusion_cli.engines.agent.team import run_subagent
+
+    deps = _deps(tmp_path, RecordingSink())
+
+    async def _yarim(task, sub_deps, **kwargs):
+        return SimpleNamespace(
+            final_text="ilk yarı", ok=True, tool_calls_made=3, hit_step_limit=True, messages=[]
+        )
+
+    run = await run_subagent(deps, SubTask("uzun iş"), depth=0, run_agent=_yarim)
+
+    assert run.status == "partial" and run.ok
+    assert "ilk yarı" in run.text and "maxTurns" in run.text
+
+
+@pytest.mark.parametrize("denied", [False, True])
+async def test_sendmessage_alan_alt_ajan_adli_kardes_listesini_gorur(tmp_path, monkeypatch, denied):
+    """Mutable sibling claims belong to an authorized request, not early extra_system."""
+    from fusion_cli.core.agent_runtime_state import AgentRunState
+    from fusion_cli.engines.agent import loop
+    from fusion_cli.engines.agent.team import run_subagent
+    from tests.fakes import ScriptedProvider, model_result
+
+    deps = _deps(tmp_path, RecordingSink())
+    deps.child_runs.remember(
+        AgentRunState(
+            "arastirmaci-1",
+            deps.child_runs.session_id,
+            str(tmp_path.resolve()),
+            "x",
+            True,
+            name="arastirmaci",
+        ),
+        (),
+    )
+    if denied:
+        deps.denied_tools = frozenset({"SendMessage", "send_message"})
+    provider = ScriptedProvider([model_result("tamam")])
+    monkeypatch.setattr(loop, "build_provider", lambda *a, **kw: provider)
+    result = await run_subagent(
+        deps, SubTask("iş", name="yazar"), depth=0, run_agent=loop.run_agent
+    )
+    assert result.ok
+    current = provider.seen_messages[0][0].content.split("<fusion-current-capabilities>")[-1]
+    assert ("SendMessage ile ulaşılabilen ajanlar" in current) is not denied
+    assert ("arastirmaci-1" in current) is not denied
+    if not denied:
+        assert "main" in current and "arastirmaci" in current

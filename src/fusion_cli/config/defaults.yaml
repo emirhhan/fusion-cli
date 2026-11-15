@@ -64,6 +64,20 @@ agent:
 
 # Çalışma zamanı davranışı.
 runtime:
+  emulation_protocol: v1
+  lesson_recall_hints: false
+  lesson_attributed_feedback: false
+  lesson_conflict_quarantine: false
+  verified_skill_proposals: false
+  subagent_context_mode: existing
+  teacher_max_brief_chars: 25000
+  review_diff_only: false
+  context_evidence_pins: false
+  context_original_trace: false
+  context_restore_state: false
+  prompt_manifest: true
+  # Yalnız ara kapıda ilişkili Python testlerini seç; final tam kalır.
+  related_test_selection: false
   # Takılan çağrı bu sürede düşer.
   #
   # Ölçülen üretim hızı (2026-07-25, nemotron-3-super): ~104 token/s. Aşağıdaki
@@ -81,6 +95,8 @@ runtime:
   # Sağlayıcı KÜTÜPHANESİ içi yeniden deneme (LiteLLM). Düşük tutulur: asıl yeniden
   # deneme aşağıdaki `retry_delays_s` ile bizim kontrolümüzde yapılır, çünkü
   # kütüphanenin gecikmesi ayarlanamıyor ve kalıcı hatayı geçiciden ayırt etmiyor.
+  # Ölçüldü (29 Ekim, sürekli 429/503 dönen yerel sunucu): 0 → 1 istek; 2 → 5 istek.
+  # Değer aşağıdaki iki katmanla ÇARPILIR: 2 yapmak model başına 15 HTTP isteği demektir.
   max_retries: 0
   # Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
   # Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
@@ -96,12 +112,16 @@ runtime:
   # Boş liste ([]) yeniden denemeyi tamamen kapatır.
   retry_delays_s: [1.5, 4.0]
   # Agent turunda geçici model hatası (429 hız sınırı, 5xx, zaman aşımı) bu kadar
-  # kez daha denenir; beklemeler üstel artar (2, 4, 8 … sn, en fazla 60 sn).
-  # Yukarıdaki kısa denemelerden AYRIDIR: onlar anlık dalgalanmayı, bu dakikalık
-  # hız sınırının sıfırlanmasını bekler. Claude Code'un belgelenmiş varsayılanı 10'dur
-  # (code.claude.com/docs/en/errors). Ölçüldü (28 Eylül): 3 denemeyle 28 dakikalık
-  # iş NIM'in 429 hatasıyla bitti. 0 = yeniden deneme yok.
-  model_retry_attempts: 10
+  # kez daha denenir; beklemeler üstel artar (2, 4, 8, 16 sn; hız sınırında 10, 20, 40,
+  # 60 sn). Yukarıdaki kısa denemelerden AYRIDIR: onlar anlık dalgalanmayı, bu dakikalık
+  # hız sınırının sıfırlanmasını bekler. 0 = yeniden deneme yok.
+  #
+  # Tarihçe: 28 Eylül'de 3 denemeyle 28 dakikalık iş NIM'in 429'uyla bitince 10'a
+  # çıkarılmıştı (Claude Code'un belgelenmiş varsayılanı). 30 Ekim (Z1-35): 10 deneme
+  # ≈ 5 dk boş bekleme; 429'da zincirdeki sonraki yedeğe zaten BEKLEMEDEN geçilir
+  # (`yield_on_rate_limit`), bu yüzden 4'e indirildi — uzun iş hız sınırı uzun taban
+  # beklemesi sayesinde yine düşmez. Mevcut kullanıcının açık ayarı ezilmez.
+  model_retry_attempts: 4
   # Sağlayıcı başına MODEL başı dakikalık istek sınırı; önden korunur ki 429 hiç
   # gelmesin. Masaüstünde her sekme ayrı süreçtir ve paralel alt ajanlar aynı modeli
   # aynı anda çağırır: kova bütün süreçlerde ORTAKTIR (bkz. providers/rate_gate.py).
@@ -116,10 +136,97 @@ runtime:
   # canlı ölçümle güncellenecek): bir ajan ücretsiz modelde dakikada ~6-10 çağrı
   # yapar; 4 ajan NIM'in model başı 40/dk sınırına yaklaşır. Aşanı ortak kova
   # yavaşlatır.
-  max_parallel_agents: 4
+  # Küçük/zayıf model için sıkı araç yüzeyi (T1-63, M1-12). Bilinen girdi penceresi bu
+  # değerin altında kalan model, istek masaüstü işi değilse `desktop_*` ve `chrome_*`
+  # araçlarını görmez; MCP/eklenti araçları da `compact_external_tools` ile sınırlanır.
+  # 32768: Fusion'ın sistem istemi + yerleşik araç şemaları ~16k token tutar (bkz.
+  # providers/context_window.py); bunun iki katı altındaki pencerede 40+ şema taşımak
+  # görev bağlamını boğar. 0 = pencereye bakma. Mevcut kullanıcının açık ayarı ezilmez.
+  compact_tools_window_tokens: 32768
+  compact_external_tools: 12
+  external_tool_selection: registration_order
+  symbol_query_enabled: false
+  localization_cards: false
+  lsp_server:
+    command: []
+    timeout_s: 8.0
+  # Sıkı yüzeyli (zayıf) modele görev türüne göre sabit araç alt kümesi (yol haritası 4.
+  # adım): soru/okuma, kod, web, oyun/medya, masaüstü. Tür konuşmanın isteklerinden gelir,
+  # yalnız genişler; profil dışı araç çağrılırsa yüzey tur için bir kez genişler. false =
+  # bugünkü sıkı yüzey. Güçlü model etkilenmez.
+  weak_model_tool_profiles: true
+  # Kayan pencere maskeleme (yol haritası 3. adım): modele giden görünümde son N araç
+  # sonucu (+ son assistant mesajındaki tüm paralel sonuçlar) tam kalır, eskileri kısa
+  # yer tutucuya iner; kalıcı geçmiş değişmez. 0 = kapalı. 8: SWE-agent ~5, JetBrains
+  # (arXiv 2508.21433) 10 gözlem; hata çıktıları, 400 karakterden kısa sonuçlar, kullanıcı
+  # soruları ve kural dosyaları hiç maskelenmez.
+  tool_output_window: 8
+  # Zayıf/küçük modelde (compact etiketi ya da pencere <= compact_tools_window_tokens)
+  # sıkıştırma eşiği = pencere tokeni x bu oran x 3 karakter. 0 = kapalı. 0.2 TAHMİNDİR;
+  # canlı ölçümle güncellenecek.
+  weak_model_compaction_ratio: 0.2
+  # Fusion'ın kendi yazdığı düz metin bellek (P-036): BELLEK.md indeksinin ilk 200 satırı /
+  # 25 KB her turun bağlamına girer; `remember` ve `memory_read` araçları sunulur; REPL'de
+  # `# not` buraya yazar; `/memory` ile aç/kapa/düzenle. false = kapalı.
+  auto_memory: true
+  # Bellek dizini; boş = <bellek dizini>/projeler/<proje>/bellek.
+  auto_memory_dir: ""
+  # Claude Code: aynı anda en çok 20 alt ajan (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS ezer).
+  max_parallel_agents: 20
+  # Ana konuşmanın altında 3 kat (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH ezer; 1 = iç içe yok).
+  max_agent_depth: 3
+  # Bir kök turda toplam alt ajan; 0 = sınırsız (Claude Code'da tur bütçesi yok).
+  max_subagents_per_turn: 0
+  # Arka plan ajan görevleri (P-048): /bg, Ctrl+B, fusion agent --bg, fusion agents.
+  # false = kapalı. Görevler <bellek>/arka-plan/<kimlik>/ altında ayrı süreçte koşar.
+  background_agents: true
+  # Aynı anda etkin arka plan görevi tavanı.
+  max_background_agents: 4
+  # Arka plan görevinin onay/soru cevabını bekleme süresi (saniye).
+  background_input_timeout_s: 1800.0
+  # Bitmiş görev kayıtları bu kadar gün saklanır; yeni görev başlarken eskileri silinir (0 = hiç).
+  background_retention_days: 14
+  # Oturumlar arası mesajlaşma (P-060): /list-agents, @oturum mesaj, list_agents/send_message.
+  cross_session_messaging: true
+  # Gelen mesaj: accept (boşta etiketli tur) | hold (bekletilir, /list-agents al) | refuse.
+  cross_session_inbound: hold
+  # Dinamik iş akışları (P-062): `workflow_run` aracı ve `/workflows`. false = kapalı.
+  dynamic_workflows: true
+  # Bir iş akışı koşusunun en fazla alt ajanı; tanımdaki en_fazla_ajan yalnız daraltır.
+  dynamic_workflow_max_agents: 50
+  # İş akışında aynı anda koşan ajan; 0 = max_parallel_agents.
+  dynamic_workflow_max_concurrent: 0
+  # Bu kadar ya da daha çok ajanlı koşu önce sorulur (maliyet uyarısı); 0 = sorma.
+  dynamic_workflow_confirm_agents: 10
+  # Ajan ekipleri (P-061): `team_run` aracı ve `/team`. false = kapalı.
+  agent_teams: true
+  # Ekibin en fazla üyesi.
+  agent_team_max_members: 5
+  # Boşa düşen üyenin iş/mesaj gelince yeniden uyandırılma sayısı.
+  agent_team_max_wakes: 3
+  # Tek team_run çağrısındaki toplam üye koşusu (uyanmalar dahil).
+  agent_team_max_runs: 16
+  # Yeni ekip kurulmadan önce maliyet uyarısıyla sor.
+  agent_team_confirm: true
   # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
   # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
   post_edit_commands: []
+  # Genel kancalar (P-009): PreToolUse/PostToolUse/Stop/SessionStart… olaylarına komut bağlar.
+  # Tanımlar ~/.claude/settings.json, (güvenilen projede) .claude/settings(.local).json ve
+  # yönetilen ayarın `hooks` bloğundan okunur (Claude Code ile aynı). false = hiçbiri çalışmaz.
+  hooks_enabled: true
+  # ~/.claude/settings.json kancaları (Claude gibi varsayılan açık). false = atla (Fusion'a özgü).
+  claude_hooks: true
+  # Kullanımdan kalktı: süre Claude varsayılanıdır (command/http 600 sn, UserPromptSubmit 30 sn,
+  # SessionEnd ortak 1,5 sn bütçe); kanca başına `timeout` yazın. 600 dışı değer bu sürümde
+  # hâlâ süresi yazılmamış kancaya uygulanır ve bir kez uyarılır.
+  hook_timeout_s: 600
+  # Girdi bekleyen oturum bu kadar sn boşta kalınca Notification(idle_prompt) kancası; 0 = kapalı.
+  hook_idle_prompt_s: 60
+  # Kullanımdan kalktı: http kancası Claude gibi yerel adrese de gider; kısıt için ayar
+  # dosyasında `allowedHttpHookUrls` kullanın. Açıkça false bu sürümde hâlâ uygulanır
+  # (iç ağ adresi engellenir) ve bir kez uyarılır.
+  hook_http_allow_private: true
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |
@@ -157,6 +264,10 @@ runtime:
   # Dosya araçları proje kökü dışına çıkabilsin mi? false = kısıt yok (kullanıcı her
   # projede çalışabilir). true yaparsan kök (+ --add-dir) dışına erişim reddedilir.
   restrict_to_root: false
+  # Tek yönlü sınır (P-002): true ise kök (+ --add-dir) dışını okuma / dışına yazma
+  # tamamen kapalıdır; onay sorulmaz, modele "--add-dir ile açılır" denir.
+  block_reads_outside_root: false
+  block_writes_outside_root: false
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.
@@ -174,7 +285,12 @@ runtime:
   # --- Fusion zamanlaması ---
   # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan
   # seçilir. Sentez yine üretilir → kullanıcı hiçbir senaryoda beklemede kalmaz.
-  judge_timeout_s: 12
+  # 30 Ekim (Z1-34): 12 sn, aşağıdaki `judge_max_tokens` (3072 ≈ 30 sn @ ~104 tok/s) ve
+  # ölçülen 486-1150 token (≈5-11 sn + gecikme) ile uyumsuzdu; reasoning hakemi sık sık
+  # aşılıp kalite sessizce sezgisele düşüyordu. 20 sn ölçülen üretimi karşılar, kötü
+  # durumda bekleme sınırı yine kısadır (kullanıcı 30 sn üstü beklemez). Mevcut
+  # kullanıcının açık ayarı ezilmez.
+  judge_timeout_s: 20
   # Reasoning modelleri önce "düşünür", sonra JSON/talimat verir; ikisi bu bütçeye
   # sığmalıdır.
   #
@@ -213,15 +329,19 @@ runtime:
   # değişiklik yapmadan okursa, araç sınamasını geçmiş web öğretmeni devralır.
   # 0 = kapalı. Kullanıcının zorunlu/tek model seçimi bu yolla değiştirilmez.
   agent_teacher_takeover_tools: 10
-  # Model çağrısı üst sınırı. Boş (null) = sınır yok.
+  # Model çağrısı üst sınırı (turun TAMAMI için). Boş (null) = sınır yok.
   #
   # Claude Code'un belgelenmiş varsayılanı: döngü, model araç çağırmayı bırakıp
-  # cevabını verene kadar sürer; `max_turns` ve bütçe sınırı varsayılan olarak
-  # YOKTUR (bkz. code.claude.com/docs/en/agent-sdk/agent-loop). Kullanıcı her an
-  # durdurabilir ya da yön verebilir. Ölçüldü (28 Eylül): 200'lük sınır ve
-  # ilerleme kapısı büyük proje görevini yarıda kesiyordu. Sınır isteyen kullanıcı
-  # buraya bir sayı yazar; sınır dolunca iş özetlenir ve kaldığı yerden sürer.
-  agent_max_steps: null
+  # cevabını verene kadar sürer; `max_turns` varsayılan olarak YOKTUR (bkz.
+  # code.claude.com/docs/en/agent-sdk/agent-loop). Ölçüldü (28 Eylül): 200'lük sınır ve
+  # ilerleme kapısı büyük proje görevini yarıda kesiyordu, bu yüzden sınır kaldırılmıştı.
+  # 30 Ekim (Z1-40): sınırsız döngü, zayıf modelde sonsuz araç döngüsü demek; mobil ve
+  # uzaktan kullanımda kota tükenir ve yalnız kullanıcı durdurabilir. 400, 200'ün iki
+  # katı ve ölçülen en uzun meşru işin (28 dakika) çok üstünde bir GÜVENLİK tavanıdır.
+  # Tavan dolunca iş yarım bırakılmaz: tur kapanır, görev listesi ve ilerleme özetlenir
+  # (`ui/turn_stop.py`) ve "devam et" kaldığı yerden sürdürür. Mevcut kullanıcının açık
+  # ayarı ezilmez; sınırsız isteyen `null` yazar.
+  agent_max_steps: 400
   # Ardışık kaç araç turu HİÇBİR ilerleme üretmezse modele "aramayı bırak, sıradaki
   # somut adımı at" notu gönderilir. Tur KESİLMEZ (Claude Code'da ilerleme kapısı
   # yoktur); not yalnız modeli döngüden çıkarmaya çalışır.
@@ -238,6 +358,78 @@ runtime:
   # Her görevden ders çıkarılır ve benzer görevlerde sistem promptunda hatırlatılır.
   # Öz-gelişimin çekirdeği; bir model çağrısı ekler.
   lessons: true
+  # Tur sonunda ajanın test/CI dosyalarına dokunuşu denetlenir: var olan teste skip/xfail/.only
+  # eklemek, assert/test/test dosyası silmek, CI iş akışı ya da test komutunu değiştirmek
+  # "şüpheli" işaretlenir ve "testler geçti" kanıtı tek başına başarı sayılmaz. Engellemez.
+  test_tamper_check: true
+  # Dış içerik (web, tarayıcı, MCP, klonlanan site) okunan turdan çıkan dersin başlangıç güveni.
+  # Eşik 0.35'in üstünde ama normal dersten (1.0) düşük; yalnız dış içeriksiz BAŞARILI bir
+  # turda doğrulanınca normal güvene çıkabilir. TAHMİN: canlı ölçümle güncellenecek.
+  external_lesson_confidence: 0.5
+  # Kök turda sistem bağlamına giren depo haritasının bütçesi (karakter). 0 = kapalı.
+  # 3000 ≈ 1k token (Aider repo-map ölçeği). Harita içe aktarma grafıyla sıralanır, test
+  # dosyaları geriye atılır; küçük pencereli modelde pencerenin %3'ünü aşmaz.
+  repo_map_chars: 3000
+  # Deneysel bağımsız lexical aday havuzu: 0 = mevcut arama davranışı.
+  code_lexical_candidates: 0
+  # lines | symbols: Python AST parçalama yalnız açık seçimle etkinleşir.
+  code_chunk_strategy: lines
+  # Görev odağı haritada genel keşifle birlikte öne alınsın mı?
+  repo_map_focused: false
+  # Model alt klasördeki dosyayı okuyunca/düzenleyince o klasörün ve üst klasörlerinin
+  # (kök hariç) AGENTS.md/CLAUDE.md talimatı bir kez, kısa biçimde bağlama eklenir.
+  # İz: NestedInstructionsLoaded olayı. False = yalnız kök talimatı.
+  nested_instructions: true
+  # Proje talimatı (AGENTS.md/CLAUDE.md) ve dış araç bellekleri tur başında okunsun mu?
+  # False yalnız `fusion agent --bare` gibi betik koşularında anlamlıdır (Claude Code
+  # `--bare`: hiçbir ayar/talimat/MCP yüklenmez). Varsayılan açık.
+  project_instructions: true
+  # Agent turunun BİLİNEN maliyeti (USD) için tavan; null = tavan yok. Dolunca tur
+  # `cost_limit` sebebiyle kapanır (`fusion agent --max-budget-usd`). Ücretsiz ya da
+  # maliyeti bilinmeyen model tavanı doldurmaz.
+  agent_max_cost_usd: null
+  # Kullanım günlüğü: model çağrısı (rol, model, token, maliyet), MCP araç çağrısı
+  # (sunucu adı) ve yüklenen beceri `memory_dir/usage.jsonl`'e yazılır; `/usage`,
+  # `fusion usage` ve `fusion insights` 24s/7g/30g pencerelerini buradan okur. İstem
+  # metni, argüman ya da çıktı YAZILMAZ; 90 günden eski satırlar budanır. False = kapalı.
+  usage_log: true
+  # Otomatik kip denetçisi (P-011; Claude Code auto mode sınıflandırıcısı). Otomatik kipte
+  # kuralların SORACAĞI çağrı (git push, proje dışına yazma, uzak sunucu…) küçük/hızlı rol
+  # modeline kullanıcının mesajlarıyla birlikte sorulur: "güvenli" derse sorulmaz, "riskli"
+  # derse sorulur. Model yok/erişilemezse kurallar geçerli (eski davranış). Yıkıcı işlem,
+  # sudo/sistem ayarı, ortam dökümü, `| sh` ve veritabanı silme HİÇBİR ZAMAN modele bırakılmaz.
+  # Üst üste 3 ya da toplam 20 "riskli" kararda oturum Manuel kipe düşer. Açıkken son 3
+  # kullanıcı mesajı ve eylem (komut/yol) denetçi modelinin sağlayıcısına gider ve onun
+  # (ücretsiz) kotasını kullanır. Varsayılan Claude Code gibi açık (#54: auto kipte eylemi
+  # sınıflandırıcı inceler); plan kipinde de `useAutoModeDuringPlan` ile çalışır (#52).
+  #   off      yalnız kurallar                   ask_only  sorulacakları sınıflandır
+  #   on       ek olarak salt okunur olmayan her kabuk komutunu da sınıflandır (varsayılan)
+  auto_classifier: "on"
+  # Boş = hakem (`judge`) modeli ve yedekleri. Dolu: <sağlayıcı>/<model>. Web oturumu olamaz.
+  auto_classifier_model: ""
+  # Tek sınıflandırma çağrısının süre sınırı (saniye); aşılırsa kurallar geçerli olur.
+  auto_classifier_timeout_s: 12.0
+  # Çıktı stili (P-068, #193): default | Proactive | Concise | Explanatory | Learning | <özel>.
+  # Özel stiller: ~/.fusion/cikti-stilleri/<ad>.md ve .claude/output-styles/<ad>.md.
+  output_style: default
+  # Durum satırı betiği (P-069): boş = yerleşik durum çubuğu. Komut stdin'den JSON alır.
+  status_line_command: ""
+  # Terminal renk teması (P-070): koyu | acik | ansi | daltonizm. Masaüstü `theme`'den ayrı.
+  terminal_theme: koyu
+  # REPL görünümü (P-070): fullscreen | inline. Yeni oturumda uygulanır.
+  tui: fullscreen
+  # Vim düzenleme kipi (P-067).
+  vim_mode: false
+  # Talimat katmanları birleştirilsin mi: ~/.claude/CLAUDE.md ve ~/.codex/AGENTS.md (kullanıcı),
+  # CLAUDE.md + .claude/CLAUDE.md + CLAUDE.local.md (proje), @yol içe aktarmaları,
+  # .claude/rules kuralları. false = yalnız kökteki ilk bilinen dosya (eski davranış).
+  instruction_merge: true
+  # Bütün talimat katmanlarının toplam bütçesi (karakter; Codex'in 32 KiB sınırıyla aynı
+  # ölçek). Aşılırsa kırpma metne not olarak düşer, sessiz kesilmez.
+  instruction_max_chars: 32000
+  # Kök turda sistem bağlamına giren beceri dizini (ad — açıklama satırları) bütçesi, karakter.
+  # Model uygun beceriyi aramadan tanır ve read_skill ile yükler. 0 = kapalı (yalnız find_skill).
+  skill_index_chars: 4000
   # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
   # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
   teacherless: false
@@ -248,7 +440,13 @@ runtime:
   # Öğretmen için Codex limitini son yedek olarak kullan (varsayılan kapalı; yalnız sohbet limitleri).
   teacher_codex_fallback: false
   # Model cevap veremezse doğrulanmış web oturumlarına otomatik geç.
-  auto_web_fallback: true
+  #
+  # Varsayılan KAPALI (30 Ekim, P1-15): otomatik yedek, kullanıcının kodunu ve
+  # prompt'larını bilgisi dışında üçüncü taraf tüketici web arayüzüne yollar ve
+  # captcha/giriş çıkarsa gizli pencereyi kullanıcının ÖNÜNE getirebilir. Açıkça
+  # isteyen `true` yazar (Ayarlar > Model rolleri > web yedeği); API yedek zinciri
+  # (`fallback:`) bundan bağımsız çalışmaya devam eder. Mevcut açık ayar ezilmez.
+  auto_web_fallback: false
   # Kod değiştiren tur sonrası çalıştırılacak doğrulama komutları. Boş = KAPALI
   # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
   # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.
@@ -288,6 +486,21 @@ runtime:
   # Eski "auto" değeri off olarak okunur.
   workflow_mode: "off"
   workflow_max_model_calls: 12
+  # Kullanımdan kalktı (Claude Code'da yok): plan her zaman plansDirectory altına yazılır; false yok sayılır.
+  plan_files: true
+  # Claude useAutoModeDuringPlan: plan kipinde salt okunur olmayan kabuk komutuna otomatik
+  # kip sınıflandırıcısı karar verir (onaylanan çalışır, reddedilen engellenir); false = sorulur.
+  use_auto_mode_during_plan: true
+  # /goal <koşul>: her tur sonunda hakem modeli koşulu değerlendirir; "henüz değil" ise
+  # tur kendiliğinden sürer. Uzun koşu bu kadar dakikada bir durup danışır (/goal devam;
+  # aralık her seferinde ikiye katlanır; 0 = danışma yok). Otomatik tur tavanı ayrıca var.
+  goal_checkin_minutes: 30
+  goal_max_turns: 20
+  # /voice (terminal dikte): yerel konuşma tanıma. Boş = Fusion masaüstüyle gelen
+  # fusion-listen (cihaz üstü, ses buluta gitmez). Başka bir komut JSON satır sözleşmesine
+  # uymalı (bkz. desktop_build/listen/README.md). Güvenilmeyen proje config'inden okunmaz.
+  voice_listener: ""
+  voice_language: "tr-TR"
   # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
   # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.
   workflow_planning_calls: 2
@@ -296,6 +509,43 @@ runtime:
   # Paralel deneme ek çağrı hakkı; 0 = kapalı (opt-in).
   workflow_attempt_calls: 0
   workflow_final_verification_calls: 2
+  # Öğretmene (web sohbet) tek soru için en fazla bekleme (sn). Genel API zaman
+  # aşımından ayrıdır; ilk başarısızlıkta bir kez yeniden denenir, iki ardışık
+  # başarısızlıktan sonra öğretmen o tur için kapatılır.
+  teacher_timeout_s: 300
+  # Automatic plan/review phase total, including retries and format repair.
+  # Explicit/model-initiated ask_teacher retains its existing request timeout.
+  teacher_auto_phase_timeout_s: 30
+  # run_shell işletim sistemi sandbox'ı. "off" = kısıt yok (varsayılan; tırnaksız off YAML'da false okunur ve kabul edilir). write_root =
+  # macOS'ta `sandbox-exec`, Linux/WSL2'de bubblewrap ile yazma yalnız proje kökü (+ --add-dir,
+  # sandbox.allow_write) ve geçici dizinlerle sınırlı olur (`echo x > ../y` reddedilir);
+  # okuma engeli ve ağ allowlist'i `sandbox:` bölümünde. ~/.npm gibi paket önbellekleri bu
+  # kipte yazılamaz (gerekirse sandbox.allow_write). Aç/kapat: /sandbox on|off.
+  shell_sandbox: "off"
+  # edit_file/multi_edit: tam eşleşme yoksa satır sonu boşluğu/girinti/CRLF farkını tolere
+  # eden yedek eşleşme (yalnız tek ve belirsiz olmayan blok; replace_all ile çalışmaz).
+  # Aider'ın düzenleme ölçümünde esnek eşleşme bu sınıf hatayı ~9 kat azalttı. İz:
+  # araç sonucunda "esnek_eslesme: true" satırı ve structured.esnek_eslesme.
+  edit_fuzzy_match: true
+  # Dosya yazıldıktan sonra JS/TS/PHP hızlı sözdizimi kontrolü (node --check, tsc varsa, php -l).
+  # Hata dosyayı geri almaz; sonuca "sözdizimi hatası: satır N: ..." eklenir.
+  post_edit_syntax_check: true
+  # run_shell öncesi/sonrası proje kökünün hafif parmak izi (boyut+mtime; .git, node_modules,
+  # .venv, __pycache__, dist, build, .fusion atlanır; 20.000 dosya/300 ms sınırı). Komut dosya
+  # değiştirmediyse mutasyon sayılmaz ve önceki testin kanıtı bayatlamaz. Proje kökü dışına
+  # yazma görünmez. false = tanınmayan komut her zaman "dosya değiştirmiş olabilir" sayılır.
+  shell_workspace_fingerprint: true
+  # Masaüstü ekran görüntüsü Claude Code gibi sabit hedefe küçültülür (3456x2234 → ~1372x887);
+  # Fusion penceresi ve CLI'de terminal her zaman görüntüden çıkarılır. Ayarı yoktur.
+  # Kapı iki düzeltme turundan sonra hâlâ kırmızıysa TEK ek düzeltme turu, yapılandırmada
+  # tanımlı bir ÜST modelle koşar (sinyal yalnız gerçek kapı sonucu; kullanıcıya durum
+  # satırı + GateEscalated/GateEscalationFinished olayı gider). Üst model yoksa etkisizdir.
+  # Üst model ücretli sağlayıcıdan gelmez: otomatik seçim yalnız seçili modelin kendi yedek
+  # zincirindeki (ücretsiz) bir üst kademeyi alır; çağrı hız sınırı kapısından geçer.
+  escalate_on_gate_failure: true
+  # Boş = kademe merdiveninden otomatik. Dolu (`nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b`
+  # gibi) = kullanıcının açık seçimi; sağlayıcı kurulu/izinli olmalı, web oturumu olamaz.
+  escalation_model: ""
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,
@@ -342,7 +592,7 @@ candidates:
   # `LiteLlmProvider` ile canlı ölçüldü (gerçek araç şeması + 200x200 düz kırmızı PNG):
   #   nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning        → araç çağrısı 6.13s (doğru), görsel 3.11s ("kırmızı", doğru)
   #   openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free  → araç çağrısı 6.34s (doğru), görsel 3.51s ("kırmızı", doğru)
-  # Ayrı `vision:` rolündeki `llama-3.2-11b-vision-instruct` yalnızca `view_image`
+  # Ayrı `vision:` rolü yalnızca `view_image`
   # aracı için kullanılır ve araç çağırmaz; bu aday AGENT turunda hem araç hem
   # görsel gerektiren işi tek modelle karşılar.
   - name: goz-cirak
@@ -373,18 +623,13 @@ judge:
 
 # Görme yetenekli model — `view_image` aracı ve görsel doğrulama kapısı için.
 #
-# Ölçüm (2026-09-04): önceki varsayılan `nvidia/nemotron-nano-12b-v2-vl`
-# 2026-08-26'da EOL oldu ve 410 Gone dönüyor; yedeği de AYNI modelin başka
-# sağlayıcıdaki hâliydi, o da ölüydü. Yani görsel kapısı sessizce çalışmıyordu.
-# Yerine geçen model gerçek bir asset üzerinde denendi ve doğru cevap verdi
-# (bir uygulama ikonunu "logo ve metin ikonu" diye tanıdı).
-#
-# Yedek YAZILMADI: denenen OpenRouter görsel modellerinin hiçbiri erişilebilir
-# değildi ("No endpoints found") ve 90b sürümü 90 sn sınırında zaman aşımına
-# uğradı. Uydurulmuş bir yedek, kapıyı sessizce yeniden bozardı.
+# 4 Kasım 2026 canlı bilgisayar testinde eski llama-3.2-11b-vision-instruct
+# bu hesap için 404 döndü. Aynı sağlayıcıdaki Nano Omni, gerçek describe_image
+# çağrısında 64x64 kırmızı PNG'nin rengini doğru bildirdi. Bu, genel görsel
+# doğruluk veya masaüstü görev başarısı ölçümü değildir. Doğrulanmamış yedek yok.
 vision:
   name: goz
-  model: nvidia_nim/meta/llama-3.2-11b-vision-instruct
+  model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 
 # Öğretmen — `ask_teacher` aracının danıştığı web oturumu (Faz 4, 22 Eylül).
 #
@@ -402,7 +647,8 @@ vision:
 # araç çağrıldığında `ConfigError` ile anlaşılır bir mesaj döner.
 
 # Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
-# tanınmayan ad sessizce `agent:` rolüne düşer.
+# tanınmayan ad yapılandırma yüklenirken `ConfigError` verir (config/loader.py `_build_task_map`),
+# sessizce başka modele düşmez.
 #
 # Bu harita İKİ motoru birden yönlendirir:
 #   fusion — bu adayı havuzun başına alır (hakem yine hepsini görür),
@@ -758,6 +1004,35 @@ profile_eligibility:
 # Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
 mcp_servers: []
 
+# Bilgisayar kullanımı (computer use; Ayarlar › Bu bilgisayar, `fusion config set desktop.<alan>`).
+# Her masaüstü eylemi yine onay politikasından geçer; ayrıntı: docs/BILGISAYAR_KULLANIMI.md.
+desktop:
+  # Computer use (Claude Code ile aynı: varsayılan KAPALI). Masaüstü uygulamasında Ayarlar ›
+  # Bu bilgisayar › "Computer use'u etkinleştir"; CLI'de proje başına `/mcp enable computer-use`.
+  # Etkileşimsiz yolda (-p, arka plan işi, `fusion mcp`) her zaman kapalıdır.
+  enabled: false
+  # Kademeler Claude Code gibi uygulama kategorisine göre SABİT: tarayıcı ve yatırım platformu =
+  # yalnız bak, terminal/IDE = tıkla, diğer her şey = tam kontrol. Uygulama ilk kez
+  # kullanılırken her kipte "Bu oturum için izin ver / Reddet" sorulur.
+  # Hiç dokunulmayan uygulamalar (ad ya da paket kimliği); sorulmadan reddedilir.
+  denied_apps: []
+  # true: diğer uygulamalar gizlenmez (arka planda çalış). false: ilk ön plan eyleminde
+  # hedef uygulama ve Fusion dışındakiler gizlenir.
+  background: true
+  # Tur bitince Fusion'ın gizlediği uygulamaları yeniden göster.
+  unhide_on_finish: true
+  # Ön plan eylemi süren turda fiziksel Esc turu durdurur (tuş uygulamaya gitmez).
+  escape_stops: true
+
+# Beceri/ajan kataloğu tercihleri. `disabled`: her oturumda kapalı tutulacak beceri/ajan adları
+# (düz ad ya da `ad@kaynak:kimlik`); masaüstündeki oturumluk kapatmadan farklı, kalıcıdır.
+# `overrides`: beceri adı → görünürlük (Claude Code `skillOverrides`): on | name-only (dizinde
+# yalnız ad) | user-invocable-only (yalnız /ad ile, model kendiliğinden yüklemez) | off.
+# Türkçe: acik | yalniz-ad | yalniz-kullanici | kapali. Örnek: `overrides: {pdf: name-only}`.
+capabilities:
+  disabled: []
+  overrides: {}
+
 # ---------------------------------------------------------------------------
 # Web sağlayıcıları (opsiyonel). İki transport vardır:
 # - http: kullanıcının kendi OpenAI-uyumlu ucu (OpenWebUI/LibreChat/kurumsal uç).
@@ -775,3 +1050,141 @@ mcp_servers: []
 #       tool_support: emulated
 # Boş liste = web sağlayıcı yok (varsayılan).
 web_sessions: []
+
+# Ajan tarayıcısı (`browser_*` araçları) — kullanıcı oturumu profilleri (P-023).
+# Profiller `fusion browser import-cookies|import-chrome|login` ile ya da masaüstünde
+# Ayarlar › Web oturumları'ndan kurulur; çerezler şifreli durur, listelerde yalnız alan
+# adı ve sayı görünür.
+browser:
+  # false: `browser_open` hiçbir profil yüklemez (eski, çerezsiz davranış).
+  profiles_enabled: true
+  # Açılışta kendiliğinden yüklenecek profil adı; boş = çerezsiz. Araç çağrısındaki
+  # `profile` argümanı bunu ezer.
+  default_profile: ""
+  # true: tarayıcı penceresi görünmez. false: pencere görünür açılır (giriş/CAPTCHA
+  # gibi insan müdahalesi gereken işler için).
+  headless: true
+  # Masaüstü Tarayıcı paneli: ajanın tarayıcı eylemleri paneldeki paylaşılan tarayıcıda
+  # çalışır (canlı izlenir, "Devral" ile kullanıcıya geçer). false: tur başına ayrı tarayıcı.
+  panel_agent: true
+  # Ayarlar › Browser tools (Claude Desktop): false ise ajan `browser_*` araçlarını görmez;
+  # Tarayıcı paneli kullanıcı için çalışmaya devam eder.
+  tools: true
+
+# run_shell sandbox politikası (P-010; Claude Code `sandbox.*`). YALNIZ
+# runtime.shell_sandbox=write_root iken uygulanır; durum ve değiştirme: /sandbox,
+# `fusion sandbox durum`, masaüstünde Ayarlar › İzinler › Sandbox.
+sandbox:
+  # Proje kökü, --add-dir ve geçici dizinlere EK yazılabilir dizinler (~ açılır; göreli
+  # yol proje köküne göredir). Örn: ["~/.npm", "~/.cache/pip"].
+  allow_write: []
+  # Yazılabilir bölgelerin (proje kökü, allow_write) içinde de YAZILAMAYAN yollar (Claude
+  # filesystem.denyWrite). Örn: ["./dist/imzali", "~/.npmrc"].
+  deny_write: []
+  # Sandbox içindeki komutun OKUYAMADIĞI yollar (dizinse altı da; Claude filesystem.denyRead).
+  # Claude gibi yerleşik bir liste yoktur: ~/.ssh ve ~/.aws/credentials da yazılmazsa okunur.
+  # Fusion'ın kendi .env'i, şifreli kasası ve tarayıcı/web oturum profilleri her zaman engelli.
+  deny_read: []
+  # Engellenmiş bir bölgenin içini yeniden açan yollar (Claude filesystem.allowRead); çakışan
+  # kurallarda dar yol kazanır: deny_read ["~/"] + allow_read ["~/projects"]. Fusion sırları
+  # açılamaz.
+  allow_read: []
+  # Claude gibi: komutun doğrudan çıkışı yok, trafik Fusion'ın yerel proxy'sinden geçer
+  # (HTTP_PROXY/HTTPS_PROXY verilir; iç ağ adresine çözülen ad reddedilir). Listede olmayan
+  # ad izin kipine göre: Manual/acceptEdits/plan'da sorulur, bypass'ta izin, auto/dontAsk'ta
+  # red ("Evet, bir daha sorma" yerel ayara WebFetch(domain:…) yazar). "open" (kısıtsız)
+  # kullanımdan kalkan Fusion uzantısıdır (sandbox.network.mode: open).
+  network: "allowlist"
+  # allowlist kipinde izinli alan adları: tam ad ya da "*.ornek.com" (alt alan adları).
+  # Örn: ["github.com", "*.githubusercontent.com", "pypi.org", "files.pythonhosted.org",
+  # "registry.npmjs.org"]. Boş liste = dış ağ tamamen kapalı.
+  allowed_domains: []
+  # Her zaman reddedilen alan adları; allowed_domains'ten üstündür.
+  denied_domains: []
+  # allowlist kipinde localhost (dev sunucusu, yerel veritabanı) açık mı? Linux'ta ağ ad
+  # alanı ayrı olduğundan yalnız sandbox içinde başlatılan sunuculara ulaşılır. Fusion'ın web
+  # profil Chrome'unun hata ayıklama (CDP) portu bu izinle de kapalıdır (Linux'ta ağ open iken
+  # korunmaz; bkz. docs/SANDBOX.md).
+  allow_localhost: true
+  # true: sandbox kurulamazsa (Windows, bwrap/sandbox-exec yok) komut ÇALIŞTIRILMAZ.
+  # false: bir kez uyarılır ve komut sandbox'sız (normal onay akışıyla) çalışır.
+  fail_if_unavailable: false
+  # true: model `run_shell(unsandboxed=true)` ile sandbox dışında çalıştırma isteyebilir;
+  # bu istek HER SEFERİNDE açık onay ister (oturum izni verilmez). false: istek reddedilir.
+  allow_unsandboxed: true
+  # Her zaman sandbox dışında (normal onayla) çalışan komut önekleri, örn. ["docker", "git push"].
+  # Yalnız tek ve sade komut eşleşir; `docker ps && curl …` sandbox içinde kalır.
+  excluded_commands: []
+  # true (Claude varsayılanı): sandbox içinde çalışan komutlar sorulmadan çalışır (Claude
+  # autoAllowBashIfSandboxed). Yıkıcı komutlar, ask/deny kuralları, plan kipi ve
+  # FOO=bar cmd / make VAR=x / eval biçimleri yine olağan izin akışından geçer.
+  auto_allow: true
+  # true: listede olmayan ana makine sorulmadan reddedilir (Claude network.strictAllowlist).
+  strict_allowlist: false
+  # Claude sandbox.credentials.envVars (mode: deny): bu adlar sandbox ortamından çıkarılır.
+  # Claude'daki gibi varsayılan boş; ortam Fusion'dan miras alınır.
+  credential_env: []
+  # Claude credentials.envVars (mode: mask): komut gerçek değer yerine aynı uzunlukta bir yer
+  # tutucu görür; proxy giden istekte gerçek değeri koyar (izinli adlara ya da "AD=host1,host2"
+  # injectHosts'a). HTTPS için tls_terminate, düz HTTP için allow_plaintext_inject gerekir.
+  # Aynı ad deny'da da varsa deny uygulanır. Proje ayarından okunmaz.
+  credential_mask: []
+  allow_plaintext_inject: false
+  # Claude sandbox.credentials.files (mode: deny): sandbox içinde okunamayan dosya/dizinler.
+  credential_files: []
+  # Claude network.allowUnixSockets: bağlanılabilen Unix soket yolları (macOS Seatbelt);
+  # allowAllUnixSockets hepsini açar. allowLocalBinding: localhost portunda dinleme.
+  allow_unix_sockets: []
+  allow_all_unix_sockets: false
+  allow_local_binding: false
+  # Claude bwrapPath / socatPath: Linux araçlarının yolu (boş = PATH'te ara).
+  bwrap_path: ""
+  socat_path: ""
+  # Claude network.httpProxyPort / socksProxyPort: trafik kullanıcının localhost'taki kendi
+  # HTTP / SOCKS5 proxy'sine gider; Fusion proxy başlatmaz, alan adı listeleri ve ağ soruları
+  # o trafiğe uygulanmaz (süzme o proxy'dedir). 0 = kapalı.
+  http_proxy_port: 0
+  socks_proxy_port: 0
+  # Claude network.tlsTerminate: proxy HTTPS'i sonlandırır (mask için). CA yolları boşsa oturum
+  # başına geçici CA üretilir; sandbox'a SSL_CERT_FILE/NODE_EXTRA_CA_CERTS… ile güvenilir kılınır.
+  # Yalnız kullanıcı, managed ya da --settings ayarından.
+  tls_terminate: false
+  tls_ca_cert: ""
+  tls_ca_key: ""
+  # Claude filesystem.disabled: dosya sistemi yalıtımı atlanır, ağ yalıtımı kalır (Fusion
+  # sırları ve .git/config gibi korumalı yollar yine kapalı). Proje ayarından okunmaz.
+  filesystem_disabled: false
+  # Claude enableWeakerNestedSandbox (Linux): yetkisiz Docker içinde yeni /proc bağlanmaz.
+  enable_weaker_nested_sandbox: false
+  # Claude allowNestedUserNamespaces (Linux): false iken sandbox içinde yeni kullanıcı ad alanı
+  # açılamaz (bwrap --disable-userns; destekleyen bwrap'te). Proje ayarından okunmaz.
+  allow_nested_user_namespaces: false
+  # Claude ripgrep {command, args} (Linux): alt dizinlerdeki korumalı dosyaları bulan rg; boş =
+  # PATH'teki rg (yoksa yalnız kök düzeyi korunur). Proje ayarından okunmaz.
+  ripgrep_command: ""
+  ripgrep_args: []
+  # Kullanımdan kalkan Fusion uzantısı: true iken adı sır gibi görünen değişkenler (*_API_KEY,
+  # *_TOKEN, *_SECRET, *PASSWORD*) de çıkarılır. Claude'da yok; varsayılan false.
+  hide_secret_env: false
+
+# Ajan başlatma: boş ayarlar mevcut anahtarsız modeli korur.
+agent_launch:
+  subagent_model: ""
+  force_subagent_model: false
+  model_aliases: []
+  available_models: null
+  provider: anthropic
+  unresolved_parent_family: false
+  disable_auto_mode: false
+  disable_background_tasks: false
+  disable_explore_plan_agents: false
+  disable_builtin_agents: false
+  max_spawn_depth: 0
+  max_concurrent_subagents: 0
+  fork_enabled: true
+  auto_supported_models: []
+  managed_agent_roots: []
+  # Claude kapsamları dışındaki ajan kaynakları (~/.codex/agents, `fusion yetenek kur`
+  # repoları, Claude'da olmayan yerleşik roller). false = Claude Code ile birebir katalog.
+  extra_agent_sources: true
+  default_agent: ""

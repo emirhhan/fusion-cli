@@ -1,0 +1,28 @@
+[
+  {
+    "name": "read_file",
+    "arguments": {
+      "path": "app.py"
+    }
+  },
+  {
+    "name": "run_shell",
+    "arguments": {
+      "command": "python -B -c \"from app import deger; assert deger() == 1\""
+    }
+  },
+  {
+    "name": "edit_file",
+    "arguments": {
+      "path": "app.py",
+      "old": "return 1",
+      "new": "return 2"
+    }
+  },
+  {
+    "name": "run_shell",
+    "arguments": {
+      "command": "python -B -c \"from app import deger; assert deger() == 2\""
+    }
+  }
+]

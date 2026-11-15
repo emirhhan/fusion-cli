@@ -72,11 +72,14 @@ _COUNTS = (
     "max_parallel_agents",
 )
 _FLAGS = (
+    "auto_web_fallback",
     "self_review",
     "reflexion",
     "lessons",
     "teacherless",
     "teacher_lesson_sync",
+    "teacher_codex_fallback",
+    "escalate_on_gate_failure",
     "gateway_cache",
     "gateway_compression",
     "gateway_mask_secrets",
@@ -145,7 +148,9 @@ def _entry(path: str, value: object, kind: str) -> EffectiveField:
         if not isinstance(value, Enum):
             raise ValueError("Efektif enum alanı geçersiz.")
         return EffectiveField(path, "enum_digest", _digest(_text(value.value)), 1)
-    if kind == "text":
+    if kind == "optional_text" and value is None:
+        return EffectiveField(path, "absent", None)
+    if kind in {"text", "optional_text"}:
         return EffectiveField(path, "text_digest", _digest(_text(value)), 1)
     if kind == "strings":
         texts = _strings(value)
@@ -175,6 +180,7 @@ def _model(owner: object, prefix: str) -> tuple[EffectiveField, ...]:
             ("model", "text"),
             ("tags", "strings"),
             ("fallback", "strings"),
+            ("recommended_edit_format", "optional_text"),
         )
     )
 
@@ -207,6 +213,7 @@ def _runtime(owner: object) -> tuple[EffectiveField, ...]:
     fields.extend(
         (
             _field(owner, "provider", "runtime.provider", "text"),
+            _field(owner, "escalation_model", "runtime.escalation_model", "text"),
             _field(owner, "retry_delays_s", "runtime.retry_delays_s", "numbers"),
             _mapping_field(
                 getattr(owner, "rate_limit_per_minute", _MISSING),

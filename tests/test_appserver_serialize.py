@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import io
 import json
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, get_type_hints
+from types import UnionType
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
+
+import pytest
 
 from fusion_cli.appserver.serialize import event_to_dict
 from fusion_cli.core import events as E  # noqa: N812
 from fusion_cli.core.events import Channel
 from fusion_cli.core.types import FusionResult, ModelResult, VerdictSource
+from fusion_cli.observability.json_sink import JsonRenderer
+from fusion_cli.observability.replay import event_from_payload
 
 
 def _event_classes() -> list[type[E.Event]]:
@@ -99,6 +105,57 @@ def test_model_call_finished_sonucu_yapisal_olarak_serilesir() -> None:
     assert sonuc["result"]["text"] == "yanıt"
 
 
+@pytest.mark.parametrize("mutating", [None, False, True])
+def test_tool_executed_yeni_opsiyonel_alan_kayitta_geri_kurulur(mutating: bool | None) -> None:
+    event = E.ToolExecuted("read_file", {}, E.ToolOutcome.OK, "ok", mutating=mutating)
+    assert event_to_dict(event)["mutating"] is mutating
+    stream = io.StringIO()
+    JsonRenderer(stream).handle(event)
+    payload = json.loads(stream.getvalue())
+    restored = event_from_payload(payload)
+    assert restored == event
+    payload.pop("mutating")
+    legacy = event_from_payload(payload)
+    assert isinstance(legacy, E.ToolExecuted)
+    assert legacy.mutating is None
+
+
+@pytest.mark.parametrize("edit_format", [None, "exact", "whole"])
+def test_candidate_started_literal_ve_none_telde_korunur(edit_format: str | None) -> None:
+    event = E.CandidateStarted("plan", "step", 1, "model", edit_format, 2, "arm", "task", 1)
+    payload = json.loads(json.dumps(event_to_dict(event)))
+    assert payload["edit_format"] == edit_format
+
+
+def test_ic_ice_manifest_dto_telde_yapisini_korur() -> None:
+    from fusion_cli.core.prompt_manifest import (
+        InstructionMeasurement,
+        PromptManifest,
+        PromptTransportMeasurement,
+    )
+
+    event = E.PromptManifestRecorded(
+        PromptManifest(
+            10,
+            20,
+            5,
+            35,
+            instruction_files=(InstructionMeasurement("repo", "system", 10, 0),),
+            transport=PromptTransportMeasurement(35, 30, 5),
+        )
+    )
+    payload = json.loads(json.dumps(event_to_dict(event)))
+    assert payload["manifest"]["instruction_files"] == [
+        {"label": "repo", "layer": "system", "chars": 10, "trimmed_chars": 0}
+    ]
+    assert payload["manifest"]["transport"] == {
+        "input_chars": 35,
+        "sent_chars": 30,
+        "trimmed_chars": 5,
+        "attachment_chars": 0,
+    }
+
+
 def _ornek_uret(cls: type[E.Event]) -> E.Event:
     """Alanları tiplerine uygun örnek değerlerle doldurup olay üret."""
     hints = get_type_hints(cls)
@@ -131,7 +188,13 @@ def _deger_uret(tip: Any) -> Any:
         return FusionResult("x", "x", "x", "x", VerdictSource.SINGLE, ())
     if isinstance(tip, type) and issubclass(tip, Enum):
         return next(iter(tip))
-    origin = getattr(tip, "__origin__", None)
+    origin = get_origin(tip)
+    if origin in (Union, UnionType):
+        return _deger_uret(next(item for item in get_args(tip) if item is not type(None)))
+    if origin is Literal:
+        return get_args(tip)[0]
+    if isinstance(tip, type) and dataclasses.is_dataclass(tip):
+        return _ornek_uret(tip)
     if origin is tuple:
         return ()
     if origin is dict or origin is Mapping:

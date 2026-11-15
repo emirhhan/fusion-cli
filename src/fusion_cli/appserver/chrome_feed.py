@@ -13,6 +13,9 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
+from ..core.redaction import redact
+from ..tools.claude_chrome import legacy_view
+
 #: Adım metnindeki alıntıların üst sınırı; panel dar bir sütundur.
 MAX_QUOTE = 60
 #: Başarısız adımın gösterilen hata özeti.
@@ -39,8 +42,12 @@ def panel_item(line: str) -> dict[str, Any] | None:
         return {"tur": "dusunuyor"}
     if event == "ErrorOccurred":
         return {"tur": "hata", "metin": str(data.get("message", ""))[:MAX_ERROR]}
-    if event == "ToolExecuted" and str(data.get("name", "")) in _VISIBLE_TOOLS:
-        return _step(data)
+    if event == "ToolExecuted":
+        # Claude in Chrome adı (#431) panel metni için iç `chrome_*` adına çevrilir.
+        raw = data.get("args")
+        name, args = legacy_view(str(data.get("name", "")), raw if isinstance(raw, Mapping) else {})
+        if name in _VISIBLE_TOOLS:
+            return _step({**data, "name": name, "args": dict(args)})
     return None
 
 
@@ -75,6 +82,7 @@ _ACTION_CHANNELS = {
     "hover": "fare",
     "scroll": "fare",
     "key": "klavye",
+    "record": "ekran",
 }
 
 
@@ -154,12 +162,15 @@ def step_text(name: str, args: Mapping[str, Any], output: str = "") -> str:
         return f"{_host(args.get('url'))} açıldı"
     if name == "chrome_page":
         query = args.get("query")
-        return f"“{_quote(query)}” arandı" if isinstance(query, str) and query else "Sayfa okundu"
+        if isinstance(query, str) and query:
+            return f"“{_quote(query)}” arandı"
+        return "Sayfa ağacı okundu" if args.get("tree") else "Sayfa okundu"
     if name == "chrome_click":
         clicked = _output_field(output, "name")
         return f"“{_quote(clicked)}” tıklandı" if clicked else "Öğeye tıklandı"
     if name == "chrome_type":
-        return f"“{_quote(args.get('text'))}” yazıldı"
+        # Alana yazılan anahtar/belirteç adım günlüğüne düz metin olarak düşmez.
+        return f"“{_quote(redact(str(args.get('text') or '')))}” yazıldı"
     if name == "chrome_action":
         return _action_text(args)
     return "Tarayıcıda işlem yapıldı"
@@ -171,7 +182,14 @@ def _action_text(args: Mapping[str, Any]) -> str:
     if action == "scroll":
         return "Sayfa yukarı kaydırıldı" if value == "up" else "Sayfa aşağı kaydırıldı"
     if action == "wait":
+        if isinstance(value, str) and value.strip().lower() in _NETWORK_IDLE_VALUES:
+            return "Ağın boşa düşmesi bekleniyor"
         return f"“{_quote(value)}” bekleniyor"
+    if action == "console":
+        errors = isinstance(value, str) and value.strip().lower().startswith("errors")
+        return "Konsol hataları okundu" if errors else "Konsol iletileri okundu"
+    if action == "record":
+        return _RECORD_TEXTS.get(str(value or "").strip().lower(), "Ekran kaydı")
     if action == "key":
         return f"{_quote(value) or 'Enter'} tuşuna basıldı"
     if action == "screenshot":
@@ -204,7 +222,16 @@ _ACTION_TEXTS = {
     "right_click": "Sağ tıklandı",
     "drag": "Öğe sürüklenip bırakıldı",
     "wheel": "Fare tekerleği çevrildi",
+    "network": "Ağ istekleri okundu",
+    "shortcuts": "Kısayollar listelendi",
+    "shortcut": "Kısayol görevi alındı",
+    "window": "Yeni pencere açıldı",
+    "group": "Sekmeler gruplandı",
 }
+#: Ekran kaydı adımları: `start` → başladı, `stop` → GIF yazıldı.
+_RECORD_TEXTS = {"start": "Ekran kaydı başladı", "stop": "Ekran kaydı GIF olarak kaydedildi"}
+#: Ağ boşta beklemesini seçen `wait` değerleri (`tools/chrome.py` ile aynı küme).
+_NETWORK_IDLE_VALUES = frozenset({"network_idle"})
 
 
 def _host(url: object) -> str:

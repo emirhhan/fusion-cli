@@ -14,6 +14,7 @@ Kurulum:  pip install "fusion-cli[tracing]"
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -29,6 +30,7 @@ from ..core.events import (
     ToolExecuted,
     TurnFinished,
 )
+from ..core.redaction import redact
 
 ENV_PUBLIC_KEY = "LANGFUSE_PUBLIC_KEY"
 ENV_SECRET_KEY = "LANGFUSE_SECRET_KEY"
@@ -95,6 +97,8 @@ class LangfuseTracer:
         except Exception as exc:
             self.disabled_reason = f"{type(exc).__name__}: {exc}"
             self._root = None
+            # İzleme sessizce bitmesin: nedenini bir kez günlüğe yaz (turu düşürmez).
+            logging.getLogger(__name__).warning("Langfuse izleme kapandı: %s", self.disabled_reason)
 
     def flush(self) -> None:
         """Bekleyen kayıtları gönder. Süreç kapanmadan çağrılmalıdır."""
@@ -130,7 +134,7 @@ class LangfuseTracer:
                 host=host,
             )
             self._root = self._client.start_observation(
-                name="fusion-turn", as_type="span", input=task
+                name="fusion-turn", as_type="span", input=redact(task)
             )
         except ImportError:
             self.disabled_reason = 'paket kurulu değil (pip install "fusion-cli[tracing]")'
@@ -145,15 +149,18 @@ class LangfuseTracer:
         elif isinstance(event, ToolExecuted):
             self._span(
                 name=f"tool:{event.name}",
-                metadata={"args": dict(event.args), "outcome": event.outcome.value},
-                output=event.output[:2000],
+                metadata={
+                    "args": redact(json.dumps(dict(event.args), ensure_ascii=False, default=str)),
+                    "outcome": event.outcome.value,
+                },
+                output=redact(event.output[:2000]),
             )
         elif isinstance(event, CandidatesStarted):
             self._span(name="candidates", metadata={"names": list(event.names)})
         elif isinstance(event, SubAgentStarted):
-            self._span(name="subagent", metadata={"task": event.task})
+            self._span(name="subagent", metadata={"task": redact(event.task)})
         elif isinstance(event, FusionCompleted):
-            self._root.update(output=event.result.final_answer)
+            self._root.update(output=redact(event.result.final_answer))
         elif isinstance(event, TurnFinished):
             self._root.end()
 
@@ -163,7 +170,7 @@ class LangfuseTracer:
             name=f"model:{event.role}",
             as_type="generation",
             model=result.model,
-            output=result.text if result.ok else (result.error or ""),
+            output=redact(result.text if result.ok else (result.error or "")),
             usage_details={
                 "input": result.usage.prompt_tokens,
                 "output": result.usage.completion_tokens,

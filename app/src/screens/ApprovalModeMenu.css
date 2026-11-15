@@ -45,7 +45,9 @@
 }
 
 .approval-menu__item:hover,
-.approval-menu__item:focus-visible { background: var(--surface-hover); outline: none; }
+.approval-menu__item:focus-visible { background: var(--surface-hover); }
+/* Klavye odağı hover ve seçili renginden ayrışsın (CSS1-18). */
+.approval-menu__item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .approval-menu__item[aria-checked="true"] { background: var(--surface-selected); }
 
 .approval-menu__text { display: grid; gap: 2px; min-width: 0; }

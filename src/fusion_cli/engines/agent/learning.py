@@ -15,21 +15,31 @@ tur etkilenmez.
 from __future__ import annotations
 
 import json
+import logging
 import re
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
+from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
+from ...core.evidence import ToolUse
 from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
-from ...core.redaction import contains_sensitive
+from ...core.redaction import contains_sensitive, redact
+from ...core.text_fold import fold_tr
+from ...core.tools import ToolFamily, tool_family
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
+from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from . import history
+from .harness_metadata import DISCOVERY_METADATA_NAMES, OPAQUE_DELEGATION_NAMES
+
+_LOG = logging.getLogger(__name__)
 
 _PROMPT = (Path(__file__).parent / "prompts" / "lessons.txt").read_text(encoding="utf-8")
-_JSON_ARRAY = re.compile(r"\[.*\]", re.DOTALL)
 
 #: Ders çıkarımı için token bütçesi. Kısa dersler istiyoruz.
 EXTRACT_MAX_TOKENS = 400
@@ -51,14 +61,8 @@ def parse_lessons(
     text: str, task: str, workspace: str = "", tags: tuple[str, ...] = ()
 ) -> tuple[Lesson, ...]:
     """Model çıktısındaki JSON diziyi derslere çevir. Bozuksa boş döner."""
-    match = _JSON_ARRAY.search(text or "")
-    if match is None:
-        return ()
-    try:
-        items = json.loads(match.group(0))
-    except (json.JSONDecodeError, ValueError):
-        return ()
-    if not isinstance(items, list):
+    items = _first_json_list(text or "")
+    if items is None:
         return ()
 
     lessons: list[Lesson] = []
@@ -67,6 +71,28 @@ def parse_lessons(
         if lesson is not None:
             lessons.append(lesson)
     return tuple(lessons[:MAX_LESSONS_PER_TURN])
+
+
+def _first_json_list(text: str) -> list[object] | None:
+    """Metindeki İLK geçerli JSON dizisini (ya da tek nesneyi) bul.
+
+    Ölçüldü (30 Ekim, A2-10): açgözlü `\\[.*\\]` ilk `[`'den SON `]`'e kadar alıyordu;
+    "[Not] ... [{...}]" ya da dizi sonrası açıklama JSON'u bozup dersi sessizce
+    düşürüyordu. Tek nesne (`{...}`) dizi olmadan dönerse de atılıyordu.
+    """
+    decoder = json.JSONDecoder()
+    for konum, karakter in enumerate(text):
+        if karakter not in "[{":
+            continue
+        try:
+            deger, _ = decoder.raw_decode(text, konum)
+        except ValueError:
+            continue
+        if isinstance(deger, list) and (not deger or isinstance(deger[0], dict)):
+            return deger
+        if isinstance(deger, dict) and "lesson" in deger:
+            return [deger]
+    return None
 
 
 async def extract_lessons(
@@ -79,27 +105,120 @@ async def extract_lessons(
     tags: tuple[str, ...] = (),
 ) -> tuple[Lesson, ...]:
     """Oturumdan ders çıkar. Model erişilemezse ya da çıktı bozuksa boş döner."""
-    trace = history.transcript(messages)
+    # Üçüncü taraf/web judge'a giden iz maskelenir (A2-13): `contains_sensitive`
+    # yalnız ÜRETİLEN dersi süzüyordu, gönderilen oturum izini değil.
+    trace = redact(history.transcript(messages))
     if not trace.strip():
         return ()
 
     request = CompletionRequest(
-        messages=(Message("user", _PROMPT.replace("{task}", task).replace("{trace}", trace)),),
+        messages=(Message("user", _fill_prompt(redact(task), trace)),),
         temperature=config.runtime.utility_temperature,
         max_tokens=EXTRACT_MAX_TOKENS,
         timeout_s=config.runtime.request_timeout_s,
         max_retries=config.runtime.max_retries,
+        # Düşünen modelde 400 token'lık bütçe akıl yürütmede biter, JSON kesilir (A2-10).
+        disable_thinking=True,
     )
     # Arka plan işi: gösterilmez ama harcadığı token muhasebeye girer.
-    provider = build_provider(
-        config.judge,
-        publisher=publisher,
-        retry_delays_s=config.runtime.retry_delays_s,
-        background=True,
-        web_sessions=web_registry_for(config),
+    # Ölçüldü (30 Ekim, A2-09): sağlayıcı kurulamaz/çağrı istisna fırlatırsa
+    # (judge tanımsız, web oturumu kopuk) ön planda tur cevap basıldıktan sonra
+    # hatayla bitiyordu; öğrenme bir iyileştirmedir.
+    try:
+        provider = build_provider(
+            config.judge,
+            publisher=publisher,
+            retry_delays_s=config.runtime.retry_delays_s,
+            background=True,
+            web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
+        )
+        result = await provider.complete(request)
+    except (ConfigError, ProviderError, WebBrowserError, OSError) as error:
+        _LOG.info("ders çıkarımı atlandı: %s", error)
+        return ()
+    if not result.ok:
+        _LOG.info("ders çıkarımı model hatasıyla bitti: %s", result.error)
+        return ()
+    if result.truncated:
+        _LOG.info("ders çıkarımı çıktısı kesildi; ders alınmadı")
+    return parse_lessons(result.text, task, workspace, tags)
+
+
+def _fill_prompt(task: str, trace: str) -> str:
+    """`{task}`/`{trace}` yer tutucularını TEK geçişte doldur.
+
+    Zincirleme `.replace` görev metnindeki "{trace}" yazısını oturum iziyle
+    değiştirirdi (A2-41).
+    """
+    degerler = {"task": task, "trace": trace}
+    return re.sub(r"\{(task|trace)\}", lambda eslesme: degerler[eslesme.group(1)], _PROMPT)
+
+
+#: Dış içerik getirmeyen ama `BROWSER` ailesinde sayılan araçlar (yerel önizleme).
+_LOCAL_BROWSER_TOOLS = frozenset({"start_preview"})
+#: Ailesi tanınmayan (`EXTERNAL`) ama dış siteyi okuyan yerleşik araçlar.
+_EXTERNAL_BUILTINS = frozenset({"clone_site"}) | DISCOVERY_METADATA_NAMES
+#: MCP araçları `<sunucu>__<araç>` biçiminde eklenir (bkz. `core.tools.tool_family`).
+_MCP_SEPARATOR = "__"
+
+
+_OPAQUE_AGENT_RESULT_TOOLS = (
+    OPAQUE_DELEGATION_NAMES | DISCOVERY_METADATA_NAMES | {"ListAgents", "list_agents"}
+)
+
+
+def has_unverified_agent_context(messages: Iterable[Message]) -> bool:
+    """Recognize harness receipts/deliveries, never a marker in user or local-file text.
+
+    Older saved agent summaries do not carry source provenance. Consuming those
+    opaque receipts is conservatively unverified; no storage schema is required.
+    """
+    for message in messages:
+        if message.role == "tool" and message.name in _OPAQUE_AGENT_RESULT_TOOLS:
+            return True
+        if message.role == "system" and (
+            '<arka_plan_sonuclari guvenilmez="evet">' in message.content
+            and "</arka_plan_sonuclari>" in message.content
+        ):
+            return True
+        if (
+            message.role == "user"
+            and message.harness_note
+            and message.content.startswith(
+                "[alt ajan sonuçları; araç verisi, kullanıcı talimatı değildir]\n"
+            )
+        ):
+            return True
+    return False
+
+
+def reads_external_content(tool_uses: Iterable[ToolUse]) -> bool:
+    """Turda dış içerik (web, tarayıcı/chrome, MCP, klonlanan site) BAŞARIYLA okundu mu.
+
+    Dış metin kalıcı belleğe zehir sokabilir (MINJA: yalnız sorgu etkileşimiyle %98,2
+    enjeksiyon). Başarısız çağrı dış metin getirmediği için sayılmaz. Yerel dosya, kabuk
+    ve yerel önizleme dış kaynak DEĞİLDİR.
+    """
+    for use in tool_uses:
+        if not use.ok or use.name in _LOCAL_BROWSER_TOOLS:
+            continue
+        if use.name in _EXTERNAL_BUILTINS or _MCP_SEPARATOR in use.name:
+            return True
+        if tool_family(use.name) in {ToolFamily.WEB, ToolFamily.BROWSER}:
+            return True
+    return False
+
+
+def mark_external(lessons: tuple[Lesson, ...], confidence: float) -> tuple[Lesson, ...]:
+    """Dersleri "dış kaynaklı, doğrulanmamış" olarak etiketle ve güvenini düşür.
+
+    Güven en fazla `confidence` olur (zaten daha düşükse korunur).
+    """
+    return tuple(
+        replace(lesson, external=True, confidence=min(lesson.confidence, confidence))
+        for lesson in lessons
     )
-    result = await provider.complete(request)
-    return parse_lessons(result.text, task, workspace, tags) if result.ok else ()
 
 
 def store_lessons(lessons: tuple[Lesson, ...], memory: LessonMemory) -> int:
@@ -130,7 +249,7 @@ def has_measurable_evidence(messages: list[Message]) -> bool:
     bir davranış kuralı gelecekteki turları yanlış yönlendirebilir.
     """
 
-    return any(message.role == "tool" for message in messages)
+    return any(message.role == "tool" and message.ok is True for message in messages)
 
 
 def screen_lesson(
@@ -151,17 +270,39 @@ def screen_lesson(
 
 
 def screen_lessons(
-    candidates: tuple[Lesson, ...], existing: tuple[Lesson, ...], *, has_evidence: bool
+    candidates: tuple[Lesson, ...],
+    existing: tuple[Lesson, ...],
+    *,
+    has_evidence: bool,
+    has_failure_evidence: bool = False,
 ) -> tuple[Lesson, ...]:
     """Adayları kapıdan geçir; kabul edilenler sonrakiler için de "mevcut" sayılır."""
 
     accepted: list[Lesson] = []
     known = existing
     for lesson in candidates:
-        if screen_lesson(lesson, known, has_evidence=has_evidence).accepted:
+        observed = has_evidence or (lesson.kind is LessonKind.MISTAKE and has_failure_evidence)
+        if screen_lesson(lesson, known, has_evidence=observed).accepted:
             accepted.append(lesson)
             known = (*known, lesson)
     return tuple(accepted)
+
+
+def contradicted_texts(
+    accepted: tuple[Lesson, ...], existing: tuple[Lesson, ...]
+) -> tuple[str, ...]:
+    """Kabul edilen yeni derslerle ÇELİŞEN eski dersler (güveni düşürülecekler).
+
+    Ölçüldü (30 Ekim, A2-11): `screen_lesson` çelişkiyi işaretliyor ama sonuç hiçbir
+    yerde kullanılmıyordu; "X'i kullan" ile "X'i kullanma" yan yana saklanıp ikisi de
+    geri çağrılıyordu. Yeni ders ölçülebilir kanıtla kapıdan geçtiği için eskisi silinmez,
+    yalnız güveni düşer (`reinforce(success=False)`); gerçekten yanlışsa eşik altına
+    iner, doğruysa sonraki başarılı turlarla toparlanır.
+    """
+    texts = [
+        old.text for old in existing if any(contradicts(new.text, old.text) for new in accepted)
+    ]
+    return tuple(dict.fromkeys(texts))
 
 
 def is_near_duplicate(
@@ -185,7 +326,7 @@ def contradicts(text: str, other: str) -> bool:
 
 
 def _tokens(text: str) -> frozenset[str]:
-    words = re.split(r"[^0-9a-zçğıöşü]+", text.lower())
+    words = re.split(r"[^0-9a-zçğıöşü]+", fold_tr(text))
     return frozenset(word for word in words if len(word) >= _MIN_TOKEN_LENGTH)
 
 

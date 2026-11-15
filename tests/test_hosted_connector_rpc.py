@@ -235,3 +235,40 @@ def test_ayni_adres_farkli_adla_ikinci_kez_eklenemez():
     assert sonuc["ok"] is False
     assert yeni is None
     assert "META ADS" in sonuc["metin"]
+
+
+async def test_varsayilan_kesif_cagiranin_bellek_ici_yapilandirmasini_kullanir(monkeypatch):
+    """Ölçüldü (30 Ekim, S1-49): keşif diskten `load_config()` ile yeni yapılandırma okuyordu;
+    kaydedilmemiş oturum farklı bir yapılandırmayla sorgulanabilirdi."""
+    from fusion_cli.appserver.hosted_connectors import _discover_tools
+    from fusion_cli.mcp_bridge import hosted
+    from fusion_cli.providers import hosted_bridge
+
+    config = replace(
+        make_config(),
+        web_sessions=(_session(),),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="Meta Ads", url="https://mcp.facebook.com/ads", provider="claude_web"
+            ),
+        ),
+    )
+    gorulen: list[object] = []
+
+    class Kanal:
+        def __init__(self, verilen, **_kwargs):
+            gorulen.append(verilen)
+
+    class Istemci:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def list_tools(self, _ad):
+            return []
+
+    monkeypatch.setattr(hosted_bridge, "HostedSessionChannel", Kanal)
+    monkeypatch.setattr(hosted, "HostedConnectorClient", Istemci)
+
+    await _discover_tools(config.hosted_connectors[0], config=config)
+
+    assert gorulen == [config]

@@ -87,7 +87,26 @@ def test_bozuk_kayitli_deger_varsayilana_duser(tmp_path):
     yeni = ReplState.from_runtime_config(
         load_config(hedef), memory=null_memory(), root=tmp_path, home=tmp_path
     )
-    assert yeni.engine is Engine.AGENT and yeni.approval is ApprovalMode.AUTO
+    assert yeni.engine is Engine.AGENT and yeni.approval is ApprovalMode.SECURITY
+
+
+def test_kayit_yokken_varsayilan_kip_manuel(tmp_path):
+    """Claude Code: varsayılan izin kipi Manual (`default`), auto değil (#54, #423)."""
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text("runtime:\n  engine: agent\n", encoding="utf-8")
+    config = load_config(hedef)
+    assert config.runtime.approval_mode == "default"
+    yeni = ReplState.from_runtime_config(config, memory=null_memory(), root=tmp_path, home=tmp_path)
+    assert yeni.approval is ApprovalMode.SECURITY
+
+
+def test_kayitli_bypass_varsayilan_manuele_duser(tmp_path):
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text("runtime:\n  approval_mode: bypass\n", encoding="utf-8")
+    yeni = ReplState.from_runtime_config(
+        load_config(hedef), memory=null_memory(), root=tmp_path, home=tmp_path
+    )
+    assert yeni.approval is ApprovalMode.SECURITY
 
 
 def test_tum_ayarlar_birlikte_kalir_ve_birbirini_ezmez(tmp_path):
@@ -156,3 +175,15 @@ class TestArayuzTercihleri:
     def test_dosya_json_ve_utf8(self):
         ui_prefs.save({"anahtar": "fusion.ad", "deger": "Mağaza"})
         assert json.loads(self.yol.read_text(encoding="utf-8"))["fusion.ad"] == "Mağaza"
+
+
+def test_arayuz_tercihi_sabit_tmp_dosyasi_birakmaz_ve_yarisamaz(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-49): sabit `ui-prefs.tmp` adı iki süreçte yarışıyordu."""
+    prefs = tmp_path / "ui-prefs.json"
+    monkeypatch.setattr(ui_prefs, "prefs_path", lambda: prefs)
+    (tmp_path / "ui-prefs.tmp").write_text("baska surecin yarim yazisi", encoding="utf-8")
+
+    assert ui_prefs.save({"anahtar": "fusion.layout", "deger": "{}"})["ok"] is True
+
+    assert (tmp_path / "ui-prefs.tmp").read_text(encoding="utf-8") == "baska surecin yarim yazisi"
+    assert ui_prefs.load()["degerler"] == {"fusion.layout": "{}"}

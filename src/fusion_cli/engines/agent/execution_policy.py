@@ -15,11 +15,21 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
+from ...core.text_fold import fold_tr
+from ...core.tools import ToolFamily
 from ...core.types import Message, ModelSpec
-from .action_evidence import task_effect
+from ..effects.detect import requested_web_research, requested_web_urls
+from .action_evidence import effect_request, task_effect
+from .edit_profiles import EditFormat
+from .research_scope import chrome_page_read_urls, source_read_requirement
+from .task_availability import task_tool_mode
+from .tool_constraints import forbidden_families
+from .tool_profiles import conversation_tool_profiles
+from .tool_surface import uses_compact_surface
 
 _WEB_PROVIDER_IDS = frozenset(
     {"chatgpt_web", "claude_web", "gemini_web", "copilot_web", "perplexity_web"}
@@ -64,6 +74,7 @@ class ExecutionPolicy:
     """
 
     is_web: bool
+    edit_format: EditFormat | None = None
     max_model_calls: int | None = None
     max_tool_rounds: int | None = None
     max_same_tool_without_change: int = 2
@@ -78,6 +89,11 @@ class ExecutionPolicy:
     # doğrulanır; kanıt yoksa model bir kez araç çağrısına zorlanır.
     requires_tool_evidence: bool = False
     required_effect: str | None = None
+    #: Explicitly requested pages must actually be read; an unrelated lookup is insufficient.
+    required_web_urls: tuple[str, ...] = ()
+    source_read_requirement: Literal["document", "controls", "restricted"] = "document"
+    #: Public/current research stays required alongside an artifact mutation.
+    requires_web_lookup: bool = False
     #: Bu turun metni açık bir değişiklik etkisi istiyor mu (`_MUTATING_EFFECTS`).
     complex_task: bool = False
     max_evidence_reprompts: int = 3
@@ -95,10 +111,22 @@ class ExecutionPolicy:
     mutation_blocked_by_capability: bool = False
     #: Şema ve gerçek dispatcher için aynı kesin araç sınırı.
     allowed_tool_names: frozenset[str] | None = None
+    forbidden_tool_families: frozenset[ToolFamily] = frozenset()
     #: Bu adım kaçıncı kez deneniyor; yedek zinciri o kadar yukarı kaydırır.
     escalation: int = 0
     #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
     observe_only: bool = False
+    #: Küçük/zayıf model için sıkı araç yüzeyi (bkz. `tool_surface`, T1-63/M1-12).
+    compact_tool_surface: bool = False
+    #: Sıkı yüzeyde sunulacak en fazla MCP/eklenti aracı; `None` = sınır yok.
+    max_external_tools: int | None = None
+    #: Sıkı yüzeyde görev türüne göre sabit alt küme (bkz. `tool_profiles`); boş = profil yok.
+    tool_profiles: tuple[str, ...] = ()
+    #: İsteğe bağlı yüzey stratejisi; ortak ayar ve çağıran bağlantısı Task 8b'dedir.
+    external_tool_selection: Literal["registration_order", "relevance"] = "registration_order"
+    #: Görev araçları (#329): `tasks` (Task*), `todo` (todo_write) ya da `none`. Doğrudan
+    #: kurulan politika eski davranışı (todo_write) korur; `policy_for` modele göre seçer.
+    task_tools: str = "todo"
 
 
 def policy_for(
@@ -112,35 +140,70 @@ def policy_for(
     şemalarının yanlışlıkla kapatılmasını önler.
     """
 
-    lowered = task.lower()
+    lowered = fold_tr(task)
     explicit_no_tools = _explicit_no_tools(lowered)
     # Kullanıcı “araç kullanma” dese bile gerçek bir dış etki talebi ortadan
     # kalkmaz. Araçlar kapalı tutulur ama iş yapılmış gibi raporlanamaz.
     required_effect = task_effect(task, history)
-    requires_evidence = required_effect is not None
+    source_request = effect_request(task, history)
+    source_urls = (
+        requested_web_urls(source_request, source_reads_only=required_effect != "web_lookup")
+        if not explicit_no_tools
+        else ()
+    )
+    if not source_urls and not explicit_no_tools:
+        source_urls = chrome_page_read_urls(source_request)
+    web_lookup = not explicit_no_tools and requested_web_research(source_request)
+    read_scope = source_read_requirement(source_request)
+    requires_evidence = (
+        required_effect is not None
+        or web_lookup
+        or bool(source_urls)
+        or read_scope in {"controls", "restricted"}
+    )
     complex_task = required_effect in _MUTATING_EFFECTS
     # Yetenek kararı `strict` kısa devresinden BAĞIMSIZ verilir: panelden zorunlu
     # model seçmek güvenlik kapısını atlamak anlamına gelemez.
     mutation = mutation_policy_for_model(config, spec.model)
+
+    compact = uses_compact_surface(config, spec, mutation_ok=mutation.ok)
+    max_external_tools = (config.runtime.compact_external_tools or None) if compact else None
+    profiles = (
+        conversation_tool_profiles(task, history)
+        if compact and getattr(config.runtime, "weak_model_tool_profiles", False)
+        else ()
+    )
 
     if not is_web_model(config, spec.model):
         # API/local sağlayıcılarda hard-cap yok; fakat açık operasyonlarda kanıtsız
         # başarıya bütün sağlayıcılarda izin verilmez.
         return ExecutionPolicy(
             is_web=False,
+            forbidden_tool_families=forbidden_families(task),
+            edit_format=spec.recommended_edit_format,
             allow_mutation=mutation.ok,
             mutation_block_reason=mutation.reason,
             mutation_blocked_by_capability=not mutation.ok,
             offer_tools=not explicit_no_tools,
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
+            required_web_urls=source_urls,
+            source_read_requirement=read_scope,
+            requires_web_lookup=web_lookup,
             max_evidence_reprompts=0 if explicit_no_tools else 3,
             complex_task=complex_task,
+            compact_tool_surface=compact,
+            max_external_tools=max_external_tools,
+            tool_profiles=profiles,
+            external_tool_selection=config.runtime.external_tool_selection.value,
+            task_tools=task_tool_mode(spec.model),
         )
 
     simple_chat = _is_genuine_simple_chat(task, required_effect)
     return ExecutionPolicy(
         is_web=True,
+        forbidden_tool_families=forbidden_families(task),
+        edit_format=spec.recommended_edit_format,
         allow_mutation=mutation.ok,
         mutation_block_reason=mutation.reason,
         mutation_blocked_by_capability=not mutation.ok,
@@ -163,7 +226,15 @@ def policy_for(
         offer_tools=not explicit_no_tools and (requires_evidence or not simple_chat),
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
+        required_web_urls=source_urls,
+        source_read_requirement=read_scope,
+        requires_web_lookup=web_lookup,
         max_evidence_reprompts=0 if explicit_no_tools else 3,
+        compact_tool_surface=compact,
+        max_external_tools=max_external_tools,
+        tool_profiles=profiles,
+        task_tools=task_tool_mode(spec.model),
+        external_tool_selection=config.runtime.external_tool_selection.value,
     )
 
 
@@ -213,7 +284,7 @@ def _is_genuine_simple_chat(task: str, required_effect: str | None) -> bool:
 
     if required_effect is not None:
         return False
-    lowered = " ".join(task.lower().split()).strip(" .!?…")
+    lowered = " ".join(fold_tr(task).split()).strip(" .!?…")
     if len(lowered) > 260:
         return False
     if re.fullmatch(

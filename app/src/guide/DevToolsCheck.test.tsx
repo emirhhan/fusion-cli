@@ -33,3 +33,12 @@ it("geçersiz satırları atlar", () => {
   expect(parseDevTools({ araclar: [{ id: 3 }, rows[0]] })).toHaveLength(1);
   expect(parseDevTools({})).toEqual([]);
 });
+
+it("yalnız https indirme adresini kabul eder; javascript: ve file: düşer (U6-29)", () => {
+  // Ölçüldü (30 Ekim): çekirdekten gelen serbest dizgi şema denetimi olmadan href'e yazılıyordu.
+  const satir = (indirme: string) => ({ id: "x", ad: "X", neden: "", kurulu: false, indirme });
+  const sonuc = parseDevTools({ araclar: [
+    satir("javascript:alert(1)"), satir("file:///etc/passwd"), satir("http://nodejs.org"), satir("https://nodejs.org/en/download"), satir("not a url"),
+  ] });
+  expect(sonuc.map((tool) => tool.indirme)).toEqual(["", "", "", "https://nodejs.org/en/download", ""]);
+});

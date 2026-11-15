@@ -1,0 +1,13 @@
+{
+  "kind": "masked_diagnostic",
+  "split": "blind",
+  "request": "Özgün tanıya dayanarak app.py dosyasındaki değeri 2 yap; yeni hata uydurma.",
+  "checks": [
+    {
+      "id": "deger",
+      "path": "app.py",
+      "text": "return 2"
+    }
+  ],
+  "diagnostic": "ÖZGÜN TANI: app.py deger() 1 dönüyor; 2 bekleniyor."
+}

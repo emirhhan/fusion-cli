@@ -56,6 +56,9 @@ it("promise reject taslağı ve ekleri korur", async () => {
   await act(async () => { fireEvent.keyDown(textbox, { key: "Enter" }); });
   expect(textbox).toHaveProperty("value", "yeniden gönder");
   expect(screen.getByText("not.md")).toBeTruthy();
+  const send = screen.getByRole("button", { name: "Gönder" });
+  expect(send).toHaveProperty("disabled", false);
+  expect(send.getAttribute("aria-busy")).not.toBe("true");
 });
 
 it("A bekleyen kabul B sohbetinin gönderimini kilitlemez ve A kabulü B taslağını temizlemez", async () => {
@@ -85,4 +88,44 @@ it("çalışan işe mesaj seçimini kutu içinde tutar ve seçimi iletir", () =>
 it("durdurma sırasında mesaj seçimi sırayı gösterir ve değiştirilemez", () => {
   render(<Composer running stopping busySubmissionMode="queue" onBusySubmissionModeChange={vi.fn()} onSend={vi.fn()} />);
   expect(screen.getByLabelText("Çalışan işe mesaj")).toHaveProperty("disabled", true);
+});
+
+it("bekleyen kabul gönder düğmesinde görünür ve ret sonrası taslağı yeniden gönderebilir", async () => {
+  let finish!: (value: ReturnType<typeof receipt>) => void;
+  const onSend = vi.fn(() => new Promise<ReturnType<typeof receipt>>((resolve) => { finish = resolve; }));
+  render(<Composer onSend={onSend} />);
+  const textbox = screen.getByLabelText("Mesaj");
+  fireEvent.change(textbox, { target: { value: "kabul bekleyen görev" } });
+  fireEvent.keyDown(textbox, { key: "Enter" });
+  const send = screen.getByRole("button", { name: "Gönder" });
+  expect(send).toHaveProperty("disabled", true);
+  expect(send.getAttribute("aria-busy")).toBe("true");
+  fireEvent.click(send);
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(textbox).toHaveProperty("value", "kabul bekleyen görev");
+  await act(async () => { finish(receipt("failed")); });
+  expect(send).toHaveProperty("disabled", false);
+  expect(send.getAttribute("aria-busy")).not.toBe("true");
+  expect(textbox).toHaveProperty("value", "kabul bekleyen görev");
+});
+
+it("bekleyen kabul alt gönderimleri kilitlerken çalışan turun durdurmasını korur", async () => {
+  let finish!: (value: ReturnType<typeof receipt>) => void;
+  const onSend = vi.fn(() => new Promise<ReturnType<typeof receipt>>((resolve) => { finish = resolve; }));
+  const onStop = vi.fn();
+  const commands = [{ ad: "subtask", aciklama: "Alt görev", grup: "ajan", kullanim: "/subtask", destekleniyor: true }];
+  const view = render(<Composer commands={commands} onSend={onSend} onStop={onStop} />);
+  fireEvent.change(screen.getByLabelText("Mesaj"), { target: { value: "kabul bekleyen görev" } });
+  fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Enter" });
+  expect(screen.getByRole("button", { name: "Alt görev olarak gönder" })).toHaveProperty("disabled", true);
+  view.rerender(<Composer commands={commands} onSend={onSend} onStop={onStop} running />);
+  const stop = screen.getByRole("button", { name: "Durdur" });
+  expect(stop).toHaveProperty("disabled", false);
+  fireEvent.click(stop);
+  expect(onStop).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Sıraya ekle" })).toHaveProperty("disabled", true);
+  expect(onSend).toHaveBeenCalledTimes(1);
+  await act(async () => { finish(receipt("failed")); });
+  expect(screen.getByRole("button", { name: "Sıraya ekle" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "Durdur" })).toBe(stop);
 });

@@ -10,6 +10,7 @@ import datetime
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..config.paths import trash_dir
@@ -31,7 +32,7 @@ def show() -> None:
         table.add_column(column)
     for entry in entries:
         zaman = datetime.datetime.fromtimestamp(entry.deleted_at).strftime("%d.%m.%Y %H:%M")
-        table.add_row(entry.id, zaman, str(entry.original))
+        table.add_row(escape(entry.id), zaman, escape(str(entry.original)))
     console.print(table)
 
 

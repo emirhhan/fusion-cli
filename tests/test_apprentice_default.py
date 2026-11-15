@@ -126,9 +126,33 @@ async def test_kontrol_durumu_web_kilitliyken_cirak_aktif_false_ve_onerilen_mode
     assert result["ok"] is True
     assert result["model"]["cirak_aktif"] is False
     assert result["model"]["onerilen_cirak"] == beklenen.agent.model
-    # Bildirim TEK SEFERLİK: ilk çağrıda True, aynı işaretle ikinci çağrıda False.
+    # S2-51: `kontrol.durum` bir OKUMA ucudur; arka plan yoklaması bildirimi yutmaz.
     assert result["model"]["cirak_bildirim_goster"] is True
-    assert ikinci["model"]["cirak_bildirim_goster"] is False
+    assert ikinci["model"]["cirak_bildirim_goster"] is True
+
+
+async def test_cirak_bildirimi_yalniz_goruldu_onayiyla_kapanir(tmp_path, monkeypatch):
+    """S2-51: işareti okuma ucu değil `kontrol.cirak_bildirimi_goruldu` koyar (idempotent)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+    root = tmp_path / "project"
+    root.mkdir()
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=tmp_path / "home")
+    session._secret_store = _MemorySecrets()  # type: ignore[assignment]
+    session._state.config = apply_single_model(session._state.config, "chatgpt_web/main/auto")
+
+    for _ in range(3):  # sık yoklama işareti koymaz
+        assert (await _request(session, lines, "kontrol.durum", {}))["model"][
+            "cirak_bildirim_goster"
+        ] is True
+    onay = await _request(session, lines, "kontrol.cirak_bildirimi_goruldu", {})
+    tekrar = await _request(session, lines, "kontrol.cirak_bildirimi_goruldu", {})
+    sonra = await _request(session, lines, "kontrol.durum", {})
+    await session.close()
+
+    assert onay["ok"] is True
+    assert tekrar["ok"] is True
+    assert sonra["model"]["cirak_bildirim_goster"] is False
 
 
 async def test_kontrol_cirak_varsayilanina_don_web_kilidini_kaldirir(tmp_path, monkeypatch):

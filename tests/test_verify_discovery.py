@@ -353,3 +353,92 @@ def test_dizin_degistiren_onekle_calisan_komut_davranis_kaniti_sayilir():
     assert is_behavioral_command("FOO=1 pytest -q") is True
     assert is_behavioral_command("cd /Users/x/w-api-S3 && cargo build") is False
     assert is_behavioral_command("cd /Users/x/w-api-S3 && pytest -q || true") is False
+
+
+def test_stderr_yonlendirmesi_davranis_kanitini_bozmaz():
+    """Ölçüldü (29 Ekim): `pytest -q 2>&1` içindeki `&` arka plan işleci sanılıp
+    kanıt reddediliyordu (A4-04). Gerçek arka plan/boru maskelemesi hâlâ reddedilir."""
+    assert is_behavioral_command("pytest -q 2>&1")
+    assert is_behavioral_command("pytest -q >&2")
+    assert is_behavioral_command("pytest -q &> /dev/null")
+    assert is_behavioral_command("cd proje && npm test 2>&1")
+    assert not is_behavioral_command("pytest -q 2>&1 | tail")
+    assert not is_behavioral_command("pytest -q 2>&1 &")
+    assert not is_behavioral_command("pytest -q &")
+
+
+def test_kokte_secilmeyen_ekosistem_ve_alt_klasor_kapsam_disi_bildirilir(tmp_path):
+    """Ölçüldü (30 Ekim, A4-66): `pyproject.toml` + `app/` (Tauri/React) deposunda keşif
+    yalnız Python'u seçiyor, `app/` TypeScript derlemesi sessizce denetimsiz kalıyordu."""
+    from fusion_cli.engines.agent.verify_discovery import uncovered_ecosystems
+
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\ndev=['pytest','ruff']\n", encoding="utf-8"
+    )
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "package.json").write_text(
+        '{"scripts": {"typecheck": "tsc", "build": "vite build"}}', encoding="utf-8"
+    )
+    (tmp_path / "node_modules" / "x").mkdir(parents=True)
+    (tmp_path / "node_modules" / "x" / "package.json").write_text(
+        '{"scripts": {"test": "x"}}', encoding="utf-8"
+    )
+
+    assert uncovered_ecosystems(tmp_path) == ("app/ (node)",)
+    # Seçilen plan yine yalnız Python'dur: davranış değişmedi.
+    assert all("tsc" not in komut and "vite" not in komut for komut in discover_commands(tmp_path))
+
+
+def test_tek_ekosistemli_projede_kapsam_disi_bildirimi_yoktur(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import uncovered_ecosystems
+
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\ndev=['pytest']\n", encoding="utf-8"
+    )
+    (tmp_path / "src").mkdir()
+
+    assert uncovered_ecosystems(tmp_path) == ()
+
+
+async def test_kapsam_dogrulayicisi_uyari_uretir_engellemez(tmp_path):
+    from fusion_cli.engines.agent.coverage_verify import EcosystemCoverageVerifier
+
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\ndev=['ruff']\n", encoding="utf-8"
+    )
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "package.json").write_text('{"scripts": {"build": "x"}}', encoding="utf-8")
+
+    sonuc = await EcosystemCoverageVerifier(tmp_path).verify()
+
+    assert sonuc.ok is True and not sonuc.findings
+    assert any("app/ (node)" in uyari for uyari in sonuc.warnings)
+
+
+def test_evidence_environment_hashes_explicit_test_config_and_never_reads_secret_files(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import evidence_environment
+
+    config = tmp_path / "custom.ini"
+    config.write_text("one")
+    (tmp_path / ".env").write_text("TEST_FIXTURE_SECRET=do-not-copy-this-value")
+    command = "pytest -c custom.ini"
+    before = evidence_environment(tmp_path, (command,), runtime="pytest-8")
+    config.write_text("two")
+    after = evidence_environment(tmp_path, (command,), runtime="pytest-8")
+    assert before.config_digest != after.config_digest
+    assert before.dependency_digest == after.dependency_digest
+    assert "do-not-copy-this-value" not in repr(after)
+    assert "TEST_FIXTURE_SECRET" not in repr(after)
+
+
+def test_evidence_environment_tracks_selected_python_runner_distribution_version(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.engines.agent.verify_discovery import evidence_environment
+
+    versions = {"pytest": "8.0.0"}
+    monkeypatch.setattr("importlib.metadata.version", lambda package: versions[package])
+    before = evidence_environment(tmp_path, ("python -m pytest",), runtime="Python 3.12")
+    versions["pytest"] = "8.1.0"
+    after = evidence_environment(tmp_path, ("python -m pytest",), runtime="Python 3.12")
+    assert before.runtime != after.runtime

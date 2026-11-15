@@ -1,8 +1,11 @@
 /**
  * Yazı kutusundaki `/beceri` ve `@mcp` girdilerini çözer.
  *
- * - `/ad` yalnız satırın BAŞINDA ve yalnız o ad bir komut değilse bir beceridir (komut kazanır).
- * - `@ad` metnin herhangi bir yerinde, kelime başında, bilinen ve etkin bir MCP sunucusuysa
+ * - `/ad` (ya da Codex yazımı `$ad`) yalnız satırın BAŞINDA ve yalnız o ad bir komut değilse bir
+ *   beceridir (komut kazanır). Çekirdek beceri dosyalarını "Beceri" grubunda komut olarak da
+ *   listeler (P-019); o durumda komut yolu kazanır ve `/beceri` çekirdekte çalışır.
+ * - `@ad` metnin herhangi bir yerinde, kelime başında (boşluk ya da `([{,;` sonrası; dosya
+ *   anmasıyla `anmayiBul` aynı sınırı kullanır, U1-21), bilinen ve etkin bir MCP sunucusuysa
  *   o MCP'yi bu tur için seçer. Dosya anmaları (`@src/app.ts`) MCP adı olmadıkça etkilenmez.
  */
 
@@ -23,7 +26,7 @@ const fold = (value: string) => value.toLocaleLowerCase("tr");
 
 export function parseCapabilityInput(text: string, names: CapabilityNames): CapabilityInput {
   let skill: CapabilityInput["skill"] = null;
-  const slash = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  const slash = /^[/$]([^\s/$]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (slash) {
     const wanted = fold(slash[1]);
     const isCommand = names.commands.some((command) => fold(command) === wanted);
@@ -31,8 +34,8 @@ export function parseCapabilityInput(text: string, names: CapabilityNames): Capa
     if (match) skill = { ad: match, rest: (slash[2] ?? "").trim() };
   }
   const mcp: string[] = [];
-  for (const found of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) {
-    const wanted = fold(found[1].replace(/[.,;:!?)]+$/, ""));
+  for (const found of text.matchAll(/(?:^|[\s([{,;])@([^\s@]+)/g)) {
+    const wanted = fold(found[1].replace(/[.,;:!?)\]}]+$/, ""));
     const match = names.mcp.find((name) => fold(name) === wanted);
     if (match && !mcp.includes(match)) mcp.push(match);
   }
@@ -41,8 +44,13 @@ export function parseCapabilityInput(text: string, names: CapabilityNames): Capa
 
 export const DEFAULT_SKILL_TASK = (skill: string) => `${skill} becerisini bu görev için uygula.`;
 
-/** `/görsel` ve `/gorsel` sohbet içinde görsel üretir; slash komutu değil, normal bir turdur. */
-export const isImageCommand = (text: string) => /^\/g[öo]rsel(?:\s|$)/i.test(text.trim());
+/**
+ * `/görsel`, `/gorsel` (ve çekirdeğin de kabul ettiği `/görseli`, `/görseller`) sohbet içinde
+ * görsel üretir; slash komutu değil, normal bir turdur. Çekirdekteki `image_chat._COMMAND`
+ * ile AYNI kalıp: eskiden `/görseller kedi` çekirdekte görsel üretirken arayüz ilerleme
+ * kartını çizmiyordu (U1-22).
+ */
+export const isImageCommand = (text: string) => /^\/g[öo]rsel(?:i|ler)?(?:\s|$)/i.test(text.trim());
 
 /** `/görsel` komutundan istem ve en-boy oranı (`--oran 16:9`); oran yoksa 1:1. */
 export function parseImageRequest(text: string): { prompt: string; aspect: string } {
@@ -52,4 +60,12 @@ export function parseImageRequest(text: string): { prompt: string; aspect: strin
   const prompt = (option ? rest.slice(0, option.index) + rest.slice(option.index + option[0].length) : rest)
     .replace(/\s+/g, " ").trim();
   return { prompt, aspect };
+}
+
+/** Codex yazımı `$beceri …` bilinen bir beceri/komutsa `/beceri …` olarak gönderilir. */
+export function skillPrefixToSlash(text: string, known: readonly string[]): string {
+  const match = /^\$([^\s/$]+)/.exec(text);
+  if (!match) return text;
+  const wanted = fold(match[1]);
+  return known.some((name) => fold(name) === wanted) ? "/" + text.slice(1) : text;
 }

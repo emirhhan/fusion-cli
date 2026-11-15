@@ -19,6 +19,9 @@ class LiveVoiceOffer:
     sdp: str = ""
 
 
+_REQUIRED_KEYS = frozenset({"max_offer_chars", "timeout_seconds", "endpoint", "session"})
+
+
 class LiveVoiceProvider:
     """Ücretli oturum yalnız açık kabul ve geçerli teklif ile oluşturulur."""
 
@@ -35,9 +38,17 @@ class LiveVoiceProvider:
                 "Canlı ses için Ayarlar → Sağlayıcılar bölümüne OpenAI API anahtarı ekle. "
                 "ChatGPT aboneliği API erişimi sağlamaz.",
             )
-        config = json.loads(
-            files("fusion_cli.providers").joinpath("data/live-voice.json").read_text()
-        )
+        try:
+            config = json.loads(
+                files("fusion_cli.providers").joinpath("data/live-voice.json").read_text()
+            )
+            if not set(config) >= _REQUIRED_KEYS:
+                raise KeyError("canlı ses yapılandırma alanı eksik")
+        except (OSError, ValueError, KeyError, TypeError):
+            # Eksik/bozuk paket verisi RPC'yi çökertmesin; kullanıcıya açık mesaj.
+            return LiveVoiceOffer(
+                False, "Canlı ses yapılandırması okunamadı. Fusion'ı yeniden kur ya da güncelle."
+            )
         if (
             not isinstance(sdp, str)
             or not sdp.startswith("v=0")

@@ -2,14 +2,15 @@
 
 > Bu belge, native universal runtime dönüşümüne başlamadan önce projenin **gerçek**
 > durumunu kaydeder. Varsayım değil, dosya okuyarak doğrulanmıştır. Kaynak: `src/fusion_cli`
-> (~18.5k satır), `RULES.md`, `defaults.yaml`.
+> (30 Ekim 2026 ölçümü: 566 `.py` dosyası, ≈109 bin satır; ilk yazımda ~18.5 bin satırdı),
+> `RULES.md`, `defaults.yaml`.
 
 ## Kimlik
 
 Fusion, ücretsiz LLM'lerle çalışan, **iki motorlu** (agent + fusion/council), öz-öğrenen,
-terminalde yaşayan bir kodlama asistanıdır. Bugün iki sağlayıcıya bağlıdır: **NVIDIA NIM**
-ve **OpenRouter** (`:free` modelleri). Her ikisi de ücretsiz katmandır ve bu bir kuraldır,
-tercih değil (`defaults.yaml` "tiers" notu, `test_config` doğrular).
+terminalde yaşayan bir kodlama asistanıdır. İlk yazımda iki sağlayıcıya bağlıydı (**NVIDIA NIM**
+ve **OpenRouter** `:free` modelleri); ücretsiz varsayılan kademe kuralı sürer (`defaults.yaml`
+"tiers" notu, `test_config` doğrular). Bugünkü sağlayıcı kümesi için "Sağlayıcı gerçeği"ne bak.
 
 ## Katman düzeni (RULES.md "Katman Sınırları")
 
@@ -45,10 +46,13 @@ cli → ui → engines → { tools, providers, memory, observability } → confi
 
 ## Sağlayıcı gerçeği
 
-- Bugün **çalışan** sağlayıcılar: NVIDIA NIM (`nvidia_nim/*`), OpenRouter (`openrouter/*:free`).
-- Provider seçimi `runtime.provider` ile "auto" | "nvidia" | "openrouter".
-- Yerel model yolu `embedding.provider: local` (ChromaDB ONNX) dışında **yok**; LLM için
-  local/oauth/web-session sağlayıcı türü **modellenmemiş**.
+- 30 Ekim 2026 ölçümü: `providers/registry.py` **48** tanım kayıtlı — 44 API anahtarlı/yerel
+  (NIM, OpenRouter, OpenAI, Anthropic, Gemini, Ollama, LM Studio, hosted_vllm vb.) ve 4 tarayıcı
+  tabanlı web sağlayıcısı (`chatgpt_web`, `gemini_web`, `claude_web`, `copilot_web`; resmî
+  olmayan, `terms_review_required`). Ücretsiz varsayılan: NIM ve OpenRouter `:free`.
+- Tek doğruluk kaynağı `providers/registry.py`; bu belge sayı tutmaz, yukarıdaki ölçüm tarihlidir.
+- Yerel LLM yolu artık var (Ollama, LM Studio, hosted_vllm); gömme için `embedding.provider: local`
+  (ChromaDB ONNX) sürer.
 
 ## Boşluklar (dönüşümün gerçekten ekleyeceği)
 
@@ -63,5 +67,6 @@ cli → ui → engines → { tools, providers, memory, observability } → confi
 
 ## Kalite kapısı
 
-`make check` = `ruff check/format --check` + `mypy` + `pytest` (68 test dosyası).
+`make check` = `ruff check/format --check` + `mypy` + `pytest` (30 Ekim 2026: 669 test dosyası;
+ilk yazımda 68).
 RULES.md: üçü temiz olmadan commit yok.

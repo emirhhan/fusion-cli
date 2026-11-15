@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { errorMessage } from "../protocol/result";
 
 interface SavedMemory { id: string; metin: string }
 
@@ -35,7 +36,7 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
       setDraft("");
       await load();
     } catch (reason) {
-      setError(String(reason));
+      setError(errorMessage(reason));
     } finally { setBusy(false); }
   };
   const remove = async (id: string) => {
@@ -45,7 +46,7 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
       if (result.ok !== true) throw new Error(String(result.metin ?? "Anı kaldırılamadı."));
       await load();
     } catch (reason) {
-      setError(String(reason));
+      setError(errorMessage(reason));
     } finally { setBusy(false); }
   };
   const toggle = async (next: boolean) => {
@@ -56,7 +57,7 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
       setEnabled(next);
       setError(null);
     } catch (reason) {
-      setError(String(reason));
+      setError(errorMessage(reason));
     } finally { setBusy(false); }
   };
 
@@ -74,7 +75,10 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
       </p>
     )}
     <div className="settings__memory-add">
-      <input aria-label="Yeni anı" maxLength={500} onChange={(event) => setDraft(event.target.value)} placeholder="Örneğin: Yanıtları Türkçe ve kısa yaz" value={draft} />
+      <input aria-label="Yeni anı" maxLength={500} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {
+        // Enter ile ekle (U2-39); IME onayı Enter'ı eklemeye çevrilmez.
+        if (event.key === "Enter" && !event.nativeEvent.isComposing && !busy && draft.trim()) { event.preventDefault(); void add(); }
+      }} placeholder="Örneğin: Yanıtları Türkçe ve kısa yaz" value={draft} />
       <button disabled={busy || !draft.trim()} onClick={() => void add()} type="button">Ekle</button>
     </div>
     {items.length === 0 ? <p className="settings__hint">Henüz kayıtlı anı yok.</p> :

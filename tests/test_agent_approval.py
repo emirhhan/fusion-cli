@@ -139,10 +139,10 @@ async def test_yikici_istekte_oturum_izni_bir_defalik_sayilir():
     assert prompter.calls == 2
 
 
-async def test_plan_modu_kullaniciya_hic_sormaz():
+async def test_plan_modu_duzenlemeyi_sormadan_engeller():
     class _Patlayan:
         async def confirm(self, request):
-            raise AssertionError("plan modunda soru sorulmamalı")
+            raise AssertionError("plan modunda düzenleme sorulmamalı")
 
     politika = build_policy(ApprovalMode.PLAN, _Patlayan())
 

@@ -7,10 +7,11 @@ import os
 import sqlite3
 
 from fusion_cli.cli.repl.history_view import render_recent
+from fusion_cli.history.claude_source import slug_for
 
 
 def _claude_kur(home, session_id, metin, mtime):
-    hedef = home / ".claude" / "projects" / str(home / "proje").replace("/", "-")
+    hedef = home / ".claude" / "projects" / slug_for(home / "proje")
     hedef.mkdir(parents=True, exist_ok=True)
     yol = hedef / f"{session_id}.jsonl"
     yol.write_text(
@@ -44,7 +45,7 @@ def test_en_fazla_bes_oturum_gosterilir(tmp_path):
 
 def test_startup_excludes_sessions_from_other_roots(tmp_path) -> None:
     _claude_kur(tmp_path, "hedef", "hedef iş", 1_000)
-    other = tmp_path / ".claude" / "projects" / str(tmp_path / "başka").replace("/", "-")
+    other = tmp_path / ".claude" / "projects" / slug_for(tmp_path / "başka")
     other.mkdir(parents=True)
     path = other / "diger.jsonl"
     path.write_text(

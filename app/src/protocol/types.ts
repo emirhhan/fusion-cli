@@ -39,6 +39,21 @@ export interface Soru {
   onerilen?: string | null;
   /** Düzenleme onaylarında "ne değişecek" önizlemesi (unified diff). */
   diff?: string;
+  /** İsteyen alt ajanın etiketi (P-034); ana ajanın isteğinde boş. */
+  ajan?: string | null;
+  /** Eşleşen izin kuralı (`Bash(npm run *)`); kartta bilgi satırı (P-001). */
+  kural?: string | null;
+  /** Çekirdek cevaptaki `not` alanını okur: ret gerekçesi modele gider (P-013). */
+  not_alinir?: boolean;
+  /** Masaüstü eyleminin hedef uygulaması (P-007): ad, kademe, kategori uyarısı, tıklanan öğe. */
+  masaustu?: {
+    uygulama: string;
+    paket?: string;
+    kademe: "observe" | "click" | "full";
+    kademe_etiket?: string;
+    uyari?: string;
+    oge?: string;
+  } | null;
 }
 
 /**
@@ -73,29 +88,31 @@ export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
   if (!sayilar.every((sayi) => typeof sayi === "number" && Number.isFinite(sayi) && sayi >= 0)) {
     return null;
   }
-  if (model !== undefined && model !== null && typeof model !== "string") return null;
-  if (model_siniri_token !== undefined && model_siniri_token !== null && (
-    typeof model_siniri_token !== "number" || !Number.isInteger(model_siniri_token) || model_siniri_token <= 0
-  )) return null;
-  if (son_girdi_token !== undefined && son_girdi_token !== null && (
-    typeof son_girdi_token !== "number" || !Number.isInteger(son_girdi_token) || son_girdi_token < 0
-  )) return null;
-  if (son_girdi_model !== undefined && son_girdi_model !== null && typeof son_girdi_model !== "string") return null;
-  if (son_girdi_pencere_token !== undefined && son_girdi_pencere_token !== null && (
-    typeof son_girdi_pencere_token !== "number" || !Number.isInteger(son_girdi_pencere_token) || son_girdi_pencere_token <= 0
-  )) return null;
-  if (son_girdi_pencere_yuzde !== undefined && son_girdi_pencere_yuzde !== null && (
-    typeof son_girdi_pencere_yuzde !== "number" || !Number.isFinite(son_girdi_pencere_yuzde) || son_girdi_pencere_yuzde < 0 || son_girdi_pencere_yuzde > 100
-  )) return null;
+  // İsteğe bağlı alanlardan biri bozuksa YALNIZ o alan düşer; zorunlu üçlü sağlamsa gösterge
+  // çizilmeye devam eder (U5-19). Bozuk bir ek alan tüm göstergeyi gizlemesin.
+  const gecerliMetin = (v: unknown): string | null | undefined =>
+    v === undefined || v === null || typeof v === "string" ? v : undefined;
+  const gecerliTam = (v: unknown, enAz: number): number | null | undefined =>
+    v === undefined || v === null || (typeof v === "number" && Number.isInteger(v) && v >= enAz) ? v : undefined;
+  const modelOk = gecerliMetin(model);
+  const modelSiniri = gecerliTam(model_siniri_token, 1);
+  const sonGirdi = gecerliTam(son_girdi_token, 0);
+  const sonGirdiModel = gecerliMetin(son_girdi_model);
+  const sonGirdiPencere = gecerliTam(son_girdi_pencere_token, 1);
+  const sonGirdiYuzde =
+    son_girdi_pencere_yuzde === undefined || son_girdi_pencere_yuzde === null
+    || (typeof son_girdi_pencere_yuzde === "number" && Number.isFinite(son_girdi_pencere_yuzde)
+      && son_girdi_pencere_yuzde >= 0 && son_girdi_pencere_yuzde <= 100)
+      ? (son_girdi_pencere_yuzde as number | null | undefined) : undefined;
   return {
     kullanilan: kullanilan as number,
     sinir: sinir as number,
     yuzde: Math.min(100, yuzde as number),
-    ...(model !== undefined ? { model: model as string | null } : {}),
-    ...(model_siniri_token !== undefined ? { model_siniri_token: model_siniri_token as number | null } : {}),
-    ...(son_girdi_token !== undefined ? { son_girdi_token: son_girdi_token as number | null } : {}),
-    ...(son_girdi_model !== undefined ? { son_girdi_model: son_girdi_model as string | null } : {}),
-    ...(son_girdi_pencere_token !== undefined ? { son_girdi_pencere_token: son_girdi_pencere_token as number | null } : {}),
-    ...(son_girdi_pencere_yuzde !== undefined ? { son_girdi_pencere_yuzde: son_girdi_pencere_yuzde as number | null } : {}),
+    ...(modelOk !== undefined ? { model: modelOk } : {}),
+    ...(modelSiniri !== undefined ? { model_siniri_token: modelSiniri } : {}),
+    ...(sonGirdi !== undefined ? { son_girdi_token: sonGirdi } : {}),
+    ...(sonGirdiModel !== undefined ? { son_girdi_model: sonGirdiModel } : {}),
+    ...(sonGirdiPencere !== undefined ? { son_girdi_pencere_token: sonGirdiPencere } : {}),
+    ...(sonGirdiYuzde !== undefined ? { son_girdi_pencere_yuzde: sonGirdiYuzde } : {}),
   };
 }

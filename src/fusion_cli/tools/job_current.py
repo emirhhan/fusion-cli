@@ -42,7 +42,8 @@ def _sources(root: Path, job: JobCompletion) -> tuple[SourceFingerprint, ...]:
         manifest = prepare_manifest(
             {"failure_check": "final_delivery", "failure_sources": list(job.source_scopes)}, root
         )
-        assert manifest is not None
+        if manifest is None:  # `assert` -O ile kalkardı
+            raise ValueError("Kaynak kapsamı için manifest üretilemedi.")
         return manifest.sources
     # Eski receipt yalnız kayıtlı dosyaları ölçer; dizin üyeliği iddiası yoktur.
     return tuple(

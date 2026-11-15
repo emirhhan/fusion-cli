@@ -74,3 +74,21 @@ def test_sohbet_kimligi_satirlara_yazilir(tmp_path):
 
     satirlar = store.events_path.read_text(encoding="utf-8").strip().splitlines()
     assert json.loads(satirlar[0])["session_id"] == "sekme-a"
+
+
+def test_maskeleme_json_yapisini_bozmaz_mesaj_kaybolmaz(tmp_path):
+    """Ölçüldü (30 Ekim): `api_key="…"` deseni serileştirilmiş satırdaki tırnağı yutuyor, satır
+    geçersiz JSON oluyor ve okuyucu mesajı sessizce atlıyordu (L2-17)."""
+    from fusion_cli.cli.repl.transcript_store import load_transcript_messages
+
+    store = TranscriptStore(tmp_path / "memory", tmp_path / "repo")
+    gizli = "abcdefghijklmnop1234"
+    store.record_user(f'şunu çalıştır: api_key="{gizli}" ve devam et')
+    store.record_assistant("tamam, çalıştırdım")
+
+    for satir in store.events_path.read_text(encoding="utf-8").splitlines():
+        json.loads(satir)  # her satır GEÇERLİ JSON olmalı
+
+    mesajlar = load_transcript_messages(tmp_path / "memory", tmp_path / "repo")
+    assert [m.role for m in mesajlar] == ["user", "assistant"]
+    assert gizli not in store.events_path.read_text(encoding="utf-8")

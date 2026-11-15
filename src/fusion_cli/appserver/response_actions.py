@@ -10,11 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl.transcript_store import (
-    TranscriptStore,
-    delete_conversation,
-    load_transcript_messages,
-)
+from ..cli.repl.transcript_store import copy_conversation, load_transcript_messages
 from ..core.redaction import redact
 from ..core.types import Message
 
@@ -50,24 +46,18 @@ def fork_response(
     if not any(message.role == "user" for message in prefix):
         return {"ok": False, "metin": "Devam edilecek kullanıcı mesajı bulunamadı."}
     target_id = str(uuid.uuid4())
+    # Kopyalama çekirdeği CLI `/branch` ve `--fork-session` ile ortak (P-014); doğrulama
+    # başarısızsa yarım sohbeti o siler.
     try:
-        store = TranscriptStore(base, root, conversation_id=target_id)
-        for message in prefix:
-            record = store.record_user if message.role == "user" else store.record_assistant
-            record(message.content, message_id=str(uuid.uuid4()))
-        restored = load_transcript_messages(base, root, conversation_id=target_id)
-        expected = [redact(message.content) for message in prefix][-100:]
-        if [message.content for message in restored] != expected:
-            delete_conversation(base, root, target_id)
-            return {"ok": False, "metin": "Yeni sohbet geçmişi kaydedilemedi."}
-    except OSError:
+        count = copy_conversation(base, root, prefix, target_id=target_id)
+    except (ValueError, OSError):
         return {"ok": False, "metin": "Yeni sohbet geçmişi kaydedilemedi."}
     return {
         "ok": True,
         "sohbet_id": target_id,
         "kaynak_sohbet_id": source_id,
         "kok": str(root),
-        "mesaj_sayisi": len(restored),
+        "mesaj_sayisi": count,
     }
 
 

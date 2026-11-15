@@ -24,12 +24,16 @@ export interface KayitSonucu {
   devralinan_ayarlar: string[];
 }
 
+/** Hesap değiştirirken giriş ekranına taşınan kimlik (oturum depolaması; sayfa yenilenir). */
+export const GIRIS_ONERISI_ANAHTARI = "fusion.hesap.giris-onerisi";
+
 /** Hesap satırının baş harfleri — avatar yoksa kullanılır. */
 export function hesapBasHarfleri(hesap: Pick<Hesap, "kullanici_adi">): string {
   return hesap.kullanici_adi
     .split(/\s+/)
     .slice(0, 2)
-    .map((parca) => parca[0] ?? "")
+    // Kod noktası bazlı: emoji gibi yüksek kod noktaları yarım vekil çiftine bölünmez (U5-36).
+    .map((parca) => Array.from(parca)[0] ?? "")
     .join("")
     .toLocaleUpperCase("tr");
 }

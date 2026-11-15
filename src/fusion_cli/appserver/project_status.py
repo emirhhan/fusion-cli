@@ -5,12 +5,32 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 
 def _command(kind: str, label: str, command: str) -> dict[str, str]:
     return {"tur": kind, "ad": label, "komut": command}
+
+
+#: Kilit dosyası → paket yöneticisi. `npm` sabit yazılması pnpm/yarn/bun projesinde yanlış
+#: komut öneriyordu (ölçüldü 30 Ekim).
+_LOCKFILES = (
+    ("pnpm-lock.yaml", "pnpm"),
+    ("yarn.lock", "yarn"),
+    ("bun.lockb", "bun"),
+    ("bun.lock", "bun"),
+)
+
+
+def _package_manager(root: Path) -> str:
+    return next((manager for lock, manager in _LOCKFILES if (root / lock).is_file()), "npm")
+
+
+def _python_command() -> str:
+    """macOS/Linux'ta çoğu zaman yalnız `python3` vardır; Windows'ta `python`."""
+    return "python" if sys.platform == "win32" else "python3"
 
 
 def suggested_commands(root: Path) -> dict[str, Any]:
@@ -21,7 +41,7 @@ def suggested_commands(root: Path) -> dict[str, Any]:
             text = makefile.read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
-        targets = set(re.findall(r"^([A-Za-z0-9_.-]+):", text, flags=re.MULTILINE))
+        targets = set(re.findall(r"^([A-Za-z0-9_.-]+):(?!=)", text, flags=re.MULTILINE))
         if "check" in targets:
             return {"ok": True, "komutlar": [_command("check", "Tüm kalite kapısı", "make check")]}
         for target, kind, label in (
@@ -42,16 +62,19 @@ def suggested_commands(root: Path) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             scripts = {}
         if isinstance(scripts, dict):
-            for name, kind, label, command in (
-                ("test", "test", "Testleri çalıştır", "npm test"),
-                ("lint", "lint", "Kod denetimi", "npm run lint"),
-                ("build", "build", "Üretim derlemesi", "npm run build"),
-                ("dev", "dev", "Önizlemeyi başlat", "npm run dev"),
+            manager = _package_manager(root)
+            for name, kind, label in (
+                ("test", "test", "Testleri çalıştır"),
+                ("lint", "lint", "Kod denetimi"),
+                ("build", "build", "Üretim derlemesi"),
+                ("dev", "dev", "Önizlemeyi başlat"),
             ):
                 if name in scripts:
+                    command = f"{manager} test" if name == "test" else f"{manager} run {name}"
                     commands.append(_command(kind, label, command))
-    elif (root / "pyproject.toml").is_file() or (root / "tests").is_dir():
-        commands.append(_command("test", "Testleri çalıştır", "python -m pytest -q"))
+    if not commands and ((root / "pyproject.toml").is_file() or (root / "tests").is_dir()):
+        # package.json'da script yoksa (ya da hiç yoksa) Python projesi olabilir.
+        commands.append(_command("test", "Testleri çalıştır", f"{_python_command()} -m pytest -q"))
     return {"ok": True, "komutlar": commands}
 
 
@@ -70,7 +93,9 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
 
 
 def git_status(root: Path) -> dict[str, Any]:
-    if not (root / ".git").exists():
+    # `.git` yalnız kökte aranırsa depo alt klasörü "git yok" sanılırdı (ölçüldü 30 Ekim).
+    inside = _git(root, "rev-parse", "--is-inside-work-tree")
+    if inside is None or inside.returncode != 0 or inside.stdout.strip() != "true":
         return {"ok": True, "git": False, "branch": None, "degisen": 0, "ileride": 0, "geride": 0}
     branch_result = _git(root, "branch", "--show-current")
     status_result = _git(root, "status", "--porcelain=v1")

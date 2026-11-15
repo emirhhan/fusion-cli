@@ -1,0 +1,12 @@
+{
+  "kind": "checkpoint",
+  "split": "validation",
+  "request": "Eski özet bitti dese de checkpointte açık olan sonuc.txt işini tamamla.",
+  "checks": [
+    {
+      "id": "sonuc.txt",
+      "path": "sonuc.txt",
+      "text": "TAM"
+    }
+  ]
+}

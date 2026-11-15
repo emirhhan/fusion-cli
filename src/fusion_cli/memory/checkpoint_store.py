@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -23,12 +24,14 @@ from ..core.execution_plan import (
     VerificationCheckKind,
 )
 from ..core.file_lease import FileLease
+from ..core.routine_codec import decode_routine, encode_routine
 from .checkpoint_effects import effects_payload, parse_effects
 from .checkpoint_evidence import budget_payload, evidence_payload, parse_budget, parse_evidence
 from .checkpoint_repair import parse_repair, repair_payload
 
+_logger = logging.getLogger(__name__)
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
-_SUPPORTED_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6})
+_SUPPORTED_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6, 7})
 
 
 def _step_to_dict(step: PlanStep) -> dict[str, object]:
@@ -61,9 +64,10 @@ def _step_to_dict(step: PlanStep) -> dict[str, object]:
 def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
     plan = checkpoint.plan
     return {
-        "schema_version": 6,
+        "schema_version": 7,
         "storage_revision": checkpoint.storage_revision,
         "plan": {
+            "routine": encode_routine(plan.routine),
             "plan_id": plan.plan_id,
             "task": plan.task,
             "schema_version": plan.schema_version,
@@ -144,6 +148,8 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
     if schema >= 6 and "effect_intents" not in data:
         raise ValueError("Dış işlem intent metadata'sı eksik.")
     plan_data = _mapping(data.get("plan"))
+    if schema >= 7 and "routine" not in plan_data:
+        raise ValueError("Rutin metadata alanı eksik.")
     steps_raw = plan_data.get("steps")
     if not isinstance(steps_raw, list):
         raise ValueError("geçersiz steps")
@@ -185,6 +191,7 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
             steps=tuple(steps),
             status=PlanStatus(_text(plan_data, "status")),
             schema_version=_integer(plan_data, "schema_version", 1),
+            routine=decode_routine(plan_data.get("routine")),
         ),
         root=_text(data, "root"),
         conversation_id=_text(data, "conversation_id"),
@@ -258,7 +265,12 @@ class JsonCheckpointStore:
     ) -> int:
         target = self._canonical(identity)
         current = self._read_path(target) if target.exists() else None
-        if target.exists() and (current is None or self._identity(current) != identity):
+        if target.exists() and current is None:
+            # Okunamayan kayıt (bozuk JSON, desteklenmeyen şema, geçersiz alan) bu planın
+            # hem devamını hem yeniden kaydını KALICI engelliyordu (M1-43). Kenara alınır
+            # (silinmez), uyarı loglanır ve plan sıfırdan yazılır.
+            self._quarantine(target)
+        elif current is not None and self._identity(current) != identity:
             raise CheckpointConflictError("Checkpoint değişmiş veya desteklenmiyor.")
         if current is None:
             current = next(
@@ -307,8 +319,31 @@ class JsonCheckpointStore:
         try:
             raw = cast("object", json.loads(path.read_text(encoding="utf-8")))
             return _from_dict(raw)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            # Neden okunamadığı sessizce kaybolmasın: dosya adı ve hata türü loglanır.
+            _logger.warning(
+                "checkpoint okunamadı",
+                extra={"dosya": path.name, "hata": f"{type(error).__name__}: {str(error)[:200]}"},
+            )
             return None
+
+    @staticmethod
+    def _quarantine(path: Path) -> None:
+        """Okunamayan kaydı `.corrupt` uzantısıyla kenara al (silinmez, `*.json` dışında kalır)."""
+        hedef = path.with_suffix(".corrupt")
+        sira = 1
+        while hedef.exists():
+            hedef = path.with_suffix(f".corrupt.{sira}")
+            sira += 1
+        try:
+            path.replace(hedef)
+        except OSError as error:
+            raise CheckpointConflictError(
+                f"Okunamayan checkpoint kenara alınamadı ({path.name}): {error}"
+            ) from error
+        _logger.warning(
+            "okunamayan checkpoint kenara alındı", extra={"dosya": path.name, "yedek": hedef.name}
+        )
 
     def _read_valid(self, path: Path) -> WorkflowCheckpoint | None:
         checkpoint = self._read_path(path)
@@ -326,6 +361,44 @@ class JsonCheckpointStore:
             return tuple(self._base_dir.glob("*.json"))
         except OSError:
             return ()
+
+    def purge_completed(self, *, cutoff: float) -> int:
+        """`cutoff`tan eski TAMAMLANMIŞ checkpoint'leri sil; silinen sayıyı döndür (M1-44).
+
+        Çalışan, duraklatılmış ve başarısız planlar (devam ettirilebilir) ile okunamayan
+        kayıtlar korunur. Önce dosya değişme zamanına bakılır: yalnız eski adaylar okunur.
+        Kayıt, yazanla yarışmamak için `save` ile aynı kiralama altında silinir.
+        """
+        removed = 0
+        for path in self._paths():
+            try:
+                if path.is_symlink() or path.stat().st_mtime >= cutoff:
+                    continue
+            except OSError:
+                continue
+            checkpoint = self._read_valid(path)
+            if (
+                checkpoint is None
+                or checkpoint.plan.status is not PlanStatus.COMPLETED
+                or checkpoint.updated_at >= cutoff
+            ):
+                continue
+            removed += self._remove_locked(path, checkpoint)
+        return removed
+
+    def _remove_locked(self, path: Path, checkpoint: WorkflowCheckpoint) -> int:
+        lock = self._canonical(self._identity(checkpoint)).with_suffix(".lock")
+        lease = FileLease(lock)
+        try:
+            if not lease.try_acquire():
+                return 0  # başka işlem yazıyor; sonraki açılışta yeniden denenir
+            path.unlink(missing_ok=True)
+            lock.unlink(missing_ok=True)
+            return 1
+        except OSError:
+            return 0
+        finally:
+            lease.close()
 
     def find_resumable(self, root: str, conversation_id: str) -> WorkflowCheckpoint | None:
         scope = (str(Path(root).resolve()), conversation_id)

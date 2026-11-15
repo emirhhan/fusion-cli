@@ -18,4 +18,11 @@ describe("DepoUyarisi", () => {
     fireEvent.click(screen.getByRole("button", { name: "fusion-cli" }));
     expect(onAc).toHaveBeenCalledWith("/ev/Desktop/01-Projeler/fusion-cli");
   });
+
+  // Ölçüldü (30 Ekim): 4'ten fazla projede "+N proje" yalnız metindi, kalanlar açılamıyordu (U4-63).
+  it("'+N proje' kalan projeleri açar; Windows yolunda son parça adı gösterilir (U4-63)", () => {
+    render(<DepoUyarisi kok="C:\\Users\\ad\\Desktop" onAc={vi.fn()} projeler={["a", "b", "c", "d", "x\\kalan"]} />);
+    fireEvent.click(screen.getByRole("button", { name: "+1 proje" }));
+    expect(screen.getByRole("button", { name: "kalan" })).toBeTruthy();
+  });
 });

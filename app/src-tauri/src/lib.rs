@@ -1,5 +1,8 @@
 mod core_process;
+mod derin_baglanti;
+mod kapanis;
 mod kits_process;
+mod onizleme;
 mod permissions;
 mod runtime_installer;
 mod runtime_manager;
@@ -8,11 +11,14 @@ mod runtime_paths;
 mod runtime_smoke;
 mod session_manager;
 mod speech;
+mod tepsi;
 mod terminal;
+mod talk_transcript;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use kapanis::{KapanisDurumu, Karar};
 use kits_process::{KitsManager, KitsStatus};
 use permissions::{izin_ayarlari_ac, izin_durumu, izin_iste};
 use runtime_installer::RuntimeResources;
@@ -85,6 +91,22 @@ fn cekirdek_baslat(
         .map(|_| ())
 }
 
+/// Durdurma/kapatma gibi gerçekten bekleyen işleri Tauri'nin komut iş
+/// parçacığında DEĞİL, engelleyen havuzda çalıştırır (`runtime_hazirla` kalıbı):
+/// 2 sn'lik süreç durdurma gibi beklemeler, diğer komutları ve
+/// pencere olaylarını bekletmesin (R2-02).
+async fn engelleyen<T, F>(is: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(is)
+        .await
+        .map_err(|error| format!("Arka plan görevi tamamlanamadı: {error}"))?
+}
+
+/// Senkron kalır: `send` yalnız kuyruğa koyar (anlık) ve Tauri senkron komutları
+/// çağrı sırasıyla işler; satır sırası böylece korunur.
 #[tauri::command]
 fn cekirdege_yaz(satir: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
     sessions.send(VARSAYILAN_OTURUM, satir)
@@ -112,10 +134,10 @@ fn oturum_olustur(
 
 /// Bağlantı koptuğunda gösterilecek çekirdek hata çıktısının sonu (varsa).
 #[tauri::command]
-fn cekirdek_gunlugu() -> Option<String> {
+fn cekirdek_gunlugu(oturum_id: Option<String>) -> Option<String> {
     /// Hata ekranında okunabilir kalacak kadar: son birkaç yüz satırlık iz.
     const GUNLUK_SONU_BAYT: usize = 6_000;
-    session_manager::son_cekirdek_gunlugu(GUNLUK_SONU_BAYT)
+    session_manager::son_cekirdek_gunlugu(GUNLUK_SONU_BAYT, oturum_id.as_deref())
 }
 
 #[tauri::command]
@@ -127,8 +149,64 @@ fn oturuma_yaz(
     sessions.send(&oturum_id, satir)
 }
 
+/// İkinci başlatma girişiminde (Dock/Finder'dan yeniden açma, ikinci kısayol) mevcut ana pencereyi
+/// öne getirir (R2-22). Simge durumundaki (konuşma kipinde küçültülmüş) pencere de geri açılır.
+/// İkinci bir kopya çekirdek sürecini, sır deposunu ve terminalleri ikiye katlardı.
+fn ana_pencereyi_one_getir<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(ana) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = ana.unminimize();
+    let _ = ana.show();
+    let _ = ana.set_focus();
+}
+
 /// Konuşma penceresinin kimliği. Ana pencereden AYRI bir penceredir.
 const SES_PENCERESI: &str = "ses";
+/// Sohbeti kendi penceresinde açma (#443, Claude Desktop Cmd-tık / Open in > New window).
+const OTURUM_PENCERESI_ONEKI: &str = "oturum-";
+
+/// Oturum kimliğinden pencere etiketi; geçersiz kimlikte `None` (etiket yalnız güvenli karakter).
+fn oturum_penceresi_etiketi(oturum_id: &str) -> Option<String> {
+    let gecerli = !oturum_id.is_empty()
+        && oturum_id.len() <= 128
+        && oturum_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    gecerli.then(|| format!("{OTURUM_PENCERESI_ONEKI}{oturum_id}"))
+}
+
+/// Oturum penceresi: ana pencerenin sohbet durumunu gösterir, eylemleri ana pencereye iletir.
+/// Çekirdek süreci ana pencerede kalır; bu pencere kapanınca hiçbir oturum durmaz.
+#[tauri::command]
+async fn oturum_penceresi_ac(
+    app: tauri::AppHandle,
+    oturum_id: String,
+    baslik: Option<String>,
+) -> Result<(), String> {
+    let etiket = oturum_penceresi_etiketi(&oturum_id).ok_or("geçersiz oturum kimliği")?;
+    if let Some(mevcut) = app.get_webview_window(&etiket) {
+        mevcut.unminimize().map_err(|e| e.to_string())?;
+        mevcut.show().map_err(|e| e.to_string())?;
+        return mevcut.set_focus().map_err(|e| e.to_string());
+    }
+    let baslik: String = baslik
+        .unwrap_or_else(|| "Fusion".into())
+        .chars()
+        .take(120)
+        .collect();
+    WebviewWindowBuilder::new(
+        &app,
+        &etiket,
+        WebviewUrl::App(format!("index.html?pencere=oturum&oturum={oturum_id}").into()),
+    )
+    .title(baslik)
+    .inner_size(880.0, 720.0)
+    .min_inner_size(420.0, 360.0)
+    .build()
+    .map_err(|error| format!("sohbet penceresi açılamadı: {error}"))?;
+    Ok(())
+}
 const SES_NORMAL_BOYUT: (f64, f64) = (380.0, 460.0);
 const SES_NORMAL_MIN_BOYUT: (f64, f64) = (360.0, 420.0);
 const SES_NORMAL_MAX_BOYUT: (f64, f64) = (520.0, 720.0);
@@ -187,18 +265,34 @@ fn voice_window_lifecycle_plan(lifecycle: VoiceWindowLifecycle) -> VoiceWindowLi
     }
 }
 
+/// Sonlu sayıyı sınırlar; NaN/∞ alt sınıra düşer (`f64::clamp` NaN'ı korurdu, R2-24).
+fn finite_clamp(value: f64, min: f64, max: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        min
+    }
+}
+
 fn voice_geometry_plan(geometry: &VoiceWindowGeometry) -> VoiceGeometryPlan {
-    let position = geometry.x.zip(geometry.y);
+    let position = geometry
+        .x
+        .zip(geometry.y)
+        .filter(|(x, y)| x.is_finite() && y.is_finite());
     if geometry.wide {
         VoiceGeometryPlan {
             position,
             size: (
-                geometry
-                    .normal_width
-                    .clamp(SES_NORMAL_MIN_BOYUT.0, SES_NORMAL_MAX_BOYUT.0),
-                geometry
-                    .normal_height
-                    .clamp(SES_NORMAL_MIN_BOYUT.1, SES_NORMAL_MAX_BOYUT.1),
+                finite_clamp(
+                    geometry.normal_width,
+                    SES_NORMAL_MIN_BOYUT.0,
+                    SES_NORMAL_MAX_BOYUT.0,
+                ),
+                finite_clamp(
+                    geometry.normal_height,
+                    SES_NORMAL_MIN_BOYUT.1,
+                    SES_NORMAL_MAX_BOYUT.1,
+                ),
             ),
             min_size: Some(SES_NORMAL_MIN_BOYUT),
             max_size: Some(SES_NORMAL_MAX_BOYUT),
@@ -283,6 +377,8 @@ fn apply_voice_geometry(
 #[tauri::command]
 async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(mevcut) = app.get_webview_window(SES_PENCERESI) {
+        // Simge durumundaki pencere `show()` ile geri gelmez; önce açılır (R2-24).
+        mevcut.unminimize().map_err(|e| e.to_string())?;
         mevcut.show().map_err(|e| e.to_string())?;
         mevcut.set_focus().map_err(|e| e.to_string())?;
     } else {
@@ -370,11 +466,126 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 }
 
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
+///
+/// Temizlik en çok `TEMIZLIK_UST_SINIRI` sürer; aşılırsa bekçi süreci sonlandırır (R2-14).
 #[tauri::command]
-fn kapatmayi_onayla(app: tauri::AppHandle) {
-    cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
-    app.exit(0);
+fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
+    kapatmayi_baslat(&app, ShutdownRoute::ConfirmedMainClose);
+    Ok(())
 }
+
+/// Yerel ana pencere düğmesi, onaylanmış çıkış ve yanıtsız arayüz aynı kapanış
+/// sahibini kullanır. Hiçbiri temizlik sırasında pencereyi/JS yanıtını beklemez.
+fn kapatmayi_baslat(app: &tauri::AppHandle, route: ShutdownRoute) {
+    kapanis::baslat_tam_kapanis(
+        app.state::<KapanisDurumu>().inner(),
+        std::time::Instant::now(),
+        || kapatma_bekcisi_baslat(app.clone()),
+        || {
+            let gizlenecek = app.clone();
+            // Yerel pencere olayında ana iş parçacığındayız: anında uygulanır.
+            // Bekçi/IPC yolunda yalnız ana iş parçacığına iletilir; bekçi bloklanmaz.
+            if let Err(error) = app.run_on_main_thread(move || {
+                for window in gizlenecek.webview_windows().into_values() {
+                    let _ = window.hide();
+                }
+            }) {
+                eprintln!("[fusion][kapanis] pencere gizleme isteği iletilemedi: {error}");
+            }
+        },
+        || {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                cleanup_route_from_app(route, &app);
+                app.exit(0);
+            });
+        },
+    );
+}
+
+/// Kapatma sorusu açıkken arayüzün canlı olduğunu bildirir (R2-14). Arayüz soruyu gösterdiği
+/// sürece saniyede bir çağırır; kesilirse `NABIZ_ZAMAN_ASIMI` sonra kapanış onaysız sürer.
+#[tauri::command]
+fn kapatma_nabzi(durum: tauri::State<KapanisDurumu>) {
+    durum.nabiz(std::time::Instant::now());
+}
+
+/// Kullanıcı kapatmaktan vazgeçti: bekleyen kapatma isteği temizlenir, bekçi biter.
+#[tauri::command]
+fn kapatma_vazgec(durum: tauri::State<KapanisDurumu>) {
+    durum.vazgec();
+}
+
+/// Kapatmayı arayüze sordurur (`ExitRequested`, macOS Cmd+Q menüsü ve tepsi).
+///
+/// Ana pencere simge durumundaysa (konuşma kipi) önce geri açılır; görünmeyen bir soru kimseden
+/// yanıt alamazdı. İlk istekte bekçi başlar: arayüz yanıtsızsa kapanış onaysız sürer (R2-14).
+fn kapatma_iste(app: &tauri::AppHandle) {
+    let Some(ana) = app.get_webview_window("main") else {
+        return;
+    };
+    let durum = app.state::<KapanisDurumu>();
+    if durum.onayli_mi() {
+        return;
+    }
+    if durum.iste(std::time::Instant::now()) {
+        kapatma_bekcisi_baslat(app.clone());
+    }
+    let _ = ana.unminimize();
+    let _ = ana.show();
+    let _ = ana.set_focus();
+    let _ = ana.emit("uygulama://kapatma-istegi", ());
+}
+
+/// Kapanış sınırlarını (nabız, temizlik süresi) denetleyen tek iş parçacığı.
+fn kapatma_bekcisi_baslat(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(kapanis::BEKCI_ARALIGI);
+        let durum = app.state::<KapanisDurumu>();
+        match durum.karar(std::time::Instant::now()) {
+            Karar::Bosta => break,
+            Karar::Bekle => {}
+            Karar::ArayuzYanitsiz => {
+                eprintln!("[fusion][kapanis] arayüz nabız vermiyor; kapanış onaysız sürdürülüyor");
+                kapatmayi_baslat(&app, ShutdownRoute::ConfirmedMainClose);
+            }
+            Karar::TemizlikAsildi => {
+                eprintln!("[fusion][kapanis] temizlik süre sınırını aştı; süreç sonlandırılıyor");
+                std::process::exit(0);
+            }
+        }
+    });
+}
+
+/// macOS'ta Cmd+Q varsayılan menüde `terminate:` çağırır: Tauri'de `ExitRequested` üretmez, uygulama
+/// sormadan kapanırdı. Varsayılan menü korunur, yalnız "Quit" maddesi kapatma sorusunu açan özel
+/// bir maddeyle değiştirilir (Düzenle menüsündeki kopyala/yapıştır dokunulmaz).
+#[cfg(target_os = "macos")]
+fn macos_cikis_menusunu_kur(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let menu = Menu::default(app)?;
+    let cikis = MenuItem::with_id(app, CIKIS_MENU_KIMLIGI, "Quit Fusion", true, Some("Cmd+Q"))?;
+    for oge in menu.items()? {
+        let MenuItemKind::Submenu(alt) = oge else {
+            continue;
+        };
+        for madde in alt.items()? {
+            let MenuItemKind::Predefined(hazir) = &madde else {
+                continue;
+            };
+            if hazir.text()?.starts_with("Quit") {
+                alt.remove(&madde)?;
+                alt.append(&cikis)?;
+                return app.set_menu(menu).map(|_| ());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+const CIKIS_MENU_KIMLIGI: &str = "fusion-cikis";
 
 #[derive(Clone, Copy, Debug)]
 enum ShutdownScope {
@@ -384,6 +595,7 @@ enum ShutdownScope {
 
 #[derive(Clone, Copy)]
 enum ShutdownRoute {
+    NativeMainClose,
     ConfirmedMainClose,
     ExitRequested,
     Exit,
@@ -393,9 +605,10 @@ enum ShutdownRoute {
 
 fn shutdown_scope_for_route(route: ShutdownRoute) -> ShutdownScope {
     match route {
-        ShutdownRoute::ConfirmedMainClose | ShutdownRoute::ExitRequested | ShutdownRoute::Exit => {
-            ShutdownScope::Application
-        }
+        ShutdownRoute::NativeMainClose
+        | ShutdownRoute::ConfirmedMainClose
+        | ShutdownRoute::ExitRequested
+        | ShutdownRoute::Exit => ShutdownScope::Application,
         ShutdownRoute::TalkClose | ShutdownRoute::TalkDestroyed => ShutdownScope::Talk,
     }
 }
@@ -405,13 +618,21 @@ enum CleanupStep {
     Speech,
     Session,
     Terminal,
+    Kits,
 }
 
 fn cleanup_scope(scope: ShutdownScope, owners: &AppCleanupOwners<'_>) {
-    owners.stop_speech();
-    if matches!(scope, ShutdownScope::Application) {
-        owners.stop_sessions();
-        owners.close_terminals();
+    if matches!(scope, ShutdownScope::Talk) {
+        owners.stop_speech();
+    } else {
+        // Independent owners must all begin cleanup before any slow owner uses
+        // the application's global shutdown deadline.
+        std::thread::scope(|scope| {
+            scope.spawn(|| owners.stop_speech());
+            scope.spawn(|| owners.stop_sessions());
+            scope.spawn(|| owners.close_terminals());
+            scope.spawn(|| owners.stop_kits());
+        });
     }
 }
 
@@ -423,6 +644,7 @@ struct AppCleanupOwners<'a> {
     speech: &'a SpeechManager,
     sessions: &'a SessionManager,
     terminals: &'a TerminalManager,
+    kits: &'a KitsManager,
     order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
 }
 
@@ -431,19 +653,24 @@ impl<'a> AppCleanupOwners<'a> {
         speech: &'a SpeechManager,
         sessions: &'a SessionManager,
         terminals: &'a TerminalManager,
+        kits: &'a KitsManager,
         order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
     ) -> Self {
         Self {
             speech,
             sessions,
             terminals,
+            kits,
             order,
         }
     }
 
     fn record(&self, step: CleanupStep) {
         if let Some(order) = self.order {
-            order.lock().expect("cleanup order kilidi").push(step);
+            order
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(step);
         }
     }
 
@@ -461,38 +688,74 @@ impl<'a> AppCleanupOwners<'a> {
         self.record(CleanupStep::Terminal);
         self.terminals.close_all();
     }
+
+    fn stop_kits(&self) {
+        self.record(CleanupStep::Kits);
+        self.kits.stop();
+    }
 }
 
 fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
     let speech = app.state::<SpeechManager>();
     let sessions = app.state::<SessionManager>();
     let terminals = app.state::<TerminalManager>();
-    let owners =
-        AppCleanupOwners::from_managers(speech.inner(), sessions.inner(), terminals.inner(), None);
+    let kits = app.state::<Arc<KitsManager>>();
+    let owners = AppCleanupOwners::from_managers(
+        speech.inner(),
+        sessions.inner(),
+        terminals.inner(),
+        kits.inner(),
+        None,
+    );
     cleanup_route(route, &owners);
-    if matches!(route, ShutdownRoute::ExitRequested | ShutdownRoute::Exit) {
-        app.state::<Arc<KitsManager>>().stop();
-    }
+}
+
+#[tauri::command]
+fn tepsi_ayarla(acik: bool, app: tauri::AppHandle) -> Result<(), String> {
+    tepsi::ayarla(&app, acik)
+}
+
+#[tauri::command]
+fn tepsi_durum(calisan: u32, app: tauri::AppHandle) -> Result<(), String> {
+    tepsi::durum(&app, calisan)
+}
+
+/// Arayüz dinleyicisi kurulunca çağrılır: soğuk açılışta gelen `fusion://` hedefini verir
+/// (yoksa `None`) ve bundan sonra hedeflerin olayla yayınlanmasını açar (P-064).
+#[tauri::command]
+fn derin_baglanti_al(
+    bekleyen: tauri::State<derin_baglanti::Bekleyen>,
+) -> Option<derin_baglanti::DerinBaglanti> {
+    bekleyen.al()
 }
 
 /// Kits yan sürecini (gerekirse) başlat ve iframe adresini döndür.
 ///
-/// Sunucunun hazır olmasını beklediği için engelleyen iş parçacığında çalışır;
-/// arayüz bu sırada "hazırlanıyor" durumunu gösterir.
+/// Sunucunun hazır olmasını beklediği için engelleyen iş parçacığında çalışır. Arayüz
+/// bunu çekirdek oturumu hazır olunca bir kez arka planda çağırır (ön başlatma); Kits
+/// ekranının çağrısı aynı başlatma kilidinde bekler ve çalışan süreci hemen alır.
 #[tauri::command]
 async fn kits_baslat(
     app: tauri::AppHandle,
     manager: tauri::State<'_, Arc<KitsManager>>,
 ) -> Result<KitsStatus, String> {
     let home = app.path().home_dir().map_err(|error| error.to_string())?;
-    let data_root = if cfg!(windows) {
-        app.path()
-            .local_data_dir()
-            .map_err(|error| error.to_string())?
+    let windows_local_data = if cfg!(windows) {
+        Some(
+            app.path()
+                .local_data_dir()
+                .map_err(|error| error.to_string())?,
+        )
     } else {
-        home.join(".local/share")
+        None
     };
-    let data_dir = data_root.join("fusion-cli").join("kits");
+    // Fusion çekirdeği (`config/paths.py`) ile aynı kural: XDG_DATA_HOME dikkate alınır.
+    let xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+    let data_dir = kits_process::kits_data_dir(
+        &home,
+        xdg_data_home.as_deref(),
+        windows_local_data.as_deref(),
+    );
     let core = runtime_executable(&app.state::<RuntimeManager>())?;
     let manager = Arc::clone(manager.inner());
     let resource_dir = app.path().resource_dir().ok();
@@ -525,7 +788,9 @@ fn speech_helper_resource_name(target_os: &str) -> &'static str {
 fn tanima_baslat(
     app: tauri::AppHandle,
     manager: tauri::State<SpeechManager>,
+    dil: Option<String>,
 ) -> Result<u64, String> {
+    let dil = speech::dil_sec(dil.as_deref())?;
     let helper = app
         .path()
         .resolve(
@@ -537,7 +802,7 @@ fn tanima_baslat(
         return Err("Bu pakette konuşma tanıma yardımcısı yok.".into());
     }
     let mut command = std::process::Command::new(helper);
-    core_process::pencere_acmadan(&mut command).arg("tr-TR");
+    core_process::pencere_acmadan(&mut command).arg(dil);
     start_recognition(app, manager.inner(), &mut command)
 }
 
@@ -558,11 +823,15 @@ async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
     if plan.stop_recognition {
         cleanup_route_from_app(ShutdownRoute::TalkClose, &app);
     }
-    if plan.close_voice {
-        if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
-            ses.close().map_err(|error| error.to_string())?;
-        }
-    }
+    // Konuşma penceresi kapanmasa bile ana pencere geri getirilir; yoksa kullanıcı simge
+    // durumunda kalırdı (R2-24). Kapatma hatası en sonda bildirilir.
+    let close_error = if plan.close_voice {
+        app.get_webview_window(SES_PENCERESI)
+            .and_then(|ses| ses.close().err())
+            .map(|error| error.to_string())
+    } else {
+        None
+    };
     if plan.restore_main {
         if let Some(ana) = app.get_webview_window("main") {
             ana.unminimize().map_err(|error| error.to_string())?;
@@ -570,12 +839,12 @@ async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
             ana.set_focus().map_err(|error| error.to_string())?;
         }
     }
-    Ok(())
+    close_error.map_or(Ok(()), Err)
 }
 
 #[tauri::command]
-fn oturum_kapat(oturum_id: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
-    sessions.stop(&oturum_id)
+async fn oturum_kapat(oturum_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    engelleyen(move || app.state::<SessionManager>().stop(&oturum_id)).await
 }
 
 #[tauri::command]
@@ -583,6 +852,18 @@ fn oturumlari_listele(sessions: tauri::State<SessionManager>) -> Vec<SessionSnap
     sessions.list()
 }
 
+/// HTML önizlemesinin içeriğini `fusion-preview://` şemasından sunulmak üzere bırakır ve iframe'e
+/// verilecek anahtarı döndürür (U4-47). Bkz. `onizleme.rs`.
+#[tauri::command]
+fn onizleme_ayarla(
+    icerik: String,
+    depo: tauri::State<onizleme::OnizlemeDeposu>,
+) -> Result<String, String> {
+    depo.ekle(icerik)
+}
+
+/// Eski biçim: çıktı `terminal://cikti` olayında JSON sayı dizisi olarak gider. Yeni arayüz
+/// `terminal_ac_kanal` kullanır; bu komut eski istemcilerle uyum için durur.
 #[tauri::command]
 fn terminal_ac(
     cwd: String,
@@ -593,12 +874,30 @@ fn terminal_ac(
     terminals.open(cwd, cols, rows)
 }
 
+/// Terminal çıktısı ham bayt olarak `output` kanalına akar (U4-25): JSON sayı dizisi ve olay
+/// yayını yok. Kanal terminale özgüdür; çıktı başka terminalin dinleyicisine uğramaz.
+#[tauri::command]
+fn terminal_ac_kanal(
+    cwd: String,
+    cols: u16,
+    rows: u16,
+    output: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+    terminals: tauri::State<TerminalManager>,
+) -> Result<TerminalSnapshot, String> {
+    let raw: terminal::RawOutputSink = Arc::new(move |data: Vec<u8>| {
+        let _ = output.send(tauri::ipc::InvokeResponseBody::Raw(data));
+    });
+    terminals.open_raw(cwd, cols, rows, Some(raw))
+}
+
+/// Girdi ham bayt gövdesiyle gelir; terminal kimliği `x-terminal-id` başlığındadır (U4-25).
+/// Eski JSON biçimi (`terminalId` + sayı dizisi) de kabul edilir.
 #[tauri::command]
 fn terminal_yaz(
-    terminal_id: String,
-    data: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
     terminals: tauri::State<TerminalManager>,
 ) -> Result<(), String> {
+    let (terminal_id, data) = terminal::girdi_coz(request.body(), request.headers())?;
     terminals.write(&terminal_id, data)
 }
 
@@ -613,11 +912,8 @@ fn terminal_boyutla(
 }
 
 #[tauri::command]
-fn terminal_kapat(
-    terminal_id: String,
-    terminals: tauri::State<TerminalManager>,
-) -> Result<(), String> {
-    terminals.close(&terminal_id)
+async fn terminal_kapat(terminal_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    engelleyen(move || app.state::<TerminalManager>().close(&terminal_id)).await
 }
 
 /// Arayüzün gösterebileceği güncel çalışma zamanı durumunu döner.
@@ -692,12 +988,33 @@ pub fn run() {
     }
 
     let app = tauri::Builder::default()
+        // Tek örnek eklentisi DİĞER eklentilerden ÖNCE kaydedilmelidir (eklenti belgesi): ikinci
+        // süreç ana pencereyi öne getirip kendi kendine çıkar, hiçbir yönetici (çekirdek, terminal)
+        // başlatmaz.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            ana_pencereyi_one_getir(app);
+            // Windows/Linux'ta `fusion://` adresi ikinci örneğin argümanı olarak gelir (P-064).
+            if let Some(hedef) = derin_baglanti::argumanlardan(&args) {
+                derin_baglanti::ilet(app, &hedef);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(SessionManager::new())
+        .manage(KapanisDurumu::new())
+        .manage(onizleme::OnizlemeDeposu::default())
+        .register_uri_scheme_protocol(onizleme::SEMA, |context, request| {
+            context
+                .app_handle()
+                .state::<onizleme::OnizlemeDeposu>()
+                .yanit(request.method(), request.uri().path())
+        })
         .manage(SpeechManager::new())
+        .manage(tepsi::TepsiDurumu::default())
+        .manage(derin_baglanti::Bekleyen::default())
         .manage(Arc::new(KitsManager::new()))
         .setup(|app| {
             let output_app = app.handle().clone();
@@ -712,7 +1029,13 @@ pub fn run() {
             ));
             let resources = RuntimeResources::from_app(app.handle())?;
             let ev_dizini = app.path().home_dir()?;
-            let paths = RuntimePaths::for_home(&ev_dizini);
+            let paths = if app.config().identifier == "com.fusion.desktop" {
+                RuntimePaths::for_current_user(&ev_dizini)
+            } else {
+                let data_dir = app.path().app_local_data_dir()?;
+                let _ = session_manager::APP_LOG_DIR.set(data_dir.join("logs"));
+                RuntimePaths::from_root(data_dir.join("runtime"))
+            };
             let manager = RuntimeManager::new(
                 resources,
                 paths,
@@ -720,7 +1043,29 @@ pub fn run() {
                 Arc::new(CommandHealthProbe),
             );
             app.manage(manager);
+            // Windows/Linux soğuk açılışı: bağlantı bu sürecin argümanıdır (P-064).
+            let args: Vec<String> = std::env::args().collect();
+            derin_baglanti::acilista_beklet(&app.state::<derin_baglanti::Bekleyen>(), &args);
+            #[cfg(target_os = "macos")]
+            if let Err(error) = macos_cikis_menusunu_kur(app.handle()) {
+                eprintln!("[fusion][kapanis] Cmd+Q menüsü kurulamadı: {error}");
+            }
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            // Tepsi menüsü (P-064): Çıkış da onay akışından geçer, doğrudan kapatmaz.
+            match tepsi::menu_olayi(app, event.id().as_ref()) {
+                tepsi::TepsiKarar::Islendi => return,
+                tepsi::TepsiKarar::CikisIstendi => {
+                    kapatma_iste(app);
+                    return;
+                }
+                tepsi::TepsiKarar::TepsiyeAitDegil => {}
+            }
+            #[cfg(target_os = "macos")]
+            if event.id() == CIKIS_MENU_KIMLIGI {
+                kapatma_iste(app);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             cekirdek_baslat,
@@ -729,11 +1074,14 @@ pub fn run() {
             oturuma_yaz,
             oturum_kapat,
             oturumlari_listele,
+            onizleme_ayarla,
             terminal_ac,
+            terminal_ac_kanal,
             terminal_yaz,
             terminal_boyutla,
             terminal_kapat,
             ses_penceresi_ac,
+            oturum_penceresi_ac,
             ses_penceresi_simge_durumu,
             ses_penceresi_kapat,
             ses_penceresi_boyut,
@@ -742,7 +1090,11 @@ pub fn run() {
             tanima_baslat,
             tanima_durdur,
             tanima_durum,
+            talk_transcript::talk_transcript_read,
+            talk_transcript::talk_transcript_append,
             kapatmayi_onayla,
+            kapatma_nabzi,
+            kapatma_vazgec,
             cekirdek_gunlugu,
             runtime_durum,
             runtime_hazirla,
@@ -750,21 +1102,27 @@ pub fn run() {
             izin_durumu,
             izin_iste,
             izin_ayarlari_ac,
-            kits_baslat
+            kits_baslat,
+            tepsi_ayarla,
+            tepsi_durum,
+            derin_baglanti_al
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Kapatma ONAYSIZ yapılmaz: çalışan tur ve açık sohbetler
-                // kaybolur. Yanlışlıkla kapatmak (Cmd+Q, Alt+F4, kırmızı düğme)
-                // iş kaybettiriyordu. Karar arayüzde sorulur; onaylanırsa
-                // arayüz `kapatmayi_onayla` çağırır.
+                // Yerel ana pencere kapatma düğmesi tam kapanışı doğrudan
+                // başlatır. Pencere anında gizlenir; mevcut sınırlı temizlik
+                // oturumların EOF/journal kapanışına fırsat verir. JS gerekmez.
                 if window.label() == "main" {
                     api.prevent_close();
-                    let _ = window.emit("uygulama://kapatma-istegi", ());
+                    kapatmayi_baslat(window.app_handle(), ShutdownRoute::NativeMainClose);
                     return;
                 }
                 if window.label() == SES_PENCERESI {
                     cleanup_route_from_app(ShutdownRoute::TalkClose, window.app_handle());
+                    return;
+                }
+                if window.label().starts_with(OTURUM_PENCERESI_ONEKI) {
+                    // Sohbet penceresi yalnız bir görünümdür (#443): oturumlar ana pencerede sürer.
                     return;
                 }
                 let sessions = window.state::<SessionManager>();
@@ -779,8 +1137,31 @@ pub fn run() {
         .expect("error while building tauri application");
     app.run(|app, event| {
         let route = match event {
-            tauri::RunEvent::ExitRequested { .. } => Some(ShutdownRoute::ExitRequested),
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                // Kullanıcı kaynaklı çıkış (kodsuz) onaysız sürmez: durdur ve arayüze sor (R2-14).
+                let sorulmali = kapanis::cikis_sorulmali(
+                    code,
+                    app.get_webview_window("main").is_some(),
+                    app.state::<KapanisDurumu>().onayli_mi(),
+                );
+                if sorulmali {
+                    api.prevent_exit();
+                    kapatma_iste(app);
+                    return;
+                }
+                Some(ShutdownRoute::ExitRequested)
+            }
             tauri::RunEvent::Exit => Some(ShutdownRoute::Exit),
+            // macOS `fusion://` adresini Launch Services'ten burada verir (P-064).
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                for adres in urls {
+                    if let Some(hedef) = derin_baglanti::coz(adres.as_str()) {
+                        derin_baglanti::ilet(app, &hedef);
+                    }
+                }
+                None
+            }
             _ => None,
         };
         if let Some(route) = route {
@@ -863,6 +1244,22 @@ mod voice_geometry_tests {
         assert_eq!(plan.on_top, Some(false));
     }
 
+    /// Ölçüldü (30 Ekim): `f64::clamp` NaN'ı korur; bozuk geometri NaN boyutu pencereye iletiyordu.
+    #[test]
+    fn non_finite_geometry_falls_back_to_safe_values() {
+        let plan = voice_geometry_plan(&VoiceWindowGeometry {
+            x: Some(f64::NAN),
+            y: Some(10.0),
+            normal_width: f64::NAN,
+            normal_height: f64::INFINITY,
+            wide: true,
+            on_top: true,
+        });
+
+        assert_eq!(plan.position, None);
+        assert_eq!(plan.size, SES_NORMAL_MIN_BOYUT);
+    }
+
     #[test]
     fn size_only_mode_change_does_not_overwrite_on_top_preference() {
         let plan = voice_size_plan(false);
@@ -888,8 +1285,11 @@ mod shutdown_tests {
         speech: Arc<SpeechManager>,
         sessions: Arc<SessionManager>,
         terminals: Arc<TerminalManager>,
+        kits: Arc<KitsManager>,
         terminal_id: String,
         terminal_pid: u32,
+        #[cfg(unix)]
+        kits_child: kits_process::test_support::OwnedKitsFixture,
         _cwd: tempfile::TempDir,
     }
 
@@ -902,6 +1302,9 @@ mod shutdown_tests {
                 .start_test_child("shutdown-session")
                 .expect("session child başlamalı");
             let terminals = Arc::new(TerminalManager::new(|_| {}, |_| {}));
+            let kits = Arc::new(KitsManager::new());
+            #[cfg(unix)]
+            let kits_child = kits_process::test_support::OwnedKitsFixture::new(kits.clone());
             let cwd = tempfile::tempdir().expect("terminal cwd oluşmalı");
             let terminal = terminals
                 .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
@@ -910,8 +1313,11 @@ mod shutdown_tests {
                 speech,
                 sessions,
                 terminals,
+                kits,
                 terminal_id: terminal.terminal_id,
                 terminal_pid: terminal.pid.expect("PTY child PID sağlamalı"),
+                #[cfg(unix)]
+                kits_child,
                 _cwd: cwd,
             }
         }
@@ -924,9 +1330,15 @@ mod shutdown_tests {
             let speech = self.speech.clone();
             let sessions = self.sessions.clone();
             let terminals = self.terminals.clone();
+            let kits = self.kits.clone();
             run_with_deadline(Duration::from_secs(2), move || {
-                let owners =
-                    AppCleanupOwners::from_managers(&speech, &sessions, &terminals, Some(&order));
+                let owners = AppCleanupOwners::from_managers(
+                    &speech,
+                    &sessions,
+                    &terminals,
+                    &kits,
+                    Some(&order),
+                );
                 cleanup_route(route, &owners);
             })
             .expect("production cleanup route iki saniye içinde dönmeli");
@@ -937,6 +1349,11 @@ mod shutdown_tests {
             assert!(self.sessions.test_is_running("shutdown-session"));
             assert!(self.terminals.test_is_running(&self.terminal_id));
             assert!(!self.terminals.test_has_exited(self.terminal_pid));
+            #[cfg(unix)]
+            {
+                assert!(self.kits_child.is_running());
+                assert!(self.kits_child.descendant_alive());
+            }
         }
 
         fn assert_terminal_exited_within(&self, timeout: Duration) {
@@ -983,8 +1400,12 @@ mod shutdown_tests {
     }
 
     #[test]
-    fn cleanup_route_for_every_application_event_stops_actual_managers_in_order() {
+    fn cleanup_route_for_every_application_event_stops_each_actual_manager_once() {
+        #[cfg(unix)]
+        let foreign_kits =
+            kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
         for route in [
+            ShutdownRoute::NativeMainClose,
             ShutdownRoute::ConfirmedMainClose,
             ShutdownRoute::ExitRequested,
             ShutdownRoute::Exit,
@@ -1000,19 +1421,84 @@ mod shutdown_tests {
             assert!(!fixture.sessions.test_is_running("shutdown-session"));
             assert!(!fixture.terminals.test_is_running(&fixture.terminal_id));
             fixture.assert_terminal_exited_within(Duration::from_secs(2));
-            assert_eq!(
-                *order.lock().expect("cleanup order kilidi"),
-                [
-                    CleanupStep::Speech,
-                    CleanupStep::Session,
-                    CleanupStep::Terminal,
-                    CleanupStep::Speech,
-                    CleanupStep::Session,
-                    CleanupStep::Terminal,
-                ]
-            );
+            #[cfg(unix)]
+            {
+                assert!(
+                    !fixture.kits_child.is_running(),
+                    "application cleanup left owned Kits alive"
+                );
+                assert!(
+                    !fixture.kits_child.descendant_alive(),
+                    "Kits runtime child survived cleanup"
+                );
+                assert!(foreign_kits.is_running(), "unowned Kits must be preserved");
+                assert!(foreign_kits.descendant_alive());
+            }
+            let recorded = order.lock().expect("cleanup order kilidi");
+            assert_eq!(recorded.len(), 8);
+            for step in [
+                CleanupStep::Speech,
+                CleanupStep::Session,
+                CleanupStep::Terminal,
+                CleanupStep::Kits,
+            ] {
+                assert_eq!(recorded.iter().filter(|actual| **actual == step).count(), 2);
+            }
             fixture.cleanup_and_assert_no_children();
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn application_cleanup_stops_nine_stubborn_sessions_and_kits_with_one_grace_period() {
+        let fixture = LifecycleFixture::new();
+        for index in 0..9 {
+            fixture
+                .sessions
+                .start_test_child_stdin_okumayan(&format!("stubborn-{index}"))
+                .expect("owned stubborn session starts");
+        }
+        let foreign_kits =
+            kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
+        let speech = fixture.speech.clone();
+        let sessions = fixture.sessions.clone();
+        let terminals = fixture.terminals.clone();
+        let kits = fixture.kits.clone();
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            let owners =
+                AppCleanupOwners::from_managers(&speech, &sessions, &terminals, &kits, None);
+            cleanup_route(ShutdownRoute::NativeMainClose, &owners);
+        });
+        let kits_deadline = started + Duration::from_secs(1);
+        while fixture.kits_child.is_running() && Instant::now() < kits_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let kits_stopped_before_deadline =
+            !fixture.kits_child.is_running() && !fixture.kits_child.descendant_alive();
+        let deadline = started + Duration::from_secs(4);
+        while !worker.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let finished_before_deadline = worker.is_finished();
+        // Even the red run must finish/reap every owned fixture before asserting.
+        worker.join().expect("owned cleanup worker finishes");
+        assert!(foreign_kits.is_running(), "unowned Kits must remain alive");
+        assert!(foreign_kits.descendant_alive());
+        assert!(
+            kits_stopped_before_deadline,
+            "serial session waits starved Kits cleanup"
+        );
+        assert!(
+            finished_before_deadline,
+            "per-session waits multiplied the grace period: {:?}",
+            started.elapsed()
+        );
+        assert!(fixture
+            .sessions
+            .list()
+            .iter()
+            .all(|snapshot| snapshot.durum == "kapandi"));
     }
 
     #[test]
@@ -1029,6 +1515,14 @@ mod shutdown_tests {
             assert!(fixture.sessions.test_is_running("shutdown-session"));
             assert!(fixture.terminals.test_is_running(&fixture.terminal_id));
             assert!(!fixture.terminals.test_has_exited(fixture.terminal_pid));
+            #[cfg(unix)]
+            {
+                assert!(
+                    fixture.kits_child.is_running(),
+                    "talk close must preserve owned Kits"
+                );
+                assert!(fixture.kits_child.descendant_alive());
+            }
             assert_eq!(
                 *order.lock().expect("cleanup order kilidi"),
                 [CleanupStep::Speech, CleanupStep::Speech]
@@ -1056,5 +1550,22 @@ mod shutdown_tests {
         worker_done_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("detached worker kalıcı olmamalı");
+    }
+}
+
+#[cfg(test)]
+mod oturum_penceresi_tests {
+    use super::*;
+
+    #[test]
+    fn oturum_penceresi_etiketi_yalniz_guvenli_kimligi_kabul_eder() {
+        assert_eq!(
+            oturum_penceresi_etiketi("abc-1_X").as_deref(),
+            Some("oturum-abc-1_X")
+        );
+        assert!(oturum_penceresi_etiketi("").is_none());
+        assert!(oturum_penceresi_etiketi("../x").is_none());
+        assert!(oturum_penceresi_etiketi("a&pencere=ses").is_none());
+        assert!(oturum_penceresi_etiketi(&"a".repeat(129)).is_none());
     }
 }

@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from .repair_ledger import FailureOrigin
+
 
 class LessonKind(Enum):
     """Dersin türü. Hatalar geri çağırmada öne alınır: kaçınmak daha kritiktir."""
@@ -42,14 +44,29 @@ class LessonSource(Enum):
 #: bu değerle okunur: ders bir kez denenir, sonucuna göre güveni artar/azalır.
 DEFAULT_LESSON_CONFIDENCE = 1.0
 
+#: Kendi belleği olan (`memory:` alanlı) alt ajanın derslerine konan etiket öneki (P-055).
+#: Bu etiketi taşıyan ders yalnız aynı etiketle (aynı ajan) geri çağrılır.
+AGENT_LESSON_TAG_PREFIX = "ajan:"
+
+
+def agent_lesson_tag(agent: str) -> str:
+    """`ajan:<ad>` etiketi."""
+    return f"{AGENT_LESSON_TAG_PREFIX}{agent}"
+
+
+def visible_to(lesson_tags: tuple[str, ...], requested: tuple[str, ...]) -> bool:
+    """Ders bu çağrıyı yapan ajana görünür mü? Ajan etiketsiz ders herkese görünür."""
+    owners = {tag for tag in lesson_tags if tag.startswith(AGENT_LESSON_TAG_PREFIX)}
+    return not owners or bool(owners & set(requested))
+
 
 @dataclass(frozen=True, slots=True)
 class Lesson:
     """Gelecekte davranışı değiştirecek somut bir ders.
 
-    `confidence`, `success_count` ve `failure_count` dersin öz-düzeltmesini taşır:
-    enjekte edildiği tur başarısızsa güven düşer, başarılıysa artar. Güveni eşiğin
-    altına düşen ders artık enjekte edilmez (yerel zehirlenmeye karşı koruma).
+    Eski çağrıda enjekte edilen turun sonucu güveni etkiler. Atıflı çağrıda
+    yalnız açık kullanım ve doğrulanmış sonuç kanıtı güveni değiştirir.
+    Eşik altındaki ders geri çağırmadan elenir.
     """
 
     text: str
@@ -87,6 +104,82 @@ class Lesson:
     #: projede geçerli kalır. Alan taşınmadan önce yazılmış kayıtlar da boş okunur,
     #: yani göç gerekmez ve eski dersler genel sayılır.
     workspace: str = ""
+    #: Ders, dış içerik (web/tarayıcı/MCP/klonlanan site) okunan turdan çıktı ve henüz
+    #: dış içeriksiz BAŞARILI bir turda doğrulanmadı. Dış metin kalıcı belleğe zehir
+    #: sokabilir (MINJA); bu ders düşük güvenle başlar, dış içerikli başarıyla güven
+    #: kazanmaz ve istemde "dış kaynaklı" etiketiyle gösterilir. Alan taşınmadan önce
+    #: yazılmış kayıtlar False okunur (göç gerekmez).
+    external: bool = False
+    #: Depodaki mevcut kimlik; eski kayıtlarda depodan okununca doldurulur.
+    id: str = ""
+    subject_key: str = ""
+    applies_to: tuple[str, ...] = ()
+    version: str = ""
+    supersedes: tuple[str, ...] = ()
+    verified_at: str = ""
+    quarantined: bool = False
+    #: Boş değer bilinmeyen kökendir; geliştirme veya kör veri diye uydurulmaz.
+    source_split: str = ""
+    evidence_refs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LessonRecallPolicy:
+    """Çağıranın açıkça etkinleştirdiği bağlam ve çelişki süzgeçleri."""
+
+    subject_key: str = ""
+    applies_to: tuple[str, ...] = ()
+    version: str = ""
+    source_split: str = ""
+    conflict_quarantine: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RoutineSpec:
+    """Mevcut playbook/plan kimliğiyle öneriye taşınan doğrulama tanımı."""
+
+    routine_id: str
+    description: str
+    input_schema: str
+    preconditions: tuple[str, ...]
+    checks: tuple[str, ...]
+    source_digest: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class RoutineObservation:
+    """Rutin koşumunun bağımsız doğrulanmış sonucu; içerik yerine kanıt referansı."""
+
+    run_id: str
+    success: bool
+    verified: bool
+    evidence_refs: tuple[str, ...] = ()
+    source_split: str = ""
+    failure_origin: FailureOrigin = FailureOrigin.PRODUCT
+
+
+@dataclass(frozen=True, slots=True)
+class SkillProposal:
+    """Yalnız öneri kaydıdır; beceri kurulumu veya çalıştırma yetkisi taşımaz."""
+
+    id: str
+    routine: RoutineSpec
+    source_split: str
+    observations: tuple[RoutineObservation, ...]
+
+
+class SkillProposalMemory(Protocol):
+    """Doğrulanmış rutin önerilerinin asenkron kalıcılık sözleşmesi."""
+
+    async def observe(
+        self,
+        routine: RoutineSpec,
+        observation: RoutineObservation,
+    ) -> SkillProposal | None: ...
+
+    async def list(self, *, source_split: str | None = None) -> tuple[SkillProposal, ...]: ...
+
+    async def get(self, proposal_id: str) -> SkillProposal | None: ...
 
 
 class Feedback(Enum):
@@ -143,10 +236,15 @@ class IndexStats:
     total: int
     added: int
     removed: int
+    #: Parça tavanına takıldı: sonraki dosyalar indekste YOK, arama onları bulamaz.
+    truncated: bool = False
+    #: Yazılamayan parça sayısı (bellek kilidi, zaman aşımı ya da depo hatası). 0 değilse
+    #: indeks EKSİKTİR; `added`/`removed` yalnız gerçekten yazılanları sayar.
+    failed: int = 0
 
     @property
     def unchanged(self) -> int:
-        return self.total - self.added
+        return max(self.total - self.added - self.failed, 0)
 
 
 class PerformanceMemory(Protocol):
@@ -180,6 +278,7 @@ class LessonMemory(Protocol):
         scope: str | None = None,
         workspace: str | None = None,
         tags: tuple[str, ...] = (),
+        policy: LessonRecallPolicy | None = None,
     ) -> tuple[Lesson, ...]:
         """Göreve YETERİNCE BENZER ve güveni eşiğin üstünde dersleri getir.
 
@@ -191,12 +290,32 @@ class LessonMemory(Protocol):
         """
         ...
 
-    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+    def reinforce(
+        self,
+        texts: tuple[str, ...],
+        *,
+        success: bool,
+        external_turn: bool = False,
+        feedback_reason: str | None = None,
+        evidence_refs: tuple[str, ...] = (),
+        used: bool | None = None,
+        failure_origin: FailureOrigin = FailureOrigin.PRODUCT,
+        verified_at: str = "",
+        lesson_ids: tuple[str, ...] | None = None,
+    ) -> int:
         """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
 
         `success=False` güveni düşürür ve `failure_count`'u artırır; `True` tersi.
+        `external_turn=True`: tur dış içerik okudu; "dış kaynaklı" ders bu başarıyla
+        doğrulanmış sayılmaz (çağıranlar bayrağı YALNIZ True iken geçer).
+        `feedback_reason` ve diğer atıf alanları verildiğinde kullanım/kanıt
+        eksikse değişiklik yapılmaz; provider/infra kesintisi cezalandırılmaz.
         Güncellenen ders sayısını döndürür.
         """
+        ...
+
+    def set_quarantined(self, lesson_ids: tuple[str, ...], *, quarantined: bool) -> int:
+        """Mevcut depo kimlikleriyle geri alınabilir karantina uygula."""
         ...
 
     def retag_from_workspace(self) -> int:

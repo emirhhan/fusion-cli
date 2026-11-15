@@ -36,8 +36,9 @@ export function useStickToBottom<T>(
   bagimlilik: T,
   kullaniciGonderdi: boolean,
   cursor?: { content: unknown; ownSubmissionId?: string },
-): { enAltaIn: () => void; hasNewContent: boolean } {
+): { enAltaIn: () => void; hasNewContent: boolean; pauseAutoFollow: () => void } {
   const sabitRef = useRef(true);
+  const manualInteraction = useRef(false);
   const [hasNewContent, setHasNewContent] = useState(false);
   const content = cursor ? cursor.content : bagimlilik;
   const ownSubmissionId = cursor?.ownSubmissionId;
@@ -52,23 +53,32 @@ export function useStickToBottom<T>(
     // birçok güncelleme gelir; yumuşak kaydırma hedefin gerisinde kalır ve
     // animasyonun ortasında `onScroll` kullanıcıyı "yukarıda" sanıp sabitlemeyi
     // bırakırdı.
+    let kaydirildiMi = false;
     if (typeof kutu.scrollTo === "function") {
-      kutu.scrollTo({ top: kutu.scrollHeight, behavior: "instant" });
-    } else {
+      // Eski WebKit `behavior: "instant"` değerini bilmeyip TypeError atabilir (U1-69).
+      try { kutu.scrollTo({ top: kutu.scrollHeight, behavior: "instant" }); kaydirildiMi = true; } catch { /* aşağıda doğrudan konum yazılır */ }
+    }
+    if (!kaydirildiMi) {
       // `scrollTo` olmayan ortam (eski WebView, jsdom): doğrudan konum yaz.
       kutu.scrollTop = kutu.scrollHeight;
     }
+    manualInteraction.current = false;
     sabitRef.current = true;
     setHasNewContent(false);
   }, [kutuRef]);
 
   const kaydirildi = useCallback(() => {
     const kutu = kutuRef.current;
-    if (kutu) {
+    if (kutu && !manualInteraction.current) {
       sabitRef.current = enAlttaMi(kutu);
       if (sabitRef.current) setHasNewContent(false);
     }
   }, [kutuRef]);
+
+  const pauseAutoFollow = useCallback(() => {
+    manualInteraction.current = true;
+    sabitRef.current = false;
+  }, []);
 
   // Kural 1 ve 3: mesaj listesi değişince.
   useLayoutEffect(() => {
@@ -99,5 +109,5 @@ export function useStickToBottom<T>(
     };
   }, [kutuRef, icerikRef, kaydirildi, enAltaIn]);
 
-  return { enAltaIn, hasNewContent };
+  return { enAltaIn, hasNewContent, pauseAutoFollow };
 }

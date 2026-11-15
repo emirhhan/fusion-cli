@@ -57,10 +57,13 @@ def verify(payload: bytes, signature: str, public_key_hex: str) -> bool:
     akış kontrolü için istisna dışarı sızmaz.
     """
 
+    # `_ed25519()` ÖNCE: `cryptography` yoksa kullanıcı dostu `KnowledgeError` çıkar; eskiden
+    # önce yapılan ham `import` çıplak `ModuleNotFoundError` veriyordu (E1-38).
+    ed25519 = _ed25519()
     from cryptography.exceptions import InvalidSignature
 
     try:
-        public_key = _ed25519().Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
+        public_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
         public_key.verify(bytes.fromhex(signature), payload)
     except (InvalidSignature, ValueError):
         return False

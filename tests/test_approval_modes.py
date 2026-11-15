@@ -100,11 +100,16 @@ def test_salt_okuma_tespiti():
         (ApprovalMode.AUTO, "unzip a.zip", Decision.ALLOW),
         (ApprovalMode.AUTO, "git push", Decision.DENIED),
         (ApprovalMode.ACCEPT_EDITS, "unzip a.zip", Decision.DENIED),
-        (ApprovalMode.ACCEPT_EDITS, "pytest -q", Decision.ALLOW),
+        # Claude (#53): acceptEdits yalnız 7 dosya sistemi komutunu ve salt okumayı onaylar.
+        (ApprovalMode.ACCEPT_EDITS, "pytest -q", Decision.DENIED),
+        (ApprovalMode.ACCEPT_EDITS, "mkdir -p src/yeni", Decision.ALLOW),
+        (ApprovalMode.ACCEPT_EDITS, "cp a.txt ~/disari.txt", Decision.DENIED),
         (ApprovalMode.SECURITY, "git status", Decision.ALLOW),
         (ApprovalMode.SECURITY, "pytest -q", Decision.DENIED),
         (ApprovalMode.PLAN, "git log", Decision.ALLOW),
-        (ApprovalMode.PLAN, "npm install", Decision.BLOCKED),
+        # Claude (#52): plan kipinde okuma dışı komut, denetçi onaylamadıkça sorulur
+        # (burada reddedilir).
+        (ApprovalMode.PLAN, "npm install", Decision.DENIED),
         (ApprovalMode.BYPASS, "git push", Decision.ALLOW),
         (ApprovalMode.BYPASS, "git reset --hard", Decision.ALLOW),
     ],
@@ -137,6 +142,11 @@ async def test_dosya_duzenleme_kiplere_gore(tmp_path, mod, beklenen):
         (ApprovalMode.SECURITY, ToolEffect.REMOTE_INTERACT, Decision.DENIED),
         (ApprovalMode.PLAN, ToolEffect.REMOTE_READ, Decision.ALLOW),
         (ApprovalMode.PLAN, ToolEffect.REMOTE_INTERACT, Decision.BLOCKED),
+        # Girişli oturum yükleme (P-023): her kipte sorulur, plan kipinde yapılmaz.
+        (ApprovalMode.AUTO, ToolEffect.REMOTE_SESSION, Decision.DENIED),
+        (ApprovalMode.ACCEPT_EDITS, ToolEffect.REMOTE_SESSION, Decision.DENIED),
+        (ApprovalMode.SECURITY, ToolEffect.REMOTE_SESSION, Decision.DENIED),
+        (ApprovalMode.PLAN, ToolEffect.REMOTE_SESSION, Decision.BLOCKED),
     ],
 )
 async def test_tarayici_ve_uzak_araclar_kiplere_gore(tmp_path, mod, etki, beklenen):
@@ -156,3 +166,212 @@ def test_kip_adlari_ve_takma_adlar():
     assert parse_mode("bypass") is ApprovalMode.BYPASS
     with pytest.raises(ValueError):
         parse_mode("hepsi")
+
+
+# --- T2-05: satır içi kodla silme otomatik kipte de sorulur -------------------- #
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "perl -e 'unlink glob \"*\"'",
+        "ruby -e 'File.delete(\"a\")'",
+        "ruby -e 'FileUtils.rm_rf(\"x\")'",
+    ],
+)
+def test_satir_ici_kodla_silme_otomatik_kipte_sorulur(tmp_path, komut):
+    assert auto_risk(komut, tmp_path) is not None, komut
+
+
+# --- İzinleri atla: uzak yıkıcı çağrı için son onay (A1-08) ---------------------- #
+
+
+async def test_bypass_uzak_yikici_cagriyi_son_kez_sorar_ve_reddi_durdurur(tmp_path):
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+
+    karar = await _karar(ApprovalMode.BYPASS, arac, {"id": 1}, tmp_path)
+
+    assert karar is Decision.DENIED
+
+
+async def test_bypass_uzak_yikici_cagri_onaylanirsa_gecer_ama_hatirlanmaz(tmp_path):
+    from .fakes import AlwaysApprove
+
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+    politika = build_policy(ApprovalMode.BYPASS, AlwaysApprove())
+    istek = build_request(arac, {"id": 1}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.ALLOW
+    assert not istek.can_remember
+
+
+@pytest.mark.parametrize("etki", [ToolEffect.LOCAL, ToolEffect.REMOTE_WRITE])
+async def test_bypass_yikici_olmayan_cagrilari_sormaz(tmp_path, etki):
+    arac = _arac("wp__update_page", effect=etki)
+
+    assert await _karar(ApprovalMode.BYPASS, arac, {"id": 1}, tmp_path) is Decision.ALLOW
+
+
+def test_oturum_yukleme_isteginin_karti_gerekceyi_soyler(tmp_path):
+    """Onay kartı "uzak sistemde değişiklik" değil, girişli oturumun açıldığını söyler."""
+    from fusion_cli.engines.agent.approval import REMOTE_SESSION_REASON
+
+    istek = build_request(
+        _arac("browser_open", effect=ToolEffect.REMOTE_SESSION), {"url": "x"}, root=tmp_path
+    )
+
+    assert istek.risk == REMOTE_SESSION_REASON
+    assert istek.note == REMOTE_SESSION_REASON
+    assert istek.read_only is False and istek.unattended_safe is False
+
+
+# --- Plan kipi: useAutoModeDuringPlan (#318) ------------------------------- #
+
+
+async def test_plan_kipi_otomatik_kapaliyken_salt_okunur_olmayan_komutu_sorar(tmp_path):
+    from .fakes import AlwaysApprove
+
+    sorulan: list[str] = []
+
+    class _Kayit(AlwaysApprove):
+        async def confirm(self, request):
+            sorulan.append(str(request.args.get("command")))
+            return await super().confirm(request)
+
+    politika = build_policy(ApprovalMode.PLAN, _Kayit(), use_auto_mode_during_plan=False)
+    istek = build_request(_arac(), {"command": "npm install"}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.ALLOW
+    assert sorulan == ["npm install"]
+
+
+async def test_plan_kipi_otomatik_kapaliyken_reddedilen_soru_engel(tmp_path):
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject(), use_auto_mode_during_plan=False)
+    istek = build_request(_arac(), {"command": "npm install"}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.DENIED
+
+
+async def test_plan_kipi_dosya_duzenlemesini_her_durumda_engeller(tmp_path):
+    from .fakes import AlwaysApprove
+
+    for otomatik in (True, False):
+        politika = build_policy(
+            ApprovalMode.PLAN, AlwaysApprove(), use_auto_mode_during_plan=otomatik
+        )
+        istek = build_request(_arac("write_file"), {"path": "a.txt"}, root=tmp_path)
+        assert await politika.decide(istek) is Decision.BLOCKED
+
+
+async def test_plan_kipi_yikici_komutu_siniflandiriciya_birakmaz_sorar(tmp_path):
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject())
+    istek = build_request(_arac(), {"command": "git push --force"}, root=tmp_path)
+
+    assert await politika.decide(istek) is Decision.DENIED
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "npm install",
+        "pytest -q",
+        "npm run build",
+        "echo x > a.py",
+        "rm -rf build",
+        "touch yeni.txt",
+        "sed -i '' s/a/b/ f.py",
+        "git commit -m x",
+        "ls > /dev/null && make test",
+    ],
+)
+async def test_plan_kipinde_okuma_disi_komut_denetcisiz_sorulur(tmp_path, komut):
+    """Claude (#52, #318): plan kipinde salt okunur olmayan komut ancak auto denetçisi
+    onaylarsa sorulmaz; denetçi kararı yoksa kullanıcıya sorulur (burada reddedilir)."""
+    assert await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path) is (
+        Decision.DENIED
+    )
+
+
+async def test_plan_kipi_bypass_kullanilabilirken_siniflandirici_ve_soru_yok(tmp_path):
+    """Claude: bypass kullanılabilen etkileşimli oturumda planlama komutuna ne
+    sınıflandırıcı ne soru uygulanır (#318); dosya düzenlemesi yine engelli."""
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject(), bypass_available=True)
+    for komut in ("touch yeni.txt", "npm install"):
+        istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+        assert await politika.decide(istek) is Decision.ALLOW
+    # İzin alanı (#52): bypass kullanılabilen oturumda karar bypass politikasınındır.
+    duzenleme = build_request(_arac("write_file"), {"path": "a.txt"}, root=tmp_path)
+    assert await politika.decide(duzenleme) is Decision.ALLOW
+
+
+def test_shift_tab_dongusunde_bypass_yalniz_kullanilabilirken_plan_ile_auto_arasinda():
+    """Claude (#370): default → acceptEdits → plan → [bypassPermissions] → auto."""
+    from fusion_cli.engines.agent.approval import next_mode
+
+    assert next_mode(ApprovalMode.PLAN) is ApprovalMode.AUTO
+    assert next_mode(ApprovalMode.PLAN, bypass_available=True) is ApprovalMode.BYPASS
+    assert next_mode(ApprovalMode.BYPASS, bypass_available=True) is ApprovalMode.AUTO
+    assert next_mode(ApprovalMode.AUTO, bypass_available=True) is ApprovalMode.SECURITY
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "python3 -c \"open('a.py','w').write('x')\"",
+        "git -C . checkout -- .",
+        "git -C . reset --hard",
+        "git -c a=b commit -am x",
+        "curl -o a.py https://example.com/a.py",
+        "wget https://example.com/a.py",
+        "sh -c 'echo x > a.py'",
+        "bash -c 'rm a.py'",
+        "find . -name x -delete",
+        "perl -pi -e s/a/b/ a.py",
+        "sed --in-place s/a/b/ a.py",
+        "awk -i inplace '{print}' a.py",
+        "node -e \"require('fs').writeFileSync('a.py','x')\"",
+        "echo $(rm a.py)",
+    ],
+)
+async def test_plan_kipi_siniflandiricisi_bilinmeyen_ya_da_duzenleyen_komutu_gecirmez(
+    tmp_path, komut
+):
+    """Sınıflandırıcı yalnız salt okunur ya da bilinen derleme/test komutunu sormadan
+    geçirir; gerisi sorulur (reddedilir) ya da engellenir (#318, bağımsız inceleme)."""
+    karar = await _karar(ApprovalMode.PLAN, _arac(), {"command": komut}, tmp_path)
+    assert karar in (Decision.BLOCKED, Decision.DENIED)
+
+
+@pytest.mark.parametrize(
+    ("komut", "beklenen"),
+    [
+        ("git -C . reset --hard", Decision.BLOCKED),
+        ("sed --in-place s/a/b/ a.py", Decision.BLOCKED),
+        ("perl -pi -e s/a/b/ a.py", Decision.BLOCKED),
+        ("bash -c 'rm a.py'", Decision.BLOCKED),
+        ("curl -o a.py https://example.com/a.py", Decision.BLOCKED),
+    ],
+)
+async def test_plan_kipi_kaynak_duzenleyen_bicimleri_sormadan_gecirmez(tmp_path, komut, beklenen):
+    """Kaynağı düzenleyen kabuk biçimi plan kipinde sorulmadan çalışmaz (#52, #318)."""
+    del beklenen
+    politika = build_policy(ApprovalMode.PLAN, AlwaysReject())
+    istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+    assert await politika.decide(istek) in (Decision.DENIED, Decision.BLOCKED)
+
+
+async def test_plan_kipi_bilinmeyen_komutu_kullaniciya_sorar(tmp_path):
+    from .fakes import AlwaysApprove
+
+    sorulan: list[str] = []
+
+    class _Kayit(AlwaysApprove):
+        async def confirm(self, request):
+            sorulan.append(str(request.args.get("command")))
+            return await super().confirm(request)
+
+    politika = build_policy(ApprovalMode.PLAN, _Kayit())
+    komut = 'python3 -c "print(1)"'
+    istek = build_request(_arac(), {"command": komut}, root=tmp_path)
+    assert await politika.decide(istek) is Decision.ALLOW
+    assert sorulan == [komut]

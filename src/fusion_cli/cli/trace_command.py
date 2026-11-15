@@ -7,6 +7,7 @@ kaç araç engellendi, kaç ayrıştırma onarımı yandı, plan nerede duraklat
 from __future__ import annotations
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..core.trace import RunSummary, summarize_run
@@ -14,6 +15,8 @@ from ..observability.trace_store import TraceStore
 from ..ui import theme
 
 console = Console()
+
+_NO_SUCH_RUN = "Böyle bir koşu yok: {run}  (kayıtlar için /trace liste)"
 
 
 def render_trace(store: TraceStore, run_id: str | None, *, limit: int = 6) -> None:
@@ -25,13 +28,18 @@ def render_trace(store: TraceStore, run_id: str | None, *, limit: int = 6) -> No
             f"[/{theme.DIM}]"
         )
         return
+    if hedef not in store.runs():
+        # Ölçüldü (30 Ekim): olmayan kimlik boş izden "temiz koşu" özeti basıyordu;
+        # `trace_text` bunu denetliyordu, `render_trace` denetlemiyordu (L1-34).
+        console.print(f"[{theme.WARN}]{escape(_NO_SUCH_RUN.format(run=hedef))}[/{theme.WARN}]")
+        return
     ozet = summarize_run(store.read(hedef))
-    console.print(f"[bold]{hedef}[/bold] · {ozet.headline()}\n")
+    console.print(f"[bold]{escape(hedef)}[/bold] · {escape(ozet.headline())}\n")
     console.print(_table(ozet))
     if ozet.pause_reason:
-        console.print(f"\n[{theme.WARN}]Duraklama:[/{theme.WARN}] {ozet.pause_reason}")
+        console.print(f"\n[{theme.WARN}]Duraklama:[/{theme.WARN}] {escape(ozet.pause_reason)}")
     for bulgu in ozet.findings[:limit]:
-        console.print(f"[{theme.DIM}]- {bulgu}[/{theme.DIM}]")
+        console.print(f"[{theme.DIM}]- {escape(bulgu)}[/{theme.DIM}]")
 
 
 def _rows(ozet: RunSummary) -> tuple[tuple[str, str], ...]:
@@ -70,7 +78,7 @@ def trace_text(store: TraceStore, run_id: str | None, *, limit: int = 6) -> str:
     if hedef is None:
         return "Henüz koşu kaydı yok. Bir görev çalıştırdıktan sonra tekrar dene."
     if hedef not in store.runs():
-        return f"Böyle bir koşu yok: {hedef}  (kayıtlar için /trace liste)"
+        return _NO_SUCH_RUN.format(run=hedef)
     ozet = summarize_run(store.read(hedef))
     satirlar = [f"{hedef} · {ozet.headline()}", ""]
     satirlar += [f"  {etiket}: {deger}" for etiket, deger in _rows(ozet)]
@@ -88,4 +96,4 @@ def list_runs(store: TraceStore, *, limit: int = 20) -> None:
         return
     for kayit in kayitlar:
         ozet = summarize_run(store.read(kayit))
-        console.print(f"{kayit}  [{theme.DIM}]{ozet.headline()}[/{theme.DIM}]")
+        console.print(f"{escape(kayit)}  [{theme.DIM}]{escape(ozet.headline())}[/{theme.DIM}]")

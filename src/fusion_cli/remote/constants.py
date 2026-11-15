@@ -29,6 +29,9 @@ DEVICE_SECRET_BYTES = 32
 #: İstek gövdesi üst sınırı; bellek şişirme saldırısına karşı.
 #: 1 MiB: telefondan küçültülmüş görsel/dosya eki (base64 ile ~%33 şişer) tek istekte sığsın.
 MAX_BODY_BYTES = 1024 * 1024
+#: İstek gövdesinin tamamının gelmesi için tanınan süre; yavaş-gövde (slowloris) bağlantıları
+#: sonsuza dek açık kalıp işçileri tutmasın.
+BODY_READ_TIMEOUT_SECONDS = 15
 #: Yüklenen ek üst sınırı (çözülmüş bayt); gövde sınırının altında kalır.
 MAX_UPLOAD_BYTES = 700 * 1024
 #: Yüklenen eklerin saklanma süresi; eski ekler yeni yüklemede temizlenir.
@@ -39,12 +42,27 @@ MEDIA_MAX_BYTES = 4 * 1024 * 1024
 DELTA_FLUSH_SECONDS = 0.25
 #: Görev başına tutulan olay sayısı üst sınırı.
 MAX_EVENTS_PER_TASK = 5_000
+#: `tasks.events` tek yanıtında en çok olay; fazlası `hasMore` ile sayfalanır.
+EVENTS_PAGE_LIMIT = 500
+#: Oturum yürütücüsüne giden tek seferlik istekler (sohbet listesi, model, zamanlama): yanıt süresi.
+BACKEND_CALL_TIMEOUT_SECONDS = 60
+#: `handle` döndükten sonra sonuç satırının gelmesi için tanınan ek süre (satır kaybı koruması).
+BACKEND_RESULT_GRACE_SECONDS = 5
+#: Cevaplanmayan onay/soru için bekleme: dolunca onay reddedilir (soru ise tur kesilir). Aksi
+#: halde sessiz telefon turu (ve `run_lock` ile bütün kuyruğu) saatlerce bloke ederdi.
+APPROVAL_TIMEOUT_SECONDS = 30 * 60
+#: Tek uzak görevin (tur) en uzun süresi; aşılırsa tur kesilir ve görev başarısız olur.
+#: Sonsuz bekleyen tek tur `run_lock`'u tutup sonraki tüm görevleri kuyrukta bırakırdı.
+BACKEND_TURN_TIMEOUT_SECONDS = 6 * 3600
 #: Bildirim özeti uzunluğu: kod/özel içerik sohbet kanalına dökülmesin.
 NOTIFICATION_SUMMARY_LIMIT = 280
 
 #: Telegram: uzun yoklama süresi ve hız sınırı.
 TELEGRAM_POLL_TIMEOUT_SECONDS = 25
 TELEGRAM_FAILED_PAIR_LIMIT = 5
+
+#: HTTP sunucusunun soketi bağlayıp dinlemeye başlaması için beklenen en uzun süre.
+HTTP_START_TIMEOUT_SECONDS = 5
 
 #: Varsayılan dinleme adresi: internete açık bind varsayılan değildir.
 DEFAULT_REMOTE_HOST = "127.0.0.1"
@@ -57,7 +75,16 @@ SCREEN_IDLE_TTL_SECONDS = 600
 SCREEN_MAX_SESSION_SECONDS = 7200
 #: Onaylanmamış isteğin bekleme süresi.
 SCREEN_REQUEST_TTL_SECONDS = 300
+#: Masaüstünde "hatırla" ile verilen ekran güveninin ömrü; dolunca yeniden masaüstü onayı.
+SCREEN_TRUST_SECONDS = 7 * 24 * 3600
+#: Cihaz başına süreli ONAY yetkisi (Claude Code "Trusted Devices" 18 saat): masaüstü bir
+#: cihaza "bu cihaz onay verebilir" der, süre dolunca telefon yalnız reddedebilir.
+APPROVAL_TRUST_DEFAULT_HOURS = 18
+#: Tek seferde verilebilecek en uzun onay yetkisi; "süresiz" yetki yoktur.
+APPROVAL_TRUST_MAX_HOURS = 7 * 24
 #: Kareler arası en az 0,5 sn, JPEG genişlik sınırı.
 SCREEN_MIN_FRAME_INTERVAL_SECONDS = 0.5
 SCREEN_MAX_WIDTH = 1280
 SCREEN_JPEG_QUALITY = 60
+#: `screencapture` süreci bu sürede bitmezse öldürülür (izin penceresi/oturum kilidi).
+SCREEN_CAPTURE_TIMEOUT_SECONDS = 10

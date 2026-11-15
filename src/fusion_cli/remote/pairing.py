@@ -8,6 +8,7 @@ Kod yanlış denemeleri sınırlanır; onaylanmamış kod sır vermez.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import os
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from .constants import (
     PAIRING_CODE_TTL_SECONDS,
 )
 from .devices import CHANNEL_SIGNED, Device, DeviceRegistry
-from .scopes import parse_scopes
+from .scopes import is_elevated, parse_scopes
 
 
 class PairingError(Exception):
@@ -40,6 +41,11 @@ class _Pending:
     approved_device: Device | None = None
     claim_expires_at: float = 0.0
     failures: int = field(default=0)
+    #: Telefonun koda bağladığı teslim anahtarının karması; boşsa eski tek-sefer teslim.
+    claim_key_hash: str = ""
+    claimed: bool = False
+    #: Masaüstünün eşleştirmeyle birlikte verdiği süreli onay yetkisi (saat); 0 = yok (P-040).
+    approval_hours: float = 0.0
 
 
 class PairingService:
@@ -53,7 +59,10 @@ class PairingService:
         token_bytes: Callable[[int], bytes] = os.urandom,
         require_approval: Callable[[], bool] = lambda: True,
         on_paired: Callable[[Device], None] | None = None,
+        account_id: Callable[[], str] = lambda: "",
     ) -> None:
+        #: Kodla eşleşen cihaz, eşleşmeyi onaylayan masaüstündeki açık hesaba bağlanır.
+        self._account_id = account_id
         self._require_approval = require_approval
         self._on_paired = on_paired
         self._registry = registry
@@ -61,19 +70,38 @@ class PairingService:
         self._token_bytes = token_bytes
         self._pending: dict[str, _Pending] = {}
 
-    def begin(self, scopes: object = None, channel: str = CHANNEL_SIGNED) -> tuple[str, float]:
-        """Masaüstü yeni kod üretir; kapsamlar açık seçimdir."""
+    def begin(
+        self,
+        scopes: object = None,
+        channel: str = CHANNEL_SIGNED,
+        *,
+        approval_hours: float = 0.0,
+    ) -> tuple[str, float]:
+        """Masaüstü yeni kod üretir; kapsamlar açık seçimdir.
+
+        `approval_hours` > 0 ise onaylanan cihaz o kadar saat uzaktan onay verebilir (P-040).
+        """
         granted = parse_scopes(scopes)
         self._purge()
         code = self._new_code()
         expires = self._clock.now() + PAIRING_CODE_TTL_SECONDS
         self._pending[code] = _Pending(
-            code=code, scopes=granted, channel=channel, expires_at=expires
+            code=code,
+            scopes=granted,
+            channel=channel,
+            expires_at=expires,
+            approval_hours=approval_hours,
         )
         return code, expires
 
     def submit(
-        self, code: str, device_name: str, external_id: str = "", channel: str | None = None
+        self,
+        code: str,
+        device_name: str,
+        external_id: str = "",
+        channel: str | None = None,
+        *,
+        claim_key: str = "",
     ) -> frozenset[str]:
         """Cihaz kodu girer; masaüstü onayı bekler. Kapsamlar cihaza gösterilir.
 
@@ -89,9 +117,16 @@ class PairingService:
         pending.submitted = True
         pending.device_name = device_name
         pending.external_id = external_id
+        pending.claim_key_hash = _digest(claim_key) if claim_key else ""
         # Kodu masaüstünde kullanıcının KENDİSİ üretti (2 dk, hız sınırlı): imzalı (PWA) kanalda
         # doğru kod eşleştirmeyi onaylar. Telegram kanalı ve "onay iste" ayarı eskisi gibi kalır.
-        if pending.channel == CHANNEL_SIGNED and not self._require_approval():
+        # Yüksek yetkili kapsam (yazma, masaüstü denetimi, dağıtım) ayardan bağımsız elle
+        # onaylanır: kod sızarsa/tahmin edilirse tek başına yetki vermez (R1-13).
+        if (
+            pending.channel == CHANNEL_SIGNED
+            and not self._require_approval()
+            and not any(is_elevated(scope) for scope in pending.scopes)
+        ):
             self.approve(pending.code)
         return pending.scopes
 
@@ -104,8 +139,15 @@ class PairingService:
         if pending.approved_device is not None:
             raise PairingError("Eşleştirme zaten onaylandı.")
         device = self._registry.add(
-            pending.device_name, pending.channel, pending.scopes, pending.external_id
+            pending.device_name,
+            pending.channel,
+            pending.scopes,
+            pending.external_id,
+            account_id=self._account_id(),
         )
+        if pending.approval_hours > 0:
+            self._registry.set_approval_trust(device.device_id, pending.approval_hours)
+            device = self._registry.get(device.device_id) or device  # yetkili görünümü döndür
         pending.approved_device = device
         if pending.channel != CHANNEL_SIGNED:
             self._pending.pop(pending.code, None)  # sır teslimi yok: kimlik kanalda
@@ -113,6 +155,16 @@ class PairingService:
         if self._on_paired is not None:
             self._on_paired(device)
         return device
+
+    def awaiting_approval(self, code: str) -> str | None:
+        """Cihaz kodu girdi, masaüstü/terminal onayı bekliyor: cihaz adı; değilse `None`."""
+        try:
+            pending = self._lookup(code)
+        except PairingError:
+            return None
+        if pending.submitted and pending.approved_device is None:
+            return pending.device_name or "Adsız cihaz"
+        return None
 
     def is_approved(self, code: str) -> bool:
         """Kod girildi ve cihaz kaydı oluştu mu (teslim bekliyor)?"""
@@ -122,17 +174,39 @@ class PairingService:
             return False
 
     def reject(self, code: str) -> bool:
-        return self._pending.pop(code.strip().upper(), None) is not None
+        pending = self._pending.pop(code.strip().upper(), None)
+        if pending is not None and pending.approved_device is not None:
+            # Kod onay beklemeden onaylanmış olabilir: reddedilen eşleşmenin cihazı kalmaz.
+            self._registry.revoke(pending.approved_device.device_id)
+        return pending is not None
 
-    def claim(self, code: str) -> Device | None:
-        """Onaylıysa cihaz bilgisini TEK SEFER verir; onay bekleniyorsa `None`."""
+    def claim(self, code: str, claim_key: str = "") -> Device | None:
+        """Onaylıysa cihaz bilgisini verir; onay bekleniyorsa `None`.
+
+        Teslim anahtarıyla gönderilmiş kodda `claim` teslim süresi boyunca TEKRARLANABİLİR
+        (yanıt ağda kaybolduysa telefon aynı cihazı yeniden alır); anahtarı bilmeyen alamaz.
+        Anahtarsız eski istemciye cihaz tek sefer verilir.
+        """
         self._purge()
         pending = self._lookup(code)
         if pending.approved_device is None:
             return None
-        device = pending.approved_device
-        self._pending.pop(pending.code, None)
-        return device
+        if pending.claim_key_hash:
+            if not claim_key or not hmac.compare_digest(_digest(claim_key), pending.claim_key_hash):
+                raise PairingError("Kod geçersiz veya süresi doldu.")
+        elif pending.claimed:
+            raise PairingError("Kod geçersiz veya süresi doldu.")
+        pending.claimed = True
+        return pending.approved_device
+
+    def acknowledge(self, device_id: str) -> None:
+        """Cihazın ilk imzalı isteği: sır telefona ulaştı, bekleyen teslim kapanır."""
+        for code, pending in list(self._pending.items()):
+            if (
+                pending.approved_device is not None
+                and pending.approved_device.device_id == device_id
+            ):
+                self._pending.pop(code, None)
 
     def _lookup(self, code: str) -> _Pending:
         normalized = code.strip().upper()
@@ -146,13 +220,22 @@ class PairingService:
         expired = [
             code
             for code, pending in self._pending.items()
-            if now > pending.expires_at
-            or (pending.approved_device is not None and now > pending.claim_expires_at)
+            # Onaylanmış eşleştirmede kodun süresi değil TESLİM süresi geçerlidir:
+            # kod son saniyede onaylansa da telefon sırrını alabilmeli.
+            if now > (pending.claim_expires_at if pending.approved_device else pending.expires_at)
         ]
         for code in expired:
-            self._pending.pop(code, None)
+            pending = self._pending.pop(code, None)
+            if pending is not None and pending.approved_device is not None:
+                # Teslim süresi doldu ve cihaz hiç imzalı istek yapmadı: sırrı hiçbir
+                # telefona ulaşmamış hayalet kayıt kalmasın.
+                self._registry.revoke(pending.approved_device.device_id)
 
     def _new_code(self) -> str:
         alphabet = PAIRING_CODE_ALPHABET
         raw = self._token_bytes(PAIRING_CODE_LENGTH)
         return "".join(alphabet[byte % len(alphabet)] for byte in raw)
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()

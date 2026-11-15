@@ -112,3 +112,48 @@ async def test_eksik_retry_ilk_yurutmeyi_acar_timeout_sonrasi_tekrarlamaz(tmp_pa
     )
     assert len(calls) == 1
     assert not result.ok
+
+
+def _kontrollu_plan(kosullar: list[str], criterion_id: str) -> str:
+    return _plan(
+        success_criteria=kosullar,
+        verification_checks=[
+            {"criterion_id": criterion_id, "kind": "file_exists", "target": "a.py", "expected": ""}
+        ],
+    )
+
+
+class TestKriterKimligi:
+    """Z1-05: küçük model koşul metnini birebir kopyalayamaz; kısa kimlik yeter.
+
+    Ölçüldü (30 Ekim): `criterion_id` yalnız koşulun BİREBİR metniyle eşleşiyordu;
+    sondaki noktayı ya da boşluğu değiştiren model planı `bilinmeyen başarı
+    koşulu` ile reddettirip tüm plan turunu yakıyordu.
+    """
+
+    def test_kisa_kimlik_sirayla_kosula_cozulur(self):
+        plan = parse_execution_plan(_kontrollu_plan(["a.py var", "testler geçiyor"], "c2"))
+
+        assert plan.steps[0].verification_checks[0].criterion_id == "testler geçiyor"
+
+    def test_birebir_metin_hala_calisir(self):
+        plan = parse_execution_plan(_kontrollu_plan(["a.py var"], "a.py var"))
+
+        assert plan.steps[0].verification_checks[0].criterion_id == "a.py var"
+
+    def test_bosluk_ve_nokta_farki_tek_kosula_baglanir(self):
+        plan = parse_execution_plan(
+            _kontrollu_plan(["a.py var", "Testler geçiyor"], "  testler  geçiyor. ")
+        )
+
+        assert plan.steps[0].verification_checks[0].criterion_id == "Testler geçiyor"
+
+    def test_aralik_disi_kimlik_hala_reddedilir(self):
+        with pytest.raises(PlanParseError):
+            parse_execution_plan(_kontrollu_plan(["a.py var"], "c5"))
+
+    def test_belirsiz_eslesme_tahmin_edilmez(self):
+        with pytest.raises(PlanParseError):
+            parse_execution_plan(
+                _kontrollu_plan(["Testler geçiyor", "testler geçiyor."], "TESTLER GEÇİYOR")
+            )

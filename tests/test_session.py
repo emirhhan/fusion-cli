@@ -132,7 +132,13 @@ async def test_model_on_kontrol_hatasi_turu_basarisiz_sonucla_kapatir(tmp_path):
     assert not outcome.ok
     assert "görsel desteği" in outcome.final_text
     assert outcome.model_calls_made == 0
-    assert next(message for message in outcome.messages if message.role == "user").images
+    # #149: CLAUDE.md/bellek ayrı bir kullanıcı bağlam mesajıdır (harness_note); görsel görev
+    # mesajındadır.
+    assert next(
+        message
+        for message in outcome.messages
+        if message.role == "user" and not message.harness_note
+    ).images
     assert isinstance(sink.events[-1], TurnFinished)
     assert sum(isinstance(event, TurnFinished) for event in sink.events) == 1
     assert any(isinstance(event, TurnOutcome) and event.status == "failed" for event in sink.events)

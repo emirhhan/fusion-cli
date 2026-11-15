@@ -17,6 +17,10 @@ from ..providers.catalog import CatalogEntry, CatalogLoadResult
 #: sondasının bulduğu, YAKIN ZAMANDA yanıt vermeyen model için.
 _UNHEALTHY_SUFFIX = " (şu an yanıt vermiyor)"
 
+#: Tek bir katalog kaynağının üst süresi (sn). Ölçüldü (30 Ekim): toplam zaman aşımı yoktu;
+#: takılan tek kaynak Composer model seçicisinin hiç açılmamasına yol açıyordu.
+SOURCE_TIMEOUT_SECONDS = 15.0
+
 
 def _allowed_sources(config: Config) -> tuple[model_flows.Source, ...]:
     keys = detect()
@@ -64,6 +68,11 @@ async def _load_source(source: model_flows.Source) -> CatalogLoadResult:
     return CatalogLoadResult()
 
 
+async def _load_source_bounded(source: model_flows.Source) -> CatalogLoadResult:
+    """Kaynak yüklemesi süre sınırlıdır; aşılırsa kaynak hatası olarak raporlanır."""
+    return await asyncio.wait_for(_load_source(source), SOURCE_TIMEOUT_SECONDS)
+
+
 async def list_selectable_models(
     config: Config, *, workspace_mode: str = "sohbet"
 ) -> dict[str, Any]:
@@ -81,7 +90,7 @@ async def list_selectable_models(
     """
     sources = _allowed_sources(config)
     fetched = await asyncio.gather(
-        *(_load_source(source) for source in sources), return_exceptions=True
+        *(_load_source_bounded(source) for source in sources), return_exceptions=True
     )
     health_path = user_data_dir() / health_cache.HEALTH_CACHE_FILENAME
     rows: list[dict[str, Any]] = []

@@ -52,7 +52,7 @@ def _headline(result: FusionResult) -> str:
     label = _SOURCE_LABELS.get(result.source)
     if label is not None:
         return label
-    return messages.FUSION_WINNER.format(winner=result.winner)
+    return messages.FUSION_WINNER.format(winner=escape(result.winner))
 
 
 def _candidate_summary(console: Console, result: FusionResult) -> None:

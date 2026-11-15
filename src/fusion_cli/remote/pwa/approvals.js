@@ -17,20 +17,34 @@ export function pendingFromEvents(events) {
   return pending;
 }
 
-export function approvalCard(question, rpc, after) {
+// `args` metin, dizi ya da nesne gelebilir; `.length` yalnız ilk ikisinde vardır (nesne ayrıntısı gizlenmesin).
+function hasContent(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" || Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+// `scopes`: cihazın eşleşme kapsamları. Onayın gerektirdiği kapsam yoksa sunucu yalnız
+// reddi kabul eder; kart boşuna onay düğmesi göstermez, masaüstüne yönlendirir.
+// `authority`: `service.status.approvalAuthority` — masaüstü cihaz başına süreli onay yetkisi
+// istiyorsa ve bu cihazda yoksa (P-040) yine yalnız Reddet sunulur.
+export function approvalCard(question, rpc, after, scopes = null, authority = null) {
   const error = h("p", { class: "approval-error danger", role: "alert", hidden: true });
   const receipt = h("p", { class: "muted small", role: "status", hidden: true });
   const actions = h("div", { class: "approval-actions" });
   const confirmation = h("div", { class: "approval-confirm", hidden: true });
   const card = h("section", { class: "approval", "data-question": question.questionId },
-    h("span", { class: "approval-eyebrow" }, "İzin gerekiyor"),
+    // Alt ajanın isteği masaüstü kartıyla aynı etiketi taşır (P-034).
+    h("span", { class: "approval-eyebrow" }, question.agent ? `Alt ajan izin istiyor: ${question.agent}` : "İzin gerekiyor"),
     h("h3", { class: "approval-title" }, question.title || "İşlemi onayla"),
     question.target ? h("pre", { class: "approval-target mono" }, question.target) : null,
-    question.reason || question.danger ? h("p", { class: "muted small" }, question.danger || question.reason) : null,
+    question.danger ? h("p", { class: "approval-danger danger small" }, question.danger) : null,
+    question.reason ? h("p", { class: "muted small" }, question.reason) : null,
     actions, confirmation, receipt, error);
-  if (question.args?.length || question.diff) {
+  if (hasContent(question.args) || question.diff) {
     const details = h("details", { class: "approval-details" }, h("summary", {}, "İşlem ayrıntıları"));
-    if (question.args?.length) details.append(h("pre", { class: "mono" }, typeof question.args === "string" ? question.args : JSON.stringify(question.args, null, 2)));
+    if (hasContent(question.args)) details.append(h("pre", { class: "mono" }, typeof question.args === "string" ? question.args : JSON.stringify(question.args, null, 2)));
     if (question.diff) details.append(h("pre", { class: "mono" }, typeof question.diff === "string" ? question.diff : JSON.stringify(question.diff, null, 2)));
     card.insertBefore(details, actions);
   }
@@ -76,8 +90,23 @@ export function approvalCard(question, rpc, after) {
   }
   const labels = { once: "Bir kez izin ver", session: "Bu oturumda izin ver", deny: "Reddet" };
   const offered = (question.options?.length ? question.options : ["once", "deny"]).map((item) => typeof item === "string" ? item : item.deger);
-  for (const choice of offered) {
-    if (!labels[choice]) continue;
+  const scopeAllowed = !question.requiredScope || !Array.isArray(scopes) || scopes.includes(question.requiredScope);
+  const trusted = !(authority && authority.required === true && authority.canApprove !== true);
+  const allowed = scopeAllowed && trusted;
+  if (!scopeAllowed) {
+    card.insertBefore(h("p", { class: "muted small approval-desktop-only" },
+      `Bu onayı bu telefondan veremezsin ('${question.requiredScope}' yetkisi yok). Bilgisayardan onayla ya da burada reddet.`), actions);
+  } else if (!trusted) {
+    card.insertBefore(h("p", { class: "muted small approval-desktop-only" },
+      "Bu telefona uzaktan onay yetkisi verilmemiş ya da süresi dolmuş. Bilgisayarda Ayarlar › Uzaktan Erişim'den yetki ver ya da burada reddet."), actions);
+  }
+  const shown = offered.filter((choice) => labels[choice] && (allowed || choice === "deny"));
+  // Tanınmayan seçenekler kartı düğmesiz bırakıp görevi sonsuza dek bekletmesin: Reddet daima vardır.
+  if (!offered.some((choice) => labels[choice])) {
+    card.insertBefore(h("p", { class: "muted small approval-desktop-only" }, "Bu onayın seçenekleri bu uygulamada tanınmıyor. Bilgisayardan onayla ya da burada reddet."), actions);
+  }
+  if (!shown.includes("deny")) shown.push("deny");
+  for (const choice of shown) {
     actions.append(h("button", { class: `btn ${choice === "deny" ? "ghost" : ""}`, type: "button", onclick: () => answer(choice) }, labels[choice]));
   }
   return card;

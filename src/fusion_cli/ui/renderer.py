@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import textwrap
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from typing import ClassVar
 
 from rich.console import Console
@@ -27,7 +27,10 @@ from rich.text import Text
 
 from ..core.events import (
     ApprenticeHandoff,
+    AutoModeFellBack,
+    AutoReviewDecided,
     CandidatesStarted,
+    ChangesDigested,
     Channel,
     ContextCompressed,
     CouncilConsulted,
@@ -78,11 +81,15 @@ from ..core.events import (
     TurnBudgetExhausted,
     TurnFinished,
     TurnOutcome,
+    VerificationPassed,
 )
+from ..core.orchestration_events import TeamBoardChanged, WorkflowProgress
 from ..core.types import FusionResult
 from . import messages, theme
+from .auto_review_view import decided_line
 from .diff import render_diff
 from .fusion_view import render_fusion_result
+from .orchestration_lines import OrchestrationLines
 from .text import (
     format_duration,
     format_model,
@@ -111,8 +118,13 @@ class ConsoleRenderer:
         show_call_details: bool = False,
         show_thinking: bool = False,
         live_progress: bool = True,
+        bell: bool = False,
     ) -> None:
         self._console = console or Console()
+        # Tur bitince terminal zili (`\a`): başka pencerede çalışan kullanıcıya haber verir
+        # (Claude Code "terminal bell", Codex `notification_method = bel`). Varsayılan kapalı;
+        # `/zil` ile açılır. Rich kontrol karakterlerini süzdüğü için doğrudan dosyaya yazılır.
+        self._bell = bell
         self._show_progress = show_progress
         self._show_all_answers = show_all_answers
         # Açıkken model düşünmesi (`<think>…`) gizlenmez; Claude Code gibi sönük bir
@@ -135,8 +147,13 @@ class ConsoleRenderer:
         self._pending_status: str | None = None
         #: Bu turda açılış beyanı basıldı mı? İLK öncü daha geniş yer alır.
         self._turn_opened = False
+        #: Bu turda gösterilen yedek geçişleri (istenen, yedek). Ölçüldü (30 Ekim): açık
+        #: devrede her model çağrısı aynı "yedek devrede" satırını basıyordu (turda 12 kez).
+        self._fallbacks_shown: set[tuple[str, str]] = set()
         #: Koşan alt ajanların kimliği → kişilik ünvanı (bitiş satırında ad için).
         self._sub_titles: dict[str, str] = {}
+        #: Ekip/iş akışı panolarının terminaldeki tek satırlık karşılığı (P-061/P-062).
+        self._orchestration = OrchestrationLines()
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -147,7 +164,10 @@ class ConsoleRenderer:
             else:
                 self._write_stream(event.channel, event.text)
         elif isinstance(event, TurnAnswered):
-            self._write_stream(event.channel, event.text)
+            # Tam, akışsız metin: kapanışı beklenen bir akış değildir. `streaming=False`
+            # ile ayıklanır ki açılışı olmayan `</think>` (gemini_web) düşünme sayılsın
+            # ve etiketiyle birlikte ekrana basılmasın (L1-02).
+            self._write_stream(event.channel, event.text, complete=True)
         elif isinstance(event, StatusChanged):
             self._status(event.message)
         elif isinstance(event, ModelCallStarted):
@@ -176,18 +196,24 @@ class ConsoleRenderer:
             if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
         elif isinstance(event, ModelFallbackActivated):
-            if not event.background:
+            gecis = (event.requested_model, event.fallback_model)
+            if not event.background and gecis not in self._fallbacks_shown:
+                self._fallbacks_shown.add(gecis)
                 self._work.update(model=format_model(event.fallback_model))
-                self._status(
+                self._warn(
                     messages.MODEL_FALLBACK.format(
                         requested=format_model(event.requested_model),
                         fallback=format_model(event.fallback_model),
                         reason=summarize_error(event.reason),
                     )
                 )
+        elif isinstance(event, AutoReviewDecided):
+            self._status(decided_line(event))
+        elif isinstance(event, AutoModeFellBack):
+            self._warn(messages.AUTO_REVIEW_FELL_BACK.format(reason=event.reason))
         elif isinstance(event, TierDegraded):
             # Yalnız BİLGİLENDİRİR — turu ASLA düşürmez (bkz. olayın docstring'i).
-            self._status(
+            self._warn(
                 messages.TIER_DEGRADED.format(
                     expected=event.expected_tier,
                     served=event.served_by,
@@ -230,13 +256,13 @@ class ConsoleRenderer:
         elif isinstance(event, ExecutionCheckpointSaved):
             self._status(f"Checkpoint kaydedildi: {event.completed_steps} adım tamam")
         elif isinstance(event, ExecutionPaused):
-            self._status(f"Workflow duraklatıldı: {event.reason}")
+            self._warn(f"Workflow duraklatıldı: {event.reason}")
         elif isinstance(event, ExecutionCompleted):
             self._status(f"Plan tamamlandı: {event.total_steps} adım doğrulandı")
             # Kanıtlanmayan şey SESSİZ kalmaz: "tamamlandı" satırı tek başına
             # kullanıcıya işin kanıtlandığını düşündürür.
             for uyari in event.warnings:
-                self._status(f"UYARI: {uyari}")
+                self._warn(f"UYARI: {uyari}")
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
             self._resume_work(messages.WORK_THINKING)
@@ -258,6 +284,10 @@ class ConsoleRenderer:
                     title=self._sub_titles.pop(event.sub_id, "alt-ajan"), count=event.tool_calls
                 )
             )
+        elif isinstance(event, WorkflowProgress):
+            self._orchestration_lines(self._orchestration.workflow(event))
+        elif isinstance(event, TeamBoardChanged):
+            self._orchestration_lines(self._orchestration.team(event))
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
             self._resume_work(messages.WORK_COUNCIL)
@@ -328,11 +358,11 @@ class ConsoleRenderer:
         elif isinstance(event, LessonsLearned):
             self._status(messages.AGENT_LESSONS_LEARNED.format(count=event.count))
         elif isinstance(event, ContextCompressed):
-            self._status(
-                messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
-            )
+            satir = _compression_line(event)
+            if satir:
+                self._warn(satir)
         elif isinstance(event, MutationUnavailable):
-            self._status(messages.AGENT_MUTATION_UNAVAILABLE.format(reason=event.reason))
+            self._warn(messages.AGENT_MUTATION_UNAVAILABLE.format(reason=event.reason))
         elif isinstance(event, TurnBudgetExhausted):
             self._error(_budget_reason(event))
         elif isinstance(event, ErrorOccurred):
@@ -342,9 +372,20 @@ class ConsoleRenderer:
             self._close_line()
             self._console.print(
                 f"[{theme.DIM}]{theme.ICON_STATUS} "
-                f"{escape(messages.FILES_CHANGED.format(paths=', '.join(event.paths)))}"
+                f"{escape(messages.FILES_CHANGED.format(paths=_join_capped(event.paths)))}"
                 f"[/{theme.DIM}]"
             )
+        elif isinstance(event, VerificationPassed):
+            self._verification_lines(event)
+        elif isinstance(event, ChangesDigested):
+            self._flush_streams()
+            self._close_line()
+            self._console.print(
+                f"[{theme.DIM}]{theme.ICON_STATUS} {escape(messages.CHANGES_DIGEST_TITLE)}"
+                f"[/{theme.DIM}]"
+            )
+            for line in event.lines:
+                self._console.print(f"[{theme.DIM}]  {escape(line)}[/{theme.DIM}]", highlight=False)
         elif isinstance(event, NoFileChanges):
             # Rozet cevabı BÖLMEZ: akan metin önce kapatılır, olgu ardına düşer.
             self._flush_streams()
@@ -359,9 +400,22 @@ class ConsoleRenderer:
             self._close_line()
             self._active_channel = None
             self._turn_opened = False
+            self._fallbacks_shown.clear()
             self._finish_work()
+            self._ring_bell()
         elif isinstance(event, TurnOutcome):
             self._turn_outcome(event)
+
+    def _ring_bell(self) -> None:
+        """Zil açıksa ve çıktı bir terminalse `\a` yaz; boruda/CI'da sessiz kal."""
+        if not self._bell or not self._console.is_terminal:
+            return
+        try:
+            self._console.file.write("\a")
+            self._console.file.flush()
+        except (OSError, ValueError):
+            # Kapanmış/yazılamayan akış tur bitişini bozmaz.
+            return
 
     def _followups(self, event: FollowupsSuggested) -> None:
         """Sıradaki adımları turun ardına, numaralı ve sönük bas.
@@ -415,6 +469,16 @@ class ConsoleRenderer:
         # Live'ı durdurur; iptal edilmiş turda süre/token özeti anlamlı değil, yok sayılır.
         self._work.finish()
         self._active_channel = None
+        # Tur durumu SIFIRLANIR (`TurnFinished` gelmedi): bekleyen durum satırı sonraki
+        # turun ilk çıktısında yanlış bağlamda basılıyor, `_turn_opened` açık kalırsa o
+        # turun açılış beyanı 4 yerine 1 satıra kırpılıyordu (L1-22).
+        self._pending_status = None
+        self._turn_opened = False
+        self._fallbacks_shown.clear()
+
+    def set_draft(self, text: str) -> None:
+        """Satır içi REPL: tur sürerken yazılan taslak canlı göstergede görünür (#190)."""
+        self._work.set_draft(text)
 
     @contextlib.contextmanager
     def suspended(self) -> Iterator[None]:
@@ -424,7 +488,10 @@ class ConsoleRenderer:
         yenileme iş parçacığı bu sırada durmazsa cevap istemini ve kullanıcının
         yazdığını sürekli siler. Bittiğinde gösterge kaldığı yerden sürer.
         """
-        self._work.pause()
+        # Yarım model satırı (`_line_open`) KAPATILIR: onay paneli aynı satıra basılıyor ve
+        # `Live` yeniden başlarken satırı siliyordu (L1-22). `_close_line` göstergeyi de
+        # duraklatır.
+        self._close_line()
         try:
             yield
         finally:
@@ -490,26 +557,32 @@ class ConsoleRenderer:
                 satirlar.append(satir)
         return satirlar
 
-    def _write_stream(self, channel: Channel, text: str) -> None:
+    def _write_stream(self, channel: Channel, text: str, *, complete: bool = False) -> None:
         if not text:
             return
         # Bekleyen durum satırı cevabın ÖNÜNE basılmalı; sıra bozulmamalı.
         self._flush_status()
         self._raw[channel] = self._raw.get(channel, "") + text
         if self._show_thinking:
-            self._pump_thinking(channel, streaming=True)
+            self._pump_thinking(channel, streaming=not complete)
             return
-        visible = strip_thinking(self._raw[channel], streaming=True)
+        visible = strip_thinking(self._raw[channel], streaming=not complete)
         shown = self._shown.get(channel, 0)
         if len(visible) <= shown:
             return  # gelen parça tamamen düşünme metniydi; basılacak bir şey yok
 
+        fresh = visible[shown:]
         if channel is not self._active_channel:
+            # Blok başındaki boşluk basılmaz: yalnız "\n" gelen akış ekrana boş bir
+            # `⏺ ` bırakıyordu (ölçüldü, 30 Ekim). Boşluk "gösterildi" sayılır; gerçek
+            # metin gelince işaret onunla birlikte açılır.
+            fresh = fresh.lstrip()
+            if not fresh:
+                self._shown[channel] = len(visible)
+                return
             self._close_line()
             self._channel_header(channel)
             self._active_channel = channel
-
-        fresh = visible[shown:]
         # `out` ham yazar: model çıktısındaki köşeli parantezler Rich markup'ı
         # sanılıp yorumlanmaz, çıktı bozulmaz.
         self._console.out(fresh, end="", highlight=False)
@@ -590,6 +663,9 @@ class ConsoleRenderer:
     def _emit_visible(self, channel: Channel, fresh: str) -> None:
         """Görünür cevabı normal stille bas (madde işareti / kanal başlığıyla)."""
         if channel is not self._active_channel:
+            fresh = fresh.lstrip()  # blok başındaki boşluk boş `⏺ ` basar (bkz. `_write_stream`)
+            if not fresh:
+                return
             self._close_line()
             self._channel_header(channel)
             self._active_channel = channel
@@ -630,6 +706,11 @@ class ConsoleRenderer:
 
     # -- Diğer olaylar ------------------------------------------------------- #
 
+    def _orchestration_lines(self, lines: list[str]) -> None:
+        """Pano satırları: durum kuyruğu tek satır tuttuğu için her biri sırayla boşaltılır."""
+        for line in lines:
+            self._status(line)
+
     def _status(self, message: str) -> None:
         """Durum satırını KUYRUĞA al; basmayı bir adım geciktir.
 
@@ -644,6 +725,35 @@ class ConsoleRenderer:
             return
         self._end_block()
         self._pending_status = message
+
+    def _verification_lines(self, event: VerificationPassed) -> None:
+        """Tur sonu kanıtı: geçenler tek satır, ölçülemeyenler nedeniyle ayrı satır."""
+        self._flush_streams()
+        self._close_line()
+        if event.checks:
+            checks = messages.VERIFICATION_PASSED.format(checks=" · ".join(event.checks))
+            self._console.print(f"[{theme.OK}]{theme.ICON_OK} {escape(checks)}[/{theme.OK}]")
+        if event.unmeasured:
+            reasons = messages.VERIFICATION_UNMEASURED.format(reasons=" · ".join(event.unmeasured))
+            self._console.print(
+                f"[{theme.WARN}]{theme.ICON_STATUS} {escape(reasons)}[/{theme.WARN}]"
+            )
+
+    def _warn(self, message: str) -> None:
+        """Sonucun yorumunu değiştiren UYARI: `--quiet` bile bunu yutmaz.
+
+        Ölçüldü (30 Ekim): `show_progress=False` iken `_status` hiçbir şey basmıyor;
+        "model dosya değiştiremez", yedeğe düşüş, bağlam sıkıştırma ve "kanıtlanmadı"
+        uyarıları kayboluyor, kullanıcı salt-okunur bir turu "başarılı" sanıyordu
+        (L1-23). İlerleme gürültüsü sessizleşir, uyarı sessizleşmez.
+        """
+        if self._show_progress:
+            self._status(message)
+            return
+        self._flush_streams()
+        self._close_line()
+        self._end_block()
+        self._console.print(f"[{theme.WARN}]{theme.ICON_STATUS} {escape(message)}[/{theme.WARN}]")
 
     def _flush_status(self, detail: str = "") -> None:
         """Bekleyen durum satırını bas. `detail` verilirse sonuna parantezle ekle."""
@@ -783,7 +893,8 @@ class ConsoleRenderer:
     def _tool_executed(self, event: ToolExecuted) -> None:
         """Araç çağrısını Claude Code diziliminde bas: `⏺ çağrı` + `⎿ sonuç`/diff."""
         self._end_block()
-        color = self._OUTCOME_COLORS[event.outcome]
+        # Bilinmeyen sonuç (yeni `ToolOutcome` üyesi) KeyError ile turu düşürmez (L1-37).
+        color = self._OUTCOME_COLORS.get(event.outcome, theme.DIM)
         cagri = _format_call(event.name, event.args)
         # highlight=False: Rich'in `ad(arg)`'ı Python çağrısı sanıp magentaya boyaması
         # engellenir; Claude Code araç adını düz/kalın gösterir, repr rengiyle değil.
@@ -868,6 +979,9 @@ _RESULT_PREFIX = 5
 # ile sayılır — kırpıldığı SÖYLENİR, sessizce yutulmaz.
 _RESULT_LINES = 8
 
+#: `FilesChanged` satırında tek tek yazılacak en fazla dosya.
+_FILES_LISTED = 8
+
 #: Bu uzunluğu aşan argüman değeri ham gösterilmez, yerine boyutu yazılır.
 _ARG_VALUE_LIMIT = 48
 
@@ -892,6 +1006,7 @@ _PRIMARY_ARG: dict[str, str] = {
     "scaffold_web": "path",
     "find_skill": "query",
     "read_skill": "name",
+    "Skill": "skill",
     "find_agent": "query",
     "spawn_agent": "task",
 }
@@ -925,17 +1040,45 @@ def _format_call(name: str, args: Mapping[str, object]) -> str:
     """
     anahtar = _PRIMARY_ARG.get(name)
     deger = args.get(anahtar) if anahtar else None
-    govde = _format_value(deger) if isinstance(deger, str) and deger.strip() else _fallback(args)
-
     bayraklar = [ad for ad in _FLAG_ARGS if args.get(ad) is True]
-    if bayraklar:
-        govde = f"{govde}, {', '.join(bayraklar)}" if govde else ", ".join(bayraklar)
+    ek = ", ".join(bayraklar)
+    if isinstance(deger, str) and deger.strip():
+        # Birincil argüman (yol/komut/url) boyuta ÇEVRİLMEZ: Ölçüldü (30 Ekim) 49+
+        # karakterli yol ve komut `<N karakter>` görünüyor, `auto` modda çalışan
+        # komut ekranda hiç okunamıyordu. Sığmazsa ORTADAN kısalır: yolun dosya adı
+        # ve komutun sonu (`| sh` gibi) da görünür kalır.
+        govde = " ".join(deger.split())
+        oda = _CALL_LIMIT - len(name) - len("()") - (len(ek) + 2 if ek else 0)
+        govde = _middle_shorten(govde, oda)
+    else:
+        govde = _fallback(args)
+    if ek:
+        govde = f"{govde}, {ek}" if govde else ek
 
     tek_satir = " ".join(f"{name}({govde})".split())
     if len(tek_satir) <= _CALL_LIMIT:
         return tek_satir
     # Kısaltırken kapanış parantezi KORUNUR: yarım kalan çağrı okunmuyor.
     return tek_satir[: _CALL_LIMIT - 2] + "…)"
+
+
+def _join_capped(paths: Sequence[str], limit: int = _FILES_LISTED) -> str:
+    """Yolları virgülle birleştir; `limit`ten fazlası `+M dosya daha` olur (L1-38).
+
+    Yüzlerce dosya değiştiren tur tek satırda ekranı taşırıyordu.
+    """
+    if len(paths) <= limit:
+        return ", ".join(paths)
+    return f"{', '.join(paths[:limit])} {messages.FILES_MORE.format(count=len(paths) - limit)}"
+
+
+def _middle_shorten(text: str, limit: int) -> str:
+    """Uzun metni ortadan kısalt: baş ve son görünür, ortaya `…` konur."""
+    if len(text) <= limit or limit < 5:
+        return text
+    bas = (limit - 1) // 2 + (limit - 1) % 2
+    son = limit - 1 - bas
+    return f"{text[:bas]}…{text[len(text) - son :]}"
 
 
 def _fallback(args: Mapping[str, object]) -> str:
@@ -972,6 +1115,26 @@ def _shorten(text: str, limit: int) -> str:
     """Uzun metni tek satıra sığdır. Araç kartı ekranı taşırmamalıdır."""
     flat = " ".join(text.split())
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _compression_line(event: ContextCompressed) -> str:
+    """Bağlam kısaltma satırı; ekrana taşınacak bir kazanç yoksa boş.
+
+    Ölçüldü (30 Ekim): "bağlam sıkıştırıldı (18 → 18 mesaj)" mesaj sayısı aynıyken
+    anlamsızdı ve her model çağrısında basılıyordu. Kazanılan karakter varsa o, yoksa
+    yalnız mesaj sayısı gerçekten düştüyse eski satır gösterilir.
+    """
+    if event.saved_chars > 0:
+        bin_esigi = 1000
+        miktar = (
+            f"{round(event.saved_chars / bin_esigi)} bin"
+            if event.saved_chars >= bin_esigi
+            else str(event.saved_chars)
+        )
+        return messages.AGENT_CONTEXT_TRIMMED.format(amount=miktar)
+    if event.after < event.before:
+        return messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
+    return ""
 
 
 def _budget_reason(event: TurnBudgetExhausted) -> str:

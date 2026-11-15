@@ -21,6 +21,7 @@ denemesi bir model çağrısıdır, atlanan teslimat yanlış "tamamlandı" rapo
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ...core.execution_plan import ExecutionPlan
@@ -40,6 +41,9 @@ class Deliverable:
     plan_markers: tuple[str, ...]
     #: Plana eklenmesi istenen işin tek cümlelik tarifi.
     instruction: str
+    #: Yalnız oyun işlerinde aranır mı? Düşman/dövüş ve hikâye oyun kavramlarıdır;
+    #: "test senaryoları yaz" gibi sıradan bir yazılım isteğinde zorunlu sanılmamalı.
+    game_only: bool = False
 
 
 DELIVERABLES: tuple[Deliverable, ...] = (
@@ -79,22 +83,55 @@ DELIVERABLES: tuple[Deliverable, ...] = (
             "dövüş",
             "savaş",
             "düşman",
+            "enemy",
+            "enemies",
+            "combat",
             "boss",
             "roguelike",
             "hack and slash",
         ),
-        plan_markers=("düşman", "enemy", "dövüş", "savaş", "combat", "boss", "hasar"),
+        plan_markers=("düşman", "enemy", "enemies", "dövüş", "savaş", "combat", "boss", "hasar"),
         instruction=(
             "düşmanları üreten ve oyuncuyla dövüşünü (hasar alma/verme) kuran ayrı bir adım"
         ),
+        game_only=True,
     ),
     Deliverable(
         name="hikâye / ara sahne",
-        request_markers=("ara sahne", "arasahne", "cutscene", "hikaye", "hikâye", "senaryo"),
+        # Yalın "senaryo" İSTEK işareti DEĞİL: "test senaryoları yaz" hikâye
+        # istemez (A3-02). Plan tarafında hâlâ kapsayıcı sayılır.
+        request_markers=("ara sahne", "arasahne", "cutscene", "hikaye", "hikâye"),
         plan_markers=("ara sahne", "arasahne", "cutscene", "hikaye", "hikâye", "senaryo"),
         instruction="hikâye metnini ve ara sahne akışını üreten ayrı bir adım",
+        game_only=True,
     ),
 )
+
+
+#: Görevin bir OYUN işi olduğunu gösteren işaretler (`game_only` teslimatların kapısı).
+_GAME_MARKERS = (
+    "oyun",
+    "game",
+    "godot",
+    "unity",
+    "roguelike",
+    "dead cells",
+    "deadcells",
+    "platformer",
+)
+
+
+def _contains(marker: str, text: str) -> bool:
+    """İşaret METNİN BİR SÖZCÜĞÜNÜN BAŞINDA mı geçiyor?
+
+    Eskiden alt dize eşleşmesiydi: `"ui"` "build", "required", "quiz" içinde de
+    bulunuyor, bu yüzden istek tarafında olmayan UI zorunlu sanılıyor, plan
+    tarafında ise "build" gerçek UI eksiğini gizliyordu (A3-02, ölçüldü 29 Ekim).
+    Türkçe ekler korunur (`assetler`, `arayüzü`): yalnız SÖZCÜK BAŞI aranır; en çok üç
+    harfli kısa işaretler (`ui`, `hud`) ek olarak sözcük SONU da ister (`UI'ı` geçer).
+    """
+    kalip = rf"(?<!\w){re.escape(marker)}" + (r"(?!\w)" if len(marker) <= 3 else "")
+    return re.search(kalip, text) is not None
 
 
 def _plan_metni(plan: ExecutionPlan) -> str:
@@ -117,11 +154,13 @@ def missing_deliverables(task: str, plan: ExecutionPlan) -> tuple[Deliverable, .
     """Görevde istenip planda hiç geçmeyen teslimatlar."""
     istek = task.casefold()
     kapsam = _plan_metni(plan)
+    oyun_isi = any(_contains(isaret, istek) for isaret in _GAME_MARKERS)
     return tuple(
         teslimat
         for teslimat in DELIVERABLES
-        if any(isaret in istek for isaret in teslimat.request_markers)
-        and not any(isaret in kapsam for isaret in teslimat.plan_markers)
+        if (oyun_isi or not teslimat.game_only)
+        and any(_contains(isaret, istek) for isaret in teslimat.request_markers)
+        and not any(_contains(isaret, kapsam) for isaret in teslimat.plan_markers)
     )
 
 

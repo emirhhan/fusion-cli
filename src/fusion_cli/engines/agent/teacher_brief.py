@@ -21,11 +21,18 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from ...core.redaction import redact
+
 #: Brief'in sert üst sınırı. Aşan kısım KIRPILIR, sessizce değil — kırpma notu
 #: eklenir (bkz. `compile_brief` docstring'i).
 BRIEF_CHAR_BUDGET = 25_000
 
-_KIRPMA_NOTU = "\n\n[…brief 25.000 karakter sınırına sığdırılırken kırpıldı…]"
+
+def _kirpma_notu(char_budget: int) -> str:
+    """Kırpma notu GERÇEK sınırı söyler; `char_budget` farklıysa sabit "25.000" yanlıştı (A4-55)."""
+    sinir = f"{char_budget:,}".replace(",", ".")
+    return f"\n\n[…brief {sinir} karakter sınırına sığdırılırken kırpıldı…]"
+
 
 #: Tek dosyadan alınan kesitin üst sınırı. 25.000'lik bütçede durum, denenenler
 #: ve soruya yer bırakıp üç dört dosyanın kilit bölümünü taşıyacak büyüklük;
@@ -92,6 +99,9 @@ def compile_brief(
     Sıra bilinçlidir: soru EN SONDA durur ki kırpma gerekirse önce durum/kod/
     denenenler kısalır, soru asla kaybolmaz (öğretmenin cevaplayacağı şey budur).
     """
+    durum, denenenler, question = redact(durum), redact(denenenler), redact(question)
+    touched_paths = tuple(redact(path) for path in touched_paths)
+    code_excerpts = tuple((redact(path), redact(content)) for path, content in code_excerpts)
     ilgili_kod = "\n".join(f"- {yol}" for yol in dict.fromkeys(touched_paths))
     kesitler = "\n\n".join(
         f"### {yol}\n```\n{_kesit(icerik)}\n```" for yol, icerik in code_excerpts if icerik.strip()
@@ -119,11 +129,12 @@ def _kirp(brief: str, question: str, char_budget: int) -> str:
     """
     soru_bolumu = f"## Soru\n{question.strip()}"
     ayrac = "\n\n"
-    kalan_pay = char_budget - len(soru_bolumu) - len(_KIRPMA_NOTU) - len(ayrac)
+    not_ = _kirpma_notu(char_budget)
+    kalan_pay = char_budget - len(soru_bolumu) - len(not_) - len(ayrac)
     if kalan_pay <= 0:
-        return (soru_bolumu[: char_budget - len(_KIRPMA_NOTU)]) + _KIRPMA_NOTU
+        return (soru_bolumu[: char_budget - len(not_)]) + not_
     govde = brief[: brief.rfind(soru_bolumu)] if soru_bolumu in brief else brief
-    return govde[:kalan_pay] + _KIRPMA_NOTU + ayrac + soru_bolumu
+    return govde[:kalan_pay] + not_ + ayrac + soru_bolumu
 
 
 def _kesit(icerik: str) -> str:

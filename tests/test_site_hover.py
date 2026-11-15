@@ -135,3 +135,38 @@ def test_menu_ve_alt_menu_betiksiz_kopyada_acilir(tmp_path):
     assert durum["giyim"] == "visible:GİYİM-1xy"
     assert durum["alt_icinde"].startswith("visible")
     assert durum["ust_alt_icinde"].startswith("visible")
+
+
+# --- Dalga 4 (T2-24) ------------------------------------------------------------------
+
+
+async def test_hover_yakalama_toplam_sure_butcesini_asmaz(monkeypatch):
+    """30 menü öğesi × alt panel dakikalar sürüyordu; bütçe dolunca eldekiyle devam."""
+    from fusion_cli.tools import site_hover
+
+    probe_sayisi = {"n": 0}
+
+    class _Yuruyucu:
+        def __init__(self, page, script):
+            pass
+
+        async def call(self, name, *args):
+            if name == "triggers" and not args:
+                return [{"id": str(i), "text": f"m{i}", "x": 1, "y": 1} for i in range(50)]
+            return []
+
+        async def probe(self, trigger, parent):
+            probe_sayisi["n"] += 1
+            return []
+
+        async def leave(self):
+            pass
+
+    monkeypatch.setattr(site_hover, "_Walker", _Yuruyucu)
+    zaman = iter(range(0, 10_000, 10))  # her okuma 10 sn ilerler
+    monkeypatch.setattr(site_hover.time, "monotonic", lambda: next(zaman))
+    monkeypatch.setattr(site_hover, "HOVER_BUDGET_S", 35.0)
+
+    await site_hover.capture_hover_panels(object())
+
+    assert probe_sayisi["n"] < 50

@@ -75,7 +75,7 @@ export function Models({
           <dt>Hakem</dt>
           <dd>{model.hakem || "—"}</dd>
           <dt>Aday havuzu</dt>
-          <dd>{model.adaylar.length > 0 ? model.adaylar.join(" · ") : "Yok"}</dd>
+          <dd>{(model.adaylar ?? []).length > 0 ? (model.adaylar ?? []).join(" · ") : "Yok"}</dd>
           <dt>Sağlayıcı</dt>
           <dd>{model.saglayici || "—"}</dd>
         </dl>

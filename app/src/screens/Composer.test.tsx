@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer, maliyetRozetMetni } from "./Composer";
 
@@ -13,6 +13,44 @@ describe("Composer", () => {
     expect(container.querySelector(".composer")?.getAttribute("data-layout")).toBe("expanded");
     rerender(<Composer attachments={[{ kind: "file", name: "notlar.md", path: "/tmp/notlar.md" }]} onSend={vi.fn()} />);
     expect(container.querySelector(".composer")?.getAttribute("data-layout")).toBe("expanded");
+  });
+
+  it("kişilik seçici yalnız onPersonaChange verilince çizilir ve seçimi iletir (P-053)", () => {
+    const onPersonaChange = vi.fn();
+    const { rerender } = render(<Composer onSend={vi.fn()} />);
+    expect(screen.queryByRole("combobox", { name: "Oturum kişiliği" })).toBeNull();
+    rerender(<Composer onSend={vi.fn()} persona={null} personaOptions={[{ ad: "explore", unvan: "Kâşif" }, { ad: "plan" }]} onPersonaChange={onPersonaChange} />);
+    const secici = screen.getByRole("combobox", { name: "Oturum kişiliği" }) as HTMLSelectElement;
+    expect(secici.value).toBe("");
+    fireEvent.change(secici, { target: { value: "explore" } });
+    expect(onPersonaChange).toHaveBeenCalledWith("explore");
+    rerender(<Composer onSend={vi.fn()} persona="explore" personaOptions={[{ ad: "explore", unvan: "Kâşif" }]} onPersonaChange={onPersonaChange} />);
+    expect(secici.value).toBe("explore");
+    fireEvent.change(secici, { target: { value: "" } });
+    expect(onPersonaChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("ajan seçici konuşma başladıktan sonra kilitlenir; ajan oturum başında seçilir (#34)", () => {
+    render(<Composer onSend={vi.fn()} persona="explore" personaLocked personaOptions={[{ ad: "explore" }]} onPersonaChange={vi.fn()} />);
+    const secici = screen.getByRole("combobox", { name: "Oturum kişiliği" }) as HTMLSelectElement;
+    expect(secici.disabled).toBe(true);
+    expect(secici.title).toContain("yeni sohbet");
+  });
+
+  it("alt görev düğmesi yalnız /subtask destekleniyorsa ve taslak varken çıkar, /subtask ile gönderir (P-054)", () => {
+    const onSend = vi.fn(() => true);
+    const subtask = { ad: "subtask", aciklama: "Alt ajanda çalıştır", grup: "Oturum", kullanim: "/subtask <görev>", destekleniyor: true };
+    const { rerender } = render(<Composer onSend={onSend} value="testleri koştur" />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="" />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="testleri koştur" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alt görev olarak gönder" }));
+    expect(onSend).toHaveBeenCalledWith("/subtask testleri koştur");
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="/compact" />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
+    rerender(<Composer commands={[subtask]} onSend={onSend} value="selam" workspaceMode="sohbet" onWorkspaceModeChange={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Alt görev olarak gönder" })).toBeNull();
   });
 
   it("Enter ile gönderir, boş girdiyi göndermez", () => {
@@ -123,18 +161,16 @@ describe("Composer", () => {
 // (bkz. `appserver/session.py`). Bu describe eskiden kip düğmelerini de
 // test ediyordu; o testler silindi, klavye kısayolu testleri kaldı.
 describe("Composer — izin modu klavye kısayolları", () => {
-  it("Shift+Tab İZİN modunu döndürür, normal Tab dolaşımını engellemez", () => {
-    // Kullanıcı terminaldeki davranışı bekliyor: Shift+Tab izin modunu döndürür.
-    // Çalışma kipi (Sohbet/Kod) ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
-    // alışkanlığı bozuyordu.
+  it("masaüstünde Shift+Tab izin modunu döndürmez; Cmd/Ctrl+Shift+M menüyü açar (#441)", () => {
     const onApprovalChange = vi.fn();
     render(<Composer approval="auto" onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
 
-    expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(false);
-    expect(onApprovalChange).toHaveBeenCalledWith("security");
-
-    expect(fireEvent.keyDown(textbox, { key: "Tab" })).toBe(true);
+    expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(true);
+    expect(onApprovalChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.keyDown(document, { key: "M", metaKey: true, shiftKey: true });
+    expect(screen.getByRole("menu", { name: "İzin modu" })).toBeTruthy();
   });
 
   it("IME composition sürerken Shift+Tab izin modunu değiştirmez", () => {
@@ -246,37 +282,34 @@ describe("Composer — izin modu", () => {
     expect(screen.queryByText("Agent · Otomatik")).toBeNull();
   });
 
-  it("Shift+Tab izin modunu Claude'daki sırayla döndürür; İzinleri atla döngüde yok", () => {
+  it("menü Claude sırasıyla; İzinleri atla yalnız Ayarlar'da açılınca görünür (#423, #442)", () => {
     const secilen: string[] = [];
-    const { rerender } = render(
-      <Composer approval="auto" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
-    );
-    for (const kip of ["security", "edits", "plan"] as const) {
-      fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Tab", shiftKey: true });
-      rerender(<Composer approval={kip} onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />);
-    }
-    fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Tab", shiftKey: true });
-    expect(secilen).toEqual(["security", "edits", "plan", "auto"]);
-  });
-
-  it("menüden açıklamalı beş kip seçilir; rakam tuşu da seçer", () => {
-    const secilen: string[] = [];
-    render(
+    window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
+    const { unmount } = render(
       <Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
     );
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
+    expect(screen.getAllByRole("menuitemradio").map((s) => s.querySelector("strong")?.textContent)).toEqual([
+      "Manuel", "Düzenlemeleri kabul et", "Plan", "Otomatik",
+    ]);
+    unmount();
+
+    window.localStorage.setItem("fusion.allowBypassPermissionsMode", "true");
+    render(<Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
     const secenekler = screen.getAllByRole("menuitemradio");
     expect(secenekler.map((s) => s.querySelector("strong")?.textContent)).toEqual([
-      "Otomatik", "Manuel", "Düzenlemeleri kabul et", "Plan", "İzinleri atla",
+      "Manuel", "Düzenlemeleri kabul et", "Plan", "Otomatik", "İzinleri atla",
     ]);
-    expect(secenekler[3].getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(secenekler[2]);
+    expect(secenekler[2].getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(secenekler[1]);
     expect(secilen).toEqual(["edits"]);
 
     fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
     fireEvent.keyDown(screen.getByRole("menu"), { key: "5" });
     expect(secilen).toEqual(["edits", "bypass"]);
     expect(screen.queryByRole("menu")).toBeNull();
+    window.localStorage.removeItem("fusion.allowBypassPermissionsMode");
   });
 });
 
@@ -342,6 +375,20 @@ describe("Composer — @ ile dosya anma", () => {
     fireEvent.change(textbox, { target: { value: "@comp", selectionStart: 5 } });
     return { ...utils, onFileQuery, onSend, textbox };
   }
+
+  it("@ listesinde ajanlar @agent-<ad> olarak önerilir (#26)", () => {
+    const { textbox } = anmaliComposer({
+      agentOptions: [
+        { ad: "code-reviewer", aciklama: "Kod inceler" },
+        { ad: "plan", aciklama: "Planlar" },
+      ],
+    });
+    fireEvent.change(textbox, { target: { value: "@agent-code", selectionStart: 11 } });
+    const ajan = screen.getByRole("option", { name: "Ajan code-reviewer" });
+    expect(screen.queryByRole("option", { name: "Ajan plan" })).toBeNull();
+    fireEvent.click(ajan);
+    expect(textbox.value).toBe("@agent-code-reviewer ");
+  });
 
   it("@ yazılınca sorguyu üst katmana bildirir", () => {
     const { onFileQuery } = anmaliComposer();
@@ -458,4 +505,185 @@ describe("Composer — @ ile MCP seçimi", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(textbox.value).toBe("@github ");
   });
+
+  // Ölçüldü (29 Ekim): `kontrol.durum` okunamayınca activeModel "" kalıyor ve seçici
+  // `onModelSelect && activeModel` yüzünden tamamen kayboluyordu; kullanıcı
+  // bozuk modelden başka modele geçemiyordu.
+  it("etkin model okunamasa da model seçici görünür ve açılabilir kalır", () => {
+    const onModelSelect = vi.fn();
+    const modelOptions = [{ deger: "/model agent a/b", etiket: "Model B" }];
+    const { rerender } = render(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Model B/ }));
+    expect(onModelSelect).toHaveBeenCalledWith(modelOptions[0]);
+    rerender(<Composer activeModel="" modelOptions={modelOptions} onModelSelect={onModelSelect} onSend={vi.fn()} running />);
+    expect(screen.getByRole("button", { name: /Model: (seçilmedi|Model seç)/ })).toBeTruthy();
+  });
+});
+
+describe("Composer — P2/P3 ayıklama turu (dalga 4)", () => {
+  it("sohbet kipinde Shift+Tab izin modunu sessizce değiştirmez (U1-03)", () => {
+    const onApprovalChange = vi.fn();
+    render(<Composer workspaceMode="sohbet" onWorkspaceModeChange={vi.fn()} onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(true);
+    expect(onApprovalChange).not.toHaveBeenCalled();
+  });
+
+  it("çalışma kipinde de Shift+Tab izin modunu döndürmez (#441)", () => {
+    const onApprovalChange = vi.fn();
+    render(<Composer workspaceMode="kod" onWorkspaceModeChange={vi.fn()} onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Mesaj" }), { key: "Tab", shiftKey: true });
+    expect(onApprovalChange).not.toHaveBeenCalled();
+  });
+
+  it("gönderim beklenirken eklenen karakter korunur, gönderilen kısım silinir (U1-04)", async () => {
+    let accept!: (value: unknown) => void;
+    render(<Composer onSend={() => new Promise((resolve) => { accept = resolve; })} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "ilk görev" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    fireEvent.change(textbox, { target: { value: "ilk görevX" } });
+    await act(async () => { accept({ requestId: "i", sessionId: "o", turnId: null, state: "accepted", error: null }); });
+    expect(textbox).toHaveProperty("value", "X");
+  });
+
+  it("reddedilen gönderim hata gösterir ve kilidi açar (U1-05)", async () => {
+    const onSend = vi.fn().mockRejectedValueOnce(new Error("ağ")).mockReturnValue(undefined);
+    render(<Composer onSend={onSend} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "dene" } });
+    await act(async () => { fireEvent.keyDown(textbox, { key: "Enter" }); });
+    expect(screen.getByRole("alert").textContent).toContain("gönderilemedi");
+    expect(textbox).toHaveProperty("value", "dene");
+    await act(async () => { fireEvent.keyDown(textbox, { key: "Enter" }); });
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("desteklenmeyen komutta Enter sessiz kalmaz ve modele ham komut gitmez (U1-06)", () => {
+    const onSend = vi.fn();
+    const commands = [{ ad: "denemecmd", aciklama: "x", grup: "g", kullanim: "/denemecmd", destekleniyor: false }];
+    render(<Composer commands={commands} onSend={onSend} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "/denemecmd" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("desteklenmiyor");
+  });
+
+  it("palette Enter desteklenmeyen seçeneği kutuya yazmaz (U1-06)", () => {
+    const commands = [{ ad: "denemecmd", aciklama: "x", grup: "g", kullanim: "/denemecmd", destekleniyor: false }];
+    render(<Composer commands={commands} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "/dene" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(textbox).toHaveProperty("value", "/dene");
+  });
+
+  it("onFileQuery kimliği değişse de Esc ile kapatılan anma listesi yeniden açılmaz (U1-08)", () => {
+    const sorgu = vi.fn();
+    const oneriler = [{ yol: "src/a.ts" }];
+    const { rerender } = render(<Composer onFileQuery={sorgu} fileSuggestions={oneriler} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "@a", selectionStart: 2 } });
+    expect(screen.getByRole("listbox", { name: "Anma önerileri" })).toBeTruthy();
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
+    rerender(<Composer onFileQuery={(q) => sorgu(q)} fileSuggestions={oneriler} onSend={vi.fn()} />);
+    expect(screen.queryByRole("listbox", { name: "Anma önerileri" })).toBeNull();
+    expect(sorgu).toHaveBeenCalledTimes(1);
+  });
+
+  it("metin sürüklemesi iptal edilmez, dosya sürüklemesi edilir (U1-09)", () => {
+    const onDropFiles = vi.fn();
+    const { container } = render(<Composer onDropFiles={onDropFiles} onSend={vi.fn()} />);
+    const kutu = container.querySelector(".composer")!;
+    expect(fireEvent.drop(kutu, { dataTransfer: { types: ["text/plain"], files: [] } })).toBe(true);
+    expect(onDropFiles).not.toHaveBeenCalled();
+    expect(fireEvent.drop(kutu, { dataTransfer: { types: ["Files"], files: [new File(["x"], "a.txt")] } })).toBe(false);
+    expect(onDropFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("panodaki görsel ek olarak eklenir, düz metin yapıştırma etkilenmez (U1-10)", () => {
+    const onDropFiles = vi.fn();
+    render(<Composer onDropFiles={onDropFiles} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    expect(fireEvent.paste(textbox, { clipboardData: { files: [] } })).toBe(true);
+    const gorsel = new File(["x"], "ekran.png", { type: "image/png" });
+    expect(fireEvent.paste(textbox, { clipboardData: { files: [gorsel] } })).toBe(false);
+    expect(onDropFiles).toHaveBeenCalledWith([gorsel]);
+  });
+
+  it("IME kurulumundaki Esc çalışan turu durdurmaz (U1-12)", () => {
+    const onStop = vi.fn();
+    render(<Composer running onStop={onStop} onSend={vi.fn()} />);
+    fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Escape", isComposing: true });
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it("anma listesi açıkken Esc turu değil listeyi kapatır (U1-13)", () => {
+    const onStop = vi.fn();
+    render(<Composer running onStop={onStop} onFileQuery={vi.fn()} fileSuggestions={[{ yol: "a.ts" }]} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    fireEvent.change(textbox, { target: { value: "@a", selectionStart: 2 } });
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(onStop).not.toHaveBeenCalled();
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("açık palet textarea ile aria-controls/activedescendant üzerinden ilişkilidir (U1-14)", () => {
+    const commands = [{ ad: "compact", aciklama: "x", grup: "g", kullanim: "/compact", destekleniyor: true }];
+    render(<Composer commands={commands} onSend={vi.fn()} />);
+    const textbox = screen.getByLabelText("Mesaj");
+    expect(textbox.hasAttribute("aria-controls")).toBe(false);
+    fireEvent.change(textbox, { target: { value: "/c" } });
+    const liste = screen.getByRole("listbox", { name: "Komut önerileri" });
+    expect(textbox.getAttribute("aria-controls")).toBe(liste.id);
+    expect(document.getElementById(textbox.getAttribute("aria-activedescendant")!)?.getAttribute("role")).toBe("option");
+  });
+
+  it("Windows yolunda dosya adı ters eğik çizgiden bölünür (U1-19)", () => {
+    render(<Composer onFileQuery={vi.fn()} fileSuggestions={[{ yol: "src\\ui\\App.tsx" }]} onSend={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Mesaj"), { target: { value: "@A", selectionStart: 2 } });
+    expect(screen.getByText("@App.tsx")).toBeTruthy();
+  });
+});
+
+it("iş sürerken bağlam kartında /compact düğmesi sunulmaz, boştayken sunulur (U1-11)", () => {
+  const context = { kullanilan: 20000, sinir: 24000, yuzde: 83 };
+  const { rerender } = render(<Composer context={context} onSend={vi.fn()} running />);
+  fireEvent.click(screen.getByRole("meter"));
+  expect(screen.queryByRole("button", { name: /Bağlamı sıkıştır/ })).toBeNull();
+  rerender(<Composer context={context} onSend={vi.fn()} />);
+  fireEvent.click(screen.getByRole("meter"));
+  expect(screen.getByRole("button", { name: /Bağlamı sıkıştır/ })).toBeTruthy();
+});
+
+it("active-model loading and failure are visible while catalog retry remains separate", () => {
+  const retry = vi.fn();
+  const catalog = vi.fn();
+  const props = { onSend: vi.fn(), onModelSelect: vi.fn(), onModelMenuOpen: catalog, onActiveModelRetry: retry };
+  const { rerender } = render(<Composer {...props} activeModelPending />);
+  expect(screen.getByRole("button", { name: /Model: Etkin model okunuyor/ }).textContent).toContain("Etkin model okunuyor");
+  rerender(<Composer {...props} activeModelError="Etkin model okunamadı." />);
+  fireEvent.click(screen.getByRole("button", { name: /Model: Etkin model okunamadı/ }));
+  expect(screen.getByRole("alert").textContent).toContain("Etkin model okunamadı.");
+  fireEvent.click(screen.getByRole("button", { name: "Etkin modeli yeniden oku" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(catalog).toHaveBeenCalledTimes(1);
+});
+
+it("failed refresh marks the retained model while the picker is closed", () => {
+  render(<Composer onSend={vi.fn()} onModelSelect={vi.fn()} activeModel="pinned-model" activeModelError="Etkin model yenilenemedi; son okunan model gösteriliyor." />);
+  const trigger = screen.getByRole("button", { name: /pinned-model · yenilenemedi/ });
+  expect(trigger.textContent).toContain("pinned-model · yenilenemedi");
+  expect(trigger.getAttribute("title")).toContain("son okunan");
+});
+
+it("running composer shows an unread active model as failure without a selected-model placeholder", () => {
+  render(<Composer onSend={vi.fn()} onModelSelect={vi.fn()} running activeModelError="Etkin model okunamadı." />);
+  const trigger = screen.getByRole("button", { name: /Model: Etkin model okunamadı/ });
+  expect(trigger.textContent).toContain("Etkin model okunamadı");
+  expect(trigger.textContent).not.toContain("Model seç");
 });

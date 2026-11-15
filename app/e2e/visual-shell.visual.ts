@@ -53,13 +53,15 @@ test("keyboard-focus", async ({ page }) => {
   await expect(page).toHaveScreenshot("keyboard-focus.png", { fullPage: true });
 });
 
-test("compact-rail-keyboard-activation", async ({ page }) => {
+test("sidebar-session-keyboard-activation", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 760 });
   await page.goto("/e2e/preview.html?state=conversation&theme=light&inspector=0");
-  const session = page.getByRole("button", { name: "macOS uygulaması" });
+  const session = page.getByRole("button", { name: "macOS uygulaması", exact: true });
   await expect(session).toBeVisible();
-  await expect(session.locator(".source-icon")).toBeVisible();
-  await expect(session.locator(".sidebar__session-title")).toBeHidden();
+  await expect(session.locator(".sidebar__session-dot")).toHaveCount(1);
+  await expect(session.locator(".sidebar__session-dot")).toHaveAttribute("aria-hidden", "true");
+  await expect(session.locator(".sidebar__session-dot")).toBeHidden();
+  await expect(session.locator(".sidebar__session-title")).toBeVisible();
   await session.evaluate((button) => {
     button.addEventListener("click", () => {
       document.body.dataset.railKeyboardActivated = "true";

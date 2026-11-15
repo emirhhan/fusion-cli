@@ -20,17 +20,25 @@ from pathlib import Path
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str
-from .files import resolve_path
+from .files import writable_path
 
 #: Diske yazılacak iskele dosyaları. İçerikleri paket içinde durur ve test edilir.
-SCAFFOLD_FILES: tuple[str, ...] = ("tokens.css", "format.js", "index.html")
+#: `style.css` ve `script.js` yorum satırlı boş taslaktır: `index.html` bunlara bağlanır, model
+#: yazmayı unutursa sayfa 404 yerine boş taslağı yükler (SKILL'in "en sık düşen" hatası).
+SCAFFOLD_FILES: tuple[str, ...] = (
+    "tokens.css",
+    "format.js",
+    "style.css",
+    "script.js",
+    "index.html",
+)
 
 _TEMPLATES = Path(__file__).parent / "scaffold"
 
 
 def scaffold_web(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Hazır tasarım token'ları, biçimlendiriciler ve sayfa iskeletini diske yaz."""
-    hedef = resolve_path(context, optional_str(args, "path", "."))
+    hedef = writable_path(context, optional_str(args, "path", "."))
     hedef.mkdir(parents=True, exist_ok=True)
 
     yazilan: list[str] = []
@@ -46,6 +54,7 @@ def scaffold_web(args: ToolArgs, context: ToolContext) -> ToolResult:
         # dosyaların agent tarafından oluşturulduğunu bilemiyordu.
         context.changes.record(dosya)
         dosya.write_text((_TEMPLATES / ad).read_text(encoding="utf-8"), encoding="utf-8")
+        context.changes.record_applied(dosya)
         context.touched.add(dosya)
         yazilan.append(ad)
 

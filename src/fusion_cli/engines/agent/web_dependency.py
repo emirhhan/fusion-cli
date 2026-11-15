@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -31,12 +32,20 @@ class _DependencyParser(HTMLParser):
             self.sources.append(source)
 
 
+#: Şablon sözdizimi: Jinja/Django/Twig `{{ }}`/`{% %}`, CRA `%PUBLIC_URL%`, PHP `<?`,
+#: ERB/EJS `<%`, JS/shell `${}`/`$VAR`. Bu kaynaklar çalışma zamanında çözülür; ham metin
+#: gerçek dosya yolu DEĞİLDİR. Ölçüldü (29 Ekim): `{{ url_for('static', …) }}` ve
+#: `%PUBLIC_URL%/x.js` "dosya yok" BLOCKING üretiyordu (A4-12).
+_TEMPLATE_SYNTAX = re.compile(r"\{|\}|<[?%]|%[A-Za-z_][A-Za-z0-9_]*%|\$")
+
+
 def missing_local_dependencies(html: str, *, document: Path, root: Path) -> tuple[str, ...]:
     """Belge URL'sine göre çözülen yerel CSS/JS dosyaları yoksa bulgu üret.
 
     Disk okunmaz: yalnız varlık kontrol edilir. Ağ/data/blob kaynakları bu mekanik
     kapının kapsamı dışındadır; tarayıcı doğrulaması yükleme sonucunu ölçer.
     file URL'leri ve kodlanmış ayırıcılar doğrulanamadığı için engellenir.
+    Şablon sözdizimli kaynaklar atlanır.
     """
     parser = _DependencyParser()
     parser.feed(html)
@@ -54,6 +63,8 @@ def missing_local_dependencies(html: str, *, document: Path, root: Path) -> tupl
     findings: list[str] = []
     seen: set[Path] = set()
     for source in parser.sources:
+        if _TEMPLATE_SYNTAX.search(source):
+            continue  # şablon çıktısı derlenmeden doğrulanamaz; tarayıcı kapısı ölçer
         resolved = _resolve_source(source, base_url, root)
         if resolved.problem:
             findings.append(f"'{document_name}' kaynağı: {source}; {resolved.problem}")

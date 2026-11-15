@@ -147,14 +147,17 @@ def test_onay_modu_komutla_degisir(registry, state):
 
 
 def test_onay_modu_dongusel_ilerler(state):
-    """Shift+Tab dört kipi döner; "İzinleri atla" tek tuşla yanlışlıkla açılmaz."""
+    """Shift+Tab dört kipi döner; "İzinleri atla" tek tuşla yanlışlıkla açılmaz.
+
+    `dontAsk` Claude Code'da da Shift+Tab döngüsünde yoktur; yalnız ayar/bayrakla seçilir.
+    """
     baslangic = state.approval
     goruilen = {baslangic}
 
-    for _ in range(len(ApprovalMode) - 1):
+    for _ in range(len(ApprovalMode) - 2):
         goruilen.add(state.cycle_approval())
 
-    assert goruilen == set(ApprovalMode) - {ApprovalMode.BYPASS}
+    assert goruilen == set(ApprovalMode) - {ApprovalMode.BYPASS, ApprovalMode.DONT_ASK}
     assert state.approval is baslangic  # tam tur
     state.approval = ApprovalMode.BYPASS
     assert state.cycle_approval() is ApprovalMode.AUTO
@@ -200,6 +203,17 @@ def test_thinking_ac_kapa(registry, state):
 
     _calistir(registry, state, "/thinking")
     assert not state.show_thinking
+
+
+def test_zil_ac_kapa(registry, state):
+    """`/zil` tur bitiş zilini açar/kapatır; varsayılan kapalı (P-047)."""
+    assert not state.bell
+
+    _calistir(registry, state, "/zil")
+    assert state.bell
+
+    _calistir(registry, state, "/zil")
+    assert not state.bell
 
 
 def test_sentez_yapilandirmadan_baslar_ve_terslenir(registry, state):
@@ -752,7 +766,8 @@ def test_undo_degisiklik_yokken_bilgi_verir(state):
     komut = build_registry().get("undo")
 
     assert komut is not None
-    assert komut.handler(state, "") == messages.UNDO_NOTHING
+    # `/undo` `/rewind` takma adıdır (#201): boş defterde rewind'in iletisi.
+    assert komut.handler(state, "") == messages.REWIND_NOTHING
 
 
 def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):
@@ -764,6 +779,7 @@ def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):
     kayit = ChangeSet()
     kayit.record(dosya)
     dosya.write_text("agent yazdi\n", encoding="utf-8")
+    kayit.record_applied(dosya)
 
     state.last_changes = kayit
     komut = build_registry().get("undo")
@@ -786,7 +802,7 @@ def test_mcp_bos_argumanla_sunucu_yoksa_kurulum_ipucu_verir(state):
     komut = build_registry().get("mcp")
 
     assert komut is not None
-    assert komut.handler(state, "") == messages.MCP_NO_SERVERS
+    assert komut.handler(state, "").endswith(messages.MCP_NO_SERVERS)
 
 
 def test_mcp_add_sunucu_ekler_ve_listede_gorunur(state, tmp_path, monkeypatch):
@@ -1079,7 +1095,7 @@ def test_yardim_ekrani_kosem_parantezli_kullanimi_yutmaz(capsys):
     _help(build_registry(), Console(force_terminal=False, width=200))
     cikti = capsys.readouterr().out
 
-    for parca in ("[alt-komut]", "[arama]", "[seviye]", "[add]", "[incompatible]"):
+    for parca in ("[N]", "[arama]", "[seviye]", "[add]", "[incompatible]"):
         assert parca in cikti, f"kullanım ipucu yutulmuş: {parca}"
 
 
@@ -1177,3 +1193,259 @@ async def test_isitma_web_oturum_kaydini_gecirir(tmp_path: Path, monkeypatch) ->
     await repl_loop._warm_up(state)
 
     assert "web_sessions" in gorulen, "ısıtma web oturum kaydını hiç geçirmiyor"
+
+
+def test_undo_kismi_basarisizlikta_geri_alinamayan_dosyalari_adlandirir(state, tmp_path):
+    """Ölçüldü (30 Ekim): kısmi geri almada yalnız sayı yazılıyordu, kayıt da siliniyordu;
+    kullanıcı hangi dosyayı elle düzelteceğini bilemiyordu (L2-30)."""
+    import shutil
+
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.core.changeset import ChangeSet
+
+    iyi = tmp_path / "iyi.py"
+    iyi.write_text("eski\n", encoding="utf-8")
+    kotu_dizin = tmp_path / "kaybolacak"
+    kotu_dizin.mkdir()
+    kotu = kotu_dizin / "kotu.py"
+    kotu.write_text("eski\n", encoding="utf-8")
+    kayit = ChangeSet()
+    kayit.record(iyi)
+    kayit.record(kotu)
+    iyi.write_text("agent\n", encoding="utf-8")
+    kayit.record_applied(iyi)
+    kotu.write_text("agent\n", encoding="utf-8")
+    kayit.record_applied(kotu)
+    shutil.rmtree(kotu_dizin)
+    kotu_dizin.write_text("artık dizin değil", encoding="utf-8")
+    state.last_changes = kayit
+
+    komut = build_registry().get("undo")
+    assert komut is not None
+    mesaj = komut.handler(state, "")
+
+    assert "1 dosya geri alınamadı" in mesaj
+    assert "kotu.py" in mesaj
+    assert iyi.read_text(encoding="utf-8") == "eski\n"
+    assert kotu_dizin.read_text(encoding="utf-8") == "artık dizin değil"
+    assert state.last_changes is kayit
+    assert kayit.restorable_paths == (kotu,)
+
+
+def test_mcp_listesi_arguman_icindeki_tokeni_gostermez(state):
+    """Ölçüldü (30 Ekim): `/mcp` argümanları olduğu gibi basıyor, transcript'e gidiyordu (L2-28)."""
+    from dataclasses import replace
+
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.config.models import McpServerConfig
+
+    gizli = "ghp_" + "a1B2c3D4e5F6g7H8i9J0" * 2
+    sunucu = McpServerConfig(name="gh", command="npx", args=("-y", "srv", f"--token={gizli}"))
+    state.config = replace(state.config, mcp_servers=(sunucu,))
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    cikti = komut.handler(state, "")
+
+    assert gizli not in cikti
+    assert "gh" in cikti and "npx" in cikti
+
+
+def test_add_dir_proje_kokunun_ust_klasorunu_claude_gibi_ekler(tmp_path):
+    """Claude Code (#77, kullanıcı kararı 2 Kasım): üst klasör de eklenebilir."""
+    from fusion_cli.cli.repl.workspace_commands import add_dir
+
+    ust = tmp_path / "Desktop"
+    kok = ust / "proje"
+    kok.mkdir(parents=True)
+    state = ReplState(config=make_config(), memory=null_memory(), root=kok, home=tmp_path)
+
+    mesaj = add_dir(state, str(ust))
+
+    assert "Erişim açıldı" in mesaj
+    assert state.extra_roots == (ust.resolve(),)
+
+
+def test_add_dir_kardes_klasoru_kabul_eder(tmp_path):
+    from fusion_cli.cli.repl.workspace_commands import add_dir
+
+    ust = tmp_path / "Desktop"
+    kok = ust / "proje"
+    kardes = ust / "diger"
+    kok.mkdir(parents=True)
+    kardes.mkdir()
+    state = ReplState(config=make_config(), memory=null_memory(), root=kok, home=tmp_path)
+
+    add_dir(state, str(kardes))
+
+    assert state.extra_roots == (kardes.resolve(),)
+
+
+# --- /memory ve `#` notu (P-036) ---------------------------------------------- #
+
+
+def test_memory_komutu_durum_konu_ve_not_kisayolu(state, registry, tmp_path):
+    from fusion_cli.cli.repl import prefixes
+
+    assert state.plain_memory is not None
+    komut = registry.get("memory")
+    assert komut is not None and registry.get("bellek") is komut
+
+    # `#` öneki Claude Code'da yok (#157, #220); not yazma `add_memory_note` ile kalır.
+    sonuc = prefixes.add_memory_note(state, "kullanıcı kısa yanıt ister")
+    assert "Not belleğe yazıldı" in sonuc
+    assert "kısa yanıt ister" in state.plain_memory.read()
+
+    state.plain_memory.remember("odeme", "PayTR sandbox")
+    assert "Konular: odeme" in komut.handler(state, "list")
+    assert "PayTR sandbox" in komut.handler(state, "odeme")
+    assert "Bu konuda bellek yok" in komut.handler(state, "yok-boyle")
+    durum = komut.handler(state, "durum")
+    assert "açık" in durum and "MEMORY.md" in durum  # Claude Code adı (#153)
+    # Claude Code `/memory` (#154): argümansız çağrı CLAUDE.md dosyalarını listeler.
+    secici = komut.handler(state, "")
+    assert "Kullanıcı belleği" in secici and "CLAUDE.local.md" in secici
+    assert "MEMORY.md" in secici and "seçilince oluşturulur" in secici
+    assert "Geçersiz seçim" in komut.handler(state, "99")
+    assert "CLAUDE.local.md" in komut.handler(state, "3")  # TTY yok: yol söylenir, dosya oluşur
+    assert (state.root / "CLAUDE.local.md").exists()
+
+
+def test_memory_off_kalici_yazar_ve_araclari_kapatir(state, registry, tmp_path, monkeypatch):
+    from fusion_cli.cli.repl import memory_commands, prefixes
+
+    yazilan = {}
+    monkeypatch.setattr(
+        memory_commands,
+        "write_runtime_flag",
+        lambda config, key, value: yazilan.update({key: value}),
+    )
+    komut = registry.get("memory")
+    assert komut is not None
+
+    assert "kapalı" in komut.handler(state, "off")
+    assert yazilan == {"auto_memory": False}
+    assert state.plain_memory is None and state.config.runtime.auto_memory is False
+    assert komut.handler(state, "durum") == "Otomatik bellek kapalı. Açmak için: /memory on"
+    assert "Otomatik bellek: kapalı" in komut.handler(state, "")
+    assert "kapalı" in prefixes.add_memory_note(state, "not")
+
+    assert "açık" in komut.handler(state, "on")
+    assert state.plain_memory is not None
+
+
+def test_memory_import_claude_bellegini_alir(state, registry):
+    from fusion_cli.history.claude_source import slug_for
+
+    kaynak = state.home / ".claude" / "projects" / slug_for(state.root) / "memory"
+    kaynak.mkdir(parents=True)
+    (kaynak / "MEMORY.md").write_text("- kullanıcı motosiklet satar\n", encoding="utf-8")
+    komut = registry.get("memory")
+    assert komut is not None
+
+    assert komut.handler(state, "import") == "Kullanım: /memory import claude"
+    sonuc = komut.handler(state, "import claude")
+
+    assert "1 dosya claude" in sonuc
+    assert state.plain_memory is not None and "motosiklet" in state.plain_memory.read()
+    assert "bulunamadı" in komut.handler(
+        ReplState(
+            config=make_config(), memory=null_memory(), root=state.root / "bos", home=state.home
+        ),
+        "import claude",
+    )
+
+
+def test_memory_ajan_alt_komutu_ajan_bellegini_gosterir_ve_siler(state, registry, tmp_path):
+    """P-055: `/memory ajan <ad>` kapsamı, yolu ve metni; `sil` dizini kaldırır."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "kodcu.md").write_text(
+        "---\nname: kodcu\ndescription: d\nmemory: local\n---\ngövde", encoding="utf-8"
+    )
+    state.capabilities = CapabilityRegistry(state.home, state.root)
+    komut = registry.get("memory")
+    assert komut is not None
+
+    assert komut.handler(state, "ajan") == "Kullanım: /memory ajan <ad> [sil]"
+    assert "adlı ajan yok" in komut.handler(state, "ajan yok-boyle")
+    assert "kalıcı belleği yok" in komut.handler(state, "ajan arastirmaci")
+    assert "henüz boş" in komut.handler(state, "ajan kodcu")
+
+    bellek = open_agent_memory(state.config, state.root, "kodcu", "local")
+    assert bellek is not None
+    bellek.remember("stil", "kısa yanıt")
+    durum = komut.handler(state, "ajan kodcu")
+    assert "kodcu belleği (local)" in durum and "kısa yanıt" in durum and "konular: stil" in durum
+
+    assert komut.handler(state, "ajan kodcu sil") == "kodcu belleği silindi."
+    assert komut.handler(state, "ajan kodcu sil") == "kodcu belleği zaten yok."
+
+
+def test_persona_komutu_oturum_kisiligini_secer_ve_kapatir(state, registry):
+    """P-053: `/persona <ad>` kişiliği kurar, tur notu ve araç kısıtı buradan türer."""
+    from fusion_cli.cli.repl.persona_commands import persona_turn
+
+    komut = registry.get("persona")
+    assert komut is not None and registry.get("kisilik") is komut
+    assert "kişiliği yok" in komut.handler(state, "")
+    assert "adlı ajan yok" in komut.handler(state, "yok-boyle") and state.persona is None
+
+    sonuc = komut.handler(state, "explore")
+    assert "Kâşif (explore)" in sonuc and state.persona is not None
+    tur = persona_turn(state.persona)
+    assert "# Oturum kişiliği: Kâşif (explore)" in tur.extra_system
+    assert tur.allowed_tools is not None and "read_file" in tur.allowed_tools
+    assert "write_file" not in tur.allowed_tools
+    assert "Kâşif" in komut.handler(state, "")
+
+    assert "kapatıldı" in komut.handler(state, "off") and state.persona is None
+    bos = persona_turn(None)
+    assert bos.extra_system == "" and bos.allowed_tools is None
+
+
+def test_persona_tools_vermeyip_yasak_arac_yazan_ajanda_yasak_uygulanir(state, registry, tmp_path):
+    """Ölçüldü (31 Ekim): `tools:` yok, `disallowedTools: Write, Edit` olan ajan (Claude Code'un
+    yaygın salt-okur kalıbı) `persona_turn(...).allowed_tools` None dönüyordu: yasak araçlar
+    açık kalıyordu. Yasak kümesi `denied_tools` ile tura taşınır."""
+    from fusion_cli.cli.repl.persona_commands import persona_turn
+
+    ajanlar = state.root / ".claude" / "agents"
+    ajanlar.mkdir(parents=True, exist_ok=True)
+    (ajanlar / "okur.md").write_text(
+        "---\nname: okur\ndescription: d\ndisallowedTools: Write, Edit, mcp__srv\n---\ngövde",
+        encoding="utf-8",
+    )
+
+    registry.get("persona").handler(state, "okur")
+    assert state.persona is not None and state.persona.name == "okur"
+    tur = persona_turn(state.persona)
+    assert tur.allowed_tools is None
+    assert {"write_file", "edit_file", "mcp__srv__*"} <= tur.denied_tools
+
+
+def test_subtask_komutu_gorevi_fork_kipiyle_hazirlar(state, registry):
+    """P-054: `/subtask <görev>` turu HAZIRLAR; döngü fork alt ajanla koşturur."""
+    from fusion_cli.cli.repl.macros import Mode, mode_fork
+
+    komut = registry.get("subtask")
+    assert komut is not None and registry.get("altgorev") is komut
+    assert (
+        komut.handler(state, "")
+        == "Kullanım: /subtask <alt görev> — ana bağlamı devralan alt ajan çalışır"
+    )
+    assert state.pending_task == ""
+
+    assert "fork alt ajana" in komut.handler(state, "  testleri koştur ve raporla ")
+    assert state.take_pending() == ("testleri koştur ve raporla", Mode.SUBTASK)
+    assert mode_fork(Mode.SUBTASK) and not mode_fork(Mode.GOAL)
+
+
+def test_agents_komutu_claude_code_gibi_hatirlatma_basar(registry, state):
+    """Güncel Claude Code: `/agents` Claude'a sormayı ya da dizinleri düzenlemeyi hatırlatır."""
+    cikti = _calistir(registry, state, "/agents")
+
+    assert ".claude/agents/" in cikti and "~/.claude/agents/" in cikti

@@ -112,10 +112,19 @@ async def _read_bounded(stream: asyncio.StreamReader) -> StreamOutput:
 
 
 def _signal_owned_group(pid: int, sig: signal.Signals) -> None:
+    """Bize ait süreç grubuna sinyal gönder.
+
+    `cleanupFile` Node'un yazdığı güvenilmeyen bir dosyadır: PID geri dönüşümü ya da bozuk
+    satır başka bir grubu hedefleyebilir. 1'den küçük PID'ler ve KENDİ grubumuz asla
+    sinyal almaz; başka kullanıcıya ait grup (`PermissionError`) sessizce atlanır
+    (ölçüldü, 30 Ekim: istisna `finally` temizliğini yarıda kesiyordu).
+    """
+    if pid <= 1 or pid == os.getpgrp():
+        return
     try:
         os.killpg(pid, sig)
-    except ProcessLookupError:
-        return  # Bizim süreç grubumuz zaten kapanmış; başka PID aranmaz.
+    except (ProcessLookupError, PermissionError):
+        return  # Grup zaten kapanmış ya da bize ait değil; başka PID aranmaz.
 
 
 async def _terminate_owned_group(

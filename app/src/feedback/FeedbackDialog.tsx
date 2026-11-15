@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useModalFocus } from "../ui/useModalFocus";
 import { buildIssueUrl, redact, reportBody, supportBundle, type ReportInput, type ReportKind } from "./report";
 import "./FeedbackDialog.css";
 
@@ -59,21 +60,18 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
   const [surum, setSurum] = useState("bilinmiyor");
   const [durum, setDurum] = useState<"bos" | "acildi" | "indirildi" | "indirme-hatasi" | "hata">("bos");
   const metinRef = useRef<HTMLTextAreaElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const ayrinti = initial?.ayrinti?.trim() ?? "";
 
-  // Çağıranlar `onClose`'u satır içi verir; etki her çizimde yeniden kurulup
-  // odağı metin alanına geri çalmasın diye en güncel geri çağırım ref'te tutulur.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // Odak tuzağı, arka planı inert yapma ve katmanlı Escape ortak kancadan gelir (iç içe modal
+  // tek tuşla birlikte kapanmaz); `onClose` satır içi gelse de kanca en günceli ref'te tutar.
+  useModalFocus(dialogRef, true, onClose, "textarea");
   const loadVersionRef = useRef(loadVersion);
 
   useEffect(() => {
-    metinRef.current?.focus();
     let iptal = false;
     void loadVersionRef.current().then((value) => { if (!iptal) setSurum(value); });
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onCloseRef.current(); };
-    window.addEventListener("keydown", onKey);
-    return () => { iptal = true; window.removeEventListener("keydown", onKey); };
+    return () => { iptal = true; };
   }, []);
 
   const girdi: ReportInput = { tur, mesaj, ayrinti: ayrintiEkle && ayrinti ? ayrinti : undefined };
@@ -91,7 +89,7 @@ export function FeedbackDialog({ initial, onClose, openExternal = openWithSystem
 
   return (
     <div className="feedback-dialog__backdrop" role="presentation">
-      <section aria-labelledby="feedback-dialog-title" aria-modal="true" className="feedback-dialog" role="dialog">
+      <section aria-labelledby="feedback-dialog-title" aria-modal="true" className="feedback-dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
         <header>
           <h2 id="feedback-dialog-title">{tur === "hata" ? "Hata bildir" : "Geri bildirim gönder"}</h2>
           <button aria-label="Pencereyi kapat" className="feedback-dialog__close" onClick={onClose} type="button">×</button>

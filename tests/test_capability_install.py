@@ -87,3 +87,60 @@ def test_skill_ek_dosyalari_listelenir_ikili_ve_disari_kacis_verilmez(tmp_path, 
     assert skill_file(skill_md, "references/a.md") is not None
     assert skill_file(skill_md, "references/resim.png") is None
     assert skill_file(skill_md, "../../setup.sh") is None
+
+
+# --- Dalga 4 (T1-49) ----------------------------------------------------------------
+
+
+def test_kurulum_yarida_cokerse_yarim_klasor_kalmaz(tmp_path, monkeypatch):
+    """Manifest yazımı/describe çökerse hedef dizin kalıp "zaten kurulu" diyordu."""
+    from fusion_cli.tools import capability_install
+
+    _sahte_git(monkeypatch)
+
+    def _coker(*_a, **_k):
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr(capability_install, "describe", _coker)
+    with pytest.raises(OSError):
+        capability_install.install("https://github.com/acme/yetenek", tmp_path)
+
+    assert not (tmp_path / "acme-yetenek").exists()
+
+
+def test_klon_zaman_asiminda_yarim_klasor_temizlenir(tmp_path, monkeypatch):
+    from fusion_cli.tools import capability_install
+
+    def _git(args, *, cwd, timeout):
+        if args[0] == "clone":
+            (cwd / "acme-yetenek").mkdir()
+            (cwd / "acme-yetenek" / "yarim").write_text("x", encoding="utf-8")
+            raise capability_install.CapabilityInstallError("git çalıştırılamadı: zaman aşımı")
+        return ""
+
+    monkeypatch.setattr(capability_install, "_git", _git)
+    with pytest.raises(capability_install.CapabilityInstallError):
+        capability_install.install("https://github.com/acme/yetenek", tmp_path)
+
+    assert not (tmp_path / "acme-yetenek").exists()
+
+
+def test_bozuk_manifest_listelemeyi_dusurmez(tmp_path):
+    from fusion_cli.tools import capability_install
+
+    (tmp_path / "a-b").mkdir()
+    (tmp_path / "a-b" / capability_install._MANIFEST).write_text('{"url": "x"}', encoding="utf-8")
+    (tmp_path / "c-d").mkdir()
+    (tmp_path / "c-d" / capability_install._MANIFEST).write_text("[1, 2]", encoding="utf-8")
+
+    assert capability_install.installed(tmp_path) == []
+
+
+def test_farkli_repo_ayni_adi_uretirse_mesaj_cakismayi_soyler(tmp_path, monkeypatch):
+    from fusion_cli.tools import capability_install
+
+    _sahte_git(monkeypatch)
+    capability_install.install("https://github.com/a-b/c", tmp_path)
+
+    with pytest.raises(capability_install.CapabilityInstallError, match="çakış"):
+        capability_install.install("https://github.com/a/b-c", tmp_path)

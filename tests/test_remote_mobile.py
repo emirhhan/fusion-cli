@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.backend import AppSessionBackend
 from fusion_cli.remote.controller import RemoteController
 from fusion_cli.remote.devices import Device, DeviceRegistry
@@ -17,11 +18,18 @@ from fusion_cli.remote.mobile import MobileApi
 from fusion_cli.remote.projects import ProjectStore
 from fusion_cli.remote.rpc import RemoteService
 from fusion_cli.remote.tasks import TaskStore
-from fusion_cli.remote.uploads import MediaReader, UploadStore
+from fusion_cli.remote.uploads import MediaReader, UploadError, UploadStore
 from tests.test_remote_controller import MemorySecrets
 from tests.test_remote_service import FakeBackend, FakeClock
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * 32).decode()
+
+
+def _yerel_sahip():
+    """Masaüstündeki yerel sahip: hesapsız kurulumda eski cihazlar bu tenant'tadır."""
+    from fusion_cli.accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
+
+    return bind_context(local_identity(""), PERSONAL_WORKSPACE)
 
 
 class Rig:
@@ -47,7 +55,7 @@ class Rig:
         self.service = RemoteService(
             clock=self.clock,
             registry=registry,
-            store=TaskStore(self.clock),
+            store=TaskStore(SqliteRunStore(tmp_path / "runs.sqlite3", clock=self.clock)),
             backend=self.backend,
             mobile=mobile,
             run_lock=lock,
@@ -241,6 +249,10 @@ async def test_zamanlananlar_listele_etkinlestir_ve_simdi_calistir(rig: Rig) -> 
         rig.root
     )  # bilinmeyen kök → varsayılan
     assert (await rig.call("schedules.run", {"id": "yok"})).error == "gorev_yok"
+    # Aynı anahtarla yeniden deneme yeni görev açmaz ve çatışma da vermez.
+    ilk = await rig.call("schedules.run", {"id": "z1", "idempotencyKey": "zk"})
+    tekrar = await rig.call("schedules.run", {"id": "z1", "idempotencyKey": "zk"})
+    assert tekrar.ok and tekrar.data["duplicate"] and tekrar.data["runId"] == ilk.data["runId"]
 
 
 async def test_yetkisiz_cihaz_yazan_cagrilari_yapamaz(rig: Rig) -> None:
@@ -257,6 +269,26 @@ async def test_yetkisiz_cihaz_yazan_cagrilari_yapamaz(rig: Rig) -> None:
     assert (await rig.call("projects.list", who=rig.readonly)).ok
 
 
+async def test_akan_delta_bolunmus_sirri_parca_parca_yazmaz(rig: Rig) -> None:
+    """R1-05: sır iki parçaya bölünse de olay kaydındaki hiçbir delta sır içermez."""
+    service = rig.service
+    run = (await rig.call("tasks.create", {"prompt": "x"})).data["runId"]
+    sink = service._sink_for(run)
+    token = {"olay": "TokenReceived", "provisional": False}
+    sink("event", {**token, "text": "anahtar ghp_SENTINEL01234"})
+    rig.clock.value += 1
+    sink("event", {**token, "text": "56789ABCDEFGHIJKLMNOP bitti\n"})
+    sink("event", {"olay": "ToolExecuted", "name": "run_shell", "outcome": "ok"})
+    deltas = [
+        e.payload["text"]
+        for e in service._store.events_after(_yerel_sahip(), run, 0)
+        if e.kind == "delta"
+    ]
+    assert deltas and all("SENTINEL" not in parca for parca in deltas)
+    assert "bitti" in "".join(deltas)
+    rig.backend.release.set()
+
+
 async def test_akan_yanit_parcalari_birlesir_ve_ara_olaydan_once_bosalir(rig: Rig) -> None:
     service = rig.service
     run = (await rig.call("tasks.create", {"prompt": "x"})).data["runId"]
@@ -266,13 +298,21 @@ async def test_akan_yanit_parcalari_birlesir_ve_ara_olaydan_once_bosalir(rig: Ri
     sink("event", {**token, "text": "haba"})
     sink("event", {**token, "text": "ÖN", "provisional": True})
     sink("event", {"olay": "ToolExecuted", "name": "run_shell", "outcome": "ok"})
-    deltas = [e.payload["text"] for e in service._store.get(run).events if e.kind == "delta"]  # type: ignore[union-attr]
-    assert deltas == ["Mer", "haba"]  # ilk parça hemen, sonrakiler birleşik
+    deltas = [
+        e.payload["text"]
+        for e in service._store.events_after(_yerel_sahip(), run, 0)
+        if e.kind == "delta"
+    ]
+    # Yarım belirteç ("Mer") bölünmüş sır sızmasın diye bir sonraki parçayı bekler (R1-05):
+    # ikisi birleşip ara olaydan önce BİR delta olarak boşalır.
+    assert deltas == ["Merhaba"]
     rig.clock.value += 1
-    sink("event", {**token, "text": "!"})
-    assert [e.payload["text"] for e in service._store.get(run).events if e.kind == "delta"][
-        -1
-    ] == "!"  # type: ignore[union-attr]
+    sink("event", {**token, "text": "!\n"})
+    assert [
+        e.payload["text"]
+        for e in service._store.events_after(_yerel_sahip(), run, 0)
+        if e.kind == "delta"
+    ][-1] == "!\n"  # type: ignore[union-attr]
     rig.backend.release.set()
 
 
@@ -334,3 +374,27 @@ async def test_masaustu_proje_kaydini_telefona_esitler(tmp_path: Path) -> None:
     assert listed["projects"][0]["name"] == "Site" and listed["projects"][0]["hasFolder"] is True
     assert listed["chatProjects"] == {"c1": "p1"}
     await controller.aclose()
+
+
+def test_yuklenen_ek_sunucu_yeniden_baslasa_da_cozulur(tmp_path: Path) -> None:
+    """R1-26. Ölçüldü (30 Ekim): ek kimlikleri yalnız bellek sözlüğündeydi; masaüstü
+    yeniden başlayınca yüklenen ek 'Ek bulunamadı' oluyordu."""
+    clock = FakeClock()
+    first = UploadStore(tmp_path / "uploads", clock)
+    info = first.put("not.txt", "file", base64.b64encode(b"merhaba").decode())
+    second = UploadStore(tmp_path / "uploads", clock)  # yeniden başlatma
+    resolved = second.resolve([info["uploadId"]])
+    assert resolved[0]["name"] == "not.txt" and resolved[0]["kind"] == "file"
+    assert Path(resolved[0]["path"]).read_bytes() == b"merhaba"
+    with pytest.raises(UploadError):
+        second.resolve(["../../etc/passwd"])  # kimlik yalnız 32 hex olabilir
+    with pytest.raises(UploadError):
+        second.resolve(["0" * 32])
+
+
+def test_proje_kaydi_ilk_andan_itibaren_yalniz_sahibine_acik(tmp_path: Path) -> None:
+    """R1-14: kayıt 0600 mkstemp ile yazılır; geçici .tmp dosyası kalmaz."""
+    store = ProjectStore(tmp_path / "projects.json")
+    store.create("Deneme", 1.0)
+    assert (tmp_path / "projects.json").stat().st_mode & 0o077 == 0
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []

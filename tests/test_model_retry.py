@@ -42,6 +42,25 @@ def test_bekleme_ustel_artar_ve_tavanda_durur():
     assert [retry_delay_s(n) for n in range(7)] == [2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0]
 
 
+def test_hiz_sinirinda_bekleme_pencereyi_kapsar_ve_tavanda_durur():
+    """Z1-35: 4 deneme ≈130 sn; kısa 2 sn'lik beklemeler 429'u tekrar yerdi."""
+    gecikmeler = [retry_delay_s(n, rate_limited=True) for n in range(5)]
+
+    assert gecikmeler == [10.0, 20.0, 40.0, 60.0, 60.0]
+    assert sum(gecikmeler[:4]) >= 60
+
+
+def test_varsayilan_yeniden_deneme_sayisi_dort_ve_kodla_tutarli():
+    """Z1-35: 10 deneme ≈5 dk boş beklemeydi; 429'da yedeğe zaten beklemeden geçilir."""
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.config.models import RuntimeConfig
+    from fusion_cli.engines.agent.loop import MAX_TRANSIENT_RETRIES
+
+    assert load_config().runtime.model_retry_attempts == 4
+    assert RuntimeConfig.__dataclass_fields__["model_retry_attempts"].default == 4
+    assert MAX_TRANSIENT_RETRIES == 4
+
+
 async def test_hiz_sinirinda_beklenip_ayni_cagri_yeniden_denenir(
     monkeypatch, tmp_path, sink, beklemeler
 ):
@@ -58,7 +77,8 @@ async def test_hiz_sinirinda_beklenip_ayni_cagri_yeniden_denenir(
 
     assert sonuc.ok
     assert sonuc.final_text.startswith("Tamamlandı")
-    assert beklemeler == [2.0, 4.0]
+    # Hız sınırında taban uzundur (Z1-35): dakikalık pencere beklenir.
+    assert beklemeler == [10.0, 20.0]
     durumlar = [e.message for e in sink.events if isinstance(e, StatusChanged)]
     assert any("hız sınırına takıldı" in d and "deneme 1/3" in d for d in durumlar)
 
@@ -196,3 +216,15 @@ async def test_dusunme_rahatlatmasi_istege_dusunmeyi_kapatma_bayragi_koyar(
     await run_agent("görev", deps)
 
     assert istekler and istekler[-1].disable_thinking is True
+
+
+def test_varsayilan_kararlari_z1_34_z1_40_p1_15():
+    """30 Ekim kararları: hakem 20 sn, 400 çağrı tavanı, web yedeği kapalı (kodla tutarlı)."""
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.config.models import RuntimeConfig
+
+    runtime = load_config().runtime
+    assert runtime.judge_timeout_s == 20
+    assert runtime.agent_max_steps == 400
+    assert runtime.auto_web_fallback is False
+    assert RuntimeConfig.__dataclass_fields__["auto_web_fallback"].default is False

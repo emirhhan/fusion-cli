@@ -1,8 +1,16 @@
+import { LANGUAGE_NAMES } from "../i18n/language";
+import { useLanguage } from "../i18n/useLanguage";
+import { AvatarView } from "../account/AvatarPicker";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
+import { isMacOS } from "../platform/os";
+import { useModalFocus } from "../ui/useModalFocus";
+import { useArchivedSessions } from "./useArchivedSessions";
+import { usePrAutoArchive, type PrStateQuery } from "./usePrAutoArchive";
+import { GroupSortMenu, useSidebarGrouping } from "./SidebarGroupSort";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -14,6 +22,10 @@ export interface OturumSatiri {
   session_id: string;
   source: string;
   title: string;
+  /** Bakılmadan tur bitti ya da onay geldi: satırda nokta, erişilebilir adda "okunmamış" (P-047). */
+  okunmamis?: boolean;
+  /** Tur sürüyor: PR'a bağlı otomatik arşiv bu sohbeti atlar (#443). */
+  calisiyor?: boolean;
 }
 
 export interface ProjeSatiri {
@@ -27,12 +39,40 @@ export interface ProjeSatiri {
 
 interface ProjectPreference { hidden?: boolean; name?: string; pinned?: boolean }
 
-function readProjectPreferences(): Record<string, ProjectPreference> {
+/**
+ * Kayıtlı proje tercihleri. Her alan tek tek doğrulanır: `name` metin değilse React
+ * "Objects are not valid as a React child" fırlatıp bütün kenar çubuğunu düşürürdü (U1-51).
+ */
+export function readProjectPreferences(): Record<string, ProjectPreference> {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("fusion.sidebar.projects.v1") ?? "{}");
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, ProjectPreference> : {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const temiz: Record<string, ProjectPreference> = {};
+    for (const [root, raw] of Object.entries(value)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const kayit = raw as Record<string, unknown>;
+      temiz[root] = {
+        ...(typeof kayit.name === "string" ? { name: kayit.name } : {}),
+        ...(typeof kayit.hidden === "boolean" ? { hidden: kayit.hidden } : {}),
+        ...(typeof kayit.pinned === "boolean" ? { pinned: kayit.pinned } : {}),
+      };
+    }
+    return temiz;
   } catch { return {}; }
+}
+
+/**
+ * Sabitleme anahtarı yalnız kaynak ve oturum kimliğidir. Eskiden proje kökü/adı da
+ * anahtarın parçasıydı: sohbet başka projeye taşınınca ya da proje yeniden adlandırılınca
+ * sabitleme sessizce kayboluyordu (U1-50). Eski kayıtlar (`kök:kaynak:kimlik`) okunurken
+ * yeni biçime çevrilir.
+ */
+export function pinAnahtari(source: string, sessionId: string): string {
+  return `${source}:${sessionId}`;
+}
+function eskiSabitiYeniye(anahtar: string): string {
+  const eslesme = /^(?:.*?:)??(fusion|claude|codex|hermes):(.+)$/s.exec(anahtar);
+  return eslesme ? pinAnahtari(eslesme[1], eslesme[2]) : anahtar;
 }
 
 type HistorySource = "fusion" | "claude" | "codex" | "hermes";
@@ -55,6 +95,10 @@ interface SidebarProps {
   /** Yeni proje için isteğe bağlı klasör seçici; iptalde null. */
   onPickFolder?: () => Promise<string | null>;
   onYeni: () => void;
+  /** Sohbeti aktif sohbetin yanında ikinci bölmede aç (P-064). Verilmezse menüde görünmez. */
+  onSplit?: (id: string) => void | Promise<void>;
+  /** Sohbeti yeni pencerede aç (#443; Cmd-tık / Open in > New window). Verilmezse görünmez. */
+  onNewWindow?: (id: string) => void | Promise<void>;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
   /** Sol alttaki satır: giriş yapmış YEREL HESAP.
@@ -67,6 +111,8 @@ interface SidebarProps {
   /** Yeni sürüm varsa numarası; yoksa şerit hiç çizilmez. */
   guncellemeSurumu?: string | null;
   onGuncellemeAc?: () => void;
+  /** Sohbet kimliği → bağlı PR durumu (`sohbet.pr_durumlari`); otomatik arşiv için (#443). */
+  prDurumlari?: PrStateQuery;
 }
 
 interface NavItemProps {
@@ -89,20 +135,31 @@ function NavItem({ icon, label, onClick }: NavItemProps) {
   );
 }
 
+/** "Error: ..." öneki olmadan kullanıcıya gösterilecek hata metni (U1-60). */
+function hataMetni(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 interface MoveTarget { key: string; name: string; run: () => void | Promise<void> }
 
-function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProject, moveTargets, pinned, onPin }: {
+function SessionButton({ session, active, onSelect, onSplit, onNewWindow, onDelete, onRemoveFromProject, moveTargets, pinned, onPin, archived, onArchive }: {
   pinned: boolean;
   onPin: () => void;
+  archived: boolean;
+  onArchive: () => void;
   session: OturumSatiri;
   active: boolean;
   onSelect: () => void;
+  onSplit?: () => void | Promise<void>;
+  onNewWindow?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   onRemoveFromProject?: () => void | Promise<void>;
   moveTargets: MoveTarget[];
 }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Sohbeti listeden kaldırma (disk kaydı korunur): menüden "Sil" önce satır içi onay açar (U1-53).
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -129,7 +186,8 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
         && !menuPopupRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      // Odak menüyle birlikte kaybolmasın: Esc tetikleyiciye geri verir (U1-55).
+      if (event.key === "Escape") { setMenuOpen(false); menuButtonRef.current?.focus(); }
     };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", escape);
@@ -141,10 +199,17 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
   return (
     <div className="sidebar__session-row">
       <button
-        aria-label={session.title}
+        aria-label={session.okunmamis ? `${session.title} (okunmamış)` : session.title}
         className="sidebar__session"
         data-etkin={active}
-        onClick={onSelect}
+        data-okunmamis={session.okunmamis || undefined}
+        // Claude Desktop: Option-tık sohbeti yan bölmede (split view) açar (#443).
+        // Cmd-tık (Windows/Linux'ta Ctrl-tık) sohbeti yeni pencerede açar (#443).
+        onClick={(event) => {
+          if ((isMacOS() ? event.metaKey : event.ctrlKey) && onNewWindow) { void Promise.resolve().then(onNewWindow).catch((error: unknown) => setDeleteError(hataMetni(error))); return; }
+          if (event.altKey && onSplit && !active) { void onSplit(); return; }
+          onSelect();
+        }}
         type="button"
       >
         {/* Marka rozeti yalnız İÇE AKTARILMIŞ konuşmalarda anlamlıdır: hangi
@@ -156,6 +221,7 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
           ? <span aria-hidden="true" className="source-icon sidebar__session-dot" />
           : <SourceIcon size={16} source={session.source} />}
         <span className="sidebar__session-title">{session.title}</span>
+        {session.okunmamis && <span aria-hidden="true" className="sidebar__session-unread" />}
         <span className="sidebar__session-source">
           {session.source === "fusion" ? "" : session.source}
         </span>
@@ -163,28 +229,47 @@ function SessionButton({ session, active, onSelect, onDelete, onRemoveFromProjec
       <div className="sidebar__move-wrap" ref={menuRef}>
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__session-move" onClick={() => setMenuOpen((open) => !open)} ref={menuButtonRef} type="button">···</button>
         {menuOpen && createPortal(<div aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__move-menu" ref={menuPopupRef} role="menu">
+          <button onClick={() => { onArchive(); setMenuOpen(false); }} role="menuitem" type="button">{archived ? "Arşivden çıkar" : "Arşivle"}</button>
           <button aria-checked={pinned} onClick={() => { onPin(); setMenuOpen(false); }} role="menuitemcheckbox" type="button">{pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
+          {onSplit && !active && <button onClick={() => {
+            setMenuOpen(false);
+            void Promise.resolve().then(onSplit).catch((error: unknown) => setDeleteError(hataMetni(error)));
+          }} role="menuitem" type="button">Yan yana aç</button>}
+          {onNewWindow && <button onClick={() => {
+            setMenuOpen(false);
+            void Promise.resolve().then(onNewWindow).catch((error: unknown) => setDeleteError(hataMetni(error)));
+          }} role="menuitem" type="button">Yeni pencerede aç</button>}
           {moveTargets.length > 0 && <>
             <strong>Projeye taşı</strong>
             {moveTargets.map((target) => <button key={target.key} onClick={() => {
               setMenuOpen(false);
-              void Promise.resolve().then(target.run).catch((error: unknown) => setDeleteError(String(error)));
+              void Promise.resolve().then(target.run).catch((error: unknown) => setDeleteError(hataMetni(error)));
             }} role="menuitem" type="button">{target.name}</button>)}
           </>}
           {onRemoveFromProject && <button onClick={() => {
             setMenuOpen(false);
-            void Promise.resolve().then(onRemoveFromProject).catch((error: unknown) => setDeleteError(String(error)));
+            void Promise.resolve().then(onRemoveFromProject).catch((error: unknown) => setDeleteError(hataMetni(error)));
           }} role="menuitem" type="button">Projeden çıkar</button>}
           {onDelete && <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
             setMenuOpen(false);
-            setDeleting(true);
             setDeleteError(null);
-            void Promise.resolve().then(onDelete)
-              .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
-              .finally(() => setDeleting(false));
+            setConfirmingDelete(true);
           }} role="menuitem" type="button">Sil</button>}
         </div>, document.body)}
       </div>
+      {confirmingDelete && onDelete && (
+        <div aria-label={`${session.title} silinsin mi?`} className="sidebar__delete-confirm" role="group"
+          onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setConfirmingDelete(false); } }}>
+          <span>Bu sohbet listeden kaldırılır. Konuşma kaydı diskte korunur.</span>
+          <button autoFocus onClick={() => setConfirmingDelete(false)} type="button">Vazgeç</button>
+          <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
+            setDeleting(true);
+            void Promise.resolve().then(onDelete)
+              .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
+              .finally(() => { setDeleting(false); setConfirmingDelete(false); });
+          }} type="button">Listeden kaldır</button>
+        </div>
+      )}
       {deleteError && <span role="alert">{deleteError}</span>}
     </div>
   );
@@ -204,15 +289,18 @@ export function Sidebar({
   onAssign,
   onPickFolder,
   onYeni,
+  onSplit,
+  onNewWindow,
   oturumlar,
   projeler = [],
   hesap = null,
   onCikis,
   guncellemeSurumu = null,
   onGuncellemeAc,
+  prDurumlari,
 }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profileMoreOpen, setProfileMoreOpen] = useState(false);
+  const { language, t } = useLanguage();
   const profileRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -225,12 +313,17 @@ export function Sidebar({
   const [dialogBusy, setDialogBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createRoot, setCreateRoot] = useState<string | undefined>(undefined);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const closeDialogs = () => {
     setProjectDialog(null);
     setCreateOpen(false);
     setCreateRoot(undefined);
     setDialogError(null);
   };
+  // Proje diyaloğu aria-modal'dı ama odak tuzağı, Escape ve odak geri dönüşü yoktu (U1-54).
+  // `autoFocus` YOK: girdiye odağı kanca verir; yoksa "önceki odak" girdi olur ve kapanışta
+  // odak açan düğmeye dönemezdi.
+  useModalFocus(dialogRef, Boolean(projectDialog || createOpen), closeDialogs);
   /** Diyalog işlemi: hata diyalogda kalır, başarıda diyalog kapanır. */
   const runDialog = async (action: () => void | Promise<void>) => {
     setDialogBusy(true);
@@ -285,7 +378,9 @@ export function Sidebar({
   const [pinnedSessions, setPinnedSessions] = useState<string[]>(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1") ?? "[]");
-      return Array.isArray(saved) ? saved.filter((item): item is string => typeof item === "string") : [];
+      return Array.isArray(saved)
+        ? [...new Set(saved.filter((item): item is string => typeof item === "string").map(eskiSabitiYeniye))]
+        : [];
     } catch { return []; }
   });
   const [pinError, setPinError] = useState<string | null>(null);
@@ -297,22 +392,38 @@ export function Sidebar({
       setPinError("Sabitleme tercihi kaydedilemedi; bu pencere açıkken korunacak.");
     }
   }, [pinnedSessions]);
-  const pinKey = (session: OturumSatiri) => `${session.projectRoot ?? session.project ?? ""}:${session.source}:${session.session_id}`;
+  const pinKey = (session: OturumSatiri) => pinAnahtari(session.source, session.session_id);
   const togglePin = (session: OturumSatiri) => setPinnedSessions((current) => {
     const key = pinKey(session);
     const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
     return next;
   });
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const archive = useArchivedSessions();
+  // Claude Desktop "Auto-archive after PR merge or close" (#443): yalnız Fusion sohbetleri.
+  usePrAutoArchive(
+    oturumlar.filter((session) => session.source === "fusion").map((session) => ({
+      id: session.session_id,
+      key: pinKey(session),
+      running: Boolean(session.calisiyor),
+      archived: archive.isArchived(pinKey(session)),
+    })),
+    prDurumlari,
+    archive.archiveMany,
+  );
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedCount = oturumlar.filter((session) => archive.isArchived(pinKey(session))).length;
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
-    if (!normalized) return oturumlar;
-    return oturumlar.filter((session) =>
+    // Arşiv görünümü yalnız arşivlenenleri, ana liste yalnız arşivlenmemişleri gösterir (#443).
+    const visible = oturumlar.filter((session) => archive.isArchived(pinKey(session)) === showArchived);
+    if (!normalized) return visible;
+    return visible.filter((session) =>
       `${session.title} ${session.source} ${session.project ?? ""}`
         .toLocaleLowerCase("tr")
         .includes(normalized),
     );
-  }, [oturumlar, query]);
+  }, [oturumlar, query, archive.archived, showArchived]);
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
     const roots = [...projeler];
@@ -339,7 +450,13 @@ export function Sidebar({
       return right.updated_at - left.updated_at;
     });
   }, [projectPreferences, projeler, query, oturumlar]);
+  const [grouping, setGrouping] = useSidebarGrouping();
   const sessionGroups = useMemo(() => {
+    if (grouping === "none") {
+      // "Group and sort" › gruplama yok: tek liste, son etkinliğe göre (#443).
+      const flat = [...filteredSessions].sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+      return [["hepsi", { name: "Tüm sohbetler", sessions: flat }]] as [string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }][];
+    }
     const groups = new Map<string, { name: string; root?: string; id?: string; sessions: OturumSatiri[] }>();
     for (const project of filteredProjects) {
       groups.set(project.id ? `kayit:${project.id}` : project.root, { name: project.name, root: project.root, id: project.id, sessions: [] });
@@ -358,7 +475,7 @@ export function Sidebar({
       return pinOrder || (b.updated_at ?? 0) - (a.updated_at ?? 0);
     });
     return [...groups.entries()];
-  }, [filteredProjects, filteredSessions, pinnedSessions]);
+  }, [filteredProjects, filteredSessions, pinnedSessions, grouping]);
   const hiddenProjects = projeler.filter((project) => !project.id && projectPreferences[project.root]?.hidden);
   const [projectInfo, setProjectInfo] = useState<{ key: string; name: string; root?: string; id?: string; count: number; top: number; left: number } | null>(null);
   const infoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -384,8 +501,11 @@ export function Sidebar({
   const renderSession = (session: OturumSatiri, group: { root?: string; id?: string } = {}) => (
     <SessionButton key={pinKey(session)} session={session} active={session.session_id === etkin}
       pinned={pinnedSessions.includes(pinKey(session))} onPin={() => togglePin(session)}
+      archived={archive.isArchived(pinKey(session))} onArchive={() => archive.toggle(pinKey(session))}
       onSelect={() => onSec(session.session_id)}
-      onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); } : undefined}
+      onSplit={onSplit ? () => onSplit(session.session_id) : undefined}
+      onNewWindow={onNewWindow ? () => onNewWindow(session.session_id) : undefined}
+      onDelete={onSil ? async () => { await onSil(session.session_id); setPinnedSessions((current) => current.filter((key) => key !== pinKey(session))); archive.forget(pinKey(session)); } : undefined}
       onRemoveFromProject={onAssign && session.projectId ? () => onAssign(session.session_id, null) : undefined}
       moveTargets={[
         ...(onAssign ? filteredProjects.filter((project) => project.id && project.id !== (group.id ?? session.projectId)).map((project) => ({ key: `kayit:${project.id}`, name: project.name, run: () => onAssign(session.session_id, project.id!) })) : []),
@@ -396,16 +516,10 @@ export function Sidebar({
   useEffect(() => {
     if (!profileOpen) return;
     const closeOnOutside = (event: MouseEvent) => {
-      if (!profileRef.current?.contains(event.target as Node)) {
-        setProfileOpen(false);
-        setProfileMoreOpen(false);
-      }
+      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setProfileOpen(false);
-        setProfileMoreOpen(false);
-      }
+      if (event.key === "Escape") setProfileOpen(false);
     };
     document.addEventListener("mousedown", closeOnOutside);
     document.addEventListener("keydown", closeOnEscape);
@@ -417,17 +531,16 @@ export function Sidebar({
 
   const navigateFromProfile = (destination: string) => {
     setProfileOpen(false);
-    setProfileMoreOpen(false);
     onNavigate(destination);
   };
   const profileName = hesap?.kullanici_adi ?? "Hesap yok";
   const profileMenuLabel = hesap ? `${profileName} hesap menüsü` : "Hesap menüsü";
   const profileDetail = hesap?.eposta ?? "Giriş yapılmadı";
-  const profileInitials =
-    hesap?.avatar ||
-    (hesap
-      ? hesap.kullanici_adi.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr")
-      : "?");
+  // Hazır avatar, yüklenen görsel ya da baş harfler: Hesabım'daki görünümün AYNISI.
+  // Eskiden avatar metni olduğu gibi basılıyordu; görsel yolu menüde yazı olarak çıkıyordu.
+  const profileAvatar = hesap
+    ? <AvatarView avatar={hesap.avatar} kullaniciAdi={hesap.kullanici_adi} />
+    : "?";
 
   const profileFooter = (
       <div className="sidebar__bottom">
@@ -442,29 +555,29 @@ export function Sidebar({
         )}
         <div className="sidebar__profile-wrap" ref={profileRef}>
           {profileOpen && (
-            <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
-              <button className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
-                <span className="sidebar__avatar">{profileInitials}</span>
+            <div aria-label="Profil menüsü" className="sidebar__profile-menu" lang={language} role="menu">
+              <button aria-label={hesap ? `${profileName} · ${t("menu.hesabim")}` : t("menu.hesabim")} className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
+                <span className="sidebar__avatar">{profileAvatar}</span>
                 <span className="sidebar__profile-copy"><strong>{profileName}</strong><small>{profileDetail}</small></span>
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
               <div className="sidebar__profile-separator" />
-              <button onClick={() => navigateFromProfile("personalization")} role="menuitem" type="button"><Icon name="user" /><span>Kişiselleştirme</span></button>
-              <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="user" /><span>Hesabım</span></button>
-              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
-              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>
-              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>Geri bildirim gönder</span></button>
-              <button aria-expanded={profileMoreOpen} onClick={() => setProfileMoreOpen((open) => !open)} role="menuitem" type="button"><Icon name="panel" /><span>Daha fazla</span><Icon name="chevron" size={16} /></button>
-              {profileMoreOpen && <div aria-label="Ek araçlar" className="sidebar__profile-more" role="group">
-                <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
-                <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
-                <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
-                <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="lessons" /><span>Dil</span></button>
-              </div>}
+              {/* Hesabım ve Kişiselleştirme ayrı satır DEĞİL: hesap sayfası üstteki profil
+                  satırından, kişiselleştirme Ayarlar'ın içinden açılır. Eski "Daha fazla" alt
+                  açılırındaki araçlar ana menüye taşındı; ikinci bir açılır yoktur. */}
+              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>{t("menu.ayarlar")}</span></button>
+              {onGuncellemeAc && <button onClick={() => { setProfileOpen(false); onGuncellemeAc(); }} role="menuitem" type="button"><Icon name="changes" /><span>{t("ayarlar.bolum.guncellemeler")}</span></button>}
+              <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>{t("menu.kontrol")}</span></button>
+              <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>{t("menu.beceriler")}</span></button>
+              <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>{t("menu.mcp")}</span></button>
+              <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="globe" /><span>{t("menu.dil")}</span><small aria-hidden="true" className="sidebar__profile-value">{LANGUAGE_NAMES[language]}</small></button>
+              <div className="sidebar__profile-separator" />
+              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>{t("menu.yardim")}</span></button>
+              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>{t("menu.geribildirim")}</span></button>
               <div className="sidebar__profile-separator" />
               {hesap
-                ? <button onClick={() => { setProfileOpen(false); setProfileMoreOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>Çıkış yap</span></button>
-                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>Giriş yap</span></button>}
+                ? <button onClick={() => { setProfileOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>{t("menu.cikis")}</span></button>
+                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>{t("menu.giris")}</span></button>}
             </div>
           )}
           <button
@@ -473,10 +586,10 @@ export function Sidebar({
             aria-label={profileMenuLabel}
             title={profileName}
             className="sidebar__profile-trigger"
-            onClick={() => { setProfileOpen((open) => !open); setProfileMoreOpen(false); }}
+            onClick={() => setProfileOpen((open) => !open)}
             type="button"
           >
-            <span className="sidebar__avatar">{profileInitials}</span>
+            <span className="sidebar__avatar">{profileAvatar}</span>
             <span className="sidebar__profile-copy sidebar__label"><strong>{profileName}</strong><small>{profileDetail}</small></span>
             <span aria-hidden="true" className="sidebar__profile-status" data-connected={Boolean(hesap)} />
           </button>
@@ -491,7 +604,7 @@ export function Sidebar({
         <div aria-label="Fusion" className="sidebar__brand">
           <Logo size={24} />
           <span className="sidebar__label fusion-wordmark">Fusion</span>
-          <button aria-label="Konuşma ve proje aramasını aç" aria-expanded={searchOpen} className="sidebar__search-trigger" onClick={() => setSearchOpen((open) => !open)} type="button"><Icon name="search" size={19} /></button>
+          <button aria-label="Konuşma ve proje aramasını aç" aria-expanded={searchOpen} className="sidebar__search-trigger" onClick={() => { if (searchOpen) setQuery(""); setSearchOpen((open) => !open); }} type="button"><Icon name="search" size={19} /></button>
         </div>
         <NavItem icon="new" label="Yeni sohbet" onClick={onYeni} />
         {searchOpen && <label className="sidebar__search">
@@ -501,6 +614,9 @@ export function Sidebar({
             autoFocus
             aria-label="Konuşma ve proje ara"
             onChange={(event) => setQuery(event.target.value)}
+            // Esc aramayı kapatır ve süzgeci temizler; kapalı aramanın süzgeci sürerse
+            // oturumlar "kayıp" görünürdü (U1-52).
+            onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setQuery(""); setSearchOpen(false); } }}
             placeholder="Ara"
             type="search"
             value={query}
@@ -510,6 +626,12 @@ export function Sidebar({
 
       <div className="sidebar__scroll">
         {pinError && <p role="alert" className="sidebar__storage-error">{pinError}</p>}
+        {archive.error && <p role="alert" className="sidebar__storage-error">{archive.error}</p>}
+        {(archivedCount > 0 || showArchived) && (
+          <button aria-pressed={showArchived} className="sidebar__archive-toggle" onClick={() => setShowArchived((open) => !open)} type="button">
+            {showArchived ? "Tüm sohbetler" : `Arşivlenenler (${archivedCount})`}
+          </button>
+        )}
         <section aria-label="Sabitlenenler" className="sidebar__pinned">
           <h2 className="sidebar__section-title">Sabitlenenler</h2>
           {filteredSessions.filter((session) => pinnedSessions.includes(pinKey(session))).map((session) => renderSession(session))}
@@ -519,6 +641,7 @@ export function Sidebar({
                 <div className="sidebar__projects-heading" ref={projectsMenuRef}>
                   <span>Projeler</span>
                   <span className="sidebar__projects-heading-actions">
+                    <GroupSortMenu grouping={grouping} onChange={setGrouping} />
                     <button
                       aria-expanded={projectsMenuOpen}
                       aria-haspopup="menu"
@@ -600,10 +723,10 @@ export function Sidebar({
       </div>, document.body)}
 
       {(projectDialog || createOpen) && <div className="sidebar__project-backdrop" role="presentation">
-        <div aria-label={createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" role="dialog">
+        <div aria-label={createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
           <h2>{createOpen ? "Yeni proje" : projectDialog!.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"}</h2>
           {(createOpen || projectDialog!.kind === "rename")
-            ? <input aria-label="Proje adı" autoFocus maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} placeholder="Proje adı" value={projectDraft} />
+            ? <input aria-label="Proje adı" maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} placeholder="Proje adı" value={projectDraft} />
             : <p>{projectDialog!.recordId ? "Proje listeden kalkar. Sohbetler silinmez; Sohbetler altına geçer." : "Proje Fusion listesinden kaldırılır. Bilgisayarındaki klasörler ve sohbet kayıtları korunur."}</p>}
           {createOpen && onPickFolder && <div className="sidebar__project-folder">
             <button disabled={dialogBusy} onClick={() => void onPickFolder().then((root) => { if (root) setCreateRoot(root); }).catch(() => setDialogError("Klasör seçilemedi."))} type="button">Klasör seç</button>
@@ -616,7 +739,12 @@ export function Sidebar({
               const dialog = projectDialog!;
               if (dialog.recordId) {
                 const id = dialog.recordId;
-                void runDialog(() => dialog.kind === "rename" ? onProjectRename?.(id, projectDraft.trim()) : onProjectDelete?.(id));
+                // Geri çağırım yoksa iş yapılmadan diyalog "başarıyla" kapanmasın (U1-56).
+                void runDialog(() => {
+                  const islem = dialog.kind === "rename" ? onProjectRename : onProjectDelete;
+                  if (!islem) throw new Error("Bu işlem şu an kullanılamıyor.");
+                  return dialog.kind === "rename" ? onProjectRename!(id, projectDraft.trim()) : onProjectDelete!(id);
+                });
                 return;
               }
               updateProject(dialog.root, dialog.kind === "rename" ? { name: projectDraft.trim() } : { hidden: true });

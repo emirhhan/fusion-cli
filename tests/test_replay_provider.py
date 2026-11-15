@@ -70,3 +70,21 @@ def test_izden_model_yanitlari_cikarilir(tmp_path):
     sonuclar = recorded_results(store.read("kosu"))
 
     assert [item.text for item in sonuclar] == ["ilk", "ikinci"]
+
+
+def test_web_provenance_round_trips_jsonl_without_raw_body():
+    import io
+    import json
+    from dataclasses import replace
+
+    from fusion_cli.observability.json_sink import JsonRenderer
+    from fusion_cli.observability.replay import event_from_payload
+
+    from .test_web_tool_provenance import observed_origin
+
+    expected = replace(_sonuc("yanıt"), web_provenance=observed_origin())
+    stream = io.StringIO()
+    JsonRenderer(stream).handle(ModelCallFinished(role="agent", result=expected))
+    event = event_from_payload(json.loads(stream.getvalue()))
+    assert event.result.web_provenance == expected.web_provenance
+    assert "raw_output" not in stream.getvalue()

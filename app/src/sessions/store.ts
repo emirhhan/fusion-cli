@@ -1,3 +1,4 @@
+import { isOwnTurnId } from "./submission";
 import { closeUnfinishedAgents } from "../team/ekipOlaylari";
 import { migrateMessageIds } from "./messageIdentity";
 import type { ProtocolClient } from "../protocol/client";
@@ -6,6 +7,7 @@ import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
 import { olayEkle } from "../protocol/olayAkisi";
 import { canApplySuggestedTitle } from "./title";
+import { closeUnfinishedTools } from "./unfinishedTools";
 
 // Opak eski olaylarda pencere belleği sınırlıdır; wire v1 sequence kalıcı high-water kullanır.
 export const EVENT_REPLAY_WINDOW = 256;
@@ -23,6 +25,7 @@ interface SessionSeed {
   title: string;
   source: SessionSource;
   root: string;
+  bootstrap?: Promise<boolean>;
   client: ProtocolClient;
   pid?: number;
 }
@@ -30,10 +33,12 @@ interface SessionSeed {
 export type SessionAction =
   | { type: "submissionCompleted"; id: string; requestId: string }
   | { type: "submissionStarted"; id: string; requestId: string; expectedTurnId?: string }
-  | { type: "created"; session: SessionSeed }
+  | { type: "created"; session: SessionSeed; activate?: boolean }
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
+  | { type: "rootChanged"; id: string; root: string }
+  | { type: "historyReplaced"; id: string; messages: Mesaj[] }
   | { type: "titleSuggested"; id: string; title: string }
   | { type: "messageAdded"; id: string; message: Mesaj }
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
@@ -69,11 +74,66 @@ function updateSession(
   };
 }
 
+/**
+ * Geç gelen geçmişi (ağ gecikmesi) mevcut mesajların ÖNÜNE ekler.
+ *
+ * Ölçüldü (30 Ekim): kullanıcı geçmiş gelmeden mesaj yazarsa geri gelen geçmiş TAMAMEN atılıyor,
+ * sohbetin önceki içeriği hiç görünmüyordu (U4-35). Çekirdek yeni mesajı geçmişe de yazmış
+ * olabileceğinden, kalıcı kimliği aynı mesajlar birleştirilir. Kimliksiz eski kullanıcı
+ * satırları için aynı metinli kopya bir kez düşülür; ayrı makbuzlar birleştirilmez.
+ */
+function gecmisiOnePekle(gecmis: Mesaj[], mevcut: Mesaj[], oturumId: string): Mesaj[] {
+  const kalan = [...gecmis];
+  const eskiKimlik = (id: string | undefined) => !id || id.startsWith("legacy:") || /^history-\d+$/.test(id);
+  // Geçmiş bildirimi her yanıtta yenilenir; diğer canlı mesajların sırası korunur.
+  const retained = mevcut.filter(message => message.rol !== "bildirim" || message.id !== "history-notice").map(mesaj => {
+    let indeks = kalan.findIndex(old => old.rol === mesaj.rol && old.id && old.id === mesaj.id &&
+      (!eskiKimlik(old.id) || old.metin === mesaj.metin));
+    if (indeks < 0 && mesaj.rol === "kullanici") {
+      for (let i = kalan.length - 1; i >= 0; i -= 1) {
+        if (kalan[i].rol === "kullanici" && kalan[i].metin === mesaj.metin &&
+            (eskiKimlik(kalan[i].id) || eskiKimlik(mesaj.id))) {
+          indeks = i;
+          break;
+        }
+      }
+    }
+    if (indeks < 0) return mesaj;
+    const [old] = kalan.splice(indeks, 1);
+    return {...old, ...mesaj,
+      metin: mesaj.metin.trim() ? mesaj.metin : old.metin,
+      ...(mesaj.delivery ?? old.delivery ? {delivery: mesaj.delivery ?? old.delivery} : {}),
+      ...(mesaj.findings ?? old.findings ? {findings: mesaj.findings ?? old.findings} : {})};
+  });
+  return migrateMessageIds([...kalan, ...retained], oturumId);
+}
+
+/**
+ * Tur `TurnFinished`/`TurnAnswered` gelmeden bitti (iptal, çekirdek hatası): akan balon "geçici"
+ * olduğundan sonraki model çağrısında sessizce silinir ve yazılmış metin kaybolurdu (U5-11).
+ * Kalan balon kalıcı ara metne çevrilir; aynı metin bu turun kalıcı cevabında zaten varsa düşer.
+ */
+function akanBalonuKalicilastir(mesajlar: Mesaj[]): Mesaj[] {
+  if (!mesajlar.some((mesaj) => mesaj.rol === "asistan" && mesaj.akan)) return mesajlar;
+  let sinir = -1;
+  mesajlar.forEach((mesaj, indeks) => { if (mesaj.rol === "kullanici") sinir = indeks; });
+  const kalici = mesajlar.filter((mesaj, indeks) => indeks > sinir && mesaj.rol === "asistan" && !mesaj.akan && !mesaj.ara);
+  return mesajlar.flatMap((mesaj): Mesaj[] => {
+    if (mesaj.rol !== "asistan" || !mesaj.akan) return [mesaj];
+    const metin = mesaj.metin.trim();
+    if (!metin || kalici.some((cevap) => cevap.metin.includes(metin))) return [];
+    const { akan: _akan, ...sabit } = mesaj;
+    return [{ ...sabit, ara: true }];
+  });
+}
+
 export function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case "created": {
-      const exists = Boolean(state.sessions[action.session.id]);
-      const model: SessionModel = {
+      const existing = state.sessions[action.session.id];
+      const exists = Boolean(existing);
+      // Tekrarlanan yayın veya geç bağlanma çalışan turun istemcisini/sahipliğini silemez.
+      const model: SessionModel = existing && (existing.client === action.session.client || existing.running) ? existing : {
         ...action.session,
         updatedAt: action.session.updatedAt ?? Date.now(),
         pid: action.session.pid ?? null,
@@ -91,7 +151,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       };
       return {
         ...state,
-        activeId: action.session.id,
+        activeId: action.activate === false ? state.activeId : action.session.id,
         order: exists ? state.order : [...state.order, action.session.id],
         sessions: { ...state.sessions, [action.session.id]: model },
         connectionError: null,
@@ -100,12 +160,27 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "historyLoaded":
       return updateSession(state, action.id, (session) => ({
         ...session,
-        messages: session.messages.length === 0 ? migrateMessageIds(action.messages, action.id) : session.messages,
+        messages: session.messages.length === 0
+          ? migrateMessageIds(action.messages, action.id)
+          : gecmisiOnePekle(action.messages, session.messages, action.id),
       }));
     case "selected":
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
     case "titleChanged":
       return updateSession(state, action.id, (session) => ({ ...session, title: action.title, updatedAt: Date.now() }));
+    case "rootChanged":
+      // `/worktree <ad>` ya da `/worktree cik`: çekirdek kökü değiştirdi (`komut.calistir` → `kok`);
+      // dosya gezgini ve proje etiketi yeni kökü görsün.
+      return updateSession(state, action.id, (session) => ({ ...session, root: action.root }));
+    case "historyReplaced":
+      // `/rewind` konuşmayı geri sardı (`komut.calistir` → `gecmis`): pano çekirdeğin kalan
+      // geçmişine kesilir; yoksa kullanıcı modelin hâlâ bildiğini sanır (P-004).
+      return updateSession(state, action.id, (session) => ({
+        ...session,
+        messages: migrateMessageIds(action.messages, action.id),
+        question: null,
+        updatedAt: Date.now(),
+      }));
     case "titleSuggested":
       // Öneri eşzamansız gelir; o arada sekme adlandırıldıysa dokunulmaz.
       return updateSession(state, action.id, (session) =>
@@ -135,7 +210,15 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       if (typeof sessionId === "string" && sessionId !== action.id) return state;
       const receipt = action.event.olay === "GonderimMakbuzu";
       if (receipt && (action.event.gonderim_id !== current.requestId || (current.expectedTurnId && turnId !== current.expectedTurnId))) return state;
-      if (turnId && !receipt && current.requestId && (!current.turnId || turnId !== current.turnId)) return state;
+      // turnId makbuzdan öğrenilir; makbuz kabul edilmezse/gelmezse bu isteğin kendi
+      // `<gonderim_id>:<n>` biçimli ilk olayı da öğretir (çekirdek turu böyle adlandırır,
+      // bkz. `memory/submission_store.py`). Başka isteğin ya da beklenen attempt dışındaki
+      // olay düşer. Ölçüldü (29 Ekim): eskiden tur boyunca BÜTÜN olaylar düşüyordu.
+      if (turnId && !receipt && current.requestId) {
+        const learnable = !current.turnId && isOwnTurnId(current.requestId, turnId)
+          && (!current.expectedTurnId || turnId === current.expectedTurnId);
+        if (!learnable && turnId !== current.turnId) return state;
+      }
       if (turnId && current.turnId && turnId !== current.turnId) return state;
       const suffix = eventId?.split(":").slice(-1)[0];
       const sequence = action.event.schema_version === 1 && turnId && suffix && /^\d+$/.test(suffix) ? Number(suffix) : undefined;
@@ -156,8 +239,12 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         running: action.running,
+        ...(action.running ? {} : { messages: akanBalonuKalicilastir(closeUnfinishedTools(session)) }),
         stopping: action.running ? session.stopping : false,
         stopError: action.running ? session.stopError : null,
+        // Tur bitti: turun beklettiği sorular artık yanıtlanamaz. SoruKapandi olayı kaybolsa da
+        // kart sonsuza kadar kalmasın (U4-08).
+        ...(action.running ? {} : { question: null, questionQueue: [] }),
       }));
     case "stopRequested":
       return updateSession(state, action.id, (session) => ({ ...session, stopping: true, stopError: null }));
@@ -212,7 +299,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         stopError: null,
       }));
     case "removed": {
-      // Silme geri alınamaz: oturum listeden çıkar. Son oturum silinirse
+      // Kaldırılan oturum listeden çıkar; disk kaydı korunur. Son oturum silinirse
       // etkin seçim boşa düşer ve arayüz yeni görev ekranına döner.
       const kalan = { ...state.sessions };
       delete kalan[action.id];

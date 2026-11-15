@@ -12,6 +12,10 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 DELIVERY_FIELD = "teslimler"
+#: Kayıtta tutulan ack'lenmiş (task_id dolu) teslim sayısı; onaysızlar HİÇ budanmaz.
+#: Ölçüldü (30 Ekim): ack'lenen kayıt silinmiyor, her kayıt ≤ 8 KB görev metni taşıyor;
+#: günlük bir görev yılda 365 kayıt, her yazma dosyanın tamamını yeniden yazıyordu.
+MAX_ACKNOWLEDGED_DELIVERIES = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +51,23 @@ def add_delivery(item: Mapping[str, object], due_at: float) -> dict[str, object]
             *deliveries,
             ScheduleDelivery(occurrence, identifier, due_at, title, task, root),
         )
+    deliveries = _prune_acknowledged(deliveries)
     return {**item, DELIVERY_FIELD: [asdict(delivery) for delivery in deliveries]}
+
+
+def _prune_acknowledged(
+    deliveries: tuple[ScheduleDelivery, ...],
+) -> tuple[ScheduleDelivery, ...]:
+    """En eski ack'li teslimleri buda; onaysız teslim (outbox) asla silinmez."""
+    acknowledged = sum(1 for delivery in deliveries if delivery.task_id is not None)
+    excess = acknowledged - MAX_ACKNOWLEDGED_DELIVERIES
+    kept: list[ScheduleDelivery] = []
+    for delivery in deliveries:
+        if excess > 0 and delivery.task_id is not None:
+            excess -= 1
+            continue
+        kept.append(delivery)
+    return tuple(kept)
 
 
 def _records(item: Mapping[str, object]) -> tuple[ScheduleDelivery, ...]:

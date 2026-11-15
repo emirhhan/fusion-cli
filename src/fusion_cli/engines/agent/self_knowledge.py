@@ -17,16 +17,21 @@ GUIDE = (Path(__file__).parent / "prompts" / "fusion_bilgi.md").read_text(encodi
 #: Araç ailesi etiketi → o ailenin araç adı önekleri/adları.
 _FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("kod ve dosya", ("read_file", "edit_file", "write_file", "run_shell", "search_code")),
-    ("Chrome eklentisi (gerçek Chrome)", ("chrome_",)),
+    ("Chrome eklentisi (gerçek Chrome)", ("chrome_", "claude-in-chrome__")),
     ("Fusion Browser", ("browser_",)),
     ("masaüstü kontrolü", ("desktop_",)),
     ("öğretmen", ("ask_teacher",)),
     ("çoklu-model danışma", ("council",)),
     ("ders belleği", ("recall_lessons",)),
-    ("beceri ve ajanlar", ("find_skill", "find_agent", "invoke_agent", "spawn_agent")),
+    ("beceriler", ("find_skill", "read_skill")),
+    ("ajan keşfi", ("find_agent",)),
+    (
+        "ajanlar",
+        ("invoke_agent", "Agent", "Task", "spawn_agent", "spawn_agents", "invoke_subagent"),
+    ),
     ("görsel/video", ("generate_image", "render_remotion", "scaffold_remotion")),
     ("site araçları", ("scaffold_web", "start_preview", "site_design", "clone_site")),
-    ("arka plan işleri", ("start_job", "job_status")),
+    ("arka plan işleri", ("monitor", "task_stop")),
 )
 
 
@@ -46,7 +51,7 @@ def session_line(tool_names: Iterable[str], teacher_model: str = "") -> str:
     missing = [
         label for label in ("Chrome eklentisi (gerçek Chrome)", "öğretmen") if label not in families
     ]
-    parts = ["Bu turda elindeki aileler: " + ", ".join(families) + "."]
+    parts = ["Bu turda elindeki aileler: " + (", ".join(families) or "yok") + "."]
     if teacher_model and "öğretmen" in families:
         parts.append(f"Öğretmen: {teacher_model}.")
     if missing:

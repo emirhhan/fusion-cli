@@ -80,11 +80,23 @@ export function onVoiceMessage(
 export const VOICE_PREFS_REQUEST = "fusion://ses-ayar";
 export const VOICE_PREFS_STATE = "fusion://ses-ayar-durum";
 export const VOICE_RUNTIME_STATE = "fusion://ses-runtime-durum";
+const VOICE_ACTIVITY = "fusion://ses-kullanici-durumu";
+export type VoiceActivity = "speaking" | "silent" | "closed";
+
+export async function emitVoiceActivity(activity: VoiceActivity): Promise<void> {
+  if (kabukVar()) await tauriEmit(VOICE_ACTIVITY, activity);
+}
+
+export function onVoiceActivity(handler: (activity: VoiceActivity) => void): Promise<() => void> {
+  return dinle(VOICE_ACTIVITY, handler, { listen: tauriListen as Listener["listen"] });
+}
+
 export const VOICE_BARGE_IN = "fusion://ses-barge-in";
 
 export interface VoiceRuntimeState {
   durum: "idle" | "listening" | "transcribing" | "thinking" | "talking" | "interrupted" | "approval" | "error";
   metin?: string;
+  pending?: boolean;
 }
 
 export interface VoicePrefsPayload {
@@ -140,10 +152,7 @@ export async function publishVoiceRuntimeState(
   transport: Emitter = { emit: tauriEmit },
 ): Promise<void> {
   if (transport.emit === tauriEmit && !kabukVar()) return;
-  const payload: VoiceRuntimeState = state.metin === undefined
-    ? { durum: state.durum }
-    : { durum: state.durum, metin: state.metin };
-  await transport.emit(VOICE_RUNTIME_STATE, payload);
+  await transport.emit(VOICE_RUNTIME_STATE, state);
 }
 
 export function onVoiceRuntimeState(
@@ -208,11 +217,35 @@ export async function publishVoiceAsk(
   await transport.emit(VOICE_ASK, ask);
 }
 
+/**
+ * Köprüden gelen soru yükünü doğrular (U2-20): `secenekler` eksik/null ise boş listeye düşer, geçersiz
+ * seçenekler atılır; nesne olmayan yük `null` (soru yok) sayılır. Böylece bozuk bir olay `matchSpokenAnswer`
+ * ya da `VoiceQuestion` içinde `TypeError` fırlatıp Talk'ı dondurmaz.
+ */
+export function normalizeVoiceAsk(raw: unknown): VoiceAsk | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Partial<VoiceAsk> & { secenekler?: unknown };
+  const secenekler = Array.isArray(value.secenekler)
+    ? value.secenekler.filter((option): option is { deger: string; etiket: string } =>
+      !!option && typeof option === "object"
+      && typeof (option as { deger?: unknown }).deger === "string"
+      && typeof (option as { etiket?: unknown }).etiket === "string")
+    : [];
+  return {
+    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.questionId === "string" ? { questionId: value.questionId } : {}),
+    ...(typeof value.arac === "string" ? { arac: value.arac } : {}),
+    metin: typeof value.metin === "string" ? value.metin : "",
+    secenekler,
+    acik: value.acik === true,
+  };
+}
+
 export function onVoiceAsk(
   handler: (ask: VoiceAsk | null) => void,
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
-  return dinle(VOICE_ASK, handler, transport);
+  return dinle<unknown>(VOICE_ASK, (payload) => handler(normalizeVoiceAsk(payload)), transport);
 }
 
 export async function answerVoiceAsk(

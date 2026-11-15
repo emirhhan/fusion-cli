@@ -12,6 +12,7 @@ from collections.abc import Sequence
 
 from ...core.types import Message
 from ..effects.detect import required_effect_for
+from .history import is_summary_message
 
 _CONTINUATION = re.compile(
     r"(?:tamam(?:dır)?[ ,]*)?(?:kaldığın yerden |kaldigin yerden )?devam et"
@@ -32,7 +33,13 @@ _MUTATION_CLAIM = re.compile(
     r"guncelle(?:dim|dik|yecegim|yorum)|oluştur(?:dum|duk|acağım|uyorum)|"
     r"olustur(?:dum|duk|acagim|uyorum)|değiştir(?:dim|dik|eceğim|iyorum)|"
     r"degistir(?:dim|dik|ecegim|iyorum)|kaydet(?:tim|tik|eceğim|iyorum)|"
-    r"sil(?:dim|dik|eceğim|iyorum))\b|"
+    r"sil(?:dim|dik|eceğim|iyorum)|"
+    # Ölçüldü (30 Ekim, A1-30): bu fiiller yakalanmıyor, "dosyayı taşıdım" gibi kanıtsız
+    # beyanlar geçiyordu. `yazdım` bilerek YOK: sohbette kod örneği verirken çok yaygın.
+    r"taşı(?:dım|dık)|tasi(?:dim|dik)|kaldır(?:dım|dık)|kaldir(?:dim|dik)|"
+    r"yeniden adlandır(?:dım|dık)|yeniden adlandir(?:dim|dik)|"
+    r"uygula(?:dım|dık)|"
+    r"refactor ettim)\b|"
     r"\b(?:dosya\w*|kod\w*|font\w*|katman\w*|ayar\w*|file\w*)\b[^.!?\n]{0,100}"
     r"\b(?:eklendi|düzeltildi|duzeltildi|güncellendi|guncellendi|oluşturuldu|"
     r"olusturuldu|değiştirildi|degistirildi|kaydedildi|silindi)\b|"
@@ -58,6 +65,17 @@ _FILE_REFERENCE = re.compile(r"(?:[\w.@~-]+(?:/[\w.@~-]+)+|[\w.@~/-]+\.[A-Za-z][
 _QUOTED = re.compile(r'```.*?```|`[^`]*`|^[ \t]*>[^\n]*|["“][^"”\n]*["”]', re.M | re.S)
 
 
+def effect_request(task: str, history: Sequence[Message] = ()) -> str:
+    """Resolve a bare continuation to its genuine user request, including source scope."""
+    if _CONTINUATION.fullmatch(task.strip()):
+        for message in reversed(history):
+            if message.role != "user" or message.harness_note or is_summary_message(message):
+                continue
+            if not _CONTINUATION.fullmatch(message.content.strip()):
+                return message.content
+    return task
+
+
 def task_effect(task: str, history: Sequence[Message] = ()) -> str | None:
     """Yalnız devam talebinde en son gerçek kullanıcı görevini çözümle."""
     effect = required_effect_for(task)
@@ -71,13 +89,8 @@ def task_effect(task: str, history: Sequence[Message] = ()) -> str | None:
         return "tool_action"
     if not _CONTINUATION.fullmatch(task.strip()):
         return None
-    for message in reversed(history):
-        if message.role != "user" or message.harness_note:
-            continue
-        if _CONTINUATION.fullmatch(message.content.strip()):
-            continue
-        return task_effect(message.content)
-    return None
+    request = effect_request(task, history)
+    return task_effect(request) if request != task else None
 
 
 def claimed_effects(text: str) -> tuple[str, ...]:

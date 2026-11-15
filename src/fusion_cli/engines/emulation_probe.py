@@ -19,8 +19,9 @@ model, talimatı gördüğünde doğru bloğu üretebiliyor mu?
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from ..config.models import Config, WebSessionConfig
 from ..core.errors import FusionError
@@ -30,10 +31,11 @@ from ..core.tool_emulation import (
     parse_tool_calls,
     render_tool_instructions,
 )
-from ..core.types import CompletionRequest, Message
+from ..core.types import CompletionRequest, Message, TokenUsage
+from ..core.web_provenance import WebCallContext, WebResponseProvenance
 from ..providers.web_registry import WebSessionRegistry, web_registry_for
 from ..tools import build_registry
-from ..tools.emulation_eval import EmulationEvalScore, EvalCase, score_emulation
+from ..tools.emulation_eval import EmulationEvalScore, EvalCase, ExpectedCall, score_emulation
 
 #: Sonda çağrısı için üst süre sınırı (saniye). Web arayüzleri yavaştır; ölçüm
 #: kullanıcıyı süresiz bekletmemelidir.
@@ -58,6 +60,8 @@ class ProbeSample:
     raw_output: str
     parsed_tool: str | None
     parse_errors: tuple[str, ...]
+    web_provenance: WebResponseProvenance | None = None
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
     @property
     def has_call_markers(self) -> bool:
@@ -73,11 +77,29 @@ class ProbeSample:
 
 
 @dataclass(frozen=True, slots=True)
+class ProbeLimits:
+    """Açık kayıt çağrısı için saklama bütçesi; ilk DOM allocation sınırı değildir."""
+
+    max_calls: int
+    max_response_bytes: int
+    max_total_bytes: int
+    timeout_s: float
+
+    def validate(self, count: int) -> None:
+        values = (self.max_calls, self.max_response_bytes, self.max_total_bytes, self.timeout_s)
+        if not all(math.isfinite(value) and value > 0 for value in values):
+            raise FusionError("Sonda bütçeleri pozitif olmalı.")
+        if count > self.max_calls:
+            raise FusionError("Senaryo sayısı çağrı bütçesini aşıyor.")
+
+
+@dataclass(frozen=True, slots=True)
 class ProbeReport:
     """Ölçüm sonucu + her senaryonun ham kaydı."""
 
     score: EmulationEvalScore
     samples: tuple[ProbeSample, ...]
+    cases: tuple[EvalCase, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +111,7 @@ class ProbeScenario:
     #: Birebir eşleşmesi beklenen argümanlar. `None` ise yalnızca şema doğrulanır —
     #: model kod ürettiğinde birebir eşleşme beklemek anlamsızdır.
     expected_arguments: Mapping[str, object] | None = None
+    expected_calls: tuple[ExpectedCall, ...] | None = None
 
 
 #: Sabit senaryo kümesi. Az ve kasıtlı: her senaryo kullanıcının KENDİ aboneliğinden
@@ -158,12 +181,23 @@ async def probe_emulation(
     *,
     registry: WebSessionRegistry | None = None,
     scenarios: Sequence[ProbeScenario] = PROBE_SCENARIOS,
+    limits: ProbeLimits | None = None,
+    call_contexts: Sequence[WebCallContext] = (),
+    protocol: str = "v1",
 ) -> ProbeReport:
     """Bir web oturumunun taklit araç yeteneğini ölç.
 
     Senaryolar SIRAYLA çalışır: tarayıcı tabanlı oturumlar tek sayfayı paylaşır ve
     paralel istek göndermek oturumu bozar.
     """
+    if protocol not in {"v1", "v2"}:
+        raise FusionError("Taklit protokolü v1 veya v2 olmalı.")
+    if limits is not None:
+        limits.validate(len(scenarios))
+    if call_contexts and len(call_contexts) != len(scenarios):
+        raise FusionError("Her senaryo için tek uygulama çağrı bağlamı gerekli.")
+    timeout_s = limits.timeout_s if limits else PROBE_TIMEOUT_S
+    total_bytes = 0
     sessions = registry or web_registry_for(config)
     session = next(
         (item for item in config.web_sessions if item.model == model and item.enabled), None
@@ -188,18 +222,20 @@ async def probe_emulation(
     # on dörde yakın sekme açtı ve sağlayıcı bunu bot davranışı sayıp konuşma
     # oranı sınırını uyguladı — ölçüm de, kullanıcının o gün kalan kotası da gitti.
     history: list[Message] = [Message("system", instructions)]
-    for scenario in scenarios:
+    for index, scenario in enumerate(scenarios):
         history.append(Message("user", scenario.prompt))
         request = CompletionRequest(
             messages=tuple(history),
             temperature=0.0,
             max_tokens=PROBE_MAX_TOKENS,
-            timeout_s=PROBE_TIMEOUT_S,
+            timeout_s=timeout_s,
+            emulation_protocol="v2" if protocol == "v2" else "v1",
+            web_call_context=call_contexts[index] if call_contexts else None,
+            is_capture_probe=limits is not None,
+            conversation_id=call_contexts[index].session_id if call_contexts else "",
         )
         try:
-            result = await asyncio.wait_for(
-                provider.complete(request), timeout=PROBE_TIMEOUT_S + 10
-            )
+            result = await asyncio.wait_for(provider.complete(request), timeout=timeout_s)
         except TimeoutError as error:
             raise FusionError(
                 f"Ölçüm zaman aşımına uğradı ({scenario.expected_tool or 'araçsız'} senaryosu)."
@@ -212,16 +248,38 @@ async def probe_emulation(
                     "Sağlayıcı oran sınırına takıldı; ölçüm durduruldu. Sınır kalkınca tekrar dene."
                 )
             raise FusionError(f"Ölçüm sırasında sağlayıcı hatası: {result.error}")
+        if limits is not None and result.truncated:
+            raise FusionError("Kesilmiş yanıt tamamlanmış kayıt olarak kabul edilmedi.")
+        response_bytes = len(result.text.encode("utf-8"))
+        total_bytes += response_bytes
+        if limits and (
+            response_bytes > limits.max_response_bytes or total_bytes > limits.max_total_bytes
+        ):
+            raise FusionError("Yanıt saklama bütçesini aşıyor; kırpılmış örnek kabul edilmedi.")
         history.append(Message("assistant", result.text))
         cases.append(
             EvalCase(
                 output=result.text,
                 expected_tool=scenario.expected_tool,
                 expected_arguments=scenario.expected_arguments,
+                expected_calls=scenario.expected_calls,
                 schema=_schema_of(scenario.expected_tool) if scenario.expected_tool else None,
+                case_id=f"probe-{index}",
+                provider=model,
+                transport=session.transport,
+                provenance="synthetic",
+                split="diagnostic",
+                usage=result.usage,
+                protocol=protocol,
+                web_provenance=result.web_provenance,
             )
         )
-        parsed = parse_tool_calls(result.text)
+        parsed = parse_tool_calls(
+            result.text,
+            protocol=protocol,
+            provenance=result.web_provenance,
+            call_context=request.web_call_context,
+        )
         samples.append(
             ProbeSample(
                 prompt=scenario.prompt,
@@ -229,6 +287,8 @@ async def probe_emulation(
                 raw_output=result.text,
                 parsed_tool=parsed.calls[0].name if parsed.calls else None,
                 parse_errors=parsed.errors,
+                web_provenance=result.web_provenance,
+                usage=result.usage,
             )
         )
-    return ProbeReport(score=score_emulation(cases), samples=tuple(samples))
+    return ProbeReport(score=score_emulation(cases), samples=tuple(samples), cases=tuple(cases))

@@ -55,6 +55,45 @@ def test_nim_modeli_secmeden_once_arac_cagrisi_dogrulanir(
     assert bool(reason) is not expected
 
 
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (
+            404,
+            {"detail": "Function 'abc': Not found for account 'GIZLI-HESAP'"},
+            ["z-ai/glm-5.3 NIM'de bu hesap için sunulmuyor (404)", "Function 'abc': Not found"],
+        ),
+        (401, {}, ["anahtarı reddedildi (401)"]),
+        (500, {}, ["NIM doğrulaması başarısız (500)."]),
+    ],
+)
+def test_nim_sondasi_hatasi_nedenini_soyler_hesap_kimligini_sizdirmaz(
+    monkeypatch, status, body, expected
+):
+    """Ölçüldü (2 Kasım 2026): yalın "NIM doğrulaması başarısız (404)" nedeni söylemiyordu."""
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "test-key")
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, *, headers, json):
+            return httpx.Response(status, json=body, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(catalog.httpx, "Client", Client)
+    ok, reason = catalog.probe_nim_tools("nvidia_nim/z-ai/glm-5.3")
+
+    assert ok is False
+    assert all(part in reason for part in expected)
+    assert "GIZLI-HESAP" not in reason
+
+
 def _sahte_yanit(monkeypatch, payload, *, hata=None):
     class _Client:
         def __init__(self, **kwargs):
@@ -221,3 +260,34 @@ def test_ucretli_listede_ag_hatasi_bos_doner(monkeypatch):
     _sahte_yanit(monkeypatch, {}, hata=httpx.ConnectError("yok"))
 
     assert catalog.fetch_openrouter_paid() == ()
+
+
+def test_ollama_adresi_ortamdan_okunur(monkeypatch):
+    """Ölçüldü (30 Ekim): `fetch_ollama` 127.0.0.1:11434'e sabitti; LiteLLM ise
+    `OLLAMA_API_BASE`'i okuyordu → başka portta/uzak makinede katalog boş görünüyordu
+    (P1-21)."""
+    from fusion_cli.providers.catalog import ollama_base_url
+
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    assert ollama_base_url() == "http://127.0.0.1:11434"
+
+    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11500")
+    assert ollama_base_url() == "http://127.0.0.1:11500"  # bağlanma adresi 0.0.0.0 değildir
+
+    monkeypatch.setenv("OLLAMA_HOST", "gpu-kutusu:11434")
+    assert ollama_base_url() == "http://gpu-kutusu:11434"
+
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://yerel:9999/")
+    assert ollama_base_url() == "http://yerel:9999"
+
+
+def test_nim_sonda_cagrisi_sayilari_metin_dondurse_de_gecerli_sayar():
+    """`2`/`3` yerine "2"/"3" döndüren model gerçekte araç çağırabiliyordur (P1-23)."""
+    from fusion_cli.providers.catalog import _valid_sum_call
+
+    cagri = {"function": {"name": "sum", "arguments": '{"a": "2", "b": "3"}'}}
+    yanlis = {"function": {"name": "sum", "arguments": '{"a": 2, "b": 4}'}}
+
+    assert _valid_sum_call(cagri) is True
+    assert _valid_sum_call(yanlis) is False

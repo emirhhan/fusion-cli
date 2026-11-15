@@ -20,21 +20,45 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Event
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from .artifacts import ArtifactStore
+from .background_events import BackgroundEvents
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
+from .delivery_contract import DeliveryContractState
+from .desktop_frame import (
+    DESKTOP_SCREENSHOT_MAX_WIDTH,
+    DesktopCapture,
+    DesktopFrame,
+    DesktopMouseAction,
+    DesktopView,
+)
+from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
+from .localization import LocalizationState
+from .plan_switch import PlanModeSwitch
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
+from .research_grounding import SourceReceipt
+from .sandbox_policy import SandboxHostGate, SandboxPolicy
+from .session_cron import SessionCron
+from .shell_cwd import ShellCwd
 from .tool_content import ToolContent, ToolContentType
+from .workspace_fingerprint import WorkspaceEffect
+from .worktree import WorktreeSwitch
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
 ToolArgs = Mapping[str, object]
+
+
+SourceReadScope = Literal[
+    "none", "document", "interactive", "subtree", "depth_limited", "truncated", "partial"
+]
 
 
 class ChromeControl(Protocol):
@@ -83,13 +107,17 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "extract_archive": ToolFamily.FILES,
     "grep_search": ToolFamily.SEARCH,
     "search_code": ToolFamily.SEARCH,
+    "symbol_query": ToolFamily.SEARCH,
     "search_codebase": ToolFamily.SEARCH,
     "run_shell": ToolFamily.SHELL,
+    # Claude Monitor komutu Bash izin kurallarına tabidir (#336).
+    "monitor": ToolFamily.SHELL,
     "render_remotion": ToolFamily.SHELL,
     "shell": ToolFamily.SHELL,
     "bash": ToolFamily.SHELL,
     "execute_command": ToolFamily.SHELL,
     "git": ToolFamily.VCS,
+    "gh": ToolFamily.VCS,
     "browser_open": ToolFamily.BROWSER,
     "chrome_page": ToolFamily.BROWSER,
     "chrome_click": ToolFamily.BROWSER,
@@ -97,6 +125,9 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "chrome_navigate": ToolFamily.BROWSER,
     "chrome_screenshot": ToolFamily.BROWSER,
     "chrome_action": ToolFamily.BROWSER,
+    "chrome_javascript": ToolFamily.BROWSER,
+    "chrome_batch": ToolFamily.BROWSER,
+    **dict.fromkeys(CLAUDE_CHROME_TOOL_NAMES, ToolFamily.BROWSER),
     "desktop_apps": ToolFamily.DESKTOP,
     "desktop_windows": ToolFamily.DESKTOP,
     "desktop_background_windows": ToolFamily.DESKTOP,
@@ -106,7 +137,10 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "desktop_window_focus": ToolFamily.DESKTOP,
     "desktop_accessibility": ToolFamily.DESKTOP,
     "desktop_open": ToolFamily.DESKTOP,
+    "desktop_request_access": ToolFamily.DESKTOP,
+    "desktop_displays": ToolFamily.DESKTOP,
     "desktop_screenshot": ToolFamily.DESKTOP,
+    "desktop_mouse": ToolFamily.DESKTOP,
     "desktop_click": ToolFamily.DESKTOP,
     "desktop_type": ToolFamily.DESKTOP,
     "desktop_key": ToolFamily.DESKTOP,
@@ -136,12 +170,25 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "invoke_agent": ToolFamily.DELEGATION,
     "council": ToolFamily.DELEGATION,
     "todo_write": ToolFamily.META,
+    "task_stop": ToolFamily.META,
+    "task_create": ToolFamily.META,
+    "task_get": ToolFamily.META,
+    "task_list": ToolFamily.META,
+    "task_update": ToolFamily.META,
     "ask_user": ToolFamily.META,
     "read_session": ToolFamily.META,
     "recent_actions": ToolFamily.META,
     "find_skill": ToolFamily.META,
     "read_skill": ToolFamily.META,
     "find_agent": ToolFamily.META,
+    "cron_create": ToolFamily.META,
+    "cron_list": ToolFamily.META,
+    "cron_delete": ToolFamily.META,
+    "schedule_wakeup": ToolFamily.META,
+    # Kits gelen kutusu: Kit'e iş devretmek delegasyon, listeleme/durum yardımcıdır.
+    "kits_list": ToolFamily.META,
+    "kit_send": ToolFamily.DELEGATION,
+    "kit_task_status": ToolFamily.META,
 }
 
 
@@ -165,6 +212,18 @@ class ToolEffect(Enum):
     REMOTE_WRITE = "remote_write"
     #: Uzak sistemde geri alınamaz değişiklik yapabilir (silme, yayın, harcama).
     REMOTE_DESTRUCTIVE = "remote_destructive"
+    #: Kullanıcının GİRİŞLİ oturumunu (çerez profili) ajanın tarayıcısına yükler (P-023).
+    #: Uzak sisteme henüz yazmaz ama ajanı o hesabın yetkisiyle donatır; Claude in
+    #: Chrome kullanıcının oturumunda eylem izni ister, buradaki beklenti aynıdır.
+    #: Her kipte sorulur, plan kipinde yapılmaz; dış işlem defterine GİRMEZ (yazma değil).
+    REMOTE_SESSION = "remote_session"
+
+
+class ToolEvidenceRole(Enum):
+    """Trusted adapter metadata; independent of permissions and untrusted output."""
+
+    UNCLASSIFIED = "unclassified"
+    DATA_OBSERVATION = "data_observation"
 
 
 def tool_family(name: str) -> ToolFamily:
@@ -193,6 +252,18 @@ class ToolResult:
     failure_evidence: tuple[FailureEvidence, ...] = ()
     is_observation: bool = False
     job_completion: JobCompletion | None = None
+    #: `run_shell`: komutun proje kökündeki ölçülen etkisi; `None` = ölçülmedi.
+    workspace_effect: WorkspaceEffect | None = None
+    #: Araç çıktıyı kendi (Claude Code) sınırına göre biçimledi; genel diske alma atlanır.
+    output_shaped: bool = False
+    #: Internal successful image-helper observation; never decoded from MCP data.
+    visual_observation: DesktopCapture | None = None
+    #: Internal receipt from an authorized Chrome content read, never MCP/model data.
+    source_read_url: str = ""
+    #: Trusted coverage; never decoded from page text, MCP or model arguments.
+    source_read_scope: SourceReadScope = "none"
+    #: Private typed reader payload, never included in public output/structured data.
+    source_receipt: SourceReceipt | None = field(default=None, repr=False)
 
     @property
     def images(self) -> tuple[str, ...]:
@@ -233,6 +304,19 @@ class TodoItem:
 
     content: str
     status: TodoStatus
+    #: Claude TodoWrite `activeForm`: madde sürerken gösterilen biçim ("Test yazılıyor").
+    active_form: str = ""
+    #: Claude Task* araçları (#329): kimlik, açıklama ve bağımlılıklar; TodoWrite'ta boş.
+    task_id: str = ""
+    description: str = ""
+    blocked_by: tuple[str, ...] = ()
+
+    @property
+    def label(self) -> str:
+        """Gösterilecek metin: sürmekte olan madde `activeForm` ile görünür (Claude gibi)."""
+        if self.status is TodoStatus.IN_PROGRESS and self.active_form:
+            return self.active_form
+        return self.content
 
 
 class TodoList:
@@ -262,7 +346,7 @@ class TodoList:
         return sum(1 for item in self._items if item.status is not TodoStatus.COMPLETED)
 
     def render(self) -> str:
-        return "\n".join(f"{item.status.icon} {item.content}" for item in self._items)
+        return "\n".join(f"{item.status.icon} {item.label}" for item in self._items)
 
 
 class PendingWrite:
@@ -290,6 +374,14 @@ class ToolContext:
 
     #: Göreli yolların çözümleneceği kök dizin.
     root: Path
+    #: Yalnız kabul edilen kök istek bu sözleşmeyi değiştirebilir.
+    delivery_contract: DeliveryContractState = field(
+        default_factory=DeliveryContractState, kw_only=True
+    )
+    localization: LocalizationState = field(default_factory=LocalizationState, kw_only=True)
+    tool_phase: str = field(default="", kw_only=True)
+    localization_step_id: str = field(default="", kw_only=True)
+    localization_criterion_ids: tuple[str, ...] = field(default=(), kw_only=True)
     job_scope: str = field(default_factory=lambda: uuid4().hex, kw_only=True)
     #: Bu tura ait görev listesi.
     todos: TodoList = field(default_factory=TodoList)
@@ -301,8 +393,12 @@ class ToolContext:
     #: Tarayıcı araçlarının gidebileceği YEREL adresler (`host:port`). Yalnız kullanıcının
     #: kendi mesajında yazdığı adresler girer; sayfa içeriği ya da model buraya ekleyemez.
     local_origins: set[str] = field(default_factory=set)
+    #: `local_origins`e önizleme sunucusundan eklenenler (#438): önizleme kapanınca çıkarılır.
+    preview_origins: set[str] = field(default_factory=set)
     #: Kullanıcının mesajında ÇIKTI olarak andığı göreli dosya yolları (`output_verify`).
     requested_outputs: set[str] = field(default_factory=set)
+    #: Kök tur başlangıcında istenen çıktının (boyut, mtime_ns) imzası; yoksa None.
+    output_baselines: dict[str, tuple[int, int] | None] = field(default_factory=dict)
     #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).
     probed_games: set[str] = field(default_factory=set)
     #: Bu isteğin türleri (ör. "oyun"): denenmemiş canvas sayfası da kapıda oynatılır.
@@ -313,10 +409,10 @@ class ToolContext:
     # kırpılmış okuduysa, gönderdiği "tam içerik" gerçekten tam DEĞİLDİR ve kesme
     # noktasından sonrası sessizce yok olur. Bu küme o kararı ölçülebilir kılar.
     fully_read: set[Path] = field(default_factory=set)
-    #: Artık hiçbir araç okumaz ya da yazmaz. Tek tüketicisi satır aralığı
-    #: düzenlemesiydi (`replace_range`, kaldırıldı); alan yalnız plan motorunun
-    #: adım bağlamı (`plan_runner._step_context`) onu açıkça sıfırladığı için
-    #: duruyor ve o satırla birlikte silinir.
+    #: Tam okunan dosyanın okuma anındaki imzası (`mtime_ns:boyut`). `write_file`,
+    #: okumadan sonra DIŞARIDAN değişmiş dosyanın üzerine yazmayı bununla reddeder;
+    #: agent'ın kendi yazması imzayı tazeler. Adım bağlamları (`replace`) aynı sözlüğü
+    #: paylaşır.
     read_revisions: dict[Path, str] = field(default_factory=dict)
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
@@ -365,8 +461,72 @@ class ToolContext:
     available_tools: set[str] = field(default_factory=set)
     #: Açık kit iskele aracı sonradan kaydeder; genel Remotion projeleri opt-in kalır.
     remotion_contract: KitContractState = field(default_factory=KitContractState)
+    #: Oturumun zamanlayıcısı (`cron_*`, `schedule_wakeup`); tek atışlık turda yok (P-038).
+    cron: SessionCron | None = None
+    #: Oturumun arka plan olay kuyruğu: biten iş ve `monitor` satırı tura girer (#334, #336).
+    background_events: BackgroundEvents | None = field(default=None, kw_only=True)
+    #: Ön plan alt ajanının iş grubu: alt ajan bitince başlattığı arka plan işleri durur (#335).
+    job_group: str = field(default="", kw_only=True)
     #: Tarayıcı seçimi yalnız host bağımlılığıdır; araç JSON'undan alınmaz.
     remotion_browser: RemotionBrowser | None = field(default=None, kw_only=True)
+    #: Araç çocuk süreçlerinin ortamından çıkarılacak değişken adları (MCP sırları).
+    #: Sırlar süreç ortamında yaşar; `run_shell` çıktısı (`env`) modele giderdi.
+    hidden_env: frozenset[str] = field(default=frozenset(), kw_only=True)
+    #: `CLAUDE_ENV_FILE` dosyaları: her `run_shell` komutundan önce kabuk kodu olarak
+    #: çalışır (kanca köprüsü çalıştırmadan önce doldurur; liste paylaşılır).
+    shell_env_files: list[Path] = field(default_factory=list, kw_only=True)
+    #: Kabuk aracının kalıcı çalışma dizini (#126): `cd` sonraki komutlara taşınır.
+    shell_cwd: ShellCwd = field(default_factory=ShellCwd, kw_only=True)
+    #: `run_shell` işletim sistemi sandbox kipi: "off" | "write_root" (bkz. `shell_sandbox`).
+    shell_sandbox: str = field(default="off", kw_only=True)
+    #: Kip açıkken uygulanan okuma/ağ/yazma politikası (P-010); None = yalnız yazma sınırı.
+    sandbox_policy: SandboxPolicy | None = field(default=None, kw_only=True)
+    #: Liste dışı ana makine kararı (#323): motor her kabuk çağrısından önce kipe göre kurar.
+    sandbox_hosts: SandboxHostGate = field(default_factory=SandboxHostGate, kw_only=True)
+    #: `edit_file`/`multi_edit` tam eşleşme bulamayınca boşluk/girinti/CRLF farkını tolere eden
+    #: tek-ve-belirsiz-olmayan yedek yolu dener (bkz. `tools.esnek_eslesme`).
+    edit_fuzzy_match: bool = field(default=True, kw_only=True)
+    #: Kök (+ `extra_roots`) DIŞINI okuma / DIŞINA yazma tamamen kapalı mı? (P-002)
+    #:
+    #: `restrict_to_root` ikisini birden kapatır; bunlar tek yönü kapatır. Açıkken
+    #: dosya araçları `PathAccessError` verir ve modele `--add-dir` ile açılabileceği söylenir.
+    block_reads_outside_root: bool = field(default=False, kw_only=True)
+    block_writes_outside_root: bool = field(default=False, kw_only=True)
+    #: Dosya yazıldıktan sonra JS/TS/PHP sözdizimi hızlı kontrolü (bkz. `tools.sozdizimi_kontrol`).
+    post_edit_syntax_check: bool = field(default=True, kw_only=True)
+    #: `run_shell` öncesi/sonrası proje kökünün parmak izi alınır; dosya değişmediyse komut
+    #: mutasyon sayılmaz (bkz. `core.workspace_fingerprint`). Kapalıysa temkinli sınıflandırma.
+    shell_fingerprint: bool = field(default=True, kw_only=True)
+    #: Turun son masaüstü ekran görüntüsü çerçevesi: fare araçları görüntü pikselini ekran
+    #: noktasına bununla çevirir (bkz. `core.desktop_frame`). Taşıyıcı nesnedir; paylaşılır.
+    desktop: DesktopView = field(default_factory=DesktopView, kw_only=True)
+    #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
+    #: (`runtime.desktop_screenshot_max_width`).
+    desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
+    #: Private invocation callback; never shared as an actor observation/permission.
+    desktop_mouse_observer: Callable[[DesktopMouseAction], None] | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_mouse_guard: Callable[[str, ToolArgs], str | None] | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_mouse_owner: object | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_coordinate_frame: DesktopFrame | None = field(default=None, kw_only=True, repr=False)
+    #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
+    desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
+    #: Bilgisayar kullanımı ayarları (`desktop:`; kademe, reddedilen uygulamalar, tur davranışı).
+    desktop_settings: DesktopSettings = field(default_factory=DesktopSettings, kw_only=True)
+    #: `enter_worktree`/`exit_worktree` araçlarının tur SONUNA bıraktığı kök değişikliği isteği.
+    #: Bağlam donmuştur; kök tur ortasında değişmez, REPL turdan sonra uygular.
+    worktree_switch: WorktreeSwitch = field(default_factory=WorktreeSwitch, kw_only=True)
+    #: Bu turda çağrılan becerilerin izin kuralları: `("allow"|"deny", "Bash(git *)")`.
+    #: `allowed-tools` ön onay, `disallowed-tools` desen yasağıdır; kullanıcının sonraki
+    #: mesajında kalkar (Claude Code skills; bkz. `engines/agent/skill_grants`).
+    skill_grants: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
+    #: Plan kipi araçlarının isteği (`enter_plan_mode` / `exit_plan_mode`; #317, #324).
+    plan_mode_switch: PlanModeSwitch = field(default_factory=PlanModeSwitch, kw_only=True)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya
@@ -400,6 +560,7 @@ class AuthorizationScope:
 
 
 ScopeResolver = Callable[[ToolArgs], AuthorizationScope | None]
+EvidenceRoleResolver = Callable[[ToolArgs, ToolResult], ToolEvidenceRole]
 
 
 @dataclass(frozen=True, slots=True)
@@ -426,6 +587,10 @@ class Tool:
     # model aynı dosya için iki adı dönüşümlü kullanıp tekrar kapısına takıldı.
     # Takma ad çağrılırsa yine çalışır — amaç hatayı önlemek, seçenek sunmak değil.
     advertised: bool = True
+    #: True ise sonuç modele OLDUĞU GİBİ gider: diske alma (offload) ve enjeksiyon notu
+    #: uygulanmaz. Yalnız içeriği kullanıcının kendi talimatı olan araçlar içindir
+    #: (`Skill`: işlenmiş SKILL.md, Claude Code'da konuşmaya tam girer; #139).
+    verbatim_output: bool = False
     #: Aracın etki sınıfı; onay politikası uzak ve yıkıcı işlemleri buna göre sıkılaştırır.
     effect: ToolEffect = ToolEffect.LOCAL
     #: Etki çağrının argümanına bağlıysa (tek araçtan onlarca yetenek çalıştıran
@@ -433,6 +598,8 @@ class Tool:
     effect_resolver: EffectResolver | None = None
     #: Yalnız adaptörün bildiği hesap/eylem/hedef sınırını çözer.
     scope_resolver: ScopeResolver | None = None
+    evidence_role: ToolEvidenceRole = field(default=ToolEvidenceRole.UNCLASSIFIED, kw_only=True)
+    evidence_role_resolver: EvidenceRoleResolver | None = field(default=None, kw_only=True)
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""
@@ -444,6 +611,19 @@ class Tool:
                 "parameters": dict(self.parameters),
             },
         }
+
+
+def resolved_evidence_role(tool: Tool, args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    """Resolvers fail closed; strings and remote/model role claims grant nothing."""
+    try:
+        role = (
+            tool.evidence_role_resolver(args, result)
+            if tool.evidence_role_resolver
+            else tool.evidence_role
+        )
+    except Exception:
+        return ToolEvidenceRole.UNCLASSIFIED
+    return role if isinstance(role, ToolEvidenceRole) else ToolEvidenceRole.UNCLASSIFIED
 
 
 class ToolPreviewer(Protocol):

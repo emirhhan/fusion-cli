@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from ..config.credentials import FernetSecretStore
 from ..config.models import WebSessionConfig
 from ..config.paths import credentials_file
+from ..core.constants import WEB_IMAGE_UPLOAD_PROVIDERS
 from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock, LlmProvider
 from ..core.types import Message
@@ -37,11 +38,13 @@ class WebSessionRegistry:
         *,
         environ: Mapping[str, str],
         secret_store: FernetSecretStore | None = None,
+        secret_store_factory: Callable[[], FernetSecretStore] | None = None,
         trace_dir: Path | None = None,
     ) -> None:
         self._by_model = {session.model: session for session in sessions if session.enabled}
         self._environ = environ
         self._secret_store = secret_store
+        self._secret_store_factory = secret_store_factory
         #: Verilirse tarayıcı alışverişi buraya redakte edilerek yazılır (teşhis).
         self._trace_dir = trace_dir
 
@@ -88,7 +91,8 @@ class WebSessionRegistry:
         emulated kipte kuruluyor ve araç bloklarını metinden çıkarıyordu. Sonuç:
         sonda "boş çıktı" görüyor ve modeli hiç araç üretmemiş sayıyordu.
         """
-        credential = self._credential(session)
+        needs_secret = session.transport == "browser" and bool(session.credential_ref)
+        credential = WebSessionCredential() if needs_secret else self._credential(session)
         if session.transport == "browser":
             # Bütçe oturumun KENDİ yapılandırmasından gelir; burada bir şey
             # geçilmediği için transport eskiden 20 saniyelik HTTP sabitine düşüyordu.
@@ -105,19 +109,33 @@ class WebSessionRegistry:
                     supports_images=True,
                     clock=clock,
                 )
-            transport = transport_factory(session.endpoint)
+            # Bütçe oturumun yapılandırmasından gelir (tarayıcı yoluyla aynı kural):
+            # verilmezse 20 sn'lik HTTP sabitine düşer ve akıtmasız uçta uzun üretimler
+            # `ReadTimeout` ile düşerdi (P1-04).
+            transport = transport_factory(session.endpoint, timeout_s=session.timeout_s)
         return WebProviderAdapter(
             model=session.model,
             credential=credential,
             transport=transport,
+            credential_factory=(lambda: self._credential(session)) if needs_secret else None,
             tool_support=_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE),
-            supports_images=session.transport != "browser",
+            # Tarayıcıda görsel yalnız yükleme yolu olan sağlayıcıda taşınır (Gemini);
+            # aksi hâlde adaptör görseli önceden düşürür ve `_attach_images` ölü kalırdı.
+            supports_images=session.transport != "browser"
+            or session.provider in WEB_IMAGE_UPLOAD_PROVIDERS,
             clock=clock,
         )
 
     def _credential(self, session: WebSessionConfig) -> WebSessionCredential:
         if session.transport == "browser":
             cookie = ""
+            if (
+                session.credential_ref
+                and self._secret_store is None
+                and self._secret_store_factory is not None
+            ):
+                # Yalnız bu registry'ye ait cache; hata olursa sonraki deneme yeniden çözebilir.
+                self._secret_store = self._secret_store_factory()
             if session.credential_ref and self._secret_store and self._secret_store.available:
                 cookie = self._secret_store.get(session.credential_ref) or ""
             return WebSessionCredential(token=cookie)
@@ -161,10 +179,12 @@ def web_registry_for(config: Config) -> WebSessionRegistry | None:
         return None
     from ..config.keys import environ_snapshot, secret_key
 
-    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+    def credential_store() -> FernetSecretStore:
+        return FernetSecretStore(credentials_file(), secret_key=secret_key())
+
     return WebSessionRegistry(
         config.web_sessions,
         environ=environ_snapshot(),
-        secret_store=store,
+        secret_store_factory=credential_store,
         trace_dir=config.memory_dir / "web-traces" if config.runtime.web_trace else None,
     )

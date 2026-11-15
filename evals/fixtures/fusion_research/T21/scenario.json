@@ -1,0 +1,20 @@
+{
+  "kind": "lesson_relevance",
+  "split": "development",
+  "request": "python dersini geri çağır ve sonuc.txt içine ilgili düzeltmeyi uygula.",
+  "checks": [],
+  "lessons": [
+    {
+      "id": "current-python",
+      "text": "python değer için return 2 kullan.",
+      "version": "2",
+      "split": "development"
+    },
+    {
+      "id": "irrelevant",
+      "text": "Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. ",
+      "version": "2",
+      "split": "development"
+    }
+  ]
+}

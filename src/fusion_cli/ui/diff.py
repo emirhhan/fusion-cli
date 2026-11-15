@@ -16,6 +16,7 @@ Girdi iki biçimden biri olabilir:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from rich.text import Text
@@ -24,7 +25,7 @@ from ..core.constants import MAX_PREVIEW_LINES
 from . import messages, theme
 
 #: `@@ -eski_baş,eski_sayı +yeni_baş,yeni_sayı @@` başlığından başlangıç satırlarını çeker.
-_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 #: Satır numarası sütununun genişliği; tek haneli ve dört haneli dosyalar hizalı dizilir.
 _LINE_NO_WIDTH = 4
@@ -60,12 +61,12 @@ def render_diff(
     shown = 0
     truncated = 0
 
-    for raw in diff_text.splitlines():
-        if raw.startswith("---") or raw.startswith("+++"):
+    for raw, is_file_header in diff_lines(diff_text):
+        if is_file_header:
             continue  # diff dosya başlıkları gürültü
         header = _HUNK_HEADER.match(raw)
         if header is not None:
-            old_line, new_line = int(header.group(1)), int(header.group(2))
+            old_line, new_line = int(header.group(1)), int(header.group(3))
             continue
         kind = _classify(raw)
         if kind is _Kind.ADD:
@@ -86,6 +87,40 @@ def render_diff(
         body.append(messages.DIFF_TRUNCATED.format(count=truncated), style=theme.DIFF_CONTEXT)
         body.append("\n")
     return RenderedDiff(added=added, removed=removed, body=body)
+
+
+def diff_lines(diff_text: str) -> Iterator[tuple[str, bool]]:
+    """Diff satırlarını `(satır, dosya_başlığı_mı)` olarak ver.
+
+    `---`/`+++` ile başlayan her satırı başlık saymak YANLIŞTIR: içeriği `-- ` ile
+    başlayan silinmiş satır (SQL yorumu, YAML `---`, Markdown `----`) diff'te `--- ...`
+    olur. Ölçüldü (30 Ekim): bunlar onay önizlemesinde soluk görünüyor, `render_diff`
+    onları atlıyor ve silinen/eklenen sayıları eksik çıkıyordu (L1-21). Başlık yalnız
+    hunk DIŞINDA sayılır; hunk uzunluğu `@@ -a,b +c,d @@` sayılarından izlenir.
+    Hunk'ı hiç olmayan metin (yeni dosya önizlemesi) başlık içermez.
+    """
+    satirlar = diff_text.splitlines()
+    hunk_var = any(_HUNK_HEADER.match(satir) for satir in satirlar)
+    kalan_eski = kalan_yeni = 0
+    for raw in satirlar:
+        eslesme = _HUNK_HEADER.match(raw)
+        if eslesme is not None:
+            kalan_eski = int(eslesme.group(2)) if eslesme.group(2) is not None else 1
+            kalan_yeni = int(eslesme.group(4)) if eslesme.group(4) is not None else 1
+            yield raw, False
+            continue
+        hunk_icinde = kalan_eski > 0 or kalan_yeni > 0
+        if not hunk_icinde:
+            yield raw, hunk_var and raw.startswith(("--- ", "+++ "))
+            continue
+        if raw.startswith("-"):
+            kalan_eski -= 1
+        elif raw.startswith("+"):
+            kalan_yeni -= 1
+        elif raw.startswith(" ") or raw == "":
+            kalan_eski -= 1
+            kalan_yeni -= 1
+        yield raw, False
 
 
 # --------------------------------------------------------------------------- #

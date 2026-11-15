@@ -21,11 +21,11 @@ it("dikteyi taslakta tutar, otomatik göndermez ve başka oturum olayını yoksa
     line?.({ session: 8, line: JSON.stringify({ tur: "son", metin: "yanlış" }) });
     line?.({ session: 7, line: JSON.stringify({ tur: "kismi", metin: "merha" }) });
   });
-  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merha");
+  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merha", false);
   await act(async () => {
     line?.({ session: 7, line: JSON.stringify({ tur: "son", metin: "merhaba" }) });
   });
-  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merhaba");
+  expect(onText).toHaveBeenLastCalledWith("chat-1", "Eski metin merhaba", true);
   expect(stop).toHaveBeenCalledTimes(1);
   expect(result.current.listening).toBe(false);
   expect(ended).toBeNull();
@@ -53,9 +53,33 @@ it("başlatma sürerken gelen metni korur ve iptal edilen geç başlangıcı din
     resolveStart?.(4);
     await starting;
   });
-  expect(onText).toHaveBeenCalledWith("chat-1", "Taslak merhaba");
+  expect(onText).toHaveBeenCalledWith("chat-1", "Taslak merhaba", false);
 
   await act(async () => { await result.current.stop(); });
   expect(result.current.listening).toBe(false);
   expect(stop).toHaveBeenCalledTimes(1);
+});
+
+it("stop sonra hemen yeni start: geç dönen eski başlatma yeni oturumu durdurmaz (U2-23)", async () => {
+  const resolvers: ((session: number) => void)[] = [];
+  const stop = vi.fn(async () => undefined);
+  const runtime: DictationRuntime = {
+    onLine: async () => () => undefined,
+    onEnded: async () => () => undefined,
+    start: () => new Promise<number>((resolve) => { resolvers.push(resolve); }),
+    stop,
+  };
+  const { result } = renderHook(() => useDictation(vi.fn(), runtime));
+  let first: Promise<void> | undefined;
+  let second: Promise<void> | undefined;
+  await act(async () => { first = result.current.start("chat-1", ""); await Promise.resolve(); await Promise.resolve(); });
+  await act(async () => { await result.current.stop(); });
+  expect(stop).toHaveBeenCalledTimes(1);
+  await act(async () => { second = result.current.start("chat-1", ""); await Promise.resolve(); await Promise.resolve(); });
+  expect(resolvers).toHaveLength(2);
+  await act(async () => { resolvers[0](1); await first; });
+  // Eski çalıştırma yeni başlatmanın yerel tanıyıcısını öldürmemeli.
+  expect(stop).toHaveBeenCalledTimes(1);
+  await act(async () => { resolvers[1](2); await second; });
+  expect(result.current.listening).toBe(true);
 });

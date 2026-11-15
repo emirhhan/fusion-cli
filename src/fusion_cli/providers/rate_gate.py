@@ -21,11 +21,14 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 from ..core.clock import SystemClock, SystemSleeper
 from ..core.protocols import Clock, LlmProvider, RateLedger, Sleeper
+from ..core.provider_diagnostics import observe_phase
 from ..core.rate_control import RateControl
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
+from .stream_cleanup import closing_stream
 
 #: Kapının ürettiği sonucun hata öneki. "rate limit" içerir: `is_rate_limit_error`
 #: onu gerçek bir 429 gibi sınıflandırır ve zincir aynı yoldan yedeğe geçer.
@@ -61,47 +64,66 @@ class RateGatedProvider:
         return self._inner.label
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
-        blocked = await self._admit()
+        observe_phase(request, "rate_admission_enter")
+        blocked = await self._admit(request)
+        observe_phase(request, "rate_rejected" if blocked is not None else "rate_admitted")
         if blocked is not None:
             return blocked
         result = await self._inner.complete(request)
-        self._record(result)
-        return result
+        return self._record(result)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
-        blocked = await self._admit()
+        observe_phase(request, "rate_admission_enter")
+        blocked = await self._admit(request)
+        observe_phase(request, "rate_rejected" if blocked is not None else "rate_admitted")
         if blocked is not None:
             yield StreamDone(blocked)
             return
-        async for item in self._inner.stream(request):
-            if isinstance(item, StreamDone):
-                self._record(item.result)
-            yield item
+        async with closing_stream(self._inner.stream(request)) as stream:
+            async for item in stream:
+                if isinstance(item, StreamDone):
+                    item = StreamDone(self._record(item.result))
+                yield item
 
-    async def _admit(self) -> ModelResult | None:
+    async def _admit(self, request: CompletionRequest) -> ModelResult | None:
         """Çağrıya izin ver ya da çağrı yapmadan dönülecek sonucu üret."""
         until = self._ledger.cooled_until(self._key)
         if until:
             remaining = max(0.0, until - self._clock.now())
-            return self._blocked(f"başka bir çağrı 429 aldı; {remaining:.0f} sn soğumada")
+            return self._blocked(
+                f"başka bir çağrı 429 aldı; {remaining:.0f} sn soğumada", retry_after_s=remaining
+            )
         if not self._per_minute:
             return None
         wait_s = self._ledger.take_token(self._key, self._per_minute)
         if wait_s == 0.0:
             return None
         if wait_s > self._pace_max_wait_s:
-            return self._blocked(f"dakikalık sınır dolu; {wait_s:.0f} sn sonra hak açılıyor")
+            return self._blocked(
+                f"dakikalık sınır dolu; {wait_s:.0f} sn sonra hak açılıyor", retry_after_s=wait_s
+            )
+        observe_phase(request, "rate_wait", wait_s=wait_s)
         await self._sleeper.sleep(wait_s)
+        observe_phase(request, "rate_wait_end")
         # Beklerken hakkı başka süreç almış olabilir: ikinci kez de dolu ise yedeğe bırak.
         if self._ledger.take_token(self._key, self._per_minute) == 0.0:
             return None
         return self._blocked("dakikalık sınır dolu; yedeğe bırakılıyor")
 
-    def _record(self, result: ModelResult) -> None:
-        if result.is_rate_limited and self._cooldown_s > 0:
-            self._ledger.cool(self._key, self._clock.now() + self._cooldown_s)
+    def _record(self, result: ModelResult) -> ModelResult:
+        """429'u deftere yaz ve sonuca soğuma süresini `retry_after_s` olarak işle.
 
-    def _blocked(self, reason: str) -> ModelResult:
+        Yeniden deneme katmanı bu alanı görür ve kısa sabit gecikme yerine soğuma
+        bitene dek bekler; yoksa ilk deneme kapıdan anında "soğumada" döner (P1-07).
+        """
+        if not result.is_rate_limited or self._cooldown_s <= 0:
+            return result
+        self._ledger.cool(self._key, self._clock.now() + self._cooldown_s)
+        if result.retry_after_s is not None:
+            return result
+        return replace(result, retry_after_s=self._cooldown_s)
+
+    def _blocked(self, reason: str, *, retry_after_s: float | None = None) -> ModelResult:
         return ModelResult(
             name=self._inner.label,
             model=self._inner.label,
@@ -109,6 +131,7 @@ class RateGatedProvider:
             latency_ms=0,
             ok=False,
             error=f"{GATE_ERROR_PREFIX} {reason}",
+            retry_after_s=retry_after_s,
         )
 
 

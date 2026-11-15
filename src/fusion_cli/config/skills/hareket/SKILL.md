@@ -14,7 +14,8 @@ azaltmak isteyen kullanıcıya saygı göstermesi. Hareket süs değil, hiyerar�
    `width/height/top/left/margin/padding` canlandırma: sayfayı yeniden dizer, takılır.
 2. Easing token'ları tanımla ve EN AZ İKİ farklı eğri kullan:
    `--ease-out: cubic-bezier(.16,1,.3,1)` (giriş), `--ease-in-out: cubic-bezier(.65,0,.35,1)` (döngü).
-3. Süreler 150–800 ms; sıralı girişlerde 60–120 ms gecikme (stagger).
+3. Giriş ve etkileşim süreleri 150–800 ms; sıralı girişlerde 60–120 ms gecikme (stagger).
+   Sürekli DÖNGÜ animasyonları (marquee, float) bu aralığın dışındadır: 6–25 sn süren, doğrusal ya da yumuşak döngü kullan.
 4. `@media (prefers-reduced-motion: reduce)` bloğu ŞART: animasyonları kapat, öğeleri görünür bırak.
 5. Kaydırma tetiklemesi `IntersectionObserver` ile; `scroll` olayında ağır iş yapma.
 6. Sayfada en az BEŞ farklı kalıp: hero girişi, kaydırmayla ortaya çıkma, stagger kart
@@ -62,6 +63,28 @@ const io = new IntersectionObserver((entries) => {
   for (const e of entries) if (e.isIntersecting) { e.target.classList.add('is-visible'); io.unobserve(e.target); }
 }, { threshold: 0.15 });
 document.querySelectorAll('.reveal').forEach((el, i) => { el.style.setProperty('--i', i % 6); io.observe(el); });
+```
+
+## Sayaç kalıbı (kural 6'daki "sayaç")
+
+Sayı JS olmadan da doğru görünsün: HTML'e NİHAİ değeri yaz, JS yalnız saymayı canlandırır.
+
+```html
+<span class="stat" data-count="120">120</span>
+```
+
+```js
+function countUp(el, to, ms = 900) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; // nihai değer zaten yazılı
+  const t0 = performance.now();
+  el.textContent = '0';
+  (function tick(t) {
+    const p = Math.min((t - t0) / ms, 1);
+    el.textContent = Math.round(to * (1 - (1 - p) ** 3)); // ease-out cubic
+    if (p < 1) requestAnimationFrame(tick);
+  })(t0);
+}
+// reveal gözlemcisinde: if (e.isIntersecting) countUp(el, +el.dataset.count)
 ```
 
 ## Kendi işini doğrula (bitti demeden önce)

@@ -1,0 +1,13 @@
+{
+  "name": "fusion",
+  "owner": {"name": "Fusion"},
+  "plugins": [
+    {
+      "name": "fusion-ekip",
+      "source": "./fusion-ekip",
+      "version": "1.0.0",
+      "description": "Fusion'ın Türkçe ekip ajanları: mimar, kodcu, tasarimci, testci, arastirmaci, tarayici, gorselci, yonetmen.",
+      "category": "ajanlar"
+    }
+  ]
+}

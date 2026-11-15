@@ -1,10 +1,13 @@
+import { SESSION_VIEW_KEY } from "./persistence";
 import { saveSubmission } from "./submissionPersistence";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
+import { useActiveModel } from "../screens/useActiveModel";
+import { GOAL_WAITING_USER } from "../goal/goalResult";
 import { initialSessionState, sessionReducer } from "./store";
 import { DEFAULT_TITLE } from "./title";
-import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
+import type { BackendSessionSnapshot, SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
 
 afterEach(() => localStorage.clear());
 
@@ -314,6 +317,73 @@ describe("useSessions", () => {
     expect(result.current.state.sessions.varsayilan.messages.at(-1)?.metin).toBe("MCP hazır");
   });
 
+  it("/worktree sonucu kök bildirirse sekmenin kökü güncellenir (P-037)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const eskiKok = result.current.state.sessions.varsayilan.root;
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/worktree ozellik"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    act(() => fake.emitLine({
+      oturum_id: "varsayilan",
+      satir: JSON.stringify({
+        tip: "sonuc", id: request.id,
+        veri: { ok: true, metin: "Çalışma ağacı hazır", kok: `${eskiKok}/.fusion/worktrees/ozellik` },
+      }),
+    }));
+    await act(async () => { await expect(command).resolves.toMatchObject({ ok: true }); });
+    expect(result.current.state.sessions.varsayilan.root).toBe(`${eskiKok}/.fusion/worktrees/ozellik`);
+  });
+
+  it("/rewind sonucu kalan geçmişi verirse sohbet panosu ona kesilir (P-004)", async () => {
+    const fake = fakeTransport([
+      { rol: "kullanici", metin: "bir" },
+      { rol: "asistan", metin: "a-bir" },
+      { rol: "kullanici", metin: "iki" },
+      { rol: "asistan", metin: "a-iki" },
+    ]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.messages).toHaveLength(4));
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/rewind 2 konusma"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    act(() => fake.emitResult("varsayilan", request.id, {
+      ok: true,
+      metin: "Konuşma 2. turun başına sarıldı (2 mesaj kaldı).",
+      gecmis: [{ rol: "kullanici", metin: "bir" }, { rol: "asistan", metin: "a-bir" }],
+    }));
+    await act(async () => { await command; });
+
+    expect(result.current.state.sessions.varsayilan.messages.map((message) => message.metin)).toEqual([
+      "bir",
+      "a-bir",
+      "Konuşma 2. turun başına sarıldı (2 mesaj kaldı).",
+    ]);
+  });
+
+  it("tur sonucu kök bildirirse (enter_worktree aracı) sekmenin kökü güncellenir (P-037)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const eskiKok = result.current.state.sessions.varsayilan.root;
+
+    act(() => { result.current.send("varsayilan", "ayrı worktree'de dene"); });
+    await waitFor(() => expect(fake.sent.map((item) => JSON.parse(item.line).ad)).toContain("tur.calistir"));
+    const turn = fake.sent.map((item) => JSON.parse(item.line)).find((item) => item.ad === "tur.calistir");
+    act(() => fake.emitResult("varsayilan", turn.id, {
+      ok: true,
+      metin: "tamam",
+      kok: `${eskiKok}/.fusion/worktrees/ajan`,
+    }));
+
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.root).toBe(`${eskiKok}/.fusion/worktrees/ajan`));
+  });
+
   it("makro komutunun hazırladığı görevi hemen tur olarak başlatır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));
@@ -342,6 +412,80 @@ describe("useSessions", () => {
     expect(result.current.state.sessions.varsayilan.messages.some(
       (message) => message.rol === "asistan" && message.metin === "goal çalıştırılıyor…",
     )).toBe(false);
+  });
+
+  it("/goal henüz karşılanmadıysa devam turunu kullanıcı mesajı yazmadan sürer (P-058)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    act(() => { result.current.send("varsayilan", "testleri düzelt"); });
+    await waitFor(() => expect(fake.sent.map((item) => JSON.parse(item.line).ad)).toContain("tur.calistir"));
+    const ilk = fake.sent.map((item) => JSON.parse(item.line)).find((item) => item.ad === "tur.calistir");
+    act(() => fake.emitResult("varsayilan", ilk.id, {
+      ok: true,
+      metin: "bir test kaldı",
+      hedef: { eylem: "devam", metin: "◎ Hedef henüz karşılanmadı — bir test kırık · sürdürülüyor (1/20)" },
+      hedef_devam: "Hedef henüz karşılanmadı. Sürdür.",
+    }));
+
+    await waitFor(() => expect(
+      fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir"),
+    ).toHaveLength(2));
+    const ikinci = fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir")[1];
+    expect(ikinci.veri.gorev).toBe("Hedef henüz karşılanmadı. Sürdür.");
+    const mesajlar = result.current.state.sessions.varsayilan.messages;
+    expect(mesajlar.filter((message) => message.rol === "kullanici").map((message) => message.metin))
+      .toEqual(["testleri düzelt"]);
+    expect(mesajlar.some((message) => message.ara && message.metin.startsWith("◎ Hedef"))).toBe(true);
+  });
+
+  it("/goal devam zincirinde sohbet arada boşta görünmez (Zamanlananlar bitişi erken tetiklenmez)", async () => {
+    const fake = fakeTransport();
+    const gorulen: (boolean | undefined)[] = [];
+    const { result } = renderHook(() => {
+      const value = useSessions(fake.transport);
+      gorulen.push(value.state.sessions.varsayilan?.running);
+      return value;
+    });
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const turlar = () => fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir");
+
+    act(() => { result.current.send("varsayilan", "testleri düzelt"); });
+    await waitFor(() => expect(turlar()).toHaveLength(1));
+    const basla = gorulen.lastIndexOf(true);
+    act(() => fake.emitResult("varsayilan", turlar()[0].id, {
+      ok: true, metin: "bir test kaldı", hedef: { eylem: "devam", metin: "◎" }, hedef_devam: "Sürdür.",
+    }));
+    await waitFor(() => expect(turlar()).toHaveLength(2));
+
+    expect(gorulen.slice(basla)).not.toContain(false);
+  });
+
+  it("/goal devamı sırada kullanıcı mesajı varken gönderilmez, mesaj önce koşar (P-058)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const turlar = () => fake.sent.map((item) => JSON.parse(item.line)).filter((item) => item.ad === "tur.calistir");
+
+    act(() => { result.current.send("varsayilan", "testleri düzelt"); });
+    await waitFor(() => expect(turlar()).toHaveLength(1));
+    act(() => { result.current.send("varsayilan", "README'ye de bak"); });
+    act(() => fake.emitResult("varsayilan", turlar()[0].id, {
+      ok: true,
+      metin: "bir test kaldı",
+      hedef: { eylem: "devam", metin: "◎ Hedef henüz karşılanmadı — bir test kırık · sürdürülüyor (1/20)" },
+      hedef_devam: "Hedef henüz karşılanmadı. Sürdür.",
+    }));
+
+    await waitFor(() => expect(turlar()).toHaveLength(2));
+    expect(turlar()[1].veri.gorev).toBe("README'ye de bak");
+    act(() => fake.emitResult("varsayilan", turlar()[1].id, { ok: true, metin: "baktım" }));
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.running).toBe(false));
+    expect(turlar()).toHaveLength(2);
+    expect(result.current.state.sessions.varsayilan.messages.some(
+      (message) => message.ara && message.metin === GOAL_WAITING_USER,
+    )).toBe(true);
   });
 
   it("/btw yan sorusu için ara komut mesajı göstermez", async () => {
@@ -550,6 +694,49 @@ describe("useSessions", () => {
     await act(async () => { await command; });
     expect(result.current.activeSession?.messages).toEqual([]);
   });
+  it("model seçimi komut dizgesi kurmadan yapısal model.sec isteği gönderir (U1-40)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const secim = result.current.selectModel("varsayilan", "nim-free", "nvidia_nim/x:free\n/mcp ekle");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string; ad: string; veri: Record<string, unknown> };
+    expect(request.ad).toBe("model.sec");
+    expect(request.veri).toEqual({ kaynak: "nim-free", model: "nvidia_nim/x:free\n/mcp ekle" });
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, metin: "model değiştirildi" }));
+    await act(async () => { await expect(secim).resolves.toMatchObject({ ok: true }); });
+    expect(result.current.activeSession?.messages).toEqual([]);
+  });
+  it("sağlayıcı anahtarı kontrol.anahtar_kaydet ile gider; komut dizgesi ve sohbet notu anahtarı taşımaz (S1-24)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const kayit = result.current.saveProviderSecret("varsayilan", "openrouter", "sk-gizli-123");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string; ad: string; veri: Record<string, unknown> };
+    expect(request.ad).toBe("kontrol.anahtar_kaydet");
+    expect(request.veri).toEqual({ saglayici: "openrouter", deger: "sk-gizli-123" });
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, saglayici: "openrouter", kurulu: true }));
+    await act(async () => { await expect(kayit).resolves.toMatchObject({ ok: true }); });
+    const dokum = JSON.stringify(result.current.activeSession?.messages);
+    expect(dokum).toContain("openrouter");
+    expect(dokum).not.toContain("sk-gizli-123");
+  });
+
+  it("elle yazılan /providers add komutunun anahtarı sohbet dökümünde maskelenir ama çekirdeğe aynen gider (S1-24)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const command = result.current.runCommand("varsayilan", "/providers add openrouter sk-gizli-999");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string; veri: Record<string, unknown> };
+    expect(request.veri).toEqual({ ad: "providers", arguman: "add openrouter sk-gizli-999" });
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, metin: "kaydedildi" }));
+    await act(async () => { await command; });
+    const dokum = JSON.stringify(result.current.activeSession?.messages);
+    expect(dokum).not.toContain("sk-gizli-999");
+    expect(dokum).toContain("/providers add openrouter ••••");
+  });
   it("her sekmeyi kendi sohbet kimliğiyle çekirdeğe tanıtır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));
@@ -715,4 +902,383 @@ it("RPC kanıtını tek correlated final mesajına bağlar", async () => {
   expect(final[0].delivery).toMatchObject({kind: "supported", blocking: true, verified: false});
   act(() => fake.emitResult("varsayilan", request.id, {ok: false, metin: "Kısmi", kanit}));
   expect(result.current.activeSession!.messages.filter((message) => message.rol === "asistan")).toHaveLength(1);
+});
+
+it("/code-review bulgularını kart olarak final mesajına bağlar (#214)", async () => {
+  const fake = fakeTransport();
+  const {result} = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  act(() => result.current.send("varsayilan", "incele"));
+  await waitFor(() => expect(fake.sent.length).toBeGreaterThan(0));
+  const request = JSON.parse(fake.sent[0].line);
+  const bulgular = [{file: "a.py", line: 3, summary: "sıfıra bölme", failure_scenario: "n=0", verdict: "PLAUSIBLE"}];
+  act(() => fake.emitResult("varsayilan", request.id, {ok: true, metin: "Bir hata.", bulgular}));
+  await waitFor(() => expect(result.current.activeSession?.running).toBe(false));
+  const final = result.current.activeSession!.messages.filter((message) => message.rol === "asistan");
+  expect(final[0].findings).toEqual([{file: "a.py", line: 3, summary: "sıfıra bölme", failureScenario: "n=0", verdict: "PLAUSIBLE"}]);
+});
+
+// U4-04 — Ölçüldü (29 Ekim): makbuz kabul edilmezse tur boyunca bütün olaylar sessizce düşüyor,
+// kullanıcı turu donmuş sanıyordu.
+describe("Makbuzsuz tur olayları", () => {
+  async function turBaslat() {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => { result.current.send("varsayilan", "iş"); });
+    await waitFor(() => expect(fake.sent.length).toBeGreaterThan(0));
+    const gonderimId = String(JSON.parse(fake.sent[0].line).veri.gonderim_id);
+    const olay = (veri: Record<string, unknown>) => act(() => fake.emitLine({
+      oturum_id: "varsayilan", satir: JSON.stringify({tip: "olay", veri})}));
+    return {fake, result, gonderimId, olay};
+  }
+
+  it("bilinmeyen durumlu makbuz uyarı üretir, sonraki tur olayları yine gösterilir", async () => {
+    const {result, gonderimId, olay} = await turBaslat();
+    olay({olay: "GonderimMakbuzu", gonderim_id: gonderimId, oturum_id: "varsayilan", tur_id: `${gonderimId}:1`, durum: "gelecek_durum"});
+    expect(result.current.activeSession?.messages.some((m) => m.hata && m.metin.includes("makbuzu doğrulanamadı"))).toBe(true);
+    olay({olay: "TokenReceived", text: "merhaba dünya", event_id: `${gonderimId}:1:1`, session_id: "varsayilan",
+      turn_id: `${gonderimId}:1`, schema_version: 1});
+    expect(result.current.activeSession?.messages.some((m) => m.metin.includes("merhaba dünya"))).toBe(true);
+  });
+
+  it("eski isteğin makbuzu uyarı üretmez", async () => {
+    const {result, olay} = await turBaslat();
+    olay({olay: "GonderimMakbuzu", gonderim_id: "eski-istek", oturum_id: "varsayilan", tur_id: "eski-istek:1", durum: "completed"});
+    expect(result.current.activeSession?.messages.some((m) => m.metin?.includes("makbuzu doğrulanamadı"))).toBe(false);
+  });
+});
+
+// U4-03 — Ölçüldü (29 Ekim): `oturum.baslat` başarısızsa hata yutuluyor, `oturum.gecmis` yine
+// kimliksiz isteniyordu (yanlış sohbetin geçmişi) ve kip çekirdeğe bildirilmemiş kalıyordu.
+describe("Başarısız oturum.baslat", () => {
+  it.each(["ok-false", "reddedilen-istek"])("geçmiş istenmez, sekme hatayla işaretlenir (%s)", async (tur) => {
+    const fake = fakeTransport([{rol: "kullanici", metin: "yanlış sohbetin mesajı"}]);
+    const gecmisIstekleri: string[] = [];
+    const asil = fake.transport.send;
+    fake.transport.send = vi.fn(async (id: string, line: string) => {
+      const istek = JSON.parse(line) as {id: string; ad: string};
+      if (istek.ad === "oturum.gecmis") gecmisIstekleri.push(id);
+      if (istek.ad === "oturum.baslat") {
+        if (tur === "ok-false") queueMicrotask(() => fake.emitResult(id, istek.id, {ok: false, hata: "geçersiz kip"}));
+        else throw new Error("yazma kırıldı");
+        return;
+      }
+      return asil(id, line);
+    });
+    const {result} = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("crashed"));
+    expect(result.current.activeSession?.error).toContain("oturum.baslat");
+    expect(gecmisIstekleri).toEqual([]);
+    expect(result.current.activeSession?.messages.some((m) => m.metin === "yanlış sohbetin mesajı")).toBe(false);
+  });
+});
+
+// U4-08 (a) — Ölçüldü (29 Ekim): çekirdek "artık beklemiyor" (ok:false + questionId) dediğinde
+// answer() fırlatıyor, kart kalıyor ve kullanıcı sonsuz yeniden deneme döngüsüne giriyordu.
+describe("Artık beklemeyen soru", () => {
+  async function soruyla() {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const id = result.current.activeSession!.id;
+    act(() => fake.emitLine({ oturum_id: id, satir: JSON.stringify({ tip: "soru", id: "q1", veri: { tur: "soru", soru: "Ad?" } }) }));
+    return { fake, result, id };
+  }
+  it("ok:false + questionId kartı kapatır ve fırlatmaz", async () => {
+    const { fake, result, id } = await soruyla();
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.answer(id, { metin: "örnek" }); });
+    const request = JSON.parse(fake.sent.at(-1)!.line);
+    await act(async () => { fake.emitResult(id, request.id, { ok: false, questionId: "q1" }); await sending; });
+    expect(result.current.activeSession?.question).toBeNull();
+    expect(result.current.activeSession?.messages.some((m) => m.metin?.includes("artık cevap beklemiyordu"))).toBe(true);
+  });
+  it("geçersiz cevap hatasında (metin var) kart kalır ve hata fırlar", async () => {
+    const { fake, result, id } = await soruyla();
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.answer(id, { metin: "örnek" }); });
+    const request = JSON.parse(fake.sent.at(-1)!.line);
+    const sonuc = expect(sending).rejects.toThrow();
+    await act(async () => { fake.emitResult(id, request.id, { ok: false, metin: "Soru kimliği veya cevap geçersiz." }); });
+    await sonuc;
+    expect(result.current.activeSession?.question?.id).toBe("q1");
+  });
+});
+
+// Ölçüldü (30 Ekim): create beklenirken kapanan görünüm çekirdek oturumunu kapatmıyordu (U4-31);
+// çökme sonrası kuyruktaki görev ölü istemciye gidiyordu (U4-32); sıradan başlayan görev kayıtta
+// "queued" kalıp yeniden açılışta ikinci kez çalışıyordu (U4-34).
+describe("useSessions oturum yaşam döngüsü (30 Ekim)", () => {
+  it("create bitmeden görünüm kapanırsa çekirdek oturumu kapatılır (U4-31)", async () => {
+    const fake = fakeTransport();
+    let bitir: (() => void) | null = null;
+    const gercek = fake.transport.create;
+    fake.transport.create = vi.fn((id, root) => new Promise((cozumle) => {
+      bitir = () => cozumle(gercek(id, root));
+    }));
+    const { unmount } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(fake.transport.create).toHaveBeenCalled());
+    unmount();
+    await act(async () => { bitir?.(); await Promise.resolve(); });
+    await waitFor(() => expect(fake.transport.close).toHaveBeenCalledWith("varsayilan"));
+  });
+
+  it("sıradan başlayan görev kayıtta 'queued' kalmaz (U4-34)", async () => {
+    const { loadSubmissions } = await import("./submissionPersistence");
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => {
+      result.current.send("varsayilan", "birinci");
+      result.current.send("varsayilan", "ikinci");
+    });
+    expect(loadSubmissions("varsayilan").find((e) => e.task === "ikinci")?.state).toBe("queued");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    act(() => fake.emitResult("varsayilan", JSON.parse(fake.sent[0].line).id, { ok: true }));
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    expect(loadSubmissions("varsayilan").find((e) => e.task === "ikinci")?.state).toBe("pending");
+  });
+
+  it("çekirdek çökünce kuyruktaki görev ölü istemciye gönderilmez (U4-32)", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+    act(() => {
+      result.current.send("varsayilan", "birinci");
+      result.current.send("varsayilan", "ikinci");
+    });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    await act(async () => { fake.emitClosed({ oturum_id: "varsayilan", neden: "çöktü" }); });
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.status).toBe("crashed"));
+    expect(fake.sent).toHaveLength(1);
+    // Yalnız uçuştaki ilk istek hata alır; kuyruktaki ikinci görev ölü istemciye hiç denenmez.
+    const hatalar = result.current.state.sessions.varsayilan.messages.filter((m) => m.hata && m.metin.startsWith("Hata:"));
+    expect(hatalar).toHaveLength(1);
+  });
+});
+
+it("saklı sohbetler her açık proje kökünden istenir (U4-39)", async () => {
+  const fake = fakeTransport();
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  await act(async () => { await result.current.create({ id: "a", root: "/Projects/a" }); });
+  await act(async () => { await result.current.create({ id: "b", root: "/Projects/b" }); });
+  vi.mocked(fake.transport.send).mockClear();
+  await act(async () => { await result.current.refreshStored(); });
+  const listeleme = vi.mocked(fake.transport.send).mock.calls
+    .filter(([, line]) => JSON.parse(line).ad === "sohbet.listele").map(([id]) => id);
+  expect(new Set(listeleme).size).toBe(3);
+});
+
+it("reddedilen komut isteği çağırana fırlamaz, hata mesajı gösterilir; argüman biçimi korunur (U4-40)", async () => {
+  const fake = fakeTransport();
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  let command!: Promise<Record<string, unknown>>;
+  act(() => { command = result.current.runCommand("varsayilan", "/btw  satır bir\nsatır   iki"); });
+  await waitFor(() => expect(fake.sent).toHaveLength(1));
+  const request = JSON.parse(fake.sent[0].line);
+  expect(request.veri).toEqual({ ad: "btw", arguman: "satır bir\nsatır   iki" });
+  await act(async () => { await result.current.close("varsayilan"); });
+  await act(async () => { await expect(command).resolves.toMatchObject({ ok: false }); });
+  expect(result.current.state.sessions.varsayilan.messages.at(-1)).toMatchObject({ hata: true });
+});
+
+
+it("geç gelen açılış geri yüklemesi kullanıcının yeni çalışan sohbetinden odağı alamaz", async () => {
+  localStorage.setItem(SESSION_VIEW_KEY, JSON.stringify({ version: 1, activeId: "saved-b", sessions: [
+    { id: "saved-a", title: "Eski A", source: "fusion", root: "/outputs", updatedAt: 1 },
+    { id: "saved-b", title: "Eski B", source: "fusion", root: "/outputs", updatedAt: 2 },
+  ] }));
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  let release!: () => Promise<void>;
+  fake.transport.create = vi.fn((id, root) => id === "saved-b"
+    ? new Promise<BackendSessionSnapshot>((resolve) => { release = async () => { resolve(await create(id, root)); }; })
+    : create(id, root));
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  await act(async () => { await result.current.create({ id: "fresh", title: "Yeni iş", root: "/project" }); });
+  act(() => { result.current.send("fresh", "Hesap Makinesi hesabını temizle"); });
+  await waitFor(() => expect(result.current.activeSession?.running).toBe(true));
+  const owner = result.current.state.sessions.fresh;
+  await act(async () => { await release(); });
+  await waitFor(() => expect(result.current.state.sessions["saved-b"]).toBeDefined());
+  expect(result.current.activeSession?.id).toBe("fresh");
+  expect(result.current.activeSession?.root).toBe("/project");
+  expect(result.current.activeSession?.client).toBe(owner.client);
+  expect(result.current.activeSession?.running).toBe(true);
+  expect(result.current.activeSession?.requestId).toBe(owner.requestId);
+  expect(result.current.activeSession?.messages).toEqual(owner.messages);
+});
+
+it("aynı sohbetin eşzamanlı açılması çalışan istemciyi ve tur sahipliğini değiştiremez", async () => {
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  const releases: (() => Promise<void>)[] = [];
+  fake.transport.create = vi.fn((id, root) => id === "shared"
+    ? new Promise<BackendSessionSnapshot>((resolve) => { releases.push(async () => { resolve(await create(id, root)); }); })
+    : create(id, root));
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  let first!: Promise<void>;
+  let second!: Promise<void>;
+  act(() => {
+    first = result.current.openStored("shared", "/project");
+    second = result.current.openStored("shared", "/project");
+  });
+  await waitFor(() => expect(releases.length).toBeGreaterThan(0));
+  await act(async () => { await releases[0](); await first; });
+  act(() => { result.current.send("shared", "Hesap Makinesi hesabını temizle"); });
+  const owner = result.current.state.sessions.shared;
+  await act(async () => { if (releases[1]) await releases[1](); await second; });
+  expect(result.current.activeSession?.client).toBe(owner.client);
+  expect(result.current.activeSession?.root).toBe("/project");
+  expect(result.current.activeSession?.running).toBe(true);
+  expect(result.current.activeSession?.requestId).toBe(owner.requestId);
+  expect(result.current.activeSession?.messages).toEqual(owner.messages);
+  expect(vi.mocked(fake.transport.create).mock.calls.filter(([id]) => id === "shared")).toHaveLength(1);
+  const turn = fake.sent.map(({ line }) => JSON.parse(line)).find((request) => request.ad === "tur.calistir");
+  const turnId = `${turn.veri.gonderim_id}:1`;
+  act(() => fake.emitLine({ oturum_id: "shared", satir: JSON.stringify({ tip: "olay", veri: {
+    olay: "GonderimMakbuzu", gonderim_id: turn.veri.gonderim_id, oturum_id: "shared", tur_id: turnId, durum: "running",
+  } }) }));
+  expect(result.current.activeSession?.turnId).toBe(turnId);
+  act(() => result.current.stop("shared"));
+  const stop = fake.sent.map(({ line }) => JSON.parse(line)).find((request) => request.ad === "tur.kes");
+  expect(stop.veri).toEqual({ turnId });
+});
+
+
+it.each(["send", "select"] as const)("geç geri yükleme açık sohbetteki %s niyetini geçersiz kılamaz", async (intent) => {
+  localStorage.setItem(SESSION_VIEW_KEY, JSON.stringify({ version: 1, activeId: "saved-b", sessions: [
+    { id: "saved-a", title: "Eski A", source: "fusion", root: "/project", updatedAt: 1 },
+    { id: "saved-b", title: "Eski B", source: "fusion", root: "/outputs", updatedAt: 2 },
+  ] }));
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  let release!: () => Promise<void>;
+  fake.transport.create = vi.fn((id, root) => id === "saved-b"
+    ? new Promise<BackendSessionSnapshot>((resolve) => { release = async () => { resolve(await create(id, root)); }; })
+    : create(id, root));
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  act(() => {
+    if (intent === "send") result.current.send("saved-a", "Hesabı temizle");
+    else result.current.select("saved-a");
+  });
+  await act(async () => { await release(); });
+  await waitFor(() => expect(result.current.state.sessions["saved-b"]).toBeDefined());
+  expect(result.current.activeSession?.id).toBe("saved-a");
+  expect(result.current.activeSession?.root).toBe("/project");
+  expect(result.current.activeSession?.running).toBe(intent === "send");
+});
+
+it("başarısız tek bağlantı kilidi sonraki açma denemesini engellemez", async () => {
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  let attempts = 0;
+  fake.transport.create = vi.fn(async (id, root) => {
+    if (id === "retry" && ++attempts === 1) throw new Error("başlatılamadı");
+    return create(id, root);
+  });
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  await act(async () => { await expect(result.current.openStored("retry", "/project")).rejects.toThrow("başlatılamadı"); });
+  await act(async () => { await result.current.openStored("retry", "/project"); });
+  expect(result.current.activeSession?.id).toBe("retry");
+  expect(result.current.activeSession?.status).toBe("ready");
+});
+
+it("temizlemeden sonra geç dönen geçmiş bildirimi ve eski satırları diriltmez", async () => {
+  const fake = fakeTransport();
+  const originalSend = fake.transport.send;
+  let held: { id: string; requestId: string } | null = null;
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line);
+    if (request.ad === "oturum.gecmis") { held = { id, requestId: request.id }; return; }
+    return originalSend(id, line);
+  });
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(held).not.toBeNull());
+  const pending = held! as { id: string; requestId: string };
+  act(() => result.current.clear(pending.id));
+  act(() => fake.emitResult(pending.id, pending.requestId, {
+    ok: true, gecmis_kirpildi: true, mesajlar: [{rol:"asistan", metin:"Eski geçmiş"}],
+  }));
+  await act(async () => { await Promise.resolve(); });
+  expect(result.current.activeSession?.messages).toEqual([]);
+});
+
+// The session is published before oturum.baslat settles; ready alone is not bootstrap proof.
+it.each([true, false])("active model waits for owned bootstrap completion (success=%s)", async (success) => {
+  const fake = fakeTransport();
+  const original = fake.transport.send;
+  let bootstrapRequest: { id: string; requestId: string } | undefined;
+  const reads: string[] = [];
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line) as { id: string; ad: string };
+    if (request.ad === "oturum.baslat") {
+      bootstrapRequest = { id, requestId: request.id };
+      return;
+    }
+    if (request.ad === "kontrol.durum") {
+      reads.push(id);
+      queueMicrotask(() => fake.emitResult(id, request.id, { ok: true, model: { agent: "configured-model" } }));
+      return;
+    }
+    return original(id, line);
+  });
+  const { result } = renderHook(() => {
+    const sessions = useSessions(fake.transport);
+    const active = sessions.activeSession;
+    return { sessions, model: useActiveModel(active?.client, active?.id, 0, active?.bootstrap) };
+  });
+  await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("ready"));
+  expect(result.current.model.pending).toBe(true);
+  expect(reads).toEqual([]);
+  await act(async () => fake.emitResult(bootstrapRequest!.id, bootstrapRequest!.requestId, { ok: success }));
+  if (success) {
+    await waitFor(() => expect(result.current.model.model).toBe("configured-model"));
+    expect(reads).toEqual(["varsayilan"]);
+  } else {
+    await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("crashed"));
+    expect(reads).toEqual([]);
+    expect(result.current.model.error).toMatch(/okunamadı/);
+  }
+});
+
+it.each(["close", "unmount"])("delayed bootstrap after %s cannot publish a model or survive as ready", async (action) => {
+  const fake = fakeTransport();
+  const original = fake.transport.send;
+  let bootstrapRequest: { id: string; requestId: string } | undefined;
+  const reads: string[] = [];
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line) as { id: string; ad: string };
+    if (request.ad === "oturum.baslat") {
+      bootstrapRequest = { id, requestId: request.id };
+      return;
+    }
+    if (request.ad === "kontrol.durum") { reads.push(id); return; }
+    return original(id, line);
+  });
+  const { result, unmount } = renderHook(() => {
+    const sessions = useSessions(fake.transport);
+    const active = sessions.activeSession;
+    return { sessions, model: useActiveModel(active?.client, active?.id, 0, active?.bootstrap) };
+  });
+  await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("ready"));
+  const promise = result.current.sessions.activeSession!.bootstrap!;
+  // Ephemeral bootstrap is never serialized with stored session metadata.
+  expect(localStorage.getItem(SESSION_VIEW_KEY)).not.toContain("bootstrap");
+  if (action === "close") await act(async () => result.current.sessions.close("varsayilan"));
+  else unmount();
+  await act(async () => fake.emitResult(bootstrapRequest!.id, bootstrapRequest!.requestId, { ok: true }));
+  expect(await promise).toBe(false);
+  expect(reads).toEqual([]);
+  if (action === "close") {
+    expect(result.current.sessions.activeSession?.status).toBe("closed");
+    expect(result.current.model.error).toMatch(/okunamadı/);
+  }
 });

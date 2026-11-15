@@ -147,7 +147,11 @@ async def generate_nim_image(
             await http.aclose()
     if response.status_code != 200:
         raise NimImageError(f"{model.label} {response.status_code} döndü: {response.text[:160]}")
-    artifacts = response.json().get("artifacts") or []
+    try:
+        payload = response.json()
+    except ValueError:
+        raise NimImageError(f"{model.label} geçerli bir yanıt döndürmedi.") from None
+    artifacts = (payload.get("artifacts") if isinstance(payload, dict) else None) or []
     first = artifacts[0] if artifacts and isinstance(artifacts[0], dict) else {}
     reason = str(first.get("finishReason", ""))
     if reason and reason != "SUCCESS":

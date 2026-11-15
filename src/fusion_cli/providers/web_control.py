@@ -12,15 +12,20 @@ düzeltilirken öteki eskirdi.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ..config.keys import environ_snapshot
 from ..config.models import Config, WebSessionConfig
+from ..core.clock import SystemClock
+from ..core.constants import TOOL_MEASURE_STALE_S
+from ..core.protocols import Clock
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
 from .web_browser import WEB_BROWSER_PROVIDERS, browser_profile_dir, normalize_account
@@ -44,6 +49,10 @@ class SecretReader(Protocol):
 
 
 _LOGIN_PROCESSES: dict[int, subprocess.Popen[Any]] = {}
+#: Giriş alt sürecinin stderr dosyası (pid → yol): kapanış sebebi panele taşınır.
+_LOGIN_ERRORS: dict[int, Path] = {}
+#: Panelde gösterilecek en uzun hata metni; iz değil, son satırlar.
+_LOGIN_ERROR_MAX_CHARS = 400
 
 
 def login_argv(provider: str, account: str) -> list[str]:
@@ -69,15 +78,54 @@ def start_login(provider: str, account: str) -> int:
     yoklayarak pencerenin kapandığını anlar ve doğrulamayı kendiliğinden çalıştırır;
     kullanıcı elle çerez kopyalamak zorunda kalmaz.
     """
-    argv = login_argv(provider, account)
-    process = subprocess.Popen(
-        argv,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    return _spawn_login(login_argv(provider, account))
+
+
+def start_browser_profile_login(name: str, url: str) -> int:
+    """Tarayıcı profili (P-023) için görünür giriş penceresini başlat; pid döndür.
+
+    Web sağlayıcı girişiyle aynı süreç takibi (`process_alive`, `login_exit_code`):
+    masaüstü paneli pencerenin kapandığını aynı yoklamayla anlar.
+    """
+    from .profile_login import login_argv as profile_login_argv
+
+    return _spawn_login(profile_login_argv(name, url))
+
+
+def _spawn_login(argv: list[str]) -> int:
+    # stderr geçici dosyaya alınır. Ölçüldü (31 Ekim): DEVNULL'dayken playwright/Chromium
+    # kurulu değilse panel yalnız "hata ile kapandı" diyordu; asıl talimat
+    # ("playwright install chromium") hiç görünmüyordu.
+    with tempfile.NamedTemporaryFile(prefix="fusion-giris-", suffix=".log", delete=False) as errors:
+        process = subprocess.Popen(
+            argv,
+            stdout=subprocess.DEVNULL,
+            stderr=errors,
+            start_new_session=True,
+        )
     _LOGIN_PROCESSES[process.pid] = process
+    _LOGIN_ERRORS[process.pid] = Path(errors.name)
     return process.pid
+
+
+def login_error_text(pid: int) -> str:
+    """Kapanmış giriş sürecinin stderr'inden son satırlar (sır içermez: yalnız hata metni).
+
+    Dosya okunduktan sonra silinir; süreç hâlâ yaşıyorsa boş döner.
+    """
+    path = _LOGIN_ERRORS.get(pid)
+    process = _LOGIN_PROCESSES.get(pid)
+    if path is None or (process is not None and process.poll() is None):
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    _LOGIN_ERRORS.pop(pid, None)
+    with contextlib.suppress(OSError):
+        path.unlink()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return " ".join(lines[-3:])[-_LOGIN_ERROR_MAX_CHARS:]
 
 
 def stop_all_login_processes() -> None:
@@ -94,6 +142,10 @@ def stop_all_login_processes() -> None:
             pass
         finally:
             _LOGIN_PROCESSES.pop(pid, None)
+            path = _LOGIN_ERRORS.pop(pid, None)
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    path.unlink()
 
 
 def process_alive(pid: int) -> bool:
@@ -531,50 +583,99 @@ def provider_catalog(
     return rows
 
 
+_MEASURE_STALE_NOTICE = (
+    "Araç ölçümü 7 günden eski; model davranışı değişmiş olabilir. "
+    "Dosya yazma iznini korumak için araç desteğini yeniden ölç."
+)
+
+
+def _measure_staleness(session: Any, now: float) -> dict[str, Any]:  # noqa: ANN401
+    """Geçmiş araç ölçümü 7 günden eskiyse (ya da tarihi yoksa) "yeniden ölç" uyarısı (S2-30).
+
+    Ölçüm stokastik tek bir koşudur; izin süresiz geçerli kalmasın diye uyarılır. İzin
+    OTOMATİK düşürülmez: yalnız kart uyarı taşır, karar kullanıcıdadır.
+    """
+    if not getattr(session, "tool_eval_passed", False):
+        return {"olcum_eski": False, "olcum_uyari": None}
+    measured_at = getattr(session, "tool_evaluated_at", None)
+    if measured_at is not None and now - measured_at <= TOOL_MEASURE_STALE_S:
+        return {"olcum_eski": False, "olcum_uyari": None}
+    return {"olcum_eski": True, "olcum_uyari": _MEASURE_STALE_NOTICE}
+
+
+def _card_sessions(sessions: tuple[Any, ...], provider_id: str) -> list[tuple[str, Any | None]]:
+    """Bir sağlayıcının kart üretilecek (hesap, oturum) çiftleri; kayıt sırasıyla.
+
+    Aynı hesabın yinelenen kaydı tek kart sayılır (ilk kayıt kazanır). Kayıtlı oturum
+    yoksa varsayılan `main` hesabı için oturumsuz tek kart döner.
+    """
+    accounts: dict[str, Any] = {}
+    for item in sessions:
+        if getattr(item, "provider", None) != provider_id:
+            continue
+        accounts.setdefault(normalize_account(str(getattr(item, "account", "main"))), item)
+    return list(accounts.items()) or [("main", None)]
+
+
 def provider_cards(
     *,
     sessions: tuple[Any, ...],
     secret_store: SecretReader | None,
+    clock: Clock | None = None,
 ) -> list[dict[str, Any]]:
-    """Panelde çizilecek sağlayıcı kartları — yalnız METADATA.
+    """Panelde çizilecek sağlayıcı kartları — yalnız METADATA; HESAP BAŞINA bir kart.
 
     Çerez, token ya da başka bir sır değeri bu sınırdan HİÇBİR koşulda geçmez;
     "bağlı mı" bilgisi profil dizininin varlığından türetilir.
+
+    Ölçüldü (30 Ekim, P1-39): kartlar yalnız ilk hesabı gösteriyordu; `--account` ile
+    kayıtlı ikinci hesap panelde görünmüyordu. Her kartta `id` SAĞLAYICI kimliğidir
+    (eski istemci ve `saglayici` RPC bağımsız değişkenleri bununla çalışır); kartı
+    benzersiz kılan `kart_id`'dir: ilk hesapta sağlayıcı kimliğine eşittir, diğerlerinde
+    `<sağlayıcı>:<hesap>`.
     """
-    cards: list[dict[str, Any]] = []
-    for provider_id, definition in WEB_BROWSER_PROVIDERS.items():
-        matching = [item for item in sessions if getattr(item, "provider", None) == provider_id]
-        account = normalize_account(
-            str(getattr(matching[0], "account", "main")) if matching else "main"
-        )
-        session = matching[0] if matching else None
-        profil_var = _profile_dir(provider_id, account).exists()
-        cards.append(
-            {
-                "id": provider_id,
-                "ad": definition.name,
-                "adres": definition.home_url,
-                "hesap": account,
-                # Bu sağlayıcılar anahtar kullanmaz; panel anahtar kutusu ÇİZMEZ.
-                "anahtar_gerekir": False,
-                # "Bağlı" olmak için hem tarayıcı profili hem KAYITLI ve etkin bir
-                # oturum gerekir. Eskiden yalnız klasöre bakılıyordu: giriş
-                # yapmadan pencereyi kapatmak bile "bağlı" gösteriyordu ve
-                # Fusion o sağlayıcıyı yine de kullanamıyordu.
-                "bagli": profil_var
-                and bool(getattr(session, "enabled", False))
-                and bool(getattr(session, "login_verified", False)),
-                "profil_var": profil_var,
-                "model": getattr(session, "model", None),
-                "secili_model": getattr(session, "selected_model", "") or "Otomatik",
-                "arac_destegi": getattr(session, "tool_support", "none"),
-                "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
-                "etkin": bool(getattr(session, "enabled", False)),
-                # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
-                "pencere_kipi": WindowMode(
-                    getattr(session, "headless", definition.recommended_window_mode)
-                ).slug,
-                "pencere_uyarisi": read_window_notice(_profile_dir(provider_id, account)),
-            }
-        )
-    return cards
+    now = (clock or SystemClock()).now()
+    return [
+        _web_card(provider_id, definition, account, session, now, index)
+        for provider_id, definition in WEB_BROWSER_PROVIDERS.items()
+        for index, (account, session) in enumerate(_card_sessions(sessions, provider_id))
+    ]
+
+
+def _web_card(
+    provider_id: str,
+    definition: Any,  # noqa: ANN401 - BrowserProviderDefinition; döngüsel içe aktarma yok
+    account: str,
+    session: Any | None,  # noqa: ANN401 - WebSessionConfig ya da None (panel sözleşmesi dict)
+    now: float,
+    index: int,
+) -> dict[str, Any]:
+    profil_var = _profile_dir(provider_id, account).exists()
+    return {
+        "id": provider_id,
+        "kart_id": provider_id if index == 0 else f"{provider_id}:{account}",
+        "ad": definition.name,
+        "adres": definition.home_url,
+        "hesap": account,
+        # Bu sağlayıcılar anahtar kullanmaz; panel anahtar kutusu ÇİZMEZ.
+        "anahtar_gerekir": False,
+        # "Bağlı" olmak için hem tarayıcı profili hem KAYITLI ve etkin bir
+        # oturum gerekir. Eskiden yalnız klasöre bakılıyordu: giriş
+        # yapmadan pencereyi kapatmak bile "bağlı" gösteriyordu ve
+        # Fusion o sağlayıcıyı yine de kullanamıyordu.
+        "bagli": profil_var
+        and bool(getattr(session, "enabled", False))
+        and bool(getattr(session, "login_verified", False)),
+        "profil_var": profil_var,
+        "model": getattr(session, "model", None),
+        "secili_model": getattr(session, "selected_model", "") or "Otomatik",
+        "arac_destegi": getattr(session, "tool_support", "none"),
+        "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
+        **_measure_staleness(session, now),
+        "etkin": bool(getattr(session, "enabled", False)),
+        # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
+        "pencere_kipi": WindowMode(
+            getattr(session, "headless", definition.recommended_window_mode)
+        ).slug,
+        "pencere_uyarisi": read_window_notice(_profile_dir(provider_id, account)),
+    }

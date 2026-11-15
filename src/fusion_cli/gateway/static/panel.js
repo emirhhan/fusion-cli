@@ -3,7 +3,20 @@
  */
 
 const $ = (id) => document.getElementById(id);
+
+// innerHTML'e giren HER dış değer (sağlayıcı/model adı, uzak katalog kimliği) buradan
+// geçer. Ölçüldü (29 Ekim): `"` ya da `'` içeren bir kimlik öznitelik ve inline
+// onclick dizesini kırıyordu. `jsArg`, inline işleyiciye JS dizesi olarak güvenle verir.
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const jsArg = (v) => esc(JSON.stringify(String(v ?? "")));
 let STATE = null, chain = [], judge = [];
+// Kaydedilmemiş düzenleme bayrakları. Ölçüldü (30 Ekim): her 5 sn'lik canlı tazeleme
+// `render()` ile zinciri/hakemi/stratejiyi sunucudan yeniden atıyor, kullanıcı "Kaydet"e
+// basmadan başka sekmeye geçince düzenleme sessizce siliniyordu. Kirli iken `render()` ezmez;
+// ilgili kaydet başarılı olunca bayrak düşer.
+let chainDirty = false, judgeDirty = false, routingDirty = false;
+function markChainDirty() { chainDirty = true; }
+function markRoutingDirty() { routingDirty = true; }
 
 // Durumun kendiliğinden tazelendiği sekmeler: yalnız canlı veri gösterenler.
 const LIVE_TABS = ["genel", "analitik", "saglik"];
@@ -26,11 +39,14 @@ function bindNav() {
   });
 }
 
+// Üst üste gelen bildirimlerde eski zamanlayıcı yenisini erken kapatmasın.
+let toastTimer = null;
 function toast(msg, err) {
   const el = $("toast");
   el.textContent = msg;
   el.className = "toast show" + (err ? " err" : "");
-  setTimeout(() => el.className = "toast" + (err ? " err" : ""), 2200);
+  if (toastTimer !== null) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastTimer = null; el.className = "toast" + (err ? " err" : ""); }, 2200);
 }
 
 /* --------------------------------------------------------------------- */
@@ -73,7 +89,7 @@ function busyClick(event, work) {
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((d.error && d.error.message) || "hata");
+  if (!r.ok) throw new Error((d.error && d.error.message) || `hata (HTTP ${r.status})`);
   return d;
 }
 
@@ -113,7 +129,7 @@ function renderProviders() {
   const names = Object.keys(groups).sort((a, b) => categoryOrder(a) - categoryOrder(b));
   const showTitles = !activeCategory && names.length > 1;
   let html = names.map((cat) =>
-    (showTitles ? `<div class="cat-group-title">${cat}</div>` : "") +
+    (showTitles ? `<div class="cat-group-title">${esc(cat)}</div>` : "") +
     `<div class="provider-grid">${groups[cat].map(providerCard).join("")}</div>`
   ).join("");
 
@@ -134,7 +150,7 @@ function renderCatChips(all) {
   const cats = Object.keys(counts).sort((a, b) => categoryOrder(a) - categoryOrder(b));
   const chip = (label, key, n) =>
     `<button type="button" class="cat-chip ${activeCategory === key ? "active" : ""}"
-      aria-pressed="${activeCategory === key}" onclick="setCategory('${key}')">${label} <span class="count">${n}</span></button>`;
+      aria-pressed="${activeCategory === key}" onclick="setCategory(${jsArg(key)})">${esc(label)} <span class="count">${n}</span></button>`;
   $("catChips").innerHTML =
     chip("Hepsi", "", all.length) + cats.map((c) => chip(c, c, counts[c])).join("");
 }
@@ -142,28 +158,28 @@ function renderCatChips(all) {
 function setCategory(cat) { activeCategory = cat; renderProviders(); }
 
 function providerCard(p) {
-  if (!p.implemented) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
+  if (!p.implemented) return `<div class="pcard" data-name="${esc(p.name)}"><div class="pcard-head"><span class="name">${esc(p.name)}</span><span class="badge fw">adaptör yok</span></div></div>`;
   if (p.kind === "browser_backed" || p.kind === "web_session") {
     const status = p.configured ? `<span class="badge ok">kurulu</span>` : `<span class="badge web">deneysel</span>`;
-    return `<div class="pcard keyed" data-name="${p.name}">
-      <button type="button" class="pcard-head" onclick="openWebProvider('${p.id}')">
-        <span class="name">${p.name}</span>${status}<span class="caret" aria-hidden="true">›</span>
+    return `<div class="pcard keyed" data-name="${esc(p.name)}">
+      <button type="button" class="pcard-head" onclick="openWebProvider(${jsArg(p.id)})">
+        <span class="name">${esc(p.name)}</span>${status}<span class="caret" aria-hidden="true">›</span>
       </button>
       <div class="meta" style="margin-top:var(--space-2)">kendi aboneliğin · native browser adapter</div></div>`;
   }
-  if (p.local) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
+  if (p.local) return `<div class="pcard" data-name="${esc(p.name)}"><div class="pcard-head"><span class="name">${esc(p.name)}</span><span class="badge local">yerel</span></div></div>`;
   const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
-  const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
+  const del = p.configured ? `<button class="danger" onclick="delKey(${jsArg(p.id)})">Sil</button>` : "";
   // Tıklanabilir tile: baş kısmına basınca gövde (anahtar girişi) açılıp kapanır.
-  return `<div class="pcard keyed" id="pcard-${p.id}" data-name="${p.name}">
-    <button type="button" class="pcard-head" onclick="togglePcard('${p.id}')"
-      aria-expanded="false" aria-controls="pbody-${p.id}">
-      <span class="name">${p.name}</span>${status}<span class="caret" aria-hidden="true">▾</span>
+  return `<div class="pcard keyed" id="pcard-${esc(p.id)}" data-name="${esc(p.name)}">
+    <button type="button" class="pcard-head" onclick="togglePcard(${jsArg(p.id)})"
+      aria-expanded="false" aria-controls="pbody-${esc(p.id)}">
+      <span class="name">${esc(p.name)}</span>${status}<span class="caret" aria-hidden="true">▾</span>
     </button>
-    <div class="pcard-body" id="pbody-${p.id}">
-      <div class="meta" style="margin-bottom:var(--space-3)">${p.kind} · ${p.status}</div>
-      <div class="row"><input class="grow" type="password" id="key-${p.id}" placeholder="API anahtarını yapıştır" />
-      <button onclick="setKey('${p.id}')">Kaydet</button>${del}</div>
+    <div class="pcard-body" id="pbody-${esc(p.id)}">
+      <div class="meta" style="margin-bottom:var(--space-3)">${esc(p.kind)} · ${esc(p.status)}</div>
+      <div class="row"><input class="grow" type="password" id="key-${esc(p.id)}" placeholder="API anahtarını yapıştır" />
+      <button onclick="setKey(${jsArg(p.id)})">Kaydet</button>${del}</div>
     </div></div>`;
 }
 
@@ -196,7 +212,7 @@ async function delKey(id) { try { await post("/api/keys/delete", { provider: id 
 
 function chainRow(m, i, prefix) {
   return `<div class="chain-item"><span class="idx">${i + 1}</span>
-    <span class="grow">${m}</span>
+    <span class="grow">${esc(m)}</span>
     <button class="ghost" onclick="move${prefix}(${i},-1)" aria-label="yukarı">↑</button>
     <button class="ghost" onclick="move${prefix}(${i},1)" aria-label="aşağı">↓</button>
     <button class="danger" onclick="rm${prefix}(${i})" aria-label="çıkar">✕</button></div>`;
@@ -207,23 +223,23 @@ function renderChain() {
     || emptyState("Yedek zinciri boş",
          "Aşağıdan bir model ekle; ilk sıradaki baş model olur.");
 }
-function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; renderChain(); }
-function rmChain(i) { chain.splice(i, 1); renderChain(); }
-function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); $("newModel").value = ""; renderChain(); } }
-function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
+function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; chainDirty = true; renderChain(); }
+function rmChain(i) { chain.splice(i, 1); chainDirty = true; renderChain(); }
+function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); chainDirty = true; $("newModel").value = ""; renderChain(); } }
+function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; chainDirty = true; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
 
 function renderJudge() {
   $("judge").innerHTML = judge.map((m, i) => chainRow(m, i, "Judge")).join("")
     || emptyState("Hakem modeli seçilmedi",
          "Fusion motoru adayları karşılaştırmak için bir hakem modeli kullanır.");
 }
-function moveJudge(i, d) { const j = i + d; if (j < 0 || j >= judge.length) return; [judge[i], judge[j]] = [judge[j], judge[i]]; renderJudge(); }
-function rmJudge(i) { judge.splice(i, 1); renderJudge(); }
-function addJudge() { const v = $("newJudge").value.trim(); if (v) { judge.push(v); $("newJudge").value = ""; renderJudge(); } }
+function moveJudge(i, d) { const j = i + d; if (j < 0 || j >= judge.length) return; [judge[i], judge[j]] = [judge[j], judge[i]]; judgeDirty = true; renderJudge(); }
+function rmJudge(i) { judge.splice(i, 1); judgeDirty = true; renderJudge(); }
+function addJudge() { const v = $("newJudge").value.trim(); if (v) { judge.push(v); judgeDirty = true; $("newJudge").value = ""; renderJudge(); } }
 
-async function saveJudge() { try { const d = await post("/api/model", { role: "judge", models: judge }); toast(d.saved ? "hakem kaydedildi" : "uygulandı (yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
-async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
-async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+async function saveJudge() { try { const d = await post("/api/model", { role: "judge", models: judge }); judgeDirty = false; toast(d.saved ? "hakem kaydedildi" : "uygulandı (yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); routingDirty = false; toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
+async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); chainDirty = false; toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
 async function resetHealth() { try { await post("/api/health/reset", {}); toast("sağlık sıfırlandı"); await load(); } catch (e) { toast(e.message, true); } }
 
 /* --------------------------------------------------------------------- */
@@ -258,10 +274,10 @@ function renderCatalog() {
 
   // Yerel seçenekler ÖNCE listelenir; datalist sırayı korur.
   const secenekler = [
-    ...yerel.map((m) => `<option value="${m.id}">${m.label}</option>`),
+    ...yerel.map((m) => `<option value="${esc(m.id)}">${esc(m.label)}</option>`),
     ...items
       .filter((m) => !gorulen.has(m.id))
-      .map((m) => `<option value="${m.id}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${m.provider}</option>`),
+      .map((m) => `<option value="${esc(m.id)}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${esc(m.provider)}</option>`),
   ];
   $("catalogList").innerHTML = secenekler.join("");
 
@@ -275,7 +291,7 @@ function renderCatalog() {
   const base = (STATE && STATE.models) || [];
   const merged = [...new Set([...base, ...items.map((m) => m.id)])];
   const cur = $("chatModel").value;
-  $("chatModel").innerHTML = merged.map((m) => `<option ${m === cur ? "selected" : ""}>${m}</option>`).join("");
+  $("chatModel").innerHTML = merged.map((m) => `<option ${m === cur ? "selected" : ""}>${esc(m)}</option>`).join("");
 }
 
 async function loadCatalog(refresh, el) {
@@ -284,7 +300,10 @@ async function loadCatalog(refresh, el) {
     const d = await fetch("/api/models/catalog" + (refresh ? "?refresh=1" : "")).then((r) => r.json());
     catalog = d.models || []; renderCatalog();
     if (refresh) toast(catalog.length + " model bulundu");
-  } catch (e) { /* katalog bir iyileştirmedir; sessizce geç */ }
+  } catch (e) {
+    // Katalog bir iyileştirmedir; açılışta sessiz geçilir, kullanıcı yenilemeyi kendisi istediyse söylenir.
+    if (refresh) toast("model listesi alınamadı: " + e.message, true);
+  }
 }
 
 async function sendChat() {
@@ -295,6 +314,10 @@ async function sendChat() {
       body: JSON.stringify({ model, messages: [{ role: "user", content: msg }] }) });
     const d = await r.json();
     const route = r.headers.get("x-fusion-route") || "";
+    if (!r.ok) {
+      $("chatOut").textContent = "hata: " + ((d.error && d.error.message) || `HTTP ${r.status}`);
+      return;
+    }
     $("chatOut").textContent = (d.choices && d.choices[0] && d.choices[0].message.content) || JSON.stringify(d, null, 2);
     $("chatMeta").textContent = (d.model ? "model: " + d.model : "") + (route ? " · " + route : "");
   } catch (e) { $("chatOut").textContent = "hata: " + e.message; }
@@ -321,20 +344,24 @@ function render() {
   renderProviders();  // kategori + arama filtresiyle grupla
   renderMcpServers();
 
-  const sel = $("strategy");
-  sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
-  chain = s.fallback.slice(); renderChain();
-  $("strictModel").checked = Boolean(s.strict_model_selection);
-  judge = (s.judge || []).slice(); renderJudge();
+  if (!routingDirty) {
+    const sel = $("strategy");
+    sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${esc(o)}</option>`).join("");
+  }
+  if (!chainDirty) {
+    chain = s.fallback.slice(); renderChain();
+    $("strictModel").checked = Boolean(s.strict_model_selection);
+  }
+  if (!judgeDirty) { judge = (s.judge || []).slice(); renderJudge(); }
 
   const hm = s.health;
-  $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>
+  $("health").innerHTML = hm.map((m) => `<tr><td class="model">${esc(m.model)}</td>
     <td><span class="bar"><i style="width:${Math.round(m.score * 100)}%"></i></span>${Math.round(m.score * 100)}%</td>
-    <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms || 0} ms</td><td>${m.samples}</td></tr>`).join("")
+    <td class="phase ${esc(m.phase)}">${esc(m.phase)}</td><td>${m.avg_latency_ms || 0} ms</td><td>${m.samples}</td></tr>`).join("")
     || emptyRow(5, "Sağlık verisi yok",
          "Devre durumu ve güvenilirlik skoru, modellere istek gittikçe birikir.");
 
-  $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
+  $("chatModel").innerHTML = s.models.map((m) => `<option>${esc(m)}</option>`).join("");
   // KOŞULSUZ çağrılır. Eskiden `if (catalog.length)` ile korunuyordu ve uzak
   // katalog boş geldiğinde (anahtar yok, ağ yok, sağlayıcı kapalı) model
   // seçicileri HİÇ doldurulmuyordu: kullanıcı kendi web oturumunu bile
@@ -353,10 +380,10 @@ function renderAnalytics(a) {
   $("a-cache").textContent = a.cache_hits ?? 0;
   $("a-comp").textContent = a.compression_saved_chars ?? 0;
   $("a-permodel").innerHTML = (a.per_model || []).map((m) =>
-    `<tr><td class="model">${m.model}</td><td>${m.requests}</td><td>${m.tokens}</td><td>${m.avg_latency_ms} ms</td></tr>`
+    `<tr><td class="model">${esc(m.model)}</td><td>${m.requests}</td><td>${m.tokens}</td><td>${m.avg_latency_ms} ms</td></tr>`
   ).join("") || emptyRow(4, "Model başına veri yok", "Gateway üzerinden bir istek geçtiğinde dolar.");
   $("a-recent").innerHTML = (a.recent || []).map((r) =>
-    `<tr><td class="model">${r.requested}</td><td class="model">${r.served}</td><td>${r.tokens}</td><td>${r.latency_ms} ms</td><td>${r.cached ? '<span class="badge ok">önbellek</span>' : (r.ok ? "✓" : "✕")}</td></tr>`
+    `<tr><td class="model">${esc(r.requested)}</td><td class="model">${esc(r.served)}</td><td>${r.tokens}</td><td>${r.latency_ms} ms</td><td>${r.cached ? '<span class="badge ok">önbellek</span>' : (r.ok ? "✓" : "✕")}</td></tr>`
   ).join("") || emptyRow(5, "Henüz istek yok",
     "Test sekmesinden bir istek gönder ya da uç noktayı bir araca bağla.");
 }
@@ -369,12 +396,25 @@ function ilkYuklemeBitti() {
   document.querySelector(".content").setAttribute("aria-busy", "false");
 }
 
+// Üst bardaki bağlantı rozeti: sunucuya ulaşılamıyorsa "çalışıyor" demeye devam etmez.
+const PILL_ONLINE = "yerel · çalışıyor";
+const PILL_OFFLINE = "bağlantı yok · veri eski olabilir";
+function setStatusPill(online) {
+  const pill = $("statusPill");
+  pill.textContent = online ? PILL_ONLINE : PILL_OFFLINE;
+  pill.className = "status-pill" + (online ? "" : " off");
+}
+
 async function load() {
   try {
     STATE = await fetch("/api/state").then((r) => r.json());
     render();
     ilkYuklemeBitti();
-  } catch (e) { /* sunucu kapalı */ }
+    setStatusPill(true);
+  } catch (e) {
+    // Sunucu kapandı: ekrandaki eski veriyi "güncel" gibi göstermeyiz.
+    setStatusPill(false);
+  }
 }
 
 function isLiveTabActive() {

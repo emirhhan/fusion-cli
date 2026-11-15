@@ -113,9 +113,12 @@ def test_galeri_dizini_masaustu_varlik_iznine_acikca_eklidir() -> None:
     )
     scope = conf["app"]["security"]["assetProtocol"]["scope"]
 
-    assert "$HOME/.local/share/fusion-cli/gallery/**" in scope
-    assert "$LOCALDATA/fusion-cli/gallery/**" in scope
-    assert not any(".ssh" in item or item == "$HOME/.*/**" for item in scope)
+    # R2-04'ten beri kapsam izin/yasak sözlüğüdür (bkz. test_packaged_security_manifest).
+    allow, deny = scope["allow"], scope["deny"]
+    assert "$HOME/.local/share/fusion-cli/gallery/**" in allow
+    assert "$LOCALDATA/fusion-cli/gallery/**" in allow
+    assert not any(".ssh" in item or item == "$HOME/.*/**" for item in allow)
+    assert "$HOME/.ssh/**" in deny
 
 
 def test_eski_revision_akis_duzenlemesini_ezemez(tmp_path):
@@ -167,3 +170,57 @@ def test_legacy_akis_ilk_kayitta_revision_ile_goc_eder(tmp_path):
     saved = save_flow({"akis": legacy}, tmp_path)
     assert saved["ok"] is True
     assert saved["revision"] == 1
+
+
+def test_bozuk_akis_dosyasi_listeyi_dusurmez(tmp_path) -> None:
+    """Ölçüldü (30 Ekim, S1-38): JSON'u liste olan dosya `.get` ile AttributeError veriyordu."""
+    from fusion_cli.appserver import image_flows
+
+    (tmp_path / "bozuk.json").write_text("[1, 2]", encoding="utf-8")
+    (tmp_path / "iyi.json").write_text('{"ad": "Kask"}', encoding="utf-8")
+
+    sonuc = image_flows.list_flows(tmp_path)
+
+    assert sonuc["akislar"] == [{"id": "iyi", "ad": "Kask"}]
+
+
+def test_indir_mevcut_hedefi_ezme_bayragi_olmadan_ezmez(tmp_path) -> None:
+    """S1-39: hedefte kullanıcı verisi olabilir; açık `ezme: true` olmadan dokunulmaz."""
+    gallery = tmp_path / "galeri"
+    gallery.mkdir()
+    image = gallery / "a.jpg"
+    image.write_bytes(b"yeni")
+    target = tmp_path / "belgelerim" / "tatil.jpg"
+    target.parent.mkdir()
+    target.write_bytes(b"degerli")
+
+    reddedilen = export_image({"yol": str(image), "hedef": str(target)}, gallery)
+
+    assert reddedilen["ok"] is False
+    assert reddedilen["ezme_gerekli"] is True
+    assert target.read_bytes() == b"degerli"
+    for bayrak in ("true", 1, "evet", None, False):
+        assert (
+            export_image({"yol": str(image), "hedef": str(target), "ezme": bayrak}, gallery)["ok"]
+            is False
+        )
+    assert target.read_bytes() == b"degerli"
+
+    onayli = export_image({"yol": str(image), "hedef": str(target), "ezme": True}, gallery)
+
+    assert onayli == {"ok": True, "yol": str(target)}
+    assert target.read_bytes() == b"yeni"
+
+
+def test_indir_hedef_klasorse_ezme_bayragiyla_bile_reddedilir(tmp_path) -> None:
+    gallery = tmp_path / "galeri"
+    gallery.mkdir()
+    image = gallery / "a.jpg"
+    image.write_bytes(b"x")
+    hedef = tmp_path / "klasor.png"
+    hedef.mkdir()
+
+    sonuc = export_image({"yol": str(image), "hedef": str(hedef), "ezme": True}, gallery)
+
+    assert sonuc["ok"] is False
+    assert "ezme_gerekli" not in sonuc

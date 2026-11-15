@@ -7,8 +7,11 @@ söylemektir; ayrıntı `read_session` ile çekilir.
 Yalnızca kullanıcı mesajları listelenir: ajan cevapları uzundur ve triyaj için
 değeri düşüktür. İşin ne olduğunu kullanıcının kendi cümleleri anlatır.
 
-Sırlar SAYILIR ama MASKELENMEZ. Bu bilinçli bir üründür kararıdır: maskeleme
-devralınan bağlamı sessizce bozabilir. Sayım yalnızca kullanıcıyı uyarmak içindir.
+Sırlar iki ayrı yolla ele alınır: ham metin üzerinde SAYILIR (kullanıcıyı uyarmak için, metni
+değiştirmez) ve künyeye giren başlık ile kullanıcı satırları `redact`'tan geçerek MASKELENİR.
+Docstring eskiden "maskelenmez" diyordu; kod ise başlığı ve satırları maskeliyordu (E1-33).
+Künyeye giren eski oturum metni `<devralinan_oturum>` etiketini KAPATAMAZ: etiket benzeri
+diziler etkisizleştirilir (dolaylı istem enjeksiyonu).
 """
 
 from __future__ import annotations
@@ -43,6 +46,15 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+#: Künye etiketini açan/kapatan dizi (boşluk ve büyük/küçük harf toleranslı).
+_TAG_LIKE = re.compile(r"<\s*/?\s*devralinan_oturum", re.IGNORECASE)
+
+
+def _neutralize_tag(text: str) -> str:
+    """Eski oturumdan gelen metindeki künye etiketi benzerini etkisizleştir (`<` → `‹`)."""
+    return _TAG_LIKE.sub(lambda eslesme: "‹" + eslesme.group(0)[1:], text)
+
+
 @dataclass(frozen=True, slots=True)
 class Digest:
     """Bağlama girecek künye metni ve bulunan sır sayısı."""
@@ -72,7 +84,7 @@ def build_digest(source: HistorySource, ref: SessionRef, max_lines: int = MAX_LI
 
     lines = [
         f'<devralinan_oturum kaynak="{ref.source}" kimlik="{ref.session_id}">',
-        f"başlık: {redact(ref.title)}",
+        f"başlık: {_neutralize_tag(redact(ref.title))}",
         f"tarih: {_date_of(ref.updated_at)}",
         f"tur sayısı: {scan.turn_count}",
         "dokunulan dosyalar: güvenilir üstveri yok",
@@ -99,7 +111,7 @@ def _scan_session(source: HistorySource, session_id: str, max_lines: int) -> _Sc
             secret_count += count_secrets(turn.text)
             if turn.role == "user":
                 if len(user_lines) < max_lines:
-                    summary = redact(" ".join(turn.text.split())[:LINE_BUDGET])
+                    summary = _neutralize_tag(redact(" ".join(turn.text.split())[:LINE_BUDGET]))
                     user_lines.append(f"  [{cursor + index}] {summary}")
                 else:
                     has_more = True

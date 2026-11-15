@@ -8,9 +8,19 @@ eski kayıtlardan çıkan tekrarlayan tamir akışlarıyla büyür.
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from pathlib import Path
 
+from ...core.errors import CleanupFailedError
+from ...core.process_control import (
+    process_group_options,
+    terminate_async_process_tree,
+    wait_for_shell_exit,
+)
 from .model import Playbook, PlaybookStep
+
+logger = logging.getLogger(__name__)
 
 #: Çekirdek kütüphane. Sıra önceliktir: ilk eşleşen playbook seçilir.
 #: Kalite/test komutlarının hangi tetikleyicilerle eşleştiği.
@@ -22,8 +32,11 @@ from .model import Playbook, PlaybookStep
 _LINT_TRIGGERS = ("biçimlendir", "bicimlendir", "lint", "format", "ruff")
 _TEST_TRIGGERS = ("testleri çalıştır", "testleri calistir", "pytest", "testler geçiyor mu", "test")
 
-#: Keşfedilen komutun hangi gruba ait olduğunu anlamak için aranan parçalar.
-_TEST_MARKERS = ("pytest", "test", "vitest", "jest")
+#: Keşfedilen komutun TEST komutu olduğunu gösteren sözcükler. Alt dizge değil TAM sözcük
+#: aranır: Ölçüldü (30 Ekim) `ruff check src tests` komutu "test" içerdiği için test grubuna
+#: düşüyor, lint playbook'u eksik kalıyordu (E1-28). `tests` dizini, `src/test` yolu ve
+#: `contest` gibi sözcükler eşleşmez; `npm run test:unit`, `go test ./...`, `pytest -q` eşleşir.
+_TEST_COMMAND = re.compile(r"(?<![\w/.\-])(?:pytest|vitest|jest|test)(?![\w/\-])")
 
 
 def build_playbooks(root: Path) -> tuple[Playbook, ...]:
@@ -38,7 +51,7 @@ def build_playbooks(root: Path) -> tuple[Playbook, ...]:
     if not komutlar:
         return ()
 
-    test_komutlari = tuple(k for k in komutlar if any(m in k for m in _TEST_MARKERS))
+    test_komutlari = tuple(k for k in komutlar if _TEST_COMMAND.search(k))
     lint_komutlari = tuple(k for k in komutlar if k not in test_komutlari)
 
     kitaplar: list[Playbook] = []
@@ -77,14 +90,22 @@ class ShellStepRunner:
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=self._cwd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
+                **process_group_options(),
             )
         except OSError:
             return 1
+        # Her çıkış yolunda (normal, zaman aşımı, iptal) süreç GRUBU temizlenir.
+        # Ölçüldü (29 Ekim): `process.kill()` yalnız kabuğu öldürüyordu; `npm test`
+        # altındaki torunlar yetim kalıyordu (E1-27).
         try:
-            return await asyncio.wait_for(process.wait(), timeout=self._timeout_s)
+            return await asyncio.wait_for(wait_for_shell_exit(process), timeout=self._timeout_s)
         except TimeoutError:
-            process.kill()
-            await process.wait()
             return 1
+        finally:
+            try:
+                await terminate_async_process_tree(process)
+            except CleanupFailedError:
+                logger.warning("playbook adımının süreç ağacı temizlenemedi: %s", command)

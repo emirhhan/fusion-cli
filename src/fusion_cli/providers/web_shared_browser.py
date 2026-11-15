@@ -26,9 +26,11 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
+from ..core.constants import DEVTOOLS_PORT_FILE
 from ..core.window_mode import WindowMode, resolve_window_mode
 from .macos_window import (
     UNSUPPORTED_MESSAGE,
@@ -43,8 +45,6 @@ if sys.platform != "win32":
 else:  # pragma: no cover - Windows'ta kilit dosyası yedeği kullanılır
     fcntl = None
 
-#: Chrome'un profil dizinine yazdığı hata ayıklama portu dosyası.
-DEVTOOLS_PORT_FILE = "DevToolsActivePort"
 LOCK_FILE = ".fusion-browser.lock"
 LEASE_DIR = ".fusion-leases"
 #: Kilit ve port dosyası yoklama aralığı. Yalnız bekleme sıklığıdır; toplam
@@ -54,6 +54,7 @@ POLL_INTERVAL_S = 0.1
 #: Chrome'la paylaşılır; görünmez açılmış bir Chrome'u "gizlemeye" çalışmak hem
 #: anlamsız hem de sahte bir izin uyarısı üretirdi.
 WINDOW_MODE_FILE = ".fusion-window-mode"
+HIDDEN_STARTUP_MODE = "hidden-no-startup-window"
 #: Pencere kipiyle ilgili kullanıcıya gösterilecek son uyarı (ör. gizleme izni yok).
 #: Dosyada durur çünkü turu çalıştıran süreç ile paneli çizen süreç farklıdır.
 WINDOW_NOTICE_FILE = ".fusion-window-notice"
@@ -72,11 +73,15 @@ class SharedBrowserHooks:
     #: Profili bu süreç açmadan önce hazırla; profil başka bir Chrome'daysa hata ver.
     prepare_launch: Callable[[Path], None]
     #: Profille hata ayıklama portu açık Chrome başlat (beklemeden döner).
-    launch: Callable[[Path, bool], Awaitable[None]]
+    launch: Callable[[Path, WindowMode], Awaitable[None]]
     #: Uç nokta gerçekten yanıt veriyor mu?
     is_alive: Callable[[str], Awaitable[bool]]
     #: Uç noktadaki Chrome'u düzgünce kapat.
     close: Callable[[str], Awaitable[None]]
+    #: Canlı uç nokta BU profilin Chrome'u mu? `(uç nokta, DevToolsActivePort'taki tarayıcı
+    #: yolu)` alır. Verilmezse yalnız canlılık denetlenir (testler); gerçek kurulum
+    #: `endpoint_matches_browser` verir (P1-42).
+    verify_identity: Callable[[str, str], Awaitable[bool]] | None = None
     #: Açık pencereyi kullanıcının ekranından gizle (yalnız `WindowMode.HIDDEN`).
     #: Varsayılanı gerçek macOS uygulamasıdır; testler sahtesini verir. Başarısızlık
     #: turu düşürmez, sonuç nesnesiyle bildirilir.
@@ -104,12 +109,19 @@ def _write_window_notice(profile: Path, notice: str | None) -> None:
         path.unlink(missing_ok=True)
 
 
+def _startup_mode(profile: Path) -> str:
+    try:
+        return (profile / WINDOW_MODE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _running_window_mode(profile: Path) -> WindowMode | None:
     """Çalışan Chrome'un açıldığı kip; kayıt yoksa ya da bozuksa None."""
+    slug = _startup_mode(profile)
     try:
-        slug = (profile / WINDOW_MODE_FILE).read_text(encoding="utf-8").strip()
-        return WindowMode[slug.upper()]
-    except (OSError, KeyError):
+        return WindowMode.HIDDEN if slug == HIDDEN_STARTUP_MODE else WindowMode[slug.upper()]
+    except KeyError:
         return None
 
 
@@ -121,6 +133,25 @@ def read_endpoint(profile: Path) -> str | None:
     except (OSError, IndexError, ValueError):
         return None
     return f"http://127.0.0.1:{port}" if port > 0 else None
+
+
+#: `DevToolsActivePort` ikinci satırının başlangıcı: Chrome oraya örneğe özgü tarayıcı
+#: WebSocket yolunu (`/devtools/browser/<uuid>`) yazar.
+_BROWSER_PATH_PREFIX = "/devtools/browser/"
+
+
+def read_browser_path(profile: Path) -> str | None:
+    """Port dosyasındaki tarayıcı WS yolunu oku; yoksa/beklenmedikse None."""
+    try:
+        lines = (profile / DEVTOOLS_PORT_FILE).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    path = lines[1].strip() if len(lines) > 1 else ""
+    return (
+        path
+        if path.startswith(_BROWSER_PATH_PREFIX) and len(path) > len(_BROWSER_PATH_PREFIX)
+        else None
+    )
 
 
 def _pid_alive(pid: int) -> bool:
@@ -154,8 +185,27 @@ class SharedProfileBrowser:
         mode = resolve_window_mode(requested, can_hide=self._hooks.can_hide_window)
         deadline = time.monotonic() + timeout_s
         self._profile.mkdir(parents=True, exist_ok=True)
+        _restrict_profile_dir(self._profile)
         async with self._locked(deadline):
             endpoint = await self._running_endpoint()
+            if (
+                endpoint is not None
+                and mode is WindowMode.HIDDEN
+                and _startup_mode(self._profile)
+                not in (HIDDEN_STARTUP_MODE, WindowMode.HEADLESS.slug)
+            ):
+                if self._live_leases():
+                    raise SharedBrowserError(
+                        "Eski Fusion Chrome oturumu kullanımda. "
+                        "Oturumu kullanan Fusion pencerelerini kapatıp tekrar dene."
+                    )
+                if (
+                    self._hooks.verify_identity is not None
+                    and read_browser_path(self._profile) is None
+                ):
+                    raise SharedBrowserError("Eski Fusion Chrome oturumunun kimliği doğrulanamadı.")
+                await self._hooks.close(endpoint)
+                endpoint = None
             if endpoint is None:
                 endpoint = await self._launch(mode=mode, deadline=deadline)
             await self._settle_window(requested=requested, mode=mode)
@@ -209,9 +259,23 @@ class SharedProfileBrowser:
 
     async def _running_endpoint(self) -> str | None:
         endpoint = read_endpoint(self._profile)
-        if endpoint is not None and await self._hooks.is_alive(endpoint):
-            return endpoint
-        return None
+        if endpoint is None or not await self._hooks.is_alive(endpoint):
+            return None
+        browser_path = read_browser_path(self._profile)
+        verify = self._hooks.verify_identity
+        if (
+            verify is not None
+            and browser_path is not None
+            and not await verify(endpoint, browser_path)
+        ):
+            # Port canlı ama bu profilin Chrome'u değil (port başkasına geçmiş): oraya
+            # bağlanmak başka profilin oturumlarını sürmek demek (P1-42).
+            _logger.warning(
+                "CDP uç noktası bu profilin Chrome'u değil; yeniden başlatılıyor (profil=%s)",
+                self._profile,
+            )
+            return None
+        return endpoint
 
     async def _settle_window(self, *, requested: WindowMode, mode: WindowMode) -> None:
         """Pencereyi kipine oturt ve kullanıcıya gösterilecek uyarıyı güncelle.
@@ -244,10 +308,9 @@ class SharedProfileBrowser:
         self._hooks.prepare_launch(self._profile)
         with contextlib.suppress(FileNotFoundError):
             (self._profile / DEVTOOLS_PORT_FILE).unlink()
-        (self._profile / WINDOW_MODE_FILE).write_text(mode.slug, encoding="utf-8")
-        # Gizli kip Chrome'u headless BAYRAĞI OLMADAN açar; pencere açıldıktan
-        # sonra işletim sistemi düzeyinde gizlenir.
-        await self._hooks.launch(self._profile, mode is WindowMode.HEADLESS)
+        startup_mode = HIDDEN_STARTUP_MODE if mode is WindowMode.HIDDEN else mode.slug
+        (self._profile / WINDOW_MODE_FILE).write_text(startup_mode, encoding="utf-8")
+        await self._hooks.launch(self._profile, mode)
         while time.monotonic() < deadline:
             endpoint = await self._running_endpoint()
             if endpoint is not None:
@@ -351,6 +414,46 @@ async def endpoint_alive(endpoint: str) -> bool:
     return response.status_code == 200
 
 
+async def endpoint_matches_browser(
+    endpoint: str,
+    browser_path: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> bool:
+    """Canlı uç noktanın tarayıcı WS yolu, profilin port dosyasındakiyle aynı mı?
+
+    Yol, Chrome başlarken örneğe özgü rastgele üretilir ve profilin kendi dizinine
+    yazılır: yalnız o profili açan Chrome aynı yolu sunar. `/json/version` 200 dönen
+    herhangi bir sunucu bunu taklit edemez. (`Browser.getVersion` aynı kimliği vermez:
+    ürün/sürüm döndürür, profil yolunu değil; üstelik WebSocket istemcisi gerektirir.)
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=ENDPOINT_PROBE_TIMEOUT_S, transport=transport
+        ) as client:
+            response = await client.get(f"{endpoint}/json/version")
+        body = response.json()
+    except (httpx.HTTPError, ValueError):
+        return False
+    if response.status_code != 200 or not isinstance(body, dict):
+        return False
+    ws_url = body.get("webSocketDebuggerUrl")
+    return isinstance(ws_url, str) and urlparse(ws_url).path == browser_path
+
+
+def _restrict_profile_dir(profile: Path) -> None:
+    """Profil dizinini yalnız sahibine aç: oturum çerezleri ve port dosyası burada durur.
+
+    POSIX dışında ya da izin verilmediğinde sessizce geçilir (turu düşürmez).
+    """
+    if sys.platform == "win32":  # pragma: no cover - Windows'ta chmod anlamsız
+        return
+    try:
+        profile.chmod(0o700)
+    except OSError:
+        _logger.debug("profil dizini izni daraltılamadı: %s", profile)
+
+
 def chrome_launch_arguments(
     executable: str, profile: Path, *, headless: bool | WindowMode
 ) -> list[str]:
@@ -389,5 +492,16 @@ def chrome_launch_arguments(
         # sistemi düzeyinde gizler (`macos_window.hide_profile_window`). Görünür
         # kipte pencere kullanıcının önünde kalır; o kip bunu bilerek seçer.
         arguments.append("--window-position=-32000,-32000")
-    arguments.append("about:blank")
-    return arguments
+    if mode is WindowMode.HIDDEN and sys.platform == "darwin":
+        bundle = next(
+            (parent for parent in Path(executable).parents if parent.suffix == ".app"),
+            None,
+        )
+        if bundle is None:
+            raise SharedBrowserError("Chrome uygulama paketi bulunamadı, gizli kip açılamadı.")
+        # Açılış sekmesi varsa arka plan CDP hedefi bile o pencereyi gösterebiliyor.
+        return [
+            "/usr/bin/open", "-g", "-j", "-n", "-a", str(bundle), "--args",
+            *arguments[1:], "--no-startup-window",
+        ]
+    return [*arguments, "about:blank"]

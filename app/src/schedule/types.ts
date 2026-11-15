@@ -34,10 +34,12 @@ export function isScheduleReceipt(value: unknown, occurrenceId: string): value i
   return data.status === "queued" && data.occurrenceId === occurrenceId && data.taskId === `schedule-${occurrenceId}`;
 }
 
-export type ScheduleKind = "bir_kez" | "gunluk" | "haftalik" | "aralik";
+export type ScheduleKind = "bir_kez" | "gunluk" | "haftalik" | "aralik" | "cron";
 
 export interface ScheduledTask {
   baslik: string;
+  /** Yalnız `tur === "cron"`: 5 alanlı cron ifadesi (P-038). */
+  cron?: string;
   dakika?: number;
   etkin: boolean;
   gorev: string;
@@ -47,9 +49,13 @@ export interface ScheduledTask {
   saat?: string;
   son_calisma: number | null;
   son_gecikmeli?: boolean;
+  /** Çekirdek görevi neden durdurdu (ör. tehlikeli kök); yoksa tanımsız. */
+  durdurma_nedeni?: string;
   sonraki: number | null;
   tur: ScheduleKind;
   zaman?: number;
+  /** Son çalışmalar, en yeni önce (`zamanlama.calisma_kaydet`, P-038); doğrulanmadan kullanılmaz. */
+  gecmis?: unknown;
 }
 
 export interface ScheduleClient {
@@ -60,7 +66,8 @@ const DAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 const FULL_DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
 
 /** Görevin ne zaman çalıştığını okunur Türkçe ile anlat. */
-export function describeSchedule(task: Pick<ScheduledTask, "tur" | "saat" | "gunler" | "dakika" | "zaman">): string {
+export function describeSchedule(task: Pick<ScheduledTask, "tur" | "saat" | "gunler" | "dakika" | "zaman" | "cron">): string {
+  if (task.tur === "cron") return `Cron ${task.cron ?? ""}`.trim();
   if (task.tur === "gunluk") return `Her gün ${task.saat ?? ""}`.trim();
   if (task.tur === "haftalik") {
     const sorted = [...new Set(task.gunler ?? [])].sort((a, b) => a - b);

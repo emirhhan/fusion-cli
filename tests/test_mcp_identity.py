@@ -102,3 +102,35 @@ def test_dogrulanmis_kayit_dogrulanmamis_kopyaya_yenilmez():
     kayitlar = (_hosted("eski", verified=False), _hosted("calisan", verified=True))
 
     assert tuple(item.name for item in unique_hosted_configs(kayitlar)) == ("calisan",)
+
+
+def test_ayni_adres_farkli_hesap_token_ya_da_client_id_kopya_degildir():
+    """Ölçüldü (30 Ekim): kimlik `token_env`/`client_id`/`env_names`'i içermiyordu; iki
+    farklı hesap (iki Cloudflare/GitHub, iki Postgres) kopya sayılıp ikincisi sessizce
+    atılıyordu (M1-09). `hosted_identity` hesabı zaten kapsıyordu."""
+    url = "https://mcp.x.com/mcp"
+    temel = _http("a", url)
+
+    def kimlik(**extra: object) -> str:
+        return connection_identity(
+            McpServerConfig(name="b", transport=McpTransport.STREAMABLE_HTTP, url=url, **extra)  # type: ignore[arg-type]
+        )
+
+    assert kimlik(token_env="TOKEN_A") != kimlik(token_env="TOKEN_B")
+    assert kimlik(client_id="uygulama-1") != kimlik(client_id="uygulama-2")
+    assert kimlik(token_env="TOKEN_A") != connection_identity(temel)
+
+    ilk = McpServerConfig(name="p1", command="npx", args=("pg",), env_names=("PG_URL_A",))
+    ikinci = McpServerConfig(name="p2", command="npx", args=("pg",), env_names=("PG_URL_B",))
+    assert connection_identity(ilk) != connection_identity(ikinci)
+    assert connection_identity(ilk) == connection_identity(
+        McpServerConfig(name="p3", command="npx", args=("pg",), env_names=("PG_URL_A",))
+    )
+
+
+def test_gecersiz_port_tek_baglantiyi_dusurur_butun_kumeyi_degil():
+    """`parsed.port` geçersiz portta ValueError fırlatıp `clients_for`'u baştan düşürüyordu."""
+    bozuk = _http("bozuk", "https://mcp.x.com:abc/mcp")
+    saglam = _http("saglam", "https://mcp.y.com/mcp")
+
+    assert unique_configs([bozuk, saglam]) == (bozuk, saglam)

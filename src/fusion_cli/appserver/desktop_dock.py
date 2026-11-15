@@ -46,9 +46,20 @@ class DesktopDock:
         self._chrome = chrome
         self._native = native if native is not None else SwiftDesktop()
 
+    async def _call_native(self, operation: str, target: dict[str, object]) -> dict[str, object]:
+        """Yerel sonda çağrısı; zaman aşımı / eksik swift ikilisi istisna olarak sızmaz.
+
+        Ölçüldü (30 Ekim): yalnız Chrome dalı yakalıyordu, yerel dal `TimeoutError`/`OSError`'u
+        RPC sınırına sızdırıp ham hata metni gösteriyordu.
+        """
+        try:
+            return await self._native.invoke(operation, target)
+        except (TimeoutError, OSError, RuntimeError):
+            return _failure("Masaüstü sondası kullanılamıyor.")
+
     async def list(self) -> dict[str, object]:
         """Pencereleri ve bağlı Chrome'un sekmelerini getir; kısmi hatayı göster."""
-        native = await self._native.invoke("list", {})
+        native = await self._call_native("list", {})
         tabs: list[object] = []
         chrome_error = ""
         if self._chrome is not None and self._chrome.status().get("bagli"):
@@ -74,7 +85,7 @@ class DesktopDock:
     async def focus(self, target: dict[str, object]) -> dict[str, object]:
         """Yalnız kullanıcı seçtiğinde gerçek pencereyi öne getir."""
         if _window_target(target):
-            return await self._native.invoke("focus", target)
+            return await self._call_native("focus", target)
         if target.get("kind") == "tab" and _positive(target.get("id")) and self._chrome:
             try:
                 return await self._chrome.invoke("tab_focus", {"id": target["id"]})
@@ -86,13 +97,13 @@ class DesktopDock:
         """Yalnız seçilmiş pencereyi yakala; tüm ekranı veya etkin sekmeyi açma."""
         if not _window_target(target):
             return _failure("Bu hedef için odağı değiştirmeyen görüntü desteklenmiyor.")
-        return await self._native.invoke("snapshot", target)
+        return await self._call_native("snapshot", target)
 
     async def inspect(self, target: dict[str, object]) -> dict[str, object]:
         """Arka plandaki hedef pencerenin erişilebilir öğelerini oku."""
         if not _window_target(target):
             return _failure("Erişilebilirlik hedefi geçersiz.")
-        return await self._native.invoke("inspect", target)
+        return await self._call_native("inspect", target)
 
     async def action(
         self, target: dict[str, object], request: dict[str, object]
@@ -102,4 +113,4 @@ class DesktopDock:
             return _failure("Erişilebilirlik hedefi geçersiz.")
         if request.get("action") not in {"press", "set_value"}:
             return _failure("Erişilebilirlik eylemi desteklenmiyor.")
-        return await self._native.invoke("action", {**target, "request": request})
+        return await self._call_native("action", {**target, "request": request})

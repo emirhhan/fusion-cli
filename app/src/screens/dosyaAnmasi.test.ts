@@ -58,3 +58,10 @@ describe("anmayiDegistir", () => {
     });
   });
 });
+
+describe("dalga 4 — U1-20", () => {
+  it("boşluklu yolu tırnak içinde yazar", () => {
+    const anma = anmayiBul("@pro", 4)!;
+    expect(anmayiDegistir("@pro", anma, 4, "Proje Notları/a.md").metin).toBe('@"Proje Notları/a.md" ');
+  });
+});

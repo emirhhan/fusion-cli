@@ -32,11 +32,11 @@
       <section id="perm" class="ask perm" hidden aria-labelledby="perm-title">
         <div class="ask__eyebrow">Site izni</div>
         <h2 id="perm-title" class="ask__title"></h2>
-        <p class="ask__reason">Tek seferlik: bir kez izin verirsen Fusion bundan sonra siteleri sormadan açar. Gönderme, silme, ödeme ve hesap oluşturma yine sana sorulur. İzni Bağlantı ayarlarından geri alabilirsin.</p>
+        <p class="ask__reason">Chrome erişimi kaldırılana kadar sürer: yalnız bu siteyi veya tüm siteleri seçebilirsin. Fusion eylem onayı ayrı bir katmandır; riskli işlemler yine sorulur. İzinleri Bağlantı ayarlarından kapsamıyla görüp geri alabilirsin.</p>
         <div class="perm__actions">
           <button id="perm-all" class="primary" type="button">Tüm sitelere izin ver</button>
           <button id="perm-allow" class="secondary" type="button">Yalnız bu site</button>
-          <button id="perm-deny" class="quiet" type="button">Şimdi değil</button>
+          <button id="perm-deny" class="quiet" type="button">Reddet</button>
         </div>
       </section>
 
@@ -60,7 +60,7 @@
         <section id="empty" class="empty">
           <img src="icons/fusion.svg" alt="" width="44" height="44" />
           <h1>Bu sekmede ne yapayım?</h1>
-          <p>Fusion sayfayı okur, kaydırır, tıklar ve yazar. Gönderme, silme ya da satın alma gibi adımlardan önce sana sorar.</p>
+          <p>Fusion sayfayı okur, kaydırır, tıklar ve yazar. Gönderme ya da silme gibi adımlardan önce sana sorar; satın alma, hesap oluşturma ve CAPTCHA'yı hiç yapmaz.</p>
           <div class="suggestions">
             <button type="button" class="suggestion" data-prompt="Bu sayfayı kısaca özetle.">Bu sayfayı özetle</button>
             <button type="button" class="suggestion" data-prompt="Sayfayı sonuna kadar kaydır ve önemli bilgileri madde madde çıkar.">Kaydır ve önemli bilgileri çıkar</button>
@@ -76,12 +76,11 @@
         <form id="composer" class="composer">
           <textarea id="prompt" rows="1" placeholder="Fusion'a yaz…" aria-label="Fusion'a görev ver"></textarea>
           <div class="composer__bar">
-            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik: Fusion karar verir, yalnız riskli işlemde sorar.">
-              <option value="auto" title="Fusion karar verir; yalnız gönder/sil/satın al gibi riskli işlemde sorar.">Otomatik</option>
-              <option value="security" title="Okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel</option>
-              <option value="edits" title="Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.">Düzenlemeleri kabul et</option>
-              <option value="plan" title="Sayfayı yalnız okur, plan çıkarır; tıklamaz, yazmaz.">Plan</option>
-              <option value="bypass" title="Hiçbir şey sormaz. Dikkat: gönderme ve satın alma da sorulmaz.">İzinleri atla</option>
+            <!-- Claude in Chrome'un üç modu (#434): Manually approve / Automatically approve / Skip all approvals. -->
+            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik onay (Automatically approve): her eylem güvenlik için denetlenir, yalnız riskli işlem sorulur.">
+              <option value="security" title="Manually approve: okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel onay</option>
+              <option value="auto" title="Automatically approve: her eylem güvenlik için denetlenir; yalnız gönder/sil gibi riskli işlem sorulur.">Otomatik onay</option>
+              <option value="bypass" title="Skip all approvals: gönderme ve silmeyi sormaz. Satın alma her kipte yasak; yetki verme ve hassas bilgi yine sorulur.">Tüm onayları atla</option>
             </select>
             <select id="model" class="model-chip" aria-label="Model" title="Model"></select>
             <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">
@@ -104,6 +103,7 @@
         </button>
       </form>
       <p class="sheet__text">Fusion masaüstü uygulaması açıkken panel kendiliğinden bağlanır. Bağlanmazsa Fusion'da Ayarlar → Tarayıcı bölümündeki port ve anahtarı gir.</p>
+      <p id="connection-checked" class="sheet__text" role="status">Bağlantı henüz kontrol edilmedi.</p>
       <div id="pairing" class="field-stack">
         <label for="port">Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
         <label for="token">Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
@@ -115,9 +115,27 @@
         <button id="grant-capture" class="secondary" type="button">Chrome iznini iste</button>
       </div>
       <div class="sheet__group">
-        <h3>İzinli siteler</h3>
+        <h3>Site izinleri ve kapsamları</h3>
+        <p class="sheet__text">Chrome erişimi, Fusion oturum izinleri ve yerleşik Browser kalıcı izinleri ayrı gösterilir. Kaldır yalnız seçtiğin izni geri alır. Chrome oturum izni uygulama kapanınca sona erer; kalıcı yerleşik Browser izni kaldırılana kadar sürer.</p>
         <ul id="sites" class="sites"></ul>
         <p id="sites-empty" class="sheet__text">Henüz izin verdiğin site yok.</p>
+      </div>
+      <div class="sheet__group">
+        <h3>Konsol ve ağ</h3>
+        <label class="sheet__check"><input id="monitor-toggle" type="checkbox" checked /> Konsol ve ağ isteklerini izle</label>
+        <p class="sheet__text">Yalnız tek tek izin verdiğin sitelerde (ekran görüntüsü için verilen "tüm siteler" izni izleyiciyi kurmaz), sayfanın içinde tutulur ve Fusion sorduğunda okunur. Başlıklar (çerez, yetki) kaydedilmez.</p>
+      </div>
+      <div class="sheet__group">
+        <h3>Kısayollar</h3>
+        <p class="sheet__text">Sık verdiğin görevi adla kaydet; yazarken <code>/ad</code> ile çağır. Fusion da bu listeyi görür.</p>
+        <ul id="shortcuts" class="sites"></ul>
+        <p id="shortcuts-empty" class="sheet__text">Henüz kısayol yok.</p>
+        <form id="shortcut-form" class="field-stack">
+          <label for="shortcut-name">Ad <input id="shortcut-name" autocomplete="off" maxlength="40" placeholder="ör. ozet" /></label>
+          <label for="shortcut-text">Görev <textarea id="shortcut-text" rows="2" maxlength="2000" placeholder="Bu sayfayı kısaca özetle."></textarea></label>
+          <button id="shortcut-save" class="secondary" type="submit">Kısayolu kaydet</button>
+        </form>
+        <p class="sheet__text">Klavye: <kbd>Ctrl/⌘+Shift+F</kbd> paneli açar, <kbd>Ctrl/⌘+Shift+.</kbd> süren görevi durdurur (chrome://extensions/shortcuts sayfasından değiştirilir).</p>
       </div>
       <button id="disconnect" class="quiet" type="button">Bağlantıyı kes</button>
     </dialog>

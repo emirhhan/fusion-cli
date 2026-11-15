@@ -128,3 +128,128 @@ def test_canli_kontrol_tum_kademe_bas_modellerini_sondalar_ve_saglik_onbellegine
     assert onbellek[config.agent.models[0]].ok is True
     for model in beklenen_kademe_modelleri:
         assert model in onbellek
+
+
+# --- Dalga 4 (L1-14, L1-16, L1-17, L1-18) ------------------------------------- #
+
+
+def test_yalniz_nim_anahtari_varken_openrouter_satiri_hata_degildir():
+    from fusion_cli.config.keys import ProviderKeys
+
+    satirlar = {c.name: c for c in doctor._keys(ProviderKeys(openrouter=False, nim=True))}
+
+    assert satirlar["OPENROUTER_API_KEY"].ok is None
+    assert "tek başına yeterli" in satirlar["OPENROUTER_API_KEY"].remedy
+
+
+def test_hic_anahtar_yokken_openrouter_satiri_hata_kalir():
+    from fusion_cli.config.keys import ProviderKeys
+
+    satirlar = {c.name: c for c in doctor._keys(ProviderKeys(openrouter=False, nim=False))}
+
+    assert satirlar["OPENROUTER_API_KEY"].ok is False
+
+
+def test_yazilabilirlik_denetimi_dizin_olusturmaz(tmp_path):
+    """Ölçüldü (30 Ekim): `_writable` salt-okunur tanıda dizin ve deneme dosyası oluşturuyordu."""
+    yok = tmp_path / "henuz" / "yok"
+
+    assert doctor._writable(yok) is True
+    assert not (tmp_path / "henuz").exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_yazilamayan_ust_dizin_false_doner(tmp_path):
+    import os
+
+    kilitli = tmp_path / "kilitli"
+    kilitli.mkdir()
+    kilitli.chmod(0o500)
+    try:
+        if os.access(kilitli, os.W_OK):  # root altında çalışıyorsa anlamsız
+            return
+        assert doctor._writable(kilitli / "alt") is False
+    finally:
+        kilitli.chmod(0o700)
+
+
+def test_opsiyonel_playwright_denetimi_modulu_ice_aktarmaz(monkeypatch):
+    import sys
+
+    monkeypatch.delitem(sys.modules, "playwright", raising=False)
+
+    doctor._optional()
+
+    assert "playwright" not in sys.modules
+
+
+def test_canli_sonda_ayni_saglayiciya_sinirli_eszamanli_istek_atar(tmp_path, monkeypatch):
+    import asyncio
+
+    from fusion_cli.core.types import ModelResult
+    from fusion_cli.providers import health_cache
+    from fusion_cli.providers import litellm_provider as lp
+
+    anlik = {"su_an": 0, "en_cok": 0}
+
+    class _Sahte:
+        def __init__(self, model, role=""):
+            self.model = model
+
+        async def complete(self, istek):
+            anlik["su_an"] += 1
+            anlik["en_cok"] = max(anlik["en_cok"], anlik["su_an"])
+            await asyncio.sleep(0.01)
+            anlik["su_an"] -= 1
+            return ModelResult("d", self.model, "pong", 1, True)
+
+    monkeypatch.setattr(lp, "LiteLlmProvider", _Sahte)
+    monkeypatch.setattr(lp, "configure_litellm", lambda: None)
+    monkeypatch.setattr(health_cache, "record", lambda *a, **k: None)
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path)
+
+    class _Rol:
+        def __init__(self, ad):
+            self.models = (ad,)
+
+    class _Cfg:
+        agent = _Rol("openrouter/m1")
+        judge = _Rol("openrouter/m2")
+        tiers = tuple(type("T", (), {"agent": _Rol(f"openrouter/t{i}")})() for i in range(6))
+
+    doctor._live(_Cfg())
+
+    assert anlik["en_cok"] <= doctor.LIVE_PER_PROVIDER
+
+
+def test_canli_sonda_429u_saglik_onbellegine_kapali_yazmaz(tmp_path, monkeypatch):
+    from fusion_cli.core.types import ModelResult
+    from fusion_cli.providers import health_cache
+    from fusion_cli.providers import litellm_provider as lp
+
+    class _Sahte:
+        def __init__(self, model, role=""):
+            self.model = model
+
+        async def complete(self, istek):
+            return ModelResult("d", self.model, "", 1, False, error="429 rate limit exceeded")
+
+    yazilan = []
+    monkeypatch.setattr(lp, "LiteLlmProvider", _Sahte)
+    monkeypatch.setattr(lp, "configure_litellm", lambda: None)
+    monkeypatch.setattr(health_cache, "record", lambda *a, **k: yazilan.append(a))
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path)
+
+    class _Rol:
+        def __init__(self, ad):
+            self.models = (ad,)
+
+    class _Cfg:
+        agent = _Rol("openrouter/m1")
+        judge = _Rol("openrouter/m1")
+        tiers = ()
+
+    kontroller = doctor._live(_Cfg())
+
+    assert yazilan == []
+    assert any(c.name == "canlı: openrouter/m1" and c.ok is None for c in kontroller)

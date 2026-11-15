@@ -1,3 +1,4 @@
+import { useState } from "react";
 import "./DepoUyarisi.css";
 
 /**
@@ -18,8 +19,9 @@ export interface DepoUyarisiProps {
 }
 
 export function DepoUyarisi({ kok, projeler, onAc }: DepoUyarisiProps) {
+  const [tumu, setTumu] = useState(false);
   if (projeler.length === 0) return null;
-  const gosterilen = projeler.slice(0, GOSTERILEN);
+  const gosterilen = tumu ? projeler : projeler.slice(0, GOSTERILEN);
   const kalan = projeler.length - gosterilen.length;
   const ayirici = kok.includes("\\") && !kok.includes("/") ? "\\" : "/";
   return (
@@ -39,10 +41,12 @@ export function DepoUyarisi({ kok, projeler, onAc }: DepoUyarisiProps) {
             title={proje}
             type="button"
           >
-            {proje.split("/").pop()}
+            {proje.split(/[\\/]/).pop()}
           </button>
         ))}
-        {kalan > 0 && <span className="depo-uyarisi__kalan">+{kalan} proje</span>}
+        {kalan > 0 && (
+          <button className="depo-uyarisi__kalan" onClick={() => setTumu(true)} type="button">+{kalan} proje</button>
+        )}
       </div>
     </aside>
     </div>

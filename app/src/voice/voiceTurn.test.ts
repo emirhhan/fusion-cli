@@ -1,7 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed } from "./voiceTurn";
+import { askVoiceQuestion, askVoiceResearch, incompleteVoiceRequest, buildVoiceRequest, findVoiceAnswer, followupVoiceResearch, needsVoiceResearch, speakVoiceAnswer, speakVoiceAnswerStreamed, voiceAnswerNeedsResearch } from "./voiceTurn";
 
 describe("sesli model isteği", () => {
+  it("2026 Meta kampanya değişikliklerini araştırmaya yönlendirir, tarih ve genel bilgi sorularını ayırır", () => {
+    const now = new Date(2026, 10, 15);
+    const question = "Meta 2026 yılı genelinde kampanyalar ile alakalı nasıl bir değişikliğe gitti?";
+    expect(needsVoiceResearch(question, now)).toBe(true);
+    expect(needsVoiceResearch("2026 hangi yüzyılda?", now)).toBe(false);
+    expect(needsVoiceResearch("Andromeda ne işe yarar?", now)).toBe(false);
+    expect(needsVoiceResearch("Resmi kaynaklardan Andromeda'yı doğrula", now)).toBe(true);
+  });
+  it("güncel soruyu ajan görevi yerine arka plan araştırmasına yollar", async () => {
+    const request = vi.fn(async () => ({ ok: false, metin: "Güncel kaynak bulunamadı." }));
+    const { signal } = new AbortController();
+    await expect(askVoiceResearch({ request }, "Meta 2026", signal)).resolves.toBe("Güncel kaynak bulunamadı.");
+    expect(request).toHaveBeenCalledExactlyOnceWith("ses.arastir", { soru: "Meta 2026" }, { signal, timeoutMs: 24_000 });
+  });
+  it("güncel bilgi eksikliğini kullanıcıya okumadan araştırmaya geçirir", () => {
+    expect(voiceAnswerNeedsResearch("GUNCEL_KAYNAK_GEREKIYOR")).toBe(true);
+    expect(voiceAnswerNeedsResearch("2026 yılı hakkında bilgim yok.")).toBe(true);
+    expect(voiceAnswerNeedsResearch("2026’da Andromeda’nın yeni sürümü duyuruldu.")).toBe(false);
+  });
+  it("araya girilen soruyu kesilen yanıtla birlikte araçsız yan sohbete yollar", async () => {
+    const request = vi.fn(async () => ({ ok: true, metin: "Bir yılda." }));
+    const history = [{ rol: "asistan" as const, metin: "Dünya Güneş’in etrafında döner." }];
+    const { signal } = new AbortController();
+    await expect(askVoiceQuestion({ request }, "Ne kadar sürüyor?", history, signal)).resolves.toBe("Bir yılda.");
+    expect(request).toHaveBeenCalledExactlyOnceWith("yan_sohbet.sor",
+      { soru: expect.stringMatching(/^Kullanıcının cihazındaki bugünün tarihi .+[0-9]{4}.+\n\nNe kadar sürüyor\?$/u), gecmis: history, tarayicisiz: true },
+      { signal, timeoutMs: 15_000 });
+  });
   it("selamlaşmayı talimat eklemeden gönderir", () => {
     expect(buildVoiceRequest("Merhaba!")).toEqual({ text: "Merhaba!", voice: {} });
   });
@@ -186,4 +214,38 @@ describe("cümle cümle akan Talk yanıtı", () => {
 
     expect(request).toHaveBeenNthCalledWith(1, "ses.konus", { metin: "tamam" });
   });
+});
+
+it("alan adı, şirket kimliği ve itibar sorularını arka plan aramasına yönlendirir", () => {
+  for (const question of ["Satıcıyız nokta kom nedir?", "satıcıyız.com'u kim işletiyor?", "MotoGate güvenilir mi?", "Satıcıyız'ın şirket unvanı ne?"]) {
+    expect(needsVoiceResearch(question)).toBe(true);
+  }
+  expect(needsVoiceResearch("Python sürümüm güvenilir mi?")).toBe(false);
+  expect(needsVoiceResearch("Projemde bugün değişen dosyaları listele.")).toBe(false);
+  expect(followupVoiceResearch("Bu bilgiyi tam kontrol et.", "MotoGate güvenilir mi?")).toBe("MotoGate güvenilir mi?");
+  expect(followupVoiceResearch("Proje dosyasını kontrol et.", "MotoGate güvenilir mi?")).toBeNull();
+});
+
+it("mağaza sorusunda önceki markayı taşır ve yeni marka uydurmaz", () => {
+  expect(followupVoiceResearch("İstanbul'daki mağazası n", "Moto gate güvenilir mi"))
+    .toBe("MotoGate İstanbul'daki mağazasının adresi nedir?");
+  expect(followupVoiceResearch("İstanbul'daki mağazası nerede?", "Meta'nın 2026 kampanyaları neydi?"))
+    .toBeNull();
+  expect(followupVoiceResearch("Nike mağazası nerede?", "MotoGate güvenilir mi?")).toBeNull();
+  expect(incompleteVoiceRequest("Python ve moto gate’i bi")).toBe(true);
+  expect(incompleteVoiceRequest("Python ve MotoGate’i bir cümlede kullan")).toBe(false);
+  expect(incompleteVoiceRequest("Disney ve Pixar")).toBe(false);
+});
+
+it("yalnız araç metni gelirse geçerli geçmişle bir kez temiz yanıt ister", async () => {
+  const request = vi.fn()
+    .mockResolvedValueOnce({ ok: true, metin: "FUSION_TOOL_CALL gizli FUSION_TOOL_CALL_END" })
+    .mockResolvedValueOnce({ ok: true, metin: "Python, yazılım geliştirmede kullanılır." });
+  const signal = new AbortController().signal;
+  const previous = { rol: "kullanici" as const, metin: "Python’dan bahsediyoruz." };
+  const tool = { rol: "asistan" as const, metin: "FUSION_TOOL_CALL eski FUSION_TOOL_CALL_END" };
+  await expect(askVoiceQuestion({ request }, "Peki ne işe yarar?", [previous, tool], signal))
+    .resolves.toBe("Python, yazılım geliştirmede kullanılır.");
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1][1]).toMatchObject({ gecmis: [previous], soru: expect.not.stringContaining("gizli") });
 });

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from .evidence import EvidenceEnvironment
 from .failure_identity import failure_identity
 
 
@@ -41,6 +44,7 @@ class FailureEvidence:
     attempt_id: str
     sources: tuple[SourceFingerprint, ...] = ()
     origin: FailureOrigin = FailureOrigin.PRODUCT
+    environment: EvidenceEnvironment | None = None
 
     def __post_init__(self) -> None:
         if not all(value.strip() for value in (self.check_id, self.family, self.attempt_id)):

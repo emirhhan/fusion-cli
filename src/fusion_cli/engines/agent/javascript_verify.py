@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import re
 import shutil
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -139,7 +141,9 @@ class NodeJavaScriptSyntaxChecker:
                 timeout=self._timeout_s,
             )
         except TimeoutError:
-            process.kill()
+            # Süreç tam bu anda bitmiş olabilir: `kill()` ProcessLookupError atar.
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
             await process.wait()
             logger.warning(
                 "Node.js sözdizimi doğrulayıcısı %.1f saniyede tamamlanamadı",
@@ -171,7 +175,7 @@ class JavaScriptSyntaxVerifier:
             ]
             if any(result.ok for result in results):
                 continue
-            result = results[0]
+            result = _most_informative(source, modes, results)
             detail = result.detail or "ayrıştırıcı hata ayrıntısı üretmedi"
             findings.append(
                 f"{source.label} JavaScript sözdizimi hatası nedeniyle çalışmaz:\n{detail}"
@@ -186,6 +190,25 @@ class JavaScriptSyntaxVerifier:
         )
 
 
+_ESM_MARKER = re.compile(r"^\s*(?:import|export)\b", re.MULTILINE)
+
+
+def _most_informative(
+    source: JavaScriptSource, modes: tuple[bool, ...], results: list[SyntaxCheckResult]
+) -> SyntaxCheckResult:
+    """Her iki kipte de başarısız olan kaynak için modele GERÇEK hatayı göster.
+
+    Ölçüldü (30 Ekim, A2-28): hep klasik kipin sonucu raporlanıyordu; ESM dosyada gerçek
+    söz dizimi hatası varsa model "Cannot use import statement outside a module" gibi
+    alakasız bir mesajla karşılaşıyordu. `import`/`export` içeren kaynakta modül kipi
+    sonucu, diğerinde klasik kip sonucu gösterilir.
+    """
+    if len(results) == 1:
+        return results[0]
+    ayrik = dict(zip(modes, results, strict=True))
+    return ayrik[bool(_ESM_MARKER.search(source.content))]
+
+
 def _collect_sources(context: ToolContext) -> tuple[JavaScriptSource, ...]:
     sources: list[JavaScriptSource] = []
     for path in sorted(context.touched):
@@ -194,7 +217,9 @@ def _collect_sources(context: ToolContext) -> tuple[JavaScriptSource, ...]:
             continue
         try:
             content = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeError):
+            # UTF-8 olmayan dosya (A2-26) doğrulayıcıyı çökertmemeli; `next_route_verify`
+            # aynı durumu zaten böyle ele alıyor.
             continue
 
         label = _display_path(path, context.root)

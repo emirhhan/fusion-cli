@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Masaüstü sürümü (`desktop.yml` → `release`) bu kapıyı yeniden kullanır: testler
+  # kırmızıyken etiket atılsa da Release oluşmasın.
+  workflow_call:
 
 jobs:
   check:
@@ -13,6 +16,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

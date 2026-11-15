@@ -19,14 +19,19 @@ Araç desteği:
 from __future__ import annotations
 
 import asyncio
+import inspect
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..core.clock import SystemClock
 from ..core.model_capability import ToolSupport
+from ..core.prompt_manifest import PromptTransportMeasurement
 from ..core.protocols import Clock
-from ..core.tool_emulation import parse_tool_calls, render_tool_instructions
+from ..core.redaction import redact, strip_driver_log
+from ..core.tool_emulation import escape_tool_markers, parse_tool_calls, render_tool_instructions
 from ..core.types import (
+    WEB_SESSION_ERROR_PREFIX,
     CompletionRequest,
     Message,
     ModelResult,
@@ -34,6 +39,21 @@ from ..core.types import (
     StreamItem,
     TextChunk,
 )
+from ..core.web_provenance import WebCallContext, WebResponseProvenance
+from .credential_worker import resolve_credential
+
+_logger = logging.getLogger(__name__)
+
+
+def _brief_session_error(error: BaseException) -> str:
+    """Kullanıcıya gidecek kısa hata metni; ham sürücü günlüğü yalnız günlük dosyasına."""
+    detail = str(error)
+    _logger.warning("web oturumu hatasi: %s: %s", type(error).__name__, redact(detail))
+    brief = strip_driver_log(detail)
+    # Sürücü adı ("Locator.click: Timeout 5000ms exceeded") kullanıcıya bir şey söylemez.
+    if "Timeout" in brief and ("click" in brief.lower() or "locator" in brief.lower()):
+        return "tarayıcı arayüzündeki bir öğe zamanında tıklanamadı"
+    return brief or type(error).__name__
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +79,66 @@ class WebTurn:
 
     text: str
     tier: str = ""
+    #: Kullanıcıya TEK satır olarak gösterilecek not (ör. seçili mod pasif, mevcut kiple
+    #: sürüldü). Cevabın parçası değildir; boşsa gösterilecek bir şey yok.
+    note: str = ""
+    prompt_measurement: PromptTransportMeasurement | None = field(default=None, kw_only=True)
+    provenance: WebResponseProvenance | None = field(default=None, kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class WebTurnContext:
+    """Üst katmanın taşımaya bildirdiği tur bağlamı (isteğe bağlı).
+
+    - `conversation_id`: durumlu taşımanın sohbet anahtarına katılan iş kimliği (P1-31).
+    - `answer_contract`: her araç turunda tekrarlanacak sözleşme metni; motor üretir,
+      taşıma yalnız biçimlendirir (P1-33).
+
+    Alanların hepsi boşsa taşıma bu bağlamı hiç görmez: adaptör eski 3 argümanlı
+    çağrı biçimini kullanır (bağlamdan habersiz taşıma/test sahteleri kırılmasın).
+    """
+
+    conversation_id: str = ""
+    answer_contract: str = ""
+    #: Kullanıcı bu modeli açıkça seçti (`ModelSpec.strict`): seçili mod/model kullanılamıyorsa
+    #: sayfanın başka kipiyle sessizce sürülmez, oturum hatası verilir ve zincir yedeğe geçer.
+    strict: bool = False
+    web_call_context: WebCallContext | None = None
+    is_capture_probe: bool = False
+
+    @property
+    def is_empty(self) -> bool:
+        return not (
+            self.conversation_id
+            or self.answer_contract
+            or self.strict
+            or self.web_call_context
+            or self.is_capture_probe
+        )
 
 
 #: Gerçek I/O'yu yapan enjekte edilebilir transport: kimlik + mesajlar + model → tur.
 #: Sahte (mock) ya da kullanıcının yetkili uca yazdığı gerçek transport olabilir.
-WebTransport = Callable[[WebSessionCredential, tuple[Message, ...], str], Awaitable[WebTurn]]
+#: Bağlam-bilen taşıma ek olarak `context: WebTurnContext` anahtar sözcüğünü kabul eder;
+#: adaptör onu YALNIZ boş değilse geçirir. `...` bu yüzden: iki biçim de geçerlidir.
+WebTransport = Callable[..., Awaitable[WebTurn]]
+
+
+def _accepts_context(transport: WebTransport) -> bool:
+    """Taşıma `context` anahtar sözcüğünü (ya da `**kwargs`) kabul ediyor mu?
+
+    Bağlamdan habersiz 3 argümanlı taşımalar (eski/özel taşıma, test sahtesi) bağlam
+    verilmeden çağrılır: yeni bir isteğe bağlı alan onları kırmamalı.
+    """
+    try:
+        parameters = inspect.signature(transport).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        item.kind is inspect.Parameter.VAR_KEYWORD
+        or (item.name == "context" and item.kind is not inspect.Parameter.POSITIONAL_ONLY)
+        for item in parameters
+    )
 
 
 class WebProviderAdapter:
@@ -78,24 +153,41 @@ class WebProviderAdapter:
         tool_support: ToolSupport = ToolSupport.NONE,
         supports_images: bool = False,
         clock: Clock | None = None,
+        credential_factory: Callable[[], WebSessionCredential] | None = None,
     ) -> None:
+        self._credential_factory = credential_factory
         self._model = model
         self._credential = credential
         self._transport = transport
+        self._transport_takes_context = _accepts_context(transport)
         self._tool_support = tool_support
         self._supports_images = supports_images
         self._clock = clock or SystemClock()
+        self._note_sink: Callable[[str], None] | None = None
+        self._strict = False
 
     @property
     def label(self) -> str:
         return self._model
+
+    def bind_strict(self, strict: bool) -> None:
+        """Kullanıcının seçimi katı mı? (`ModelSpec.strict`; fabrika bağlar, yeni ayar yok.)"""
+        self._strict = strict
+
+    def bind_note_sink(self, sink: Callable[[str], None]) -> None:
+        """Taşımanın tek satırlık kullanıcı notlarını (`WebTurn.note`) ileteceği yer.
+
+        Kurucuya değil ayrı bir çağrıya konuldu: `WebSessionRegistry.build` imzası ve onu
+        taklit eden testler değişmesin. Sink hata fırlatırsa tur etkilenmez.
+        """
+        self._note_sink = sink
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         messages = self._prepared_messages(request)
         start = self._clock.monotonic()
         try:
             raw = await asyncio.wait_for(
-                self._transport(self._credential, messages, self._model),
+                self._call_transport(request, messages),
                 timeout=request.timeout_s,
             )
         except TimeoutError:
@@ -118,10 +210,51 @@ class WebProviderAdapter:
                 text="",
                 latency_ms=latency,
                 ok=False,
-                error=f"web oturumu hatası: {error}",
+                error=f"{WEB_SESSION_ERROR_PREFIX} {_brief_session_error(error)}",
             )
         latency = int((self._clock.monotonic() - start) * 1000)
-        return self._to_result(raw.text, latency, served_by=raw.tier)
+        self._forward_note(getattr(raw, "note", ""))
+        return replace(
+            self._to_result(
+                raw.text,
+                latency,
+                served_by=raw.tier,
+                protocol=request.emulation_protocol,
+                provenance=raw.provenance,
+                call_context=request.web_call_context,
+            ),
+            prompt_measurement=raw.prompt_measurement,
+            web_provenance=raw.provenance,
+        )
+
+    def _forward_note(self, note: str) -> None:
+        if not note or self._note_sink is None:
+            return
+        try:
+            self._note_sink(note)
+        except Exception:
+            _logger.debug("web notu iletilemedi", exc_info=True)
+
+    async def _call_transport(
+        self, request: CompletionRequest, messages: tuple[Message, ...]
+    ) -> WebTurn:
+        """Taşımayı çağır; tur bağlamı yalnız doluysa geçirilir."""
+        context = WebTurnContext(
+            conversation_id=request.conversation_id,
+            answer_contract=request.answer_contract if request.tools else "",
+            strict=self._strict or request.is_capture_probe,
+            web_call_context=request.web_call_context,
+            is_capture_probe=request.is_capture_probe,
+        )
+        # Yedek adaptörünü kurmak, henüz kullanılmayan credential'ı okumak değildir.
+        credential = (
+            await resolve_credential(self._credential_factory)
+            if self._credential_factory
+            else self._credential
+        )
+        if context.is_empty or not self._transport_takes_context:
+            return await self._transport(credential, messages, self._model)
+        return await self._transport(credential, messages, self._model, context=context)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         # Oturum tabanlı uçlar çoğu zaman akıtılamaz: tek seferde alınır, sonra parça
@@ -163,13 +296,26 @@ class WebProviderAdapter:
     def _prepared_messages(self, request: CompletionRequest) -> tuple[Message, ...]:
         """Emulated araç desteğinde araç talimatlarını sistem mesajına ekle."""
         messages = tuple(self._prepare_images(message) for message in request.messages)
+        if self._tool_support is ToolSupport.EMULATED:
+            # Araç SONUCU dış içeriktir (sayfa, dosya, komut çıktısı): içindeki çağrı
+            # işaretleri modelin yanıtına yansıyıp çağrı sayılmasın (C1-45).
+            messages = tuple(self._escape_tool_result(message) for message in messages)
         if self._tool_support is not ToolSupport.EMULATED or not request.tools:
             return messages
         # Web yolunda çağrı METİNDEN üretilir: şema ne kadar şişkinse model o kadar
         # sık yanlış anahtar yazıyor. Sade biçim zorunlu alanları öne çıkarır;
         # opsiyonel alanlar araç açıklamasında zaten anlatılıyor.
-        instructions = render_tool_instructions(request.tools, compact=True)
+        instructions = render_tool_instructions(
+            request.tools, compact=True, edit_format=request.edit_format
+        )
         return (Message("system", instructions), *messages)
+
+    @staticmethod
+    def _escape_tool_result(message: Message) -> Message:
+        """Araç sonucu mesajındaki protokol işaretlerini ZWSP ile kaçışla."""
+        if message.role != "tool":
+            return message
+        return replace(message, content=escape_tool_markers(message.content))
 
     def _prepare_images(self, message: Message) -> Message:
         """Native görsel taşımayan web yolunda kaybı açık bir gözleme dönüştür."""
@@ -190,17 +336,28 @@ class WebProviderAdapter:
             harness_note=message.harness_note,
         )
 
-    def _to_result(self, raw: str, latency_ms: int, *, served_by: str = "") -> ModelResult:
+    def _to_result(
+        self,
+        raw: str,
+        latency_ms: int,
+        *,
+        served_by: str = "",
+        protocol: str = "v1",
+        provenance: WebResponseProvenance | None = None,
+        call_context: WebCallContext | None = None,
+    ) -> ModelResult:
         """Ham yanıtı `ModelResult`'a çevir; emulated ise araç çağrılarını ayrıştır."""
         if self._tool_support is ToolSupport.EMULATED:
-            parse = parse_tool_calls(raw)
+            parse = parse_tool_calls(
+                raw, protocol=protocol, provenance=provenance, call_context=call_context
+            )
             # KURTARILABİLİR olan kurtarılır. Ölçüldü: model doğru bir edit_file
             # üretip yanında kullanılmayan bir payload bıraktığında, çalışacak
             # düzenleme uygulanmadan atılıyordu — bir model çağrısı (~40 sn) ve bir
             # onarım hakkı yanıyor, model bağlamda "okuma başarılı / yazma hatalı"
             # görüyor ve rasyonel olarak okumaya kaçıyordu. Ayrıştırılabilen çağrı
-            # varsa artıklar turu öldürmez; sözleşme hatası YALNIZCA hiçbir çağrı
-            # kurtarılamadığında bildirilir.
+            # varsa uyarılar da taşınır; güvenli okumayı ve ertelenecek değişikliği
+            # motor ayırır. Eski error alanı yalnız hiçbir çağrı kurtarılamazsa dolar.
             if parse.errors and not parse.calls:
                 return ModelResult(
                     name=self._model,
@@ -210,6 +367,7 @@ class WebProviderAdapter:
                     ok=True,
                     error="TOOL_CALL_PARSE_ERROR: " + "; ".join(parse.errors),
                     tool_calls=(),
+                    parse_warnings=parse.warnings,
                     served_by=served_by,
                 )
             return ModelResult(
@@ -219,6 +377,7 @@ class WebProviderAdapter:
                 latency_ms=latency_ms,
                 ok=True,
                 tool_calls=parse.calls,
+                parse_warnings=parse.warnings,
                 served_by=served_by,
             )
         return ModelResult(

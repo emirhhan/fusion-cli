@@ -26,6 +26,8 @@ from fusion_cli.mcp_bridge.failures import (
     missing_command_failure,
 )
 from fusion_cli.mcp_bridge.oauth import McpLoginRequiredError
+from fusion_cli.mcp_bridge.tokens import McpTokenStorageError
+from fusion_cli.mcp_bridge.types import McpConfigError
 
 
 def _remote(*, token: bool = False) -> McpServerConfig:
@@ -188,12 +190,45 @@ def test_http_404_mcp_adresinin_yanlis_oldugunu_soyler():
 
 
 def test_eksik_sir_yapilandirma_hatasidir():
-    error = ValueError("MCP ortam değişkeni bulunamadı: BRAVE_API_KEY")
+    error = McpConfigError("MCP ortam değişkeni bulunamadı: BRAVE_API_KEY")
 
     failure = classify_failure(error, _stdio())
 
     assert failure.kind is McpFailureKind.CONFIGURATION
     assert "BRAVE_API_KEY" in failure.message
+
+
+def test_sunucunun_bozuk_json_yaniti_kalici_yapilandirma_hatasi_sayilmaz():
+    """Ölçüldü (30 Ekim): `json.JSONDecodeError`/`pydantic.ValidationError` da
+    `ValueError` alt sınıfıdır; eski sınıflayıcı bunları kalıcı "yapılandırma" diye
+    parklıyor ve ham ayrıştırma metnini (sunucu verisi) kullanıcıya yazıyordu."""
+    import json
+
+    from pydantic import BaseModel, ValidationError
+
+    class _Model(BaseModel):
+        x: int
+
+    with pytest.raises(ValidationError) as pydantic_error:
+        _Model(x="sunucu-verisi-gizli")
+    for error in (json.JSONDecodeError("sunucu-verisi-gizli", "{", 0), pydantic_error.value):
+        failure = classify_failure(error, _remote())
+
+        assert failure.kind is McpFailureKind.UNKNOWN
+        assert not failure.is_permanent
+        assert "sunucu-verisi-gizli" not in failure.message
+
+
+def test_anahtarlik_hatasi_yeniden_baglanmayi_soyler_ve_kalicidir():
+    """Ölçüldü (30 Ekim): `McpTokenStorageError` tanınmıyor, "başlatılamadı… Test et"
+    deniyor ve bozuk anahtarlık her turda yeniden deneniyordu."""
+    error = McpTokenStorageError("MCP kimlik kaydı bozuk. Çıkış yapıp yeniden bağlan.")
+
+    failure = classify_failure(_group(error), _remote())
+
+    assert failure.kind is McpFailureKind.LOGIN_REQUIRED
+    assert failure.is_permanent
+    assert "yeniden bağlan" in failure.message.lower()
 
 
 def test_zaman_asimi_ayri_durumdur_ve_gecicidir():

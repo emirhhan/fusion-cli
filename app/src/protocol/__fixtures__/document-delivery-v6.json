@@ -1,0 +1,120 @@
+[
+  {
+    "name": "safe",
+    "text": "Rapor hazır: `rapor.html`.",
+    "kanit": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [
+        "rapor.html açıldı"
+      ],
+      "olculmeyen": [],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "degisiklik_ozeti": [
+        "rapor.html (yeni dosya, 67 satır)"
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "sunum": "document"
+    },
+    "compact": true
+  },
+  {
+    "name": "warning",
+    "text": "⚠ Doğrulama notları — işi engellemiyor:\n- [uyarı] Nesnel kalite uyarısı\n- [öneri] Bir main landmark önerilir.\n\n✓ Doğrulandı: rapor.html açıldı.\nDeğişen dosyalar: rapor.html\n\nDeğişen satırlar (gerçek fark):\nrapor.html (yeni dosya, 67 satır)\n\nRapor hazır: `rapor.html`.",
+    "kanit": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [
+        "Nesnel kalite uyarısı"
+      ],
+      "kontroller": [
+        "rapor.html açıldı"
+      ],
+      "olculmeyen": [],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "degisiklik_ozeti": [
+        "rapor.html (yeni dosya, 67 satır)"
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    },
+    "compact": false
+  },
+  {
+    "name": "unmeasured",
+    "text": "ⓘ Değişen dosyalar: rapor.html\nSon değişiklikten sonra bir doğrulama komutu ÇALIŞTIRILMADI; sonuç doğrulanmadı.\n\nDeğişen satırlar (gerçek fark):\nrapor.html (yeni dosya, 67 satır)\n\nAjanın açıklaması (doğrulanmamış):\n\nRapor hazır: `rapor.html`.",
+    "kanit": {
+      "schema_version": 1,
+      "dogrulandi": false,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [],
+      "kontroller": [],
+      "olculmeyen": [
+        "son değişiklikten sonra doğrulama komutu çalıştırılmadı"
+      ],
+      "oneriler": [],
+      "degisiklik_ozeti": [
+        "rapor.html (yeni dosya, 67 satır)"
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      }
+    },
+    "compact": false
+  }
+]

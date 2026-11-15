@@ -51,3 +51,40 @@ def test_git_olmayan_klasor_hata_degil_bos_durumdur(tmp_path: Path):
         "ileride": 0,
         "geride": 0,
     }
+
+
+def test_kilit_dosyasina_gore_paket_yoneticisi_secilir(tmp_path: Path):
+    """Ölçüldü (30 Ekim, S2-36): her zaman `npm` öneriliyordu."""
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "vitest"}}), "utf-8")
+    (tmp_path / "pnpm-lock.yaml").write_text("", "utf-8")
+
+    assert suggested_commands(tmp_path)["komutlar"][0]["komut"] == "pnpm test"
+
+
+def test_scriptsiz_package_json_python_projesini_gizlemez(tmp_path: Path):
+    (tmp_path / "package.json").write_text(json.dumps({"name": "x"}), "utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n", "utf-8")
+
+    komut = suggested_commands(tmp_path)["komutlar"][0]["komut"]
+
+    assert komut.endswith("-m pytest -q") and komut.startswith("python")
+    assert komut.split()[0] in {"python3", "python"}
+
+
+def test_makefile_degisken_atamasi_hedef_sayilmaz(tmp_path: Path):
+    (tmp_path / "Makefile").write_text("check:=1\ntest:\n\t@echo t\n", "utf-8")
+
+    komutlar = suggested_commands(tmp_path)["komutlar"]
+
+    assert [k["komut"] for k in komutlar] == ["make test"]
+
+
+def test_git_deposunun_alt_klasoru_git_var_sayilir(tmp_path: Path):
+    """Ölçüldü (30 Ekim, S2-36): `.git` yalnız kökte aranıyordu."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    alt = tmp_path / "paket"
+    alt.mkdir()
+
+    assert git_status(alt)["git"] is True

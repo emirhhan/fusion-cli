@@ -16,11 +16,13 @@ const UNKNOWN_STATES: PermissionStates = {
   microphone: "unknown",
   speech: "unknown",
   keychain: "unknown",
+  accessibility: "unknown",
+  screenRecording: "unknown",
 };
 
-function readExplanationSeen(storage: Pick<Storage, "getItem">): ExplanationSeen {
+function readExplanationSeen(storage: Pick<Storage, "getItem"> | undefined): ExplanationSeen {
   try {
-    const raw = storage.getItem(EXPLANATION_SEEN_KEY);
+    const raw = (storage ?? window.localStorage).getItem(EXPLANATION_SEEN_KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -34,13 +36,16 @@ function readExplanationSeen(storage: Pick<Storage, "getItem">): ExplanationSeen
   }
 }
 
-function saveExplanationSeen(storage: Pick<Storage, "setItem">, seen: ExplanationSeen): void {
-  storage.setItem(EXPLANATION_SEEN_KEY, JSON.stringify(seen));
+/** Yazma başarısızsa (kota, özel mod) izin isteği yine de ilerler; yalnız "açıklama görüldü" kalıcı olmaz (U6-12). */
+function saveExplanationSeen(storage: Pick<Storage, "setItem"> | undefined, seen: ExplanationSeen): void {
+  try {
+    (storage ?? window.localStorage).setItem(EXPLANATION_SEEN_KEY, JSON.stringify(seen));
+  } catch { /* açıklama bir sonraki istekte yeniden gösterilir */ }
 }
 
 export function usePermissions(
   bridge: PermissionBridge,
-  storage: Storage = window.localStorage,
+  storage?: Storage,
 ) {
   const [state, setState] = useState<PermissionStates>(UNKNOWN_STATES);
   const [activeKind, setActiveKind] = useState<PermissionKind | null>(null);
@@ -81,6 +86,17 @@ export function usePermissions(
     setActiveKind(null);
   }, [begin]);
 
+  /**
+   * Çekirdek (sidecar) izni eksik gördü: Tauri sürecinin daha önce "granted" dediği önbellek
+   * güvenilmez, bir sonraki `ensure` kartı yeniden açar. Ölçüldü (31 Ekim): `MasaustuIzinGerekli`
+   * gelince `ensure` önbellekten true dönüyor, kart hiç açılmıyor, araç düşmeye devam ediyordu.
+   */
+  const invalidate = useCallback((kind: PermissionKind) => {
+    if (states.current[kind] === "unknown") return;
+    states.current = { ...states.current, [kind]: "unknown" };
+    setState(states.current);
+  }, []);
+
   const ensure = useCallback((kind: PermissionKind): Promise<boolean> => {
     if (states.current[kind] === "granted") return Promise.resolve(true);
     const existing = pending.current.get(kind);
@@ -114,9 +130,11 @@ export function usePermissions(
         setError("İzin durumu alınamadı. Bağlantıyı kontrol edip yeniden deneyin.");
         return;
       }
-      if (active.current !== kind || activeGeneration.current !== generation) return;
+      // Durum, istek iptal edilmiş olsa bile kaydedilir: kullanıcı iptalden sonra izni vermişse
+      // bir sonraki ensure() gereksiz yere yeniden sormaz (U6-13).
       states.current = { ...states.current, [kind]: next };
       setState(states.current);
+      if (active.current !== kind || activeGeneration.current !== generation) return;
 
       if (next === "granted") {
         const waiting = pending.current.get(kind);
@@ -180,6 +198,7 @@ export function usePermissions(
     phase,
     error,
     ensure,
+    invalidate,
     continue: continuePermission,
     retry,
     continueToNext,

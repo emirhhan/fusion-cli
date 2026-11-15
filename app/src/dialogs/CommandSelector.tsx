@@ -13,7 +13,8 @@ export interface CommandSelectorPayload {
   baslik: string;
   secenekler: CommandChoice[];
   devam: { komut: string; arguman_on_eki: string };
-  serbest_metin: { gizli: boolean; yer_tutucu: string } | null;
+  /** `saglayici`: API anahtarı adımında gelir; değer komut dizgesine katılmadan yapısal kaydedilir (S1-24). */
+  serbest_metin: { gizli: boolean; yer_tutucu: string; saglayici?: string } | null;
 }
 
 interface CommandSelectorProps {
@@ -21,6 +22,8 @@ interface CommandSelectorProps {
   error?: string | null;
   onCancel: () => void;
   onSelect: (command: string) => void;
+  /** Verilirse sağlayıcı anahtarı adımı değeri komut dizgesi yerine buraya gider (S1-24). */
+  onSecret?: (provider: string, value: string) => void;
   open: boolean;
   selector: CommandSelectorPayload;
 }
@@ -34,11 +37,18 @@ export function CommandSelector({
   error = null,
   onCancel,
   onSelect,
+  onSecret,
   open,
   selector,
 }: CommandSelectorProps) {
   const [value, setValue] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
+  // busy/onCancel değişince efekt yeniden kurulmaz: yeniden kurulum yazılan değeri (parola/token)
+  // siliyor ve odağı diyalogdan çıkarıyordu (U4-12). Güncel değerler ref'ten okunur.
+  const busyRef = useRef(busy);
+  const cancelRef = useRef(onCancel);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+  useEffect(() => { cancelRef.current = onCancel; }, [onCancel]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,9 +56,9 @@ export function CommandSelector({
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     queueMicrotask(() => dialogRef.current?.querySelector<HTMLElement>("button, input")?.focus());
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !busyRef.current) {
         event.preventDefault();
-        onCancel();
+        cancelRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -69,14 +79,17 @@ export function CommandSelector({
       window.removeEventListener("keydown", handleKey);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [busy, onCancel, open, selector.adim]);
+  }, [open, selector.adim]);
 
   if (!open) return null;
   const textStep = selector.tur !== "secim";
   const submit = () => {
     const trimmed = value.trim();
     if (!trimmed || busy) return;
-    onSelect(continuation(selector, trimmed));
+    const provider = selector.tur === "gizli_metin" ? selector.serbest_metin?.saglayici : undefined;
+    // Gizli değer slash komut dizgesine girerse komut geçmişine/günlüğe düz metin düşebilir (S1-24).
+    if (provider && onSecret) onSecret(provider, trimmed);
+    else onSelect(continuation(selector, trimmed));
   };
 
   return (

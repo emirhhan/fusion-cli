@@ -218,7 +218,7 @@ class _SahteDersBellegi:
         self.eklenenler.append(lesson)
         return True
 
-    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
+    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=(), policy=None):
         return self._recall_sonucu
 
     def reinforce(self, texts, *, success):
@@ -270,7 +270,7 @@ async def test_lessons_yoksa_defter_yine_yazilir_cokme_olmaz(tmp_path, monkeypat
     assert (tmp_path / ".fusion" / "ogretmen.md").exists()
 
 
-async def test_lesson_sync_acikken_derse_yazilir(tmp_path, monkeypatch):
+async def test_lesson_sync_acikken_tavsiye_dogrulama_bekler(tmp_path, monkeypatch):
     saglayici = _OgretmenSaglayici(text="wc -l ile satır say")
     _ogretmen(monkeypatch, saglayici)
     bellek = _SahteDersBellegi()
@@ -283,9 +283,10 @@ async def test_lesson_sync_acikken_derse_yazilir(tmp_path, monkeypatch):
 
     await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
 
-    assert len(bellek.eklenenler) == 1
+    assert len(bellek.eklenenler) == 0
+    assert len(deps.pending_advice) == 1
     icerik = (tmp_path / ".fusion" / "ogretmen.md").read_text(encoding="utf-8")
-    assert "Ders belleğe kaydedildi" in icerik
+    assert "henüz doğrulanmadı" in icerik
 
 
 async def test_lesson_sync_kapaliyken_derse_yazilmaz(tmp_path, monkeypatch):
@@ -321,8 +322,8 @@ async def test_catisma_bulununca_kullaniciya_gorunur_not_eklenir(tmp_path, monke
     sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
 
     assert bellek.eklenenler == []
-    assert "çelişebilir" in sonuc.output
-    assert "teacher-lesson-sync" in sonuc.output
+    assert "çelişebilir" not in sonuc.output
+    assert deps.pending_advice
     icerik = (tmp_path / ".fusion" / "ogretmen.md").read_text(encoding="utf-8")
     assert "kaydedilmedi" in icerik
 
@@ -334,7 +335,10 @@ async def test_basarili_cagri_butce_dosyasi_olusturur(tmp_path, monkeypatch):
 
     await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
 
-    assert (tmp_path / ".fusion" / "ogretmen-butce.json").exists()
+    from fusion_cli.engines.agent.teacher_budget import budget_file
+
+    assert budget_file(tmp_path).exists()
+    assert not (tmp_path / ".fusion" / "ogretmen-butce.json").exists()
 
 
 async def test_butce_dolunca_aga_hic_baglanilmaz(tmp_path, monkeypatch):
@@ -381,3 +385,39 @@ async def test_ogretmene_ulasilamazsa_anlasilir_hata_doner(tmp_path, monkeypatch
 
     assert sonuc.ok is False
     assert "oturum kilitli" in sonuc.output
+
+
+async def test_web_oturum_hatasi_ham_surucu_gunlugu_gostermez_ve_tekrar_edilmez(
+    tmp_path, monkeypatch
+):
+    """Ölçüldü (30 Ekim): "Öğretmen devre dışı" satırı onlarca satır Playwright günlüğüydü."""
+    ham = (
+        "web oturumu hatası: Locator.click: Timeout 5000ms exceeded.\n"
+        'Call log:\n  - waiting for locator("[role=menu]")\n    - element is not enabled\n'
+    )
+
+    class _OturumHatali:
+        @property
+        def label(self):
+            return "sahte-oturum"
+
+        async def complete(self, request):
+            del request
+            return ModelResult(
+                name="ogretmen", model="sahte/ogretmen", text="", latency_ms=1, ok=False, error=ham
+            )
+
+    _ogretmen(monkeypatch, _OturumHatali())
+    yayinci = _Publisher()
+    deps = _deps(
+        tmp_path, publisher=yayinci, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen")
+    )
+
+    sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert sonuc.ok is False
+    assert "Call log" not in sonuc.output
+    assert (sonuc.structured or {}).get("teacher") == "session_error"
+    notlar = [e.message for e in yayinci.events if hasattr(e, "message")]
+    assert any("Öğretmen devre dışı" in n for n in notlar)
+    assert not any("Call log" in n or "\n" in n for n in notlar)

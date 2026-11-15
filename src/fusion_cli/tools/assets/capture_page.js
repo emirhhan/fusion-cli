@@ -32,12 +32,19 @@
     try { return new URL(value, location.href).href; } catch (error) { return value; }
   };
   // Çerez/izin bantları kopyada çalışmaz (düğmeleri betik ister): sabit konumlu ve
-  // çerez/cookie metni taşıyan öğeler işaretlenip kopyadan çıkarılır.
+  // çerez/cookie metni taşıyan öğeler işaretlenip kopyadan çıkarılır. Yanlış pozitif
+  // (ölçüldü, 30 Ekim): içinde "Çerez politikası" bağlantısı olan sabit mobil sekme çubuğu
+  // ve metninde "cookie" geçen uzun sabit destek/sohbet kutusu da çıkarılıyordu; gezinme
+  // rolü taşıyanlar ve çerez bandı için fazla uzun metinler korunur.
+  const COOKIE_BAND_MAX_CHARS = 1200;
+  const NAV_ROLES = 'header, nav, [role="navigation"], [role="tablist"], [role="menubar"]';
   for (const node of document.body.querySelectorAll('*')) {
     const style = getComputedStyle(node);
+    const text = node.textContent || '';
     if ((style.position === 'fixed' || style.position === 'sticky')
-        && /çerez|cerez|cookie|kvkk|consent/i.test(node.textContent || '')
-        && !node.querySelector('header, nav')) {
+        && text.length <= COOKIE_BAND_MAX_CHARS
+        && /çerez|cerez|cookie|kvkk|consent/i.test(text)
+        && !node.matches(NAV_ROLES) && !node.querySelector(NAV_ROLES)) {
       node.setAttribute('data-kopya-izin-bandi', '1');
     }
   }

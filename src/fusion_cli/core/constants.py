@@ -9,13 +9,13 @@ satırlık bir dökümü bağlama boca etmek hem pahalı hem de sinyali gürült
 
 from __future__ import annotations
 
-#: Bir dosyadan okunacak en fazla bayt.
 #: "Dosya yok" hatasının değişmez öneki.
 #
 # Motor katmanı bu işarete bakarak "yanlış çalışma dizini" hipotezini kurar;
 # metin iki yerde ayrı ayrı yazılırsa sessizce ayrışır.
 FILE_MISSING_PREFIX = "Dosya yok:"
 
+#: Bir dosyadan okunacak en fazla bayt.
 MAX_READ_BYTES = 100_000
 #: `download_file` ile indirilebilecek en fazla bayt.
 #
@@ -61,11 +61,16 @@ MAX_CHECKPOINT_OUTPUT_CHARS = 8_000
 
 #: Kabuk komutu için zaman aşımı (saniye).
 SHELL_TIMEOUT_S = 120.0
+#: `cp`/`mv`/`>` ile ezilecek dosyanın geri alma için bellekte tutulacağı en büyük boyut.
+SHELL_BACKUP_MAX_BYTES = 20 * 1024 * 1024
 #: Arka plan işinin durumunu sorarken tek çağrıda beklenebilecek en uzun süre (saniye).
 #: Remotion render'ı ve npm install dakikalar sürer; modelin her 2 sn'de bir sormasını
 #: değil tek çağrıda beklemesini isteriz. Üst sınır, NIM'in 600 sn'lik istek
 #: süresiyle aynıdır: bir araç çağrısı bir model çağrısından uzun sürmez.
 JOB_MAX_WAIT_S = 600.0
+#: Bitmiş işin makbuzu host iş parçacığında yazılıyorsa (dondurulmuş uygulama) `job_status`
+#: en fazla bu kadar bekler; makbuz `.exit`'ten milisaniyeler sonra gelir.
+JOB_RECEIPT_GRACE_S = 2.0
 #: Arka plan işi günlüğünden modele gösterilen son kesit (karakter); kabuk
 #: çıktısı sınırının (MAX_OUTPUT_CHARS) yarısı — durum sorgusu tekrarlanabilir.
 JOB_LOG_TAIL_CHARS = 10_000
@@ -77,11 +82,31 @@ JOB_LOG_TAIL_CHARS = 10_000
 JAVASCRIPT_SYNTAX_TIMEOUT_S = 5.0
 #: Salt-okunur git komutu için zaman aşımı (saniye).
 GIT_TIMEOUT_S = 30.0
+#: Salt-okunur `gh` (GitHub CLI) komutu için zaman aşımı (saniye); ağa çıkar (P-057).
+GH_TIMEOUT_S = 30.0
 #: Web isteği için zaman aşımı (saniye). Bu bir HTTP İSTEĞİ bütçesidir (arama,
 #: sayfa çekme, katalog); bir LLM turunun bütçesi DEĞİLDİR. Tarayıcı tabanlı bir
 #: sohbet turu sayfa yükleme + yazma + tam streaming üretim içerir ve buraya sığmaz;
 #: onun bütçesi `WebSessionConfig.timeout_s` alanından gelir.
 WEB_TIMEOUT_S = 20.0
+
+#: Fusion Kits yan sürecine (yerel HTTP) tek istek bütçesi: Kit listesi, gelen kutusu
+#: teslimi ve durum okuma. Kit'in işi yapması beklenmez; makbuz anında döner.
+KITS_TIMEOUT_S = 15.0
+#: Masaüstü başlatmamışsa (durum dosyası yok) denenen elle başlatılmış Kits adresi
+#: (`npm run kits:start` varsayılan portu).
+KITS_DEFAULT_URL = "http://127.0.0.1:4410"
+#: Kits'in dinlediği adresi duyurduğu durum dosyasının adı (`kits_process.rs` ile aynı).
+KITS_STATE_FILENAME = "kits-bridge.json"
+
+#: Hız sınırı sonrası yeniden denemede `retry_after_s` ile en fazla bu kadar beklenir.
+#: Paylaşılan soğuma bundan uzunsa bekleme sınırlanır; ardından kapı yine kapalıysa
+#: sonuç olduğu gibi üst katmana (agent turunun kendi bekleme/yedek mantığına) döner.
+RETRY_AFTER_MAX_WAIT_S = 120.0
+
+#: Tarayıcı oturumunda görsel yükleme yolu OLAN web sağlayıcıları (yalnız Gemini'de ölçüldü).
+#: `supports_images`, yetenek profili ve `_attach_images` aynı kümeye bakar (P1-06).
+WEB_IMAGE_UPLOAD_PROVIDERS = frozenset({"gemini_web"})
 #: Bir aracın "istenen iş bu araçla YAPILAMAZ" dediği çıktının öneki.
 #:
 #: Şifre duvarı, oturum kapısı ya da bot doğrulaması gibi durumlarda araç teknik
@@ -134,6 +159,10 @@ MAX_WEB_RESULTS = 8
 MAX_WEB_REDIRECTS = 5
 
 #: Keşif ve arama sırasında atlanan gürültü dizinleri.
+#
+# `vendor`, `build`, `dist`, `target` bilinçli gürültü sayılır (bağımlılık/üretilmiş
+# çıktı). Godot/Laravel gibi bu adları KAYNAK için kullanan projelerde içlerindeki
+# dosyalar arama ve ad-ile-bulmada görünmez; bu bir ödünleşimdir, yanlışlık değil.
 SKIP_DIRECTORIES = frozenset(
     {
         ".git",
@@ -211,8 +240,8 @@ SCRYPT_KEY_BYTES = 32
 SCRYPT_SALT_BYTES = 16
 #: Kurtarma kodunun taşıdığı rastgele bayt sayısı.
 #
-# Sunucu yok, hız sınırı yok: kod yeterince uzun olmalı. 10 bayt Crockford
-# Base32'de 16 karaktere karşılık gelir ve kaba kuvvetle bulunamaz.
+# Sunucu yok, hız sınırı yok: kod yeterince uzun olmalı. 10 bayt = 80 bit; Crockford
+# Base32'de (5 bit/karakter) 16 karaktere karşılık gelir ve kaba kuvvetle bulunamaz.
 RECOVERY_CODE_BYTES = 10
 
 
@@ -229,6 +258,10 @@ HOSTED_VERIFY_TIMEOUT_S = 420.0
 #: Tekrar kapısının aracı ÇALIŞTIRMADAN döndürdüğü engel mesajlarının önekleri.
 #: Bu çıktılar bir komutun sonucunu değil engeli anlatır; tur raporu onları
 #: doğrulama kanıtı saymaz (bkz. `engines/agent/turn_report.py`).
+#: `run_shell` çıktısının başındaki çıkış kodu öneki; üreten (`tools/shell.py`) ve okuyan
+#: (`turn_report`) taraf TEK sabiti kullanır, biçim değişirse çıkış kodu sessizce `None`
+#: olup kanıtlar çökmesin (A4-65).
+EXIT_CODE_PREFIX = "(çıkış kodu "
 TOOL_CALL_DUPLICATE_PREFIX = "TOOL_CALL_DUPLICATE:"
 TOOL_CALL_BLOCKED_PREFIX = "TOOL_CALL_BLOCKED:"
 
@@ -268,9 +301,48 @@ PROCESS_TERMINATE_GRACE_S = 1.5
 PROCESS_CONTROL_TIMEOUT_S = 10.0
 #: Arka plan job durumunun mevcut yoklama aralığı; foreground iptali de bunu kullanır.
 PROCESS_POLL_S = 1.0
+#: Ön plan komutunun her akışı (stdout/stderr) için bellekte tutulan baş VE son kesit
+#: (bayt). Aradaki atılır ve sayılır; çıktı sınırsız büyüse de bellek sınırlı kalır.
+SHELL_CAPTURE_CHARS = 100_000
+#: İptal sonrası sahipli iş parçacığının bitmesi için en çok beklenen süre (saniye).
+#: Meşru temizlik (TERM→KILL turları dahil) bunun altında biter; aşılırsa iş parçacığı
+#: "sahipsiz kaldı" olarak bildirilir ve iptal tamamlanır.
+OWNED_THREAD_CANCEL_GRACE_S = PROCESS_TERMINATE_GRACE_S * 8
 
 
 #: Cevap makbuzlarının yeniden teslim penceresi; 256 adet SHA-256+kimlik kaydı.
 #: Yalnız ACK tutulur, izin veya yanıt metni değil. Eski kayıt atılınca tekrar
 #: reddedilir; araç ikinci kez çalıştırılmaz. Bellek oturum süresiyle büyümez.
 QUESTION_RECEIPT_HISTORY_LIMIT = 256
+
+#: Cevapsız onay kartının en uzun bekleme süresi (saniye). Süre dolunca onay REDDEDİLİR ve
+#: "OnayZamanAsimi" olayı yayılır; kullanıcı yokken tur ve turu tutan kilit sonsuza dek açık
+#: kalmaz. Yalnız onay içindir; açık uçlu sorular süreyle reddedilmez.
+APPROVAL_UNANSWERED_TIMEOUT_S = 30 * 60.0
+
+#: Fusion'ın kendi ürettiği iz, artifact ve tamamlanmış checkpoint dosyalarının saklama süresi
+#: (saniye). Süre dolunca açılışta silinir; kullanıcı dosyalarına ve denetim günlüğüne dokunulmaz.
+LOCAL_STATE_RETENTION_S = 30 * 86_400.0
+#: Saklama temizliğinin en sık çalışma aralığı (saniye); damga dosyasıyla sınırlanır.
+LOCAL_STATE_PURGE_INTERVAL_S = 86_400.0
+
+#: Web oturumunun "dosya değiştirebilir" araç ölçümü bu süreden eskiyse kart "yeniden ölç"
+#: uyarısı taşır (saniye). İzin otomatik düşürülmez; ölçüm stokastiktir, karar kullanıcıdadır.
+TOOL_MEASURE_STALE_S = 7 * 86_400.0
+
+#: NIM gömme yoklamasının sonucunun diskte geçerli kalma süresi (saniye).
+NIM_PROBE_CACHE_TTL_S = 10 * 60.0
+
+#: Oturum kapanırken sürmekte olan model seçimi/doğrulaması görevlerini en çok bu kadar bekle
+#: (saniye); NIM araç doğrulaması 90 sn'ye kadar sürebilir ve kapanışı geciktirmemeli.
+MODEL_SELECTION_CLOSE_WAIT_S = 5.0
+
+#: Chrome'un `--remote-debugging-port` ile profil dizinine yazdığı port dosyası. Paylaşılan web
+#: profil tarayıcısı okur; kabuk sandbox'ı bu portları sandbox'taki komuta kapatır (P-010).
+DEVTOOLS_PORT_FILE = "DevToolsActivePort"
+
+
+#: Teslim biçim okuyucularının girdi/ZIP-açılım ve piksel bellek bütçeleri.
+ARTIFACT_INSPECTION_MAX_BYTES = 8 * 1024 * 1024
+ARTIFACT_ARCHIVE_MAX_BYTES = 16 * 1024 * 1024
+ARTIFACT_IMAGE_MAX_PIXELS = 16 * 1024 * 1024

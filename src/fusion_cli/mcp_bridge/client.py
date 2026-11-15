@@ -17,30 +17,63 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import os
 import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
-from dataclasses import replace
-from typing import Literal, TextIO, cast
+from dataclasses import fields, replace
+from typing import Any, Literal, TextIO, cast
 
 from mcp import ClientSession
+from mcp.client.session import ClientSession as _SdkSession
+from mcp.types import CallToolResult
 
 from ..config.models import McpServerConfig, McpTransport
 from ..core.constants import MCP_NETWORK_TIMEOUT_S
-from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.mcp_tool_names import claude_mcp_tool_name
+from ..core.tool_schema_variants import forget_raw_schema, remember_raw_schema
+from ..core.tools import (
+    EffectResolver,
+    Tool,
+    ToolArgs,
+    ToolContext,
+    ToolEffect,
+    ToolEvidenceRole,
+    ToolResult,
+)
 from ..tools import ToolRegistry
+from ..tools.mcp_background import run_mcp_call
 from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
+from .auth_retry import AuthFailures, Reauth
+from .call_errors import describe_call_error
 from .cancellation import RequestTracker, notify_cancel
 from .content import normalize_call_result
-from .failures import STATE_CONNECTED
+from .elicitation_hooks import elicitation_callback_for, elicitation_scope, with_completion_notice
+from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED
+from .headers_helper import has_authorization, run_headers_helper
 from .health import failure_status as failure_status
 from .lifecycle import close_failed_stack
+from .output_limits import declared_limit
+from .references import (
+    McpCatalog,
+    as_uri,
+    catalog_change_handler,
+    fetch_catalog,
+    prompt_text,
+    resource_block,
+)
+from .resource_tools import register_resource_tools
+from .schema import clean_description, clean_raw_schema, description_limit, simplify_schema
+from .timeouts import idle_timeout_s, startup_timeout_s, tool_timeout_s
 from .tool_effect import effect_from_annotations
+from .tool_limits import select_remote_tools
+from .tool_name import fusion_tool_name
+from .tool_search_bridge import McpToolSearch, meta_always_load
 from .transport import open_mcp_stream
-from .trust import trusted_effect
+from .trust import tools_digest, trusted_effect
 from .types import McpConnectionStatus as McpConnectionStatus
 from .types import RemoteTool as RemoteTool
 
@@ -51,9 +84,34 @@ _LOG = logging.getLogger(__name__)
 #: Uzak aracı Fusion'a bağlayan çalıştırıcı (async ToolExecutor).
 _ToolRun = Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]
 
+
+class _ObservedMcpResponse(ToolResult):
+    """Adapter-owned tools/call response; an auto-background launch is not one."""
+
+    __slots__ = ()
+
+
+def _response_evidence_role(_args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    return (
+        ToolEvidenceRole.DATA_OBSERVATION
+        if isinstance(result, _ObservedMcpResponse)
+        else ToolEvidenceRole.UNCLASSIFIED
+    )
+
+
+def _observed_response(result: ToolResult) -> ToolResult:
+    return _ObservedMcpResponse(
+        **{item.name: getattr(result, item.name) for item in fields(ToolResult)}
+    )
+
+
 #: Stdio sunucusunun stderr'inden sınıflandırma için okunan en fazla bayt.
 #: npm'in E404 bloğu ~600 bayttır; kuyruğun birkaç katı yeter, tüm dosya okunmaz.
 _STDERR_TAIL_BYTES = 4096
+
+#: Art arda bu kadar çağrı zaman aşımına uğrarsa oturum "takılı" sayılır ve havuz
+#: bir sonraki turda yeniden bağlanır (bkz. `McpClient.is_stalled`).
+STALLED_AFTER_TIMEOUTS = 3
 
 
 class McpNotConnectedError(RuntimeError):
@@ -74,6 +132,21 @@ def _read_tail(capture: TextIO) -> str:
     return capture.read()
 
 
+async def _call_with_idle(
+    session: ClientSession, name: str, args: dict[str, object], idle: float | None
+) -> CallToolResult:
+    """`tools/call`; yanıt ya da ilerleme bildirimi `idle` sn gelmezse TimeoutError."""
+    async with asyncio.timeout(idle) as idle_scope:
+        if idle is None or not isinstance(session, _SdkSession):
+            return await session.call_tool(name, args)
+        loop = asyncio.get_running_loop()
+
+        async def _progress(progress: float, total: float | None, message: str | None) -> None:
+            idle_scope.reschedule(loop.time() + idle)
+
+        return await session.call_tool(name, args, progress_callback=_progress)
+
+
 class McpClient:
     """Yapılandırılmış MCP sunucularına bağlanan, araçlarını taşıyan istemci."""
 
@@ -81,24 +154,78 @@ class McpClient:
         self,
         configs: Sequence[McpServerConfig],
         *,
-        timeout_seconds: float = MCP_NETWORK_TIMEOUT_S,
+        timeout_seconds: float | None = None,
         interactive: bool = True,
     ) -> None:
         self._configs = tuple(configs)
         self._tracker = RequestTracker()
-        self._timeout_seconds = timeout_seconds
+        #: Açıkça verilen bütçe eski davranışı korur (her aşama aynı sınır). Verilmezse
+        #: Claude Code sınırları (`timeouts.py`): başlatma 30 sn, araç ~28 sa, boşta 5/30 dk.
+        self._explicit_timeout = timeout_seconds
+        self._timeout_seconds = (
+            timeout_seconds if timeout_seconds is not None else MCP_NETWORK_TIMEOUT_S
+        )
         #: Giriş penceresi açılabilir mi? Tur yolu bunu KAPATIR.
         self._interactive = interactive
         self._stacks: dict[str, AsyncExitStack] = {}
         self._sessions: dict[str, ClientSession] = {}
         self._statuses: dict[str, McpConnectionStatus] = {}
+        #: Sunucu başına ARDIŞIK çağrı zaman aşımı sayısı; başarı sıfırlar.
+        self._timeouts: dict[str, int] = {}
+        #: Sunucu başına son keşfedilen araç tanımı özeti; güven kaydıyla karşılaştırılır (M1-16).
+        self._tool_digests: dict[str, str] = {}
+        #: `prompts|resources/list_changed` bildiren sunucular: katalog yeniden çekilir (P-049).
+        self._stale_catalogs: set[str] = set()
+        #: `initialize` yanıtındaki sunucu talimatları (sınırlı, temizlenmiş).
+        self._instructions: dict[str, str] = {}
+        #: `tools/list_changed` bildiren sunucular: araç listesi yeniden çekilir (#256).
+        self._stale_tools: set[str] = set()
+        #: Sunucu başına deftere yazılan araç adları (kaldırılanları silmek için).
+        self._registered: dict[str, set[str]] = {}
+        #: Gözlenen 401/403 ve havuzun yeniden bağlanma geri çağırımı (#249).
+        self._auth_failures = AuthFailures()
+        self.reauth: Reauth | None = None
+        self._successor: McpClient | None = None
+        #: Araç başına `_meta["anthropic/maxResultSizeChars"]` sınırı (#240).
+        self._result_limits: dict[tuple[str, str], int] = {}
+        #: Araç araması (#258): ertelenen araçlar `ToolSearch` ile yüklenir.
+        self._tool_search = McpToolSearch()
+
+    @property
+    def is_stalled(self) -> bool:
+        """Bir sunucu art arda zaman aşımına uğradı mı? Takılı süreç yeni çağrıları da
+        düşürür; havuz bu istemciyi bırakıp yeniden bağlanmalı (ölçüldü 30 Ekim)."""
+        return any(count >= STALLED_AFTER_TIMEOUTS for count in self._timeouts.values())
+
+    def has_resources(self, server: str) -> bool:
+        """Sunucu `resources` yeteneği bildirdi mi?"""
+        session = self._sessions.get(server)
+        getter = getattr(session, "get_server_capabilities", None)
+        capabilities = getter() if callable(getter) else None
+        return capabilities is not None and getattr(capabilities, "resources", None) is not None
+
+    def server_instructions(self, server: str) -> str:
+        """Sunucunun `initialize` talimatı; yoksa boş."""
+        return self._instructions.get(server, "")
+
+    def tools_stale(self, server: str) -> bool:
+        """Sunucu son keşiften sonra `tools/list_changed` bildirdi mi?"""
+        return server in self._stale_tools
+
+    def registered_tool_names(self, server: str) -> tuple[str, ...]:
+        """Sunucunun deftere yazılan araç adları (`/mcp tools`, #250)."""
+        return tuple(sorted(self._registered.get(server, ())))
+
+    def tool_digest(self, server: str) -> str:
+        """Sunucudan en son keşfedilen araç tanımı özeti; keşif yoksa boş."""
+        return self._tool_digests.get(server, "")
 
     def _trusted_effect(self, server: str, effect: ToolEffect | None) -> ToolEffect | None:
         """Statik ve dinamik araç iddiaları aynı kaynak güven kapısından geçer."""
         config = next((config for config in self._configs if config.name == server), None)
         if config is None:
             return ToolEffect.REMOTE_WRITE if effect is ToolEffect.REMOTE_READ else effect
-        return trusted_effect(config, effect)
+        return trusted_effect(config, effect, self._tool_digests.get(server))
 
     def _server_timeout(
         self, server: str, budget: Literal["list_timeout_s", "call_timeout_s", "close_timeout_s"]
@@ -111,6 +238,23 @@ class McpClient:
     def _timeout(self, configured: float | None) -> float:
         """Ayrı değer yoksa mevcut constructor bütçesini koru."""
         return configured if configured is not None else self._timeout_seconds
+
+    def _config(self, server: str) -> McpServerConfig:
+        return next(
+            (config for config in self._configs if config.name == server), McpServerConfig(server)
+        )
+
+    def _connect_budget(self, config: McpServerConfig) -> float:
+        if config.connect_timeout_s is None and self._explicit_timeout is not None:
+            return self._explicit_timeout
+        return startup_timeout_s(config)
+
+    def _call_budgets(self, server: str) -> tuple[float, float | None]:
+        """(duvar saati, boşta kalma) — araç çağrısı sınırları (#233)."""
+        config = self._config(server)
+        if config.call_timeout_s is None and self._explicit_timeout is not None:
+            return self._explicit_timeout, None
+        return tool_timeout_s(config), idle_timeout_s(config)
 
     @property
     def statuses(self) -> dict[str, McpConnectionStatus]:
@@ -159,29 +303,57 @@ class McpClient:
                     ),
                 )
                 stack.callback(stderr_capture.close)
-            async with asyncio.timeout(self._timeout(config.connect_timeout_s)) as deadline:
+            async with asyncio.timeout(self._connect_budget(config)) as deadline:
                 auth = None
-                # Token yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
-                # penceresi açılmaz ve her turda yeniden yetkilendirme denenmez.
-                if config.transport is McpTransport.STREAMABLE_HTTP and not config.token_env:
+                helper_headers = await run_headers_helper(config) if config.is_remote else {}
+                # Token/Authorization yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
+                # penceresi açılmaz ve her turda yeniden yetkilendirme denenmez (Claude Code:
+                # headersHelper Authorization verirse OAuth'a düşülmez).
+                if (
+                    config.transport in (McpTransport.STREAMABLE_HTTP, McpTransport.SSE)
+                    and not config.token_env
+                    and not has_authorization({**dict(config.headers), **helper_headers})
+                ):
                     from .oauth import oauth_provider_for
 
                     bundle = await oauth_provider_for(
                         config,
-                        on_waiting=self._deadline_pause(
-                            deadline, self._timeout(config.connect_timeout_s)
-                        ),
+                        on_waiting=self._deadline_pause(deadline, self._connect_budget(config)),
                         interactive=self._interactive,
                     )
                     auth = bundle.auth
                     stack.push_async_callback(bundle.callback.close)
                 read, write = await stack.enter_async_context(
-                    open_mcp_stream(config, auth=auth, errlog=stderr_capture)
+                    open_mcp_stream(
+                        config,
+                        auth=auth,
+                        errlog=stderr_capture,
+                        extra_headers=helper_headers,
+                        on_status=self._auth_failures.observer(config.name),
+                    )
                 )
                 session = await stack.enter_async_context(
-                    ClientSession(read, self._tracker.wrap(config.name, write))
+                    ClientSession(
+                        read,
+                        self._tracker.wrap(config.name, write),
+                        message_handler=with_completion_notice(
+                            config.name,
+                            catalog_change_handler(
+                                functools.partial(self._stale_catalogs.add, config.name),
+                                functools.partial(self._stale_tools.add, config.name),
+                            ),
+                        ),
+                        # Claude Code elicitation (#257): Elicitation/ElicitationResult kancaları,
+                        # karar vermezlerse soru `elicitation.elicitation_callback` ile (#90).
+                        # Yanıtlayacak taraf yoksa None: yetenek sunucuya bildirilmez (#125).
+                        elicitation_callback=elicitation_callback_for(config.name),
+                    )
                 )
-                await session.initialize()
+                initialized = await session.initialize()
+                # Claude Code sunucu talimatlarını oturum başında modele verir (#263).
+                self._instructions[config.name] = clean_description(
+                    str(getattr(initialized, "instructions", None) or "")
+                )
                 self._sessions[config.name] = session
                 self._stacks[config.name] = stack
                 self._statuses[config.name] = McpConnectionStatus(
@@ -249,7 +421,7 @@ class McpClient:
 
     async def _list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""
-        remote: list[RemoteTool] = []
+        discovered: list[Any] = []
         cursor: str | None = None
         seen: set[str] = set()
         while True:
@@ -257,25 +429,45 @@ class McpClient:
                 result = await self._session(server).list_tools()
             else:
                 result = await self._session(server).list_tools(cursor)
-            remote.extend(
-                RemoteTool(
-                    server=server,
-                    name=tool.name,
-                    description=tool.description or "",
-                    schema=dict(tool.inputSchema or {}),
-                    # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
-                    effect=self._trusted_effect(
-                        server, effect_from_annotations(getattr(tool, "annotations", None))
-                    )
-                    or ToolEffect.REMOTE_WRITE,
-                )
-                for tool in result.tools
-            )
+            discovered.extend(result.tools)
             next_cursor = getattr(result, "nextCursor", None)
             if not next_cursor or next_cursor in seen:
-                return remote
+                break
             seen.add(next_cursor)
             cursor = next_cursor
+        for tool in discovered:
+            limit = declared_limit(getattr(tool, "meta", None))
+            if limit is not None:
+                self._result_limits[(server, tool.name)] = limit
+        # Özet, etkiler hesaplanmadan ÖNCE kaydedilir: değişen tanım okuma muafiyeti alamaz.
+        digest = self._tool_digests[server] = tools_digest(discovered)
+        config = next((item for item in self._configs if item.name == server), None)
+        if config is not None and config.reviewed_tools and digest != config.reviewed_tools:
+            _LOG.warning(
+                "MCP araç tanımları incelemeden sonra değişti; güven düştü",
+                extra={"sunucu": server},
+            )
+        remote_tools = [
+            RemoteTool(
+                server=server,
+                name=tool.name,
+                # Sağlayıcıya giden kopya sadeleşir/temizlenir (bkz. `schema.py`).
+                # Aramayla yüklenecek açıklama uzun sınırda; baştan yüklenen kayıtta kısalır.
+                description=clean_description(
+                    tool.description or "", limit=description_limit(deferred=True)
+                ),
+                schema=simplify_schema(tool.inputSchema or {}),
+                raw_schema=_raw_schema(tool.inputSchema),
+                # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
+                effect=self._trusted_effect(
+                    server, effect_from_annotations(getattr(tool, "annotations", None))
+                )
+                or ToolEffect.REMOTE_WRITE,
+                always_load=meta_always_load(getattr(tool, "meta", None)),
+            )
+            for tool in discovered
+        ]
+        return select_remote_tools(config, remote_tools)
 
     async def call(self, server: str, name: str, args: dict[str, object]) -> ToolResult:
         """Uzak aracı çağır; bütün içeriği ve hata durumunu kanonik sonuca dönüştür.
@@ -287,11 +479,15 @@ class McpClient:
         "görev başarısız" görüyordu.
         """
         session = self._session(server)
-        with self._tracker.track(server) as scope:
+        with self._tracker.track(server) as scope, elicitation_scope(server):
             try:
-                async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
-                    result = await session.call_tool(name, args)
-                    normalized = normalize_call_result(result)
+                wall, idle = self._call_budgets(server)
+                async with asyncio.timeout(wall):
+                    result = await _call_with_idle(session, name, args, idle)
+                    normalized = normalize_call_result(
+                        result, declared_chars=self._result_limits.get((server, name))
+                    )
+                    self._timeouts.pop(server, None)
                     current = self._statuses.get(server)
                     if current is not None:
                         self._statuses[server] = replace(
@@ -302,7 +498,9 @@ class McpClient:
                             observed_at=time.monotonic(),
                         )
                     return normalized
-            except (asyncio.CancelledError, TimeoutError):
+            except (asyncio.CancelledError, TimeoutError) as error:
+                if isinstance(error, TimeoutError):
+                    self._timeouts[server] = self._timeouts.get(server, 0) + 1
                 self._statuses[server] = McpConnectionStatus(
                     server,
                     "degraded",
@@ -312,10 +510,42 @@ class McpClient:
                 await notify_cancel(session, scope, self._server_timeout(server, "close_timeout_s"))
                 raise
 
+    # --- İstemler ve kaynaklar (P-049; bkz. `references.py`) ----------------------- #
+
+    @property
+    def servers(self) -> tuple[str, ...]:
+        """Bağlı sunucu adları."""
+        return tuple(self._sessions)
+
+    def catalog_stale(self, server: str) -> bool:
+        """Sunucu son çekimden sonra liste değişikliği bildirdi mi?"""
+        return server in self._stale_catalogs
+
+    async def catalog(self, server: str) -> McpCatalog:
+        """Sunucunun istem ve kaynak listesi (keşif bütçesiyle sınırlı)."""
+        self._stale_catalogs.discard(server)
+        async with asyncio.timeout(self._server_timeout(server, "list_timeout_s")):
+            return await fetch_catalog(self._session(server), server)
+
+    async def get_prompt(self, server: str, name: str, arguments: dict[str, str]) -> str:
+        """`prompts/get` → görev metni."""
+        with elicitation_scope(server):
+            async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                result = await self._session(server).get_prompt(name, arguments or None)
+        return prompt_text(result)
+
+    async def read_resource(self, server: str, uri: str) -> str:
+        """`resources/read` → maskeli, sınırlı bağlam bloğu."""
+        with elicitation_scope(server):
+            async with asyncio.timeout(self._server_timeout(server, "call_timeout_s")):
+                result = await self._session(server).read_resource(as_uri(uri))
+        return resource_block(server, uri, result)
+
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
         """Tüm sunucuların araçlarını Fusion kayıt defterine ekle; eklenen adları döndür.
 
-        Ad çakışmasını önlemek için araçlar `<sunucu>__<araç>` biçiminde adlandırılır.
+        Araçlar Claude Code gibi `mcp__<sunucu>__<araç>` adını alır (#242); tam adı 128
+        karakteri aşan araç kaydedilmez ve günlüğe yazılır.
         """
         added: list[str] = []
         for server in self._sessions:
@@ -331,25 +561,44 @@ class McpClient:
                 continue
             current = self._statuses.get(server)
             if current is not None:
-                self._statuses[server] = replace(current, tool_count=len(tools))
+                self._statuses[server] = replace(
+                    current,
+                    tool_count=len(tools),
+                    tools_digest=self._tool_digests.get(server, ""),
+                )
             resolver = self._ability_resolver(server, {remote.name for remote in tools})
-            for remote in tools:
-                fusion_name = f"{server}__{remote.name}"
+            named = _named_tools(server, tools)
+            current_names = {name for name, _remote in named}
+            # `tools/list_changed` (#256): sunucunun kaldırdığı araçlar defterden de çıkar;
+            # başarısız yenilemede (yukarıdaki `continue`) önceki araçlar korunur.
+            previous = self._registered.get(server, set())
+            for stale in previous - current_names:
+                registry.unregister_remote(stale)
+                forget_raw_schema(stale)
+            self._registered[server] = current_names
+            server_config = next((item for item in self._configs if item.name == server), None)
+            self._stale_tools.discard(server)
+            for fusion_name, remote in named:
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter
                 # ikinci turda yeniden beslenebilir (bkz. `mcp_bridge/pool.py`).
                 registry.register_or_replace(
                     Tool(
                         name=fusion_name,
-                        description=remote.description,
+                        description=self._tool_search.description(server_config, remote),
                         parameters=remote.schema,
                         run=self._make_run(server, remote.name),
                         # Dış araç ne yaptığını söylemez: onay akışına girsin diye mutating.
                         mutating=True,
                         effect=remote.effect,
                         effect_resolver=resolver if remote.name == EXECUTE_ABILITY else None,
+                        evidence_role_resolver=_response_evidence_role,
                     )
                 )
+                # Anthropic modellerine sunucunun ham şeması gider (#262).
+                remember_raw_schema(fusion_name, remote.schema, remote.raw_schema)
                 added.append(fusion_name)
+            self._tool_search.apply(registry, server, server_config, named, previous)
+        added.extend(register_resource_tools(self, registry))
         return tuple(added)
 
     def _ability_resolver(self, server: str, names: set[str]) -> EffectResolver | None:
@@ -368,11 +617,47 @@ class McpClient:
 
         return resolve
 
+    def _current(self) -> McpClient:
+        """Yeniden kimlik doğrulamayla yenilenen istemci zincirinin sonu (#249)."""
+        client = self
+        while client._successor is not None:
+            client = client._successor
+        return client
+
+    async def _retry_after_auth(
+        self, server: str, tool: str, args: dict[str, object]
+    ) -> ToolResult | None:
+        """401/403 + headersHelper: yardımcıyı yeniden çalıştırıp yeniden bağlan, bir kez dene."""
+        config = next((item for item in self._configs if item.name == server), None)
+        if config is None or not config.headers_helper or self.reauth is None:
+            return None
+        if not self._auth_failures.take(server):
+            return None
+        fresh = await self.reauth(server)
+        if fresh is None or fresh is self:
+            return None
+        self._successor = fresh
+        try:
+            return await fresh.call(server, tool, args)
+        except Exception as error:
+            fresh._statuses[server] = McpConnectionStatus(
+                server, STATE_LOGIN_REQUIRED, message=describe_call_error(error)
+            )
+            return ToolResult.failure(
+                f"MCP aracı hatası ({server}.{tool}): {describe_call_error(error)}"
+            )
+
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-            del context
+            # Ana sohbette 2 dk'yı aşan çağrı arka plan görevine taşınır (#233).
+            return await run_mcp_call(
+                functools.partial(_execute, args), context, claude_mcp_tool_name(server, tool)
+            )
+
+        async def _execute(args: ToolArgs) -> ToolResult:
+            owner = self._current()
             try:
-                result = await self.call(server, tool, dict(args))
+                result = await owner.call(server, tool, dict(args))
             except TimeoutError:
                 return ToolResult.failure(
                     f"MCP çağrısı süre sınırını aştı ({server}.{tool}). "
@@ -382,8 +667,11 @@ class McpClient:
                 _LOG.warning(
                     "MCP aracı başarısız", extra={"sunucu": server, "hata": type(error).__name__}
                 )
+                retried = await owner._retry_after_auth(server, tool, dict(args))
+                if retried is not None:
+                    return _observed_response(retried) if retried.ok else retried
                 return ToolResult.failure(
-                    f"MCP aracı hatası ({server}.{tool}): {type(error).__name__}"
+                    f"MCP aracı hatası ({server}.{tool}): {describe_call_error(error)}"
                 )
             if not result.ok and not result.output:
                 # Modele DÜZELTME şansı veren hata: metin olduğu gibi taşınır,
@@ -393,6 +681,29 @@ class McpClient:
                     content=result.content,
                     structured=result.structured,
                 )
-            return result
+            return _observed_response(result) if result.ok else result
 
         return _run
+
+
+def _raw_schema(schema: object) -> dict[str, object] | None:
+    """Sunucunun `inputSchema`'sı (açıklamaları temizlenmiş); nesne değilse None."""
+    if not isinstance(schema, Mapping):
+        return None
+    cleaned = clean_raw_schema(schema)
+    return cleaned if isinstance(cleaned, dict) else None
+
+
+def _named_tools(server: str, tools: Sequence[RemoteTool]) -> list[tuple[str, RemoteTool]]:
+    """(kayıt adı, araç); Claude gibi tam adı 128 karakteri aşan araç dışarıda kalır."""
+    named: list[tuple[str, RemoteTool]] = []
+    for remote in tools:
+        name = fusion_tool_name(server, remote.name)
+        if name is None:
+            _LOG.warning(
+                "MCP aracı modele gönderilmedi: tam adı 128 karakteri aşıyor",
+                extra={"sunucu": server, "arac": remote.name},
+            )
+            continue
+        named.append((name, remote))
+    return named

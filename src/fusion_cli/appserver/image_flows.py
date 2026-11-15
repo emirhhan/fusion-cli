@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..config.paths import gallery_dir as gallery_dir
 from ..config.paths import user_data_dir
 from ..core.atomic_file import AtomicCommitUncertainError, atomic_replace_text
 from ..core.file_lease import FileLease
@@ -32,6 +33,9 @@ _MAX_NAME = 120
 #: Düğüm başına varyasyon üst sınırı: `app/src/imagecreate/akis.ts::MAX_ADET`.
 _MAX_VARIATIONS = 4
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+#: Hedefte dosya varken `ezme: true` gelmediğinde dönen mesaj.
+_EXPORT_EXISTS = "Hedef dosya zaten var; üzerine yazmak için açık onay gerekli."
 _FLOW_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_NODE_ID = 80
 _FLOW_SCHEMA = 1
@@ -45,10 +49,6 @@ _INPUT_KINDS = {
     "duzenle": frozenset({"metin", "gorsel"}),
     "cikti": frozenset({"gorsel"}),
 }
-
-
-def gallery_dir() -> Path:
-    return user_data_dir() / "gallery"
 
 
 def flows_dir() -> Path:
@@ -239,16 +239,30 @@ def _flow_revision(raw: object) -> int:
     return revision
 
 
+def _modified_time(path: Path) -> float:
+    """Değişim zamanı; sıralama sırasında silinen dosya en sona düşer (istisna fırlatmaz)."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def list_flows(directory: Path | None = None) -> dict[str, Any]:
     base = directory or flows_dir()
     items = []
-    paths = sorted(base.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for path in paths if base.is_dir() else ():
+    paths = sorted(base.glob("*.json"), key=_modified_time, reverse=True) if base.is_dir() else ()
+    for path in paths:
         try:
-            name = json.loads(path.read_text(encoding="utf-8")).get("ad", "")
+            content = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        items.append({"id": path.stem, "ad": _text(name, _MAX_NAME) or "Adsız akış"})
+        # Ölçüldü (30 Ekim): JSON'u liste olan bir dosya `.get` ile AttributeError veriyor,
+        # tüm akış listesi düşüyordu.
+        if not isinstance(content, dict):
+            continue
+        items.append(
+            {"id": path.stem, "ad": _text(content.get("ad", ""), _MAX_NAME) or "Adsız akış"}
+        )
     return {"ok": True, "akislar": items}
 
 
@@ -305,7 +319,14 @@ def list_gallery(
 
 
 def export_image(data: dict[str, Any], directory: Path | None = None) -> dict[str, Any]:
-    """Galerideki görseli kullanıcının seçtiği yere kopyala ("İndir")."""
+    """Galerideki görseli kullanıcının seçtiği yere kopyala ("İndir").
+
+    Hedef zaten varsa `ezme: true` OLMADAN yazılmaz (`ezme_gerekli: true` ile reddedilir).
+    Ölçüldü (30 Ekim, S1-39): eskiden `.png/.jpg` uzantılı herhangi bir mutlak yoldaki
+    mevcut dosya onaysız eziliyordu. İşletim sisteminin kayıt penceresi ezme onayını
+    kullanıcıdan zaten aldığı için arayüz o pencereden dönen yolla `ezme: true` yollar;
+    bayrak, protokolü doğrudan çağıran diğer istemcileri korur.
+    """
     base = (directory or gallery_dir()).resolve()
     source_raw, target_raw = data.get("yol"), data.get("hedef")
     if not isinstance(source_raw, str) or not isinstance(target_raw, str):
@@ -318,7 +339,14 @@ def export_image(data: dict[str, Any], directory: Path | None = None) -> dict[st
         return {"ok": False, "metin": "Hedef .png ya da .jpg uzantılı tam bir yol olmalı."}
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+        if data.get("ezme") is True:
+            shutil.copyfile(source, target)
+        else:
+            # "x" kipi var-mı denetimi ile yazma arasındaki yarışı da kapatır.
+            with source.open("rb") as reader, target.open("xb") as writer:
+                shutil.copyfileobj(reader, writer)
+    except FileExistsError:
+        return {"ok": False, "ezme_gerekli": True, "metin": _EXPORT_EXISTS}
     except OSError as error:
         return {"ok": False, "metin": f"Kaydedilemedi: {error}"}
     return {"ok": True, "yol": str(target)}

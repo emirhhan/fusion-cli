@@ -6,7 +6,7 @@ import base64
 import binascii
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from ..core.protocols import Clock
@@ -21,6 +21,9 @@ IMAGE_TYPES = {
 }
 #: Görsel gösterimi bu dizinlerin altına asla uzanmaz (anahtar/kimlik dizinleri).
 _DENIED_PARTS = frozenset({".ssh", ".gnupg", ".aws", ".kube", ".config"})
+
+
+_UPLOAD_ID = re.compile(r"[0-9a-f]{32}")
 
 
 class UploadError(ValueError):
@@ -74,11 +77,24 @@ class UploadStore:
         """Kimliklerden `tur.calistir` ek kayıtları; bilinmeyen kimlik hata verir."""
         resolved: list[dict[str, str]] = []
         for ident in list(upload_ids)[:8]:
-            item = self._items.get(str(ident))
+            item = self._items.get(str(ident)) or self._from_disk(str(ident))
             if item is None or not Path(item["path"]).is_file():
                 raise UploadError("Ek bulunamadı; yeniden ekle.")
             resolved.append(dict(item))
         return resolved
+
+    def _from_disk(self, ident: str) -> dict[str, str] | None:
+        """Yeniden başlatmadan sonra: dosya adı `<kimlik>-<ad>` olduğundan kayıt diskten kurulur."""
+        if not _UPLOAD_ID.fullmatch(ident):
+            return None  # yalnız 32 onaltılık kimlik; yol/joker karakter geçmez
+        for file in self._directory.glob(f"{ident}-*"):
+            if file.is_file():
+                name = file.name[len(ident) + 1 :]
+                kind = "image" if Path(name).suffix.casefold() in IMAGE_TYPES else "file"
+                item = {"path": str(file), "name": name, "kind": kind}
+                self._items[ident] = item
+                return item
+        return None
 
     def _cleanup(self) -> None:
         cutoff = self._clock.now() - UPLOAD_RETENTION_SECONDS
@@ -91,10 +107,21 @@ class UploadStore:
 
 
 class MediaReader:
-    """Telefona görsel verir: yalnız izinli köklerin altındaki görsel dosyalar, boyut sınırlı."""
+    """Telefona görsel verir: yalnız izinli köklerin altındaki görsel dosyalar, boyut sınırlı.
 
-    def __init__(self, roots: Iterable[Path]) -> None:
+    `roots` sabit köklerdir (Fusion'ın ürettiği klasörler); `dynamic_roots` her okumada yeniden
+    sorulur (masaüstünde sonradan eklenen proje kökleri için).
+    """
+
+    def __init__(
+        self, roots: Iterable[Path], dynamic_roots: Callable[[], Iterable[Path]] | None = None
+    ) -> None:
         self._roots = [root.expanduser().resolve() for root in roots]
+        self._dynamic_roots = dynamic_roots
+
+    def _allowed_roots(self) -> list[Path]:
+        extra = self._dynamic_roots() if self._dynamic_roots is not None else ()
+        return [*self._roots, *(root.expanduser().resolve() for root in extra)]
 
     def read(self, path: str) -> tuple[str, bytes]:
         candidate = Path(path).expanduser()
@@ -104,7 +131,7 @@ class MediaReader:
         media_type = IMAGE_TYPES.get(resolved.suffix.casefold())
         if media_type is None:
             raise UploadError("Yalnız görsel dosyalar gösterilir.")
-        if not any(resolved.is_relative_to(root) for root in self._roots):
+        if not any(resolved.is_relative_to(root) for root in self._allowed_roots()):
             raise UploadError("Bu görsel uzaktan açılamaz.")
         if _DENIED_PARTS & set(resolved.parts):
             raise UploadError("Bu görsel uzaktan açılamaz.")

@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { DeliveryCard } from "./DeliveryCard";
+import { FindingsCard } from "./FindingsCard";
 import type { DeliveryEvidence } from "../protocol/deliveryEvidence";
+import type { ReviewFinding } from "../protocol/reviewFindings";
 
 import { Button } from "../ui/Button";
 import "./Conversation.css";
@@ -9,10 +11,15 @@ import "./Conversation.css";
 import type { OlayAdimi } from "../protocol/olayMetni";
 import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
+import { PlanCard } from "./PlanCard";
 import { DiffCard } from "../markdown/DiffCard";
-import { ActivityLine, activityState } from "./ActivityLine";
+import { VIEW_MODE_LABELS, type ViewMode } from "../settings/viewMode";
+import { WorkActivityPanel } from "./WorkActivityPanel";
+import { ActivityLine, StepList, activityState } from "./ActivityLine";
 import { ChangeSummary, turnChanges } from "./ChangeSummary";
 import { AgentActivity } from "./AgentActivity";
+import { OrchestrationBoard } from "../team/OrchestrationBoard";
+import type { EkipPanosu, IsAkisiDurumu } from "../team/orkestrasyon";
 import type { AjanKarti } from "../team/ekipOlaylari";
 import { PreviewCard } from "./PreviewCard";
 import { ImageGenerationCard } from "./ImageGenerationCard";
@@ -43,8 +50,12 @@ export interface Mesaj {
   id?: string;
   submissionId?: string;
   delivery?: DeliveryEvidence;
+  /** `/code-review` bulguları (#214, Claude Code ReportFindings): kart olarak çizilir. */
+  findings?: ReviewFinding[];
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme";
+  rol: "kullanici" | "asistan" | "bildirim" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
+  /** Yalnız `rol === "plan"` için: plan kipinde yazılan plan dosyası (P-025). */
+  plan?: { yol: string; baslik: string };
   /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
   onizleme?: { url: string; baslik?: string; tur?: string };
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
@@ -64,6 +75,8 @@ export interface Mesaj {
   diff?: string;
   /** Model hâlâ yazıyor: balon geçicidir, tur bitince nihai cevap gelir. */
   akan?: boolean;
+  /** `! komut` canlı çıktısı (#219): ham metin; komut bitince balon kalkar, sonuç gelir. */
+  kabuk?: { komut: string; cikti: string };
   /** Araç adımlarının arasındaki kısa ara anlatım; nihai cevap değildir. */
   ara?: boolean;
   /** Yalnız `rol === "gorevler"` için: modelin güncel görev listesi. */
@@ -76,6 +89,10 @@ export interface Mesaj {
   ajanlar?: AjanKarti[];
   /** Yalnız `rol === "ekip"` için: aynı anda başlatılan ajan sayısı. */
   grupBoyutu?: number;
+  /** Yalnız `rol === "ekip"` için: bu mesajın iş akışı panosu (P-062). */
+  akis?: IsAkisiDurumu;
+  /** Yalnız `rol === "ekip"` için: bu mesajın ekip panosu (P-061). */
+  pano?: EkipPanosu;
 }
 
 /**
@@ -115,11 +132,19 @@ function SentAttachments({ ekler, onOpenFile }: { ekler: MesajEki[]; onOpenFile?
  */
 /** Başarısız tur yanıtı: çekirdek `ok=false` döndürdü ya da istek hiç tamamlanmadı. */
 export function hataMesajiMi(message: Mesaj): boolean {
-  return message.rol === "asistan" && (message.hata === true || message.metin.startsWith("Hata:"));
+  // YALNIZ yapısal bayrak: eskiden "Hata:" ile başlayan her metin hata sayılıyordu ve
+  // modelin meşru bir açıklaması "Hatayı bildir" çıkarıyordu (U1-28). Hata üreten
+  // her yol `hata: true` verir (bkz. useSessions, SessionApplication).
+  return message.rol === "asistan" && message.hata === true;
 }
 
-function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, ara = false, children }: {
+/** "Kopyalandı" gibi geçici durumlar bu süre sonra silinir (U1-35). */
+const KOPYA_DURUMU_MS = 4000;
+
+function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate, onContinue, onSendToKit, ara = false, children }: {
   text: string;
+  /** Yanıtı bir Kit'in gelen kutusuna gönderme penceresini açar (P-063). */
+  onSendToKit?: () => void;
   children?: ReactNode;
   onReadAloud?: () => Promise<void> | void;
   onEvaluate?: (rating: "positive" | "negative") => Promise<void> | void;
@@ -132,6 +157,12 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
 }) {
   const [copyState, setCopyState] = useState<string | null>(null);
   const copyPending = useRef(false);
+  useEffect(() => {
+    // Süren kopyalamanın durumu silinmez; biten durum kendiliğinden kaybolur.
+    if (copyState === null || copyState === "Kopyalanıyor…") return;
+    const timer = window.setTimeout(() => setCopyState(null), KOPYA_DURUMU_MS);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
   const [rating, setRating] = useState<"positive" | "negative" | null>(null);
   const [actionPending, setActionPending] = useState(false);
@@ -165,7 +196,7 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
       </div>
       {children}
       {!ara && <div className="conversation__actions">
-        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyPending.current} onClick={() => void copy()} />
+        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly disabled={copyState === "Kopyalanıyor…"} onClick={() => void copy()} />
         {onReadAloud && <Button aria-label="Sesli oku" title="Sesli oku" icon="speaker" iconOnly disabled={actionPending} onClick={() => void perform(onReadAloud)} />}
         {onEvaluate && <div className="conversation__evaluation">
           <Button aria-label="Yanıtı değerlendir" title="Yanıtı değerlendir" aria-expanded={evaluationOpen} icon="thumbsUp" iconOnly onClick={() => setEvaluationOpen(!evaluationOpen)} />
@@ -173,6 +204,7 @@ function AssistantMessage({ text, onOpenFile, onReport, onReadAloud, onEvaluate,
             {(["positive", "negative"] as const).map((value) => <Button key={value} aria-label={value === "positive" ? "Olumlu değerlendir" : "Olumsuz değerlendir"} aria-pressed={rating === value} icon={value === "positive" ? "thumbsUp" : "thumbsDown"} iconOnly disabled={actionPending} onClick={() => void perform(() => onEvaluate(value), () => { setRating(value); setEvaluationOpen(false); setActionStatus("Değerlendirmen kaydedildi"); })} />)}
           </div>}
         </div>}
+        {onSendToKit && <Button aria-label="Kit'e gönder" title="Kit'e gönder" icon="send" iconOnly disabled={actionPending} onClick={onSendToKit} />}
         {onContinue && <Button aria-label="Yeni sohbette devam et" title="Yeni sohbette devam et" icon="branch" iconOnly disabled={actionPending} onClick={() => void perform(onContinue)} />}
         {copyState && <span role="status">{copyState}</span>}
         {actionStatus && <span role="status">{actionStatus}</span>}
@@ -201,8 +233,9 @@ function TaskList({ gorevler }: { gorevler: GorevMaddesi[] }) {
         Görevler <span>{bitti}/{gorevler.length}</span>
       </header>
       <ul>
-        {gorevler.map((gorev) => (
-          <li data-durum={gorev.durum} key={gorev.metin}>
+        {gorevler.map((gorev, sira) => (
+          // Zayıf modeller aynı maddeyi tekrarlayabilir; metin tek başına anahtar olamaz (U1-27).
+          <li data-durum={gorev.durum} key={`${sira}:${gorev.metin}`}>
             <span aria-hidden="true">{gorev.durum === "bitti" ? "✓" : gorev.durum === "yapiliyor" ? "▶" : "○"}</span>
             {gorev.metin}
           </li>
@@ -217,12 +250,16 @@ export interface ConversationProps {
   onReadAloud?: (text: string) => Promise<void> | void;
   onEvaluate?: (text: string, rating: "positive" | "negative") => Promise<void> | void;
   onContinueInNewChat?: (messageIndex: number) => Promise<void> | void;
+  /** Verilirse yanıtın altında "Kit'e gönder" düğmesi çıkar; metni Kits gelen kutusuna bırakır. */
+  onSendToKit?: (text: string) => void;
   /** Çekirdeğin gerçek tur durumu; iptalden sonra eski olayın saati işlemez. */
   running?: boolean;
   /** Kod kartındaki dosya adına tıklanınca çağrılır; çalışma paneli o dosyayı açar. */
   onOpenFile?: (path: string) => void;
   /** Ayarlardaki "adımları göster" tercihi. */
   showSteps?: boolean;
+  /** Görünüm kipi (#444, Ctrl+O): Ayrıntılı tüm adımları açar, Özet biten çalışmayı gizler. */
+  viewMode?: ViewMode;
   /** Takip önerisine tıklanınca çağrılır. Verilmezse rozetler çizilmez. */
   onOneriSec?: (gorev: string) => void;
   /** Başarısız yanıtın "Hatayı bildir" düğmesi. Verilmezse düğme çizilmez. */
@@ -270,7 +307,9 @@ function workDuration(messages: Mesaj[]): string {
   if (!starts.length || !ends.length) return "Çalışma geçmişi";
   const seconds = Math.floor((Math.max(...ends) - Math.min(...starts)) / 1000);
   if (!Number.isFinite(seconds) || seconds < 0) return "Çalışma geçmişi";
-  return `${seconds >= 60 ? `${Math.floor(seconds / 60)}d ` : ""}${seconds % 60}sn çalıştı`;
+  const saat = Math.floor(seconds / 3600);
+  const dakika = Math.floor((seconds % 3600) / 60);
+  return `${saat > 0 ? `${saat}sa ` : ""}${saat > 0 || dakika > 0 ? `${dakika}d ` : ""}${seconds % 60}sn çalıştı`;
 }
 
 export function Conversation({
@@ -278,6 +317,7 @@ export function Conversation({
   onReadAloud,
   onEvaluate,
   onContinueInNewChat,
+  onSendToKit,
   onOpenFile,
   onOneriSec,
   onHataBildir,
@@ -285,8 +325,11 @@ export function Conversation({
   onOpenPreview,
   running = true,
   showSteps = false,
+  viewMode = "normal",
 }: ConversationProps) {
+  const stepsVisible = showSteps || viewMode === "verbose";
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
+  const sonOlaySirasi = sonOlay ? mesajlar.lastIndexOf(sonOlay) : -1;
   const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
   const sonCalisanOlay = mesajlar.reduce((last, message, index) => (
     message.rol === "olay" && activityState(message.adimlar ?? []) === "running"
@@ -296,13 +339,16 @@ export function Conversation({
   const sonKullanici = [...mesajlar].reverse().find((message) => message.rol === "kullanici");
   const sonKullaniciSirasi = sonKullanici ? mesajlar.lastIndexOf(sonKullanici) : -1;
   const gorselBekliyor = running && sonKullanici !== undefined && isImageCommand(sonKullanici.metin)
-    && !mesajlar.slice(sonKullaniciSirasi + 1).some((message) => message.rol === "asistan");
+    // Ara anlatım (`ara`/`akan`) ve hata mesajı görsel gelmeden önce de görünür; kartı
+    // yalnız nihai yanıt kaldırır (U1-23).
+    && !mesajlar.slice(sonKullaniciSirasi + 1).some((message) =>
+      message.rol === "asistan" && !message.ara && !message.akan && !hataMesajiMi(message));
   const gorselIstegi = gorselBekliyor && sonKullanici ? parseImageRequest(sonKullanici.metin) : null;
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
   const lastMessage = mesajlar[mesajlar.length - 1];
   const changes = useMemo(() => turnChanges(mesajlar, running), [mesajlar, running]);
-  const {enAltaIn, hasNewContent} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
+  const {enAltaIn, hasNewContent, pauseAutoFollow} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
     content: lastMessage,
     ownSubmissionId: lastMessage?.rol === "kullanici" ? lastMessage.id : undefined,
   });
@@ -312,6 +358,11 @@ export function Conversation({
       <div className="conversation__stream" ref={icerikRef}>
         {(() => {
           const renderMessage = (message: Mesaj, index: number) => {
+          if (message.rol === "bildirim") {
+            return <div aria-label="Geçmiş bildirimi" role="note" className="conversation__message conversation__message--event" key={message.id}>
+              <p>{message.metin}</p>
+            </div>;
+          }
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={message.id}>
@@ -348,10 +399,10 @@ export function Conversation({
             return (
               <div className="conversation__message conversation__message--followups" key={message.id}>
                 <div aria-label="Sıradaki adım önerileri" className="conversation__followups">
-                  {oneriler.map((oneri) => (
+                  {oneriler.map((oneri, sira) => (
                     <button
                       className="conversation__followup"
-                      key={oneri.gorev}
+                      key={`${sira}:${oneri.gorev}`}
                       onClick={() => onOneriSec(oneri.gorev)}
                       title={oneri.gorev}
                       type="button"
@@ -360,6 +411,13 @@ export function Conversation({
                     </button>
                   ))}
                 </div>
+              </div>
+            );
+          }
+          if (message.rol === "plan" && message.plan) {
+            return (
+              <div className="conversation__message conversation__message--plan" key={message.id}>
+                <PlanCard baslik={message.plan.baslik} yol={message.plan.yol} />
               </div>
             );
           }
@@ -376,6 +434,7 @@ export function Conversation({
             );
           }
           if (message.rol === "ekip") return <div className="conversation__message conversation__message--event" key={message.id}>
+            <OrchestrationBoard message={message} running={running} />
             <AgentActivity agents={message.ajanlar ?? []} running={running} />
             {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
           </div>;
@@ -387,16 +446,22 @@ export function Conversation({
             // Eski bloklar KAYBOLMAZ: araç adımları kalıcı özet olarak kalır (Claude
             // gibi). Yalnız son çalışan blok canlı göstergeyi ve sayacı taşır.
             const aktif = running && index === sonCalisanOlay;
+            const state = activityState(message.adimlar ?? []);
+            const statusVisible = (viewMode === "verbose" || index === (running && sonCalisanOlay >= 0 ? sonCalisanOlay : sonOlaySirasi))
+              && (viewMode === "verbose" || (state !== "completed" && (state !== "running" || aktif)));
+            // Gizlenen eski olayın boş, marjlı kutusu sohbeti uzatmamalı.
+            if (!statusVisible && !changes.has(index)) return null;
             return (
               <div className="conversation__message conversation__message--event" key={message.id}>
-                <ActivityLine
+                {statusVisible && <ActivityLine
                   compact
+                  hideTrail={viewMode !== "verbose"}
                   aktif={aktif}
                   adimlar={message.adimlar ?? []}
                   baslangicZamani={message.baslangicZamani}
                   tokenSayisi={message.tokenSayisi}
-                  showSteps={showSteps}
-                />
+                  showSteps={viewMode === "verbose"}
+                />}
                 {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </div>
             );
@@ -411,6 +476,7 @@ export function Conversation({
                 onReadAloud={onReadAloud ? () => onReadAloud(message.metin) : undefined}
                 onEvaluate={onEvaluate ? (rating) => onEvaluate(message.metin, rating) : undefined}
                 onContinue={onContinueInNewChat ? () => onContinueInNewChat(index) : undefined}
+                onSendToKit={onSendToKit && !hataMesajiMi(message) ? () => onSendToKit(message.metin) : undefined}
                 onOpenFile={onOpenFile}
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}
@@ -418,6 +484,7 @@ export function Conversation({
                 {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </AssistantMessage>
               {message.delivery && <DeliveryCard evidence={message.delivery} onOpenFile={onOpenFile} />}
+              {message.findings && <FindingsCard findings={message.findings} onOpenFile={onOpenFile} />}
               {!running && message.hata && message.submissionId && onRetrySubmission && (
                 <Button variant="ghost" onClick={() => onRetrySubmission(message.submissionId!)}>Yeniden dene</Button>
               )}
@@ -426,10 +493,27 @@ export function Conversation({
           };
           return workGroups(mesajlar, running).map((group) => {
             if (!group.work) return renderMessage(group.entries[0].message, group.entries[0].index);
-            const content = <div className="conversation__work-content">{group.entries.map(({message, index}) => renderMessage(message, index))}</div>;
-            return group.completed ? <details className="conversation__work-details" key={group.entries[0].index}>
+            // Özet kipinde biten çalışma görünmez; yalnız sonuç kalır (Claude Desktop Summary).
+            if (viewMode === "summary" && group.completed) return null;
+            const entries = group.entries.flatMap(({message, index}) => message.rol === "olay"
+              ? (message.adimlar ?? []).flatMap((step, stepIndex) => step.arac || step.kalici
+                ? [{ id: `${message.id ?? index}:${stepIndex}`, step }] : []) : []);
+            const firstEvent = group.entries.find(entry => entry.message.rol === "olay")?.index;
+            const reasoning = stepsVisible && viewMode !== "verbose" ? group.entries.flatMap(({message}) => message.rol === "olay"
+              ? (message.adimlar ?? []).filter(step => !step.arac && !step.kalici) : []) : [];
+            const content = <div className="conversation__work-content">{group.entries.map(({message, index}) => {
+              const node = renderMessage(message, index);
+              const hasPanel = index === firstEvent && viewMode !== "verbose" && entries.length > 0;
+              // Null olaylar grid öğesi olursa gap her gizlenen çağrı için boşluk bırakır.
+              if (!node && !hasPanel) return null;
+              return <div key={message.id ?? index}>
+                {hasPanel && <WorkActivityPanel entries={entries} onInteract={pauseAutoFollow} showThinking={stepsVisible} />}
+                {node}
+              </div>;
+            })}{reasoning.length > 0 && <StepList adimlar={reasoning} />}</div>;
+            return group.completed && viewMode !== "normal" ? <details className="conversation__work-details" key={group.entries[0].message.id ?? group.entries[0].index} open={viewMode === "verbose" || undefined}>
               <summary>{workDuration(group.turn)}</summary>{content}
-            </details> : <div className="conversation__work" key={group.entries[0].index}>{content}</div>;
+            </details> : <div className="conversation__work" key={group.entries[0].message.id ?? group.entries[0].index}>{content}</div>;
           });
         })()}
         {gorselIstegi && (
@@ -441,6 +525,9 @@ export function Conversation({
       {/* Ekran okuyucu için durum; görsel gösterge `ActivityLine`'dadır.
           Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek
           gürültüdür ve görsel tarafta da kaldırıldı. */}
+      {viewMode !== "normal" && (
+        <p className="conversation__view-mode" data-mode={viewMode}>Görünüm: {VIEW_MODE_LABELS[viewMode]} · Ctrl+O değiştirir</p>
+      )}
       <div aria-atomic="true" aria-live="polite" className="conversation__live-status" role="status">
         {sonDurum === "running" && running ? "Çalışıyor" : sonDurum === "failed" ? "Tamamlanamadı" : ""}
       </div>

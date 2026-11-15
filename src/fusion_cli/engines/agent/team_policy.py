@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+from ...core.mcp_tool_names import canonical_mcp_name, mcp_server_of
+from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
+from .runtime_surface import selected_metadata_servers
 from .team_scope import derive_sub_context
+from .team_settings import MEMORY_READ_FILE_TOOLS, MEMORY_WRITE_FILE_TOOLS
+from .team_tools_member import TEAM_MEMBER_TOOLS
+
+_LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from ...tools.registry import ToolRegistry
     from .loop import AgentDeps
     from .team import Persona, SubRun, SubTask
 
@@ -29,22 +38,118 @@ def child_execution(deps: AgentDeps, subtask: SubTask) -> ExecutionPolicy | None
     )
 
 
-def allowed_tools(deps: AgentDeps, persona: Persona, subtask: SubTask) -> set[str] | None:
+def allowed_tools(
+    deps: AgentDeps,
+    persona: Persona,
+    subtask: SubTask,
+    *,
+    available: tuple[str, ...] = (),
+    registry: ToolRegistry | None = None,
+) -> set[str] | None:
+    """Üyenin araç kümesi: `tools` ∖ `disallowedTools`, MCP sunucu süzgeci, yazma alanı.
+
+    `available` çalışma-anı defterinin adlarıdır: `disallowedTools` ya da `mcpServers`
+    kümeyi DARALTIR, bu yüzden tam yetkili (`None`) üye bile o anda adlandırılabilir bir
+    kümeye iner. Her adım yalnız çıkarır; alt ajan üstünden fazla araç göremez.
+    """
+    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+    registry = registry or cast("ToolRegistry", deps.base_registry)
     allowed: set[str] | None = set(persona.tools) if persona.tools is not None else None
-    scope = derive_sub_context(deps.tool_context, subtask).write_scope
+    if allowed is not None and available:
+        allowed = expand_tool_patterns(allowed, available)
+    if persona.disallowed_tools or persona.mcp_servers:
+        if allowed is None:
+            allowed = set(available) if available else None
+        if allowed is not None:
+            # Ölçüldü (31 Ekim): `mcp__srv` → `srv__*` deseni açılmadan çıkarılıyordu ve
+            # yasaklı MCP araçları kalıyordu; yasak da izin gibi defter adlarına açılır.
+            allowed = allowed - expand_tool_patterns(set(persona.disallowed_tools), available)
+            if persona.mcp_servers:
+                _warn_unknown_servers(deps, persona, available)
+                allowed = {
+                    name
+                    for name in allowed
+                    if not registry.is_remote(name)
+                    or mcp_server_of(canonical_mcp_name(name)) in persona.mcp_servers
+                    or (
+                        name == "WaitForMcpServers"
+                        and selected_metadata_servers(registry.get(name))
+                        and set(selected_metadata_servers(registry.get(name)))
+                        <= set(persona.mcp_servers)
+                    )
+                }
+    # Ajan belleği olan üyenin bellek araçları (P-055): yasak listesindekiler açılmaz ve
+    # salt-okur görevde yalnız okuma kalır (ölçüldü, 31 Ekim: `remember` 'dosya değiştirme'
+    # denen görevde .fusion/ altına yazıyordu; `disallowedTools: remember` de deliniyordu).
+    memory_tools = _memory_tools(persona, subtask)
+    if available:
+        memory_tools &= set(available)
+    if allowed is not None and memory_tools:
+        allowed = allowed | memory_tools
+    # Ekip üyesinin pano araçları (P-061) rol kısıtından (`tools:`) bağımsız açıktır: üye
+    # görev alamazsa ekip kilitlenir. Yalnız üyenin defterinde bulunurlar.
+    team_tools = TEAM_MEMBER_TOOLS & set(available)
+    if allowed is not None and team_tools:
+        allowed = allowed | team_tools
+    # Gerçek çağıran alt ajanın kendi bağımlılığını verir: bağlamı bu görevden ZATEN
+    # türetildi. Yeniden türetmek salt-okur alt bağlamın boş alanına karşı `yazma_alani`nı
+    # doğrulayıp başlatmayı reddediyordu (ölçüldü, 1 Kasım: test_evidence_handoff).
+    scope = deps.tool_context.write_scope
+    if scope is None:
+        scope = derive_sub_context(deps.tool_context, subtask).write_scope
     if not subtask.read_only and scope is None:
         return allowed
     safe = {
         tool.name
-        for tool in deps.base_registry
+        for tool in registry
         if not tool.mutating or (not subtask.read_only and tool.name in EDIT_TOOLS)
     }
-    return safe if allowed is None else allowed & safe
+    narrowed = safe if allowed is None else allowed & safe
+    # `safe` temel defterden türer; bellek araçları çalışma-anı defterindedir.
+    return narrowed | memory_tools if memory_tools else narrowed
 
 
-def member_brief(persona: Persona, subtask: SubTask) -> str:
-    """Üyenin talimatı + bu görevin sınırları (modelin göreceği kısa not)."""
+def _memory_tools(persona: Persona, subtask: SubTask) -> set[str]:
+    if not persona.memory_scope:
+        return set()
+    # Claude Code Read/Write/Edit'i kendiliğinden açar (#24); `remember`/`memory_read` aynı
+    # dosyalara giden Fusion kısayollarıdır. Yasak listesi ve salt-okur görev yine kazanır.
+    writes = set() if subtask.read_only else {"remember", *MEMORY_WRITE_FILE_TOOLS}
+    tools = {"memory_read", *MEMORY_READ_FILE_TOOLS, *writes}
+    return tools - set(persona.disallowed_tools)
+
+
+def _warn_unknown_servers(deps: AgentDeps, persona: Persona, available: tuple[str, ...]) -> None:
+    """`mcpServers` Fusion'da yalnız SÜZGEÇTİR (Claude Code'daki gibi sunucu tanımlamaz):
+    yapılandırmada olmayan ad sessizce 'araç yok' sonucu verirdi, günlüğe uyarı düşer."""
+    # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
+    registry = cast("ToolRegistry", deps.base_registry)
+    known = {
+        mcp_server_of(canonical_mcp_name(name)) for name in available if registry.is_remote(name)
+    }
+    # Lazy admission leaves configured servers without registered tools until selected.
+    config = getattr(deps, "config", None)
+    known.update(server.name for server in getattr(config, "mcp_servers", ()))
+    known.update(connector.name for connector in getattr(config, "hosted_connectors", ()))
+    missing = sorted(set(persona.mcp_servers) - known)
+    if missing:
+        _LOG.warning(
+            "ajan tanımındaki MCP sunucusu yapılandırmada yok; mcpServers yalnız süzgeçtir",
+            extra={"ajan": persona.name, "sunucular": missing},
+        )
+
+
+def member_brief(
+    persona: Persona, subtask: SubTask, *, skills: str = "", fork_note: str = ""
+) -> str:
+    """Üyenin talimatı + ön yüklenen beceriler + bu görevin sınırları (modelin göreceği not)."""
     parts = [persona.prompt.strip()] if persona.prompt.strip() else []
+    if skills:
+        parts.append(skills)
+    if subtask.brief.strip():
+        parts.append(subtask.brief.strip())
+    if fork_note:
+        parts.append(fork_note)
     if subtask.read_only:
         parts.append("Bu görevde SALT OKUYORSUN: dosya değiştirme, yalnız bulgularını raporla.")
     elif subtask.write_scope:
@@ -56,10 +161,22 @@ def member_brief(persona: Persona, subtask: SubTask) -> str:
     return "\n\n".join(parts)
 
 
+#: Bir üyenin ana bağlama dönen raporunun üst sınırı: `max_parallel_agents` uzun rapor
+#: birleşince bağlam şişiyordu (A4-40).
+MEMBER_REPORT_CHARS = 6_000
+
+
+def cap_report(text: str, limit: int = MEMBER_REPORT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n[… rapor kırpıldı; ayrıntı için değişen dosyalara bak.]"
+
+
 def team_report(runs: Sequence[SubRun]) -> str:
     """Ana ajana dönen birleşik rapor: her üyenin sonucu kendi başlığıyla."""
     return "\n\n".join(
-        f"## {run.persona.title} ({run.sub_id}) — {'tamam' if run.ok else 'yarım'}\n{run.text}"
+        f"## {run.persona.title} ({run.sub_id}) — {'tamam' if run.ok else 'yarım'}\n"
+        f"{cap_report(run.text)}"
         for run in runs
     )
 

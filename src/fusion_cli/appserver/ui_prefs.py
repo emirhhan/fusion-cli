@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..core.atomic_file import atomic_replace_text
 from .voice import _data_home
 
 PREFIX = "fusion."
@@ -56,11 +57,8 @@ def save(data: object) -> dict[str, Any]:
     else:
         current[key] = value
     try:
-        path = prefs_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
+        # Benzersiz geçici dosya: sabit `.tmp` adı çok süreçte (iki pencere) yarışıyordu.
+        atomic_replace_text(prefs_path(), json.dumps(current, ensure_ascii=False))
     except OSError as error:
         return {"ok": False, "metin": f"Tercih kaydedilemedi: {error}"}
     return {"ok": True}

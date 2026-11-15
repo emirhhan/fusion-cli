@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import re
 import shlex
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
@@ -25,7 +29,7 @@ from ...core.cross_file import (
     scene_script_conflicts,
     scripts_without_base,
 )
-from ...core.evidence import CriterionEvidence, EvidenceStatus
+from ...core.evidence import CriterionEvidence, EvidenceEnvironmentSource, EvidenceStatus
 from ...core.execution_plan import (
     ExecutionPlan,
     PlanStep,
@@ -34,14 +38,17 @@ from ...core.execution_plan import (
     VerificationCheckKind,
 )
 from ...core.file_lookup import locate_by_name
+from ...core.repair_ledger import FailureEvidence
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
     VerificationResult,
     without_unverifiable_command_warnings,
 )
-from .reproduction import evaluate_reproduction
-from .verify_discovery import behavioral_commands, is_behavioral_command
+from .gate_cache import GateScope, step_mutates, workspace_key
+from .reproduction import evaluate_reproduction, is_same_command, is_same_environment
+from .verification import verify_intermediate
+from .verify_discovery import behavioral_commands, is_behavioral_command, strip_fd_redirects
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -55,6 +62,7 @@ class StepVerificationResult:
     evidence: tuple[str, ...] = ()
     findings: tuple[str, ...] = ()
     criteria: tuple[CriterionEvidence, ...] = ()
+    failure_evidence: tuple[FailureEvidence, ...] = ()
 
     @property
     def unverified(self) -> bool:
@@ -84,18 +92,72 @@ def _tool_command(use: object) -> str:
     return ""
 
 
+def _unquoted_newlines_as_separators(command: str) -> str | None:
+    """Tırnak DIŞINDAKİ satır sonlarını `;` yap; heredoc varsa `None` (çözümlenemez)."""
+    out: list[str] = []
+    quote = ""
+    escaped = False
+    for index, char in enumerate(command):
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif command.startswith("<<", index):
+            return None
+        elif char == "\n":
+            char = ";"
+        out.append(char)
+    return "".join(out)
+
+
 def _contains_git_action(command: str, action: str) -> bool:
-    """Kabuk segmentinde gerçek ve dry-run olmayan `git <action>` çağrısı var mı."""
-    if "\n" in command:
+    """Zincirin SONUCUNU belirleyen bir segmentte gerçek, dry-run olmayan `git <action>` var mı.
+
+    Ölçüldü (29 Ekim): `&`/`&&`/`;` görülen her komut reddediliyordu; modelin yazdığı
+    `git add -A && git commit -m x`, `cd repo && git commit` ve `git commit … 2>&1`
+    gerçek commit olsa da `git_commit` kanıtı sayılmıyordu (A4-03).
+
+    Kural: `2>&1`/`&>` yönlendirmeleri ayıklanır; `|`, `||` ve arka plan `&` çıkış
+    kodunu maskelediği için reddedilir; `;` ile ayrılmış zincirde yalnız SON grup
+    sayılır (önceki grubun kodu sonuca yansımaz); son grup `&&` ile bölünür ve
+    herhangi bir segment `git <action>` ise (kendi dry-run bayrağı yoksa) kabul edilir
+    — `&&` zincirinin başarısı her segmentin başarısıdır.
+    """
+    duz = _unquoted_newlines_as_separators(command)
+    if duz is None:
         return False
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(strip_fd_redirects(duz), posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
         return False
-    if any(token in {";", "&", "&&", "|", "||"} for token in tokens):
+    if any(token in {"&", "|", "||"} for token in tokens):
         return False
+    groups = [group for group in _split_tokens(tokens, ";") if group]
+    if not groups:
+        return False
+    last_group = groups[-1]
+    return any(
+        _segment_has_git_action(segment, action) for segment in _split_tokens(last_group, "&&")
+    )
+
+
+def _split_tokens(tokens: list[str], separator: str) -> list[list[str]]:
+    groups: list[list[str]] = [[]]
+    for token in tokens:
+        if token == separator:
+            groups.append([])
+        else:
+            groups[-1].append(token)
+    return groups
+
+
+def _segment_has_git_action(tokens: list[str], action: str) -> bool:
     long_dry_run = any(token.startswith("--dry-run") for token in tokens)
     push_short_dry_run = action == "push" and any(
         token.startswith("-") and not token.startswith("--") and "n" in token[1:]
@@ -120,7 +182,9 @@ def _git_subcommand(tokens: list[str]) -> str:
     options_with_value = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
     while index < len(tokens) and tokens[index].startswith("-"):
         option = tokens[index].split("=", 1)[0]
-        index += 2 if option in options_with_value and "=" not in tokens[index - 1] else 1
+        # Değer aynı token'da (`--git-dir=.git`) ise tek token atlanır; ayrı ise (`-C x`) iki.
+        # Eskiden ÖNCEKİ token'a bakılıyordu; `git --git-dir=.git commit` atlanıyordu (A4-14).
+        index += 2 if option in options_with_value and "=" not in tokens[index] else 1
     return tokens[index].casefold() if index < len(tokens) else ""
 
 
@@ -144,6 +208,10 @@ def _successful_tool_evidence(outcome: AgentOutcome, effect: str) -> CriterionEv
                 summary=f"araç etkisi gerçek çağrıyla doğrulandı: {effect}",
                 command=command,
                 output=use.output[:8_000],
+                source_digest=use.source_digest,
+                source_after_digest=use.source_after_digest,
+                environment=use.environment,
+                call_id=use.call_id,
             )
     return None
 
@@ -151,11 +219,13 @@ def _successful_tool_evidence(outcome: AgentOutcome, effect: str) -> CriterionEv
 def _legacy_file_check(step: PlanStep, criterion: str) -> VerificationCheck | None:
     """Eski planlardaki açık dosya-varlığı koşulunu güvenle dönüştür."""
     lowered = criterion.casefold()
-    existence_words = ("bulun", "mevcut", "oluştur", "exists", "var")
+    # "var" alt dizesi `varsayılan`, `evaluate` ile de eşleşiyordu (A4-53): tam sözcük aranır.
+    kelimeler = set(re.findall(r"\w+", lowered))
+    existence_words = ("bulun", "mevcut", "oluştur", "exists")
     file_words = ("dosya", "file")
-    if not any(word in lowered for word in existence_words) or not any(
-        word in lowered for word in file_words
-    ):
+    if not (
+        any(word in lowered for word in existence_words) or kelimeler & {"var", "vardır"}
+    ) or not any(word in lowered for word in file_words):
         return None
     paths = tuple(
         effect.removeprefix("file:").strip()
@@ -171,13 +241,33 @@ def _legacy_file_check(step: PlanStep, criterion: str) -> VerificationCheck | No
     )
 
 
+_RUNNER_PREFIX = re.compile(r"^python[\d.]*\s+-m\s+")
+
+
+def _command_key(command: str) -> str:
+    """Komutu boşluk ve `python -m` çalıştırıcı farkından arındır (`pytest -q` ≠ `pytest -q x/`)."""
+    return _RUNNER_PREFIX.sub("", " ".join(command.split()))
+
+
+def _same_tool(used: str, planned: str) -> bool:
+    """Araç adı aynı ya da aynı tanınan ailenin takma adı (`bash` ≈ `run_shell`)."""
+    if used == planned:
+        return True
+    family = tool_family(planned)
+    return family is not ToolFamily.EXTERNAL and tool_family(used) is family
+
+
 def _command_evidence(
     command: str,
     outcome: AgentOutcome,
     verification: VerificationResult | None,
 ) -> CriterionEvidence | None:
     for use in outcome.tool_uses:
-        if use.ok and tool_family(use.name) is ToolFamily.SHELL and _tool_command(use) == command:
+        if (
+            use.ok
+            and tool_family(use.name) is ToolFamily.SHELL
+            and _command_key(_tool_command(use)) == _command_key(command)
+        ):
             return CriterionEvidence(
                 criterion_id=command,
                 kind=VerificationCheckKind.COMMAND,
@@ -185,6 +275,10 @@ def _command_evidence(
                 summary="komut güvenli araç yolundan başarıyla çalıştı",
                 command=command,
                 output=use.output[:8_000],
+                source_digest=use.source_digest,
+                source_after_digest=use.source_after_digest,
+                environment=use.environment,
+                call_id=use.call_id,
             )
     if verification is None:
         return None
@@ -227,7 +321,8 @@ def _evaluate_check(
             command=check.target,
         )
 
-    expected_arguments = _expected_tool_arguments(check.expected)
+    # Boş `expected` "argüman şartı yok" demektir; zayıf planlayıcılar böyle bırakır (A4-18).
+    expected_arguments = _expected_tool_arguments(check.expected or "{}")
     if expected_arguments is None:
         return CriterionEvidence(
             check.criterion_id,
@@ -235,7 +330,9 @@ def _evaluate_check(
             EvidenceStatus.UNVERIFIED,
             "araç kontrolünde beklenen argümanlar geçerli JSON nesnesi değil",
         )
-    succeeded = tuple(use for use in outcome.tool_uses if use.name == check.target and use.ok)
+    succeeded = tuple(
+        use for use in outcome.tool_uses if _same_tool(use.name, check.target) and use.ok
+    )
     for use in succeeded:
         if _arguments_match(use.arguments, expected_arguments, root=root):
             return CriterionEvidence(
@@ -244,6 +341,10 @@ def _evaluate_check(
                 EvidenceStatus.PASSED,
                 "araç çağrısı başarıyla çalıştı",
                 output=use.output[:8_000],
+                source_digest=use.source_digest,
+                source_after_digest=use.source_after_digest,
+                environment=use.environment,
+                call_id=use.call_id,
             )
     if succeeded:
         # Araç ÇALIŞTI; eksik olan yalnız argüman eşleşmesi. Ölçüldü (17 Eylül
@@ -355,6 +456,7 @@ def evaluate_file_check(
             if step_mutates
             else "adım dosya üretmeyi vaat etmedi; kontrol hedefi yok",
             artifact=check.target,
+            applicable=step_mutates,
         )
     if check.kind is VerificationCheckKind.FILE_EXISTS:
         if is_asset_inventory(path):
@@ -409,7 +511,18 @@ def evaluate_file_check(
             f"dosya içeriği okunamadı: {exc}",
             artifact=check.target,
         )
-    status = EvidenceStatus.PASSED if check.expected in content else EvidenceStatus.FAILED
+    # Boşluk farkı (girinti, satır sonu) içerik uyuşmazlığı sayılmaz (A4-19).
+    found = check.expected in content or " ".join(check.expected.split()) in " ".join(
+        content.split()
+    )
+    if found:
+        status = EvidenceStatus.PASSED
+    elif step_mutates:
+        status = EvidenceStatus.FAILED
+    else:
+        # Mutasyon vaadi olmayan keşif adımı, kodu görmeden yazılmış metnin tutmamasından
+        # sorumlu tutulmaz (eksik dosyadaki aynı ilke).
+        status = EvidenceStatus.UNVERIFIED
     return CriterionEvidence(
         check.criterion_id,
         check.kind,
@@ -458,26 +571,25 @@ def _criterion_evidence(
                     VerificationCheckKind.TOOL,
                     EvidenceStatus.UNVERIFIED,
                     "başarı koşuluna bağlı tipli kontrol yok",
+                    step_id=step.step_id,
                 )
             )
             continue
-        checked = tuple(
-            _evaluate_check(
-                check,
-                root=root,
-                outcome=outcome,
-                verification=verification,
-                step_mutates=step_mutates,
+        results.extend(
+            replace(
+                _evaluate_check(
+                    check,
+                    root=root,
+                    outcome=outcome,
+                    verification=verification,
+                    step_mutates=step_mutates,
+                ),
+                step_id=step.step_id,
+                check_target=check.target,
+                check_expected=check.expected,
             )
             for check in checks
         )
-        failed = next((item for item in checked if item.status is EvidenceStatus.FAILED), None)
-        unverified = next(
-            (item for item in checked if item.status is EvidenceStatus.UNVERIFIED),
-            None,
-        )
-        representative = failed or unverified or checked[-1]
-        results.append(representative)
     return tuple(results)
 
 
@@ -497,11 +609,24 @@ def new_findings(current: tuple[str, ...], baseline: tuple[str, ...]) -> tuple[s
     return tuple(item for item in current if _finding_key(item) not in onceden)
 
 
+_VOLATILE_FINDING = re.compile(
+    r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?"
+    r"|\b\d+(?:\.\d+)?\s?(?:ms|sec|seconds|saniye|s)\b"
+    r"|\bpid[ =:]*\d+"
+    r"|/(?:private/)?(?:var/folders|tmp)/\S+"
+    r"|\b[0-9a-f]{12,}\b",
+    re.IGNORECASE,
+)
+
+
 def _finding_key(finding: str) -> str:
     """Bulgunun kimliği: zaman aşımında komut satırı, diğerlerinde metnin tamamı."""
     if finding.startswith(TIMEOUT_FINDING_PREFIX):
         return finding.splitlines()[0].strip()
-    return finding
+    # Her koşuda değişen gürültü (zaman damgası, süre, PID, geçici yol, uzun onaltılık
+    # kimlik) önceden kırık kapıyı "yeni kırılma" yapmasın (A4-17); satır numarası ve
+    # hata metni korunur, yeni hata hâlâ yeni sayılır.
+    return _VOLATILE_FINDING.sub("#", finding)
 
 
 def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
@@ -528,8 +653,65 @@ def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
             summary="davranış komutu adım içinde başarıyla çalıştı",
             command=command,
             output=use.output[:8_000],
+            source_digest=use.source_digest,
+            source_after_digest=use.source_after_digest,
+            environment=use.environment,
+            call_id=use.call_id,
         )
     return tuple(runs.values())
+
+
+async def _gate_result(
+    step: PlanStep,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    gate: GateScope | None,
+) -> VerificationResult | None:
+    """Proje kapısını koş; mutasyonsuz ve değişmemiş adımda önceki geçen sonucu yeniden kullan."""
+    if deps.verifier is None:
+        return None
+    reusable = (
+        gate is not None
+        and not step_mutates(step)
+        and outcome.mutating_tool_calls_made == 0
+        and outcome.ok
+    )
+    runtime = getattr(getattr(deps, "config", None), "runtime", None)
+    should_select_related = bool(getattr(runtime, "related_test_selection", False))
+    key = ""
+    cacheable = True
+    if gate is not None:
+        environment = (
+            await asyncio.to_thread(deps.verifier.evidence_environment)
+            if isinstance(deps.verifier, EvidenceEnvironmentSource)
+            else None
+        )
+        cacheable = (
+            not isinstance(deps.verifier, EvidenceEnvironmentSource) or environment is not None
+        )
+        key = workspace_key(
+            {*gate.outer_touched, *deps.tool_context.touched}, environment=environment
+        )
+        key = f"{key}:{int(should_select_related)}"
+        if reusable and cacheable:
+            cached = gate.cache.lookup(key)
+            if cached is not None:
+                return cached
+    if should_select_related:
+        root = deps.tool_context.root.resolve()
+        changed = tuple(
+            sorted(
+                path.resolve().relative_to(root).as_posix()
+                for path in deps.tool_context.touched
+                if path.resolve().is_relative_to(root)
+            )
+        )
+        result = await verify_intermediate(deps.verifier, changed)
+    else:
+        result = await deps.verifier.verify()
+    if gate is not None and cacheable:
+        gate.cache.store(key, result)
+    return result
 
 
 async def verify_step(
@@ -537,8 +719,13 @@ async def verify_step(
     outcome: AgentOutcome,
     deps: AgentDeps,
     baseline: tuple[str, ...] = (),
+    gate: GateScope | None = None,
 ) -> StepVerificationResult:
     """Agent sonucunu, beklenen etkileri ve proje kapısını birlikte doğrula.
+
+    `gate` verilirse ve adım çalışma alanını DEĞİŞTİRMEDİYSE, değişmemiş parmak izli
+    son GEÇEN kapı sonucu yeniden kullanılır (bkz. `gate_cache`). Verilmezse kapı her
+    zaman tam koşar; final kabul kapısı bu yolu hiç kullanmaz.
 
     `baseline`, plan BAŞLAMADAN önce proje kapısının verdiği bulgulardır. Onlar
     adımın suçu değildir ve adımı düşürmez.
@@ -552,7 +739,7 @@ async def verify_step(
     evidence: list[str] = []
     findings: list[str] = []
 
-    verification = await deps.verifier.verify() if deps.verifier is not None else None
+    verification = await _gate_result(step, outcome, deps, gate)
 
     if not outcome.ok:
         findings.append("agent adımı başarısız sonuçlandırdı")
@@ -625,7 +812,8 @@ async def verify_step(
         ok=not findings,
         evidence=tuple(evidence),
         findings=tuple(findings),
-        criteria=criteria,
+        criteria=(*criteria, *(verification.evidence if verification is not None else ())),
+        failure_evidence=verification.failure_evidence if verification is not None else (),
     )
 
 
@@ -680,8 +868,8 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
                 VerificationCheckKind.FILE_CONTAINS,
             }:
                 continue
-            result = evaluate_file_check(check, root)
-            if result.status is not EvidenceStatus.PASSED:
+            result = evaluate_file_check(check, root, step_mutates=step_mutates(step))
+            if result.applicable and result.status is not EvidenceStatus.PASSED:
                 findings.append(
                     f"başarı koşulu artık geçmiyor: {check.criterion_id} "
                     f"({check.expected or check.target}; {result.summary})"
@@ -689,14 +877,152 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
     return tuple(findings)
 
 
+#: Manifest aranırken girilmeyen klasörler (bağımlılık, derleme, sürüm kontrolü).
+_MANIFEST_SKIP_DIRS = frozenset(
+    {"node_modules", ".git", "dist", "build", ".venv", "venv", "__pycache__", "target"}
+)
+
+
+def _manifests(root: Path) -> list[Path]:
+    """Kökteki `.json` dosyaları; bağımlılık/derleme klasörlerine girmez (A4-15)."""
+    bulunan: list[Path] = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = sorted(name for name in dirs if name not in _MANIFEST_SKIP_DIRS)
+        bulunan.extend(Path(folder) / name for name in sorted(files) if name.endswith(".json"))
+    return bulunan
+
+
 def _unused_assets(root: Path) -> tuple[str, ...]:
     """Projedeki her manifest için kullanılmayan varlıkları topla."""
     bulgular: list[str] = []
-    for manifest in sorted(root.rglob("*.json")):
+    for manifest in _manifests(root):
         if not is_asset_inventory(manifest):
             continue
         bulgular.extend(unused_manifest_assets(manifest, root))
     return tuple(bulgular)
+
+
+def _cross_file_conflicts(root: Path) -> tuple[str, ...]:
+    """Çapraz dosya denetimleri (disk taraması; `to_thread` ile çağrılır)."""
+    return (
+        *scene_script_conflicts(root),
+        *runtime_script_conflicts(root),
+        *promised_key_conflicts(root),
+        *missing_node_references(root),
+        *broken_resource_paths(root),
+        *scripts_without_base(root),
+    )
+
+
+def _is_check_match(check: VerificationCheck, item: CriterionEvidence) -> bool:
+    """Kanıtı kendi hedef/beklentisinde tut; eski kayıtta yalnız gerçek komuta dön."""
+    if item.check_expected != check.expected:
+        return False
+    if item.check_target and not is_same_command(item.check_target, check.target):
+        return False
+    if check.kind is VerificationCheckKind.COMMAND:
+        return is_same_command(item.command, check.target)
+    if item.criterion_id != check.criterion_id:
+        return False
+    if check.kind is VerificationCheckKind.REPRODUCTION:
+        return (
+            is_same_command(item.command, check.target)
+            and item.environment is not None
+            and is_same_command(item.environment.command, item.command)
+        )
+    return item.check_target == check.target
+
+
+def _bound_check_evidence(
+    check: VerificationCheck,
+    evidence: tuple[CriterionEvidence, ...],
+    step_id: str,
+    current_source: str,
+) -> CriterionEvidence:
+    """Kriterin kendi komutunu ve güncel kaynak kimliğini koruyarak kanıt eşleştir."""
+    candidates = tuple(
+        item
+        for item in evidence
+        if item.kind is check.kind
+        and item.step_id in {"", step_id}
+        and _is_check_match(check, item)
+    )
+    found = (
+        candidates[-1]
+        if candidates
+        else CriterionEvidence(
+            check.criterion_id,
+            check.kind,
+            EvidenceStatus.UNVERIFIED,
+            "başarı koşuluna bağlı ölçülmüş kontrol yok",
+            command=check.target,
+        )
+    )
+    found = replace(found, criterion_id=check.criterion_id)
+    stale = bool(found.source_digest and found.source_after_digest != current_source)
+    missing = check.kind is VerificationCheckKind.REPRODUCTION and not (
+        found.source_digest
+        and found.source_digest == found.source_after_digest
+        and found.environment is not None
+        and found.call_id
+    )
+    if stale or missing:
+        found = replace(
+            found,
+            status=EvidenceStatus.UNVERIFIED,
+            summary="kaynak/ortam kimliği yok veya kanıt son kaynaktan eski",
+        )
+    return found
+
+
+async def _final_criteria(
+    plan: ExecutionPlan,
+    root: Path,
+    evidence: tuple[CriterionEvidence, ...],
+) -> StepVerificationResult:
+    """Açık plan kontrollerini son kaynakta eşleştir; genel yeşil ikinci koşulu örtemez."""
+    from .verify_discovery import evidence_environment, source_digest
+
+    current_source = await asyncio.to_thread(source_digest, root)
+    criteria: list[CriterionEvidence] = []
+    findings: list[str] = []
+    for step in plan.steps:
+        for check in step.verification_checks:
+            if check.kind in {
+                VerificationCheckKind.FILE_EXISTS,
+                VerificationCheckKind.FILE_CONTAINS,
+            }:
+                found = await asyncio.to_thread(
+                    evaluate_file_check, check, root, step_mutates=step_mutates(step)
+                )
+            else:
+                found = _bound_check_evidence(check, evidence, step.step_id, current_source)
+                if (
+                    check.kind is VerificationCheckKind.REPRODUCTION
+                    and found.environment is not None
+                ):
+                    current_environment = await asyncio.to_thread(
+                        evidence_environment, root, (check.target,), runtime=sys.version
+                    )
+                    if not is_same_environment(found.environment, current_environment):
+                        found = replace(
+                            found,
+                            status=EvidenceStatus.UNVERIFIED,
+                            summary="reprodüksiyon ortamı son yeşil koşudan sonra değişti",
+                        )
+            criteria.append(
+                replace(
+                    found,
+                    step_id=step.step_id,
+                    check_target=check.target,
+                    check_expected=check.expected,
+                )
+            )
+            if found.applicable and found.status is not EvidenceStatus.PASSED:
+                findings.append(
+                    f"başarı koşulu doğrulanamadı: {check.criterion_id} ({found.summary})"
+                )
+    return StepVerificationResult(not findings, findings=tuple(findings), criteria=tuple(criteria))
 
 
 async def verify_plan_acceptance(
@@ -723,14 +1049,7 @@ async def verify_plan_acceptance(
     # yakalar; çapraz denetim motor çalışmadan önce söyler.
     # Üç çapraz denetim de SESSİZ hata sınıfını hedefler: motor sıfır çıkışla
     # açılır, kapı geçer, kullanıcı oyunu açar ve hiçbir şey çalışmaz.
-    catismalar = (
-        scene_script_conflicts(deps.tool_context.root)
-        + runtime_script_conflicts(deps.tool_context.root)
-        + promised_key_conflicts(deps.tool_context.root)
-        + missing_node_references(deps.tool_context.root)
-        + broken_resource_paths(deps.tool_context.root)
-        + scripts_without_base(deps.tool_context.root)
-    )
+    catismalar = await asyncio.to_thread(_cross_file_conflicts, deps.tool_context.root)
     if catismalar:
         return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)
 
@@ -738,7 +1057,8 @@ async def verify_plan_acceptance(
     # Platformer indirildi, 252 dosya açıldı, manifest doğru yazıldı ve plan
     # "tamamlandı" dedi — ama sahnede tek sprite yoktu, oyun HealthBar ve
     # Label'lardan oluşuyordu. Kullanıcının isteği tam bu sonucu dışlıyordu.
-    kullanilmayan = _unused_assets(deps.tool_context.root)
+    # Disk taraması olay döngüsünü bloklamasın (A4-15).
+    kullanilmayan = await asyncio.to_thread(_unused_assets, deps.tool_context.root)
     if kullanilmayan:
         ozet = (
             f"{UNUSED_ASSETS_PREFIX} "
@@ -751,9 +1071,20 @@ async def verify_plan_acceptance(
     result = (
         await deps.verifier.verify()
         if deps.verifier is not None
-        else VerificationResult(ok=True, summary="tüm plan adımları doğrulandı")
+        else VerificationResult(
+            ok=True,
+            # Hiçbir şey ölçülmedi: "doğrulandı" demek yanıltıcıdır (A4-54).
+            summary="plan adımları tamamlandı; doğrulayıcı kapalı, proje kapısı ölçülmedi",
+        )
     )
     result = replace(result, evidence=(*evidence, *result.evidence))
+    checked = await _final_criteria(plan, deps.tool_context.root, result.evidence)
+    result = replace(
+        result,
+        ok=result.ok and checked.ok,
+        findings=(*result.findings, *checked.findings),
+        evidence=(*result.evidence, *checked.criteria),
+    )
     if not result.ok:
         return result
     # Hiçbir dosyaya dokunulmadıysa bu salt okuma/açıklama koşusudur: kanıtlanacak

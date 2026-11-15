@@ -60,7 +60,10 @@ on findElement(wordList)
             try
               set d to (description of el) as text
             end try
-            set my dumpText to my dumpText & r & " | " & t & " | " & d & linefeed
+            -- Sekme çubuğu öğeleri (sayfa başlıkları) tanı dosyasına yazılmaz (gizlilik).
+            if r is not "AXRadioButton" and r is not "AXTabGroup" then
+              set my dumpText to my dumpText & r & " | " & t & " | " & d & linefeed
+            end if
             repeat with w in wordList
               if t contains (w as text) or d contains (w as text) then return el
             end repeat
@@ -74,6 +77,14 @@ on findElement(wordList)
   end tell
   return missing value
 end findElement
+
+-- Tuş vuruşları YALNIZ Chrome öndeyken gönderilir; kullanıcı başka uygulamaya geçtiyse
+-- (bildirim, başka pencere) yol ve Enter'lar o uygulamaya yazılmasın.
+on chromeIsFront()
+  tell application "System Events"
+    return (name of first application process whose frontmost is true) is "Google Chrome"
+  end tell
+end chromeIsFront
 
 on writeDump(pathText)
   try
@@ -123,12 +134,21 @@ on run argv
   tell application "System Events"
     click loadButton
     delay 1.2
+  end tell
+  if not my chromeIsFront() then return "focus-lost"
+  tell application "System Events"
     keystroke "g" using {command down, shift down}
     delay 0.8
+  end tell
+  if not my chromeIsFront() then return "focus-lost"
+  tell application "System Events"
     keystroke extPath
     delay 0.5
     key code 36
     delay 1
+  end tell
+  if not my chromeIsFront() then return "focus-lost"
+  tell application "System Events"
     key code 36
   end tell
   return "ok"
@@ -183,10 +203,16 @@ def wait_until_installed(
 ) -> bool:
     bitis = time.monotonic() + VERIFY_WAIT_SECONDS
     while time.monotonic() < bitis:
-        if install_status(home)["eklenti_yuklu"]:
+        if _is_active(home):
             return True
         sleep(VERIFY_POLL_SECONDS)
-    return bool(install_status(home)["eklenti_yuklu"])
+    return _is_active(home)
+
+
+def _is_active(home: Path | None) -> bool:
+    """Eklenti profilde yüklü VE etkin mi (yüklü ama devre dışı eklenti köprüyü bağlamaz)."""
+    durum = install_status(home)
+    return bool(durum["eklenti_yuklu"] and durum["eklenti_etkin"])
 
 
 def auto_install(
@@ -201,8 +227,19 @@ def auto_install(
     """
     if _platform() != "darwin":
         return {**prepare(home=home), "asama": "desteklenmiyor"}
-    if install_status(home)["eklenti_yuklu"]:
-        return {"ok": True, "asama": "yuklendi", **install_status(home)}
+    durum = install_status(home)
+    if durum["eklenti_yuklu"] and durum["eklenti_etkin"]:
+        return {"ok": True, "asama": "yuklendi", **durum}
+    if durum["eklenti_yuklu"]:
+        # Ölçüldü (30 Ekim): yüklü ama DEVRE DIŞI eklenti de "yuklendi" sayılıyordu; köprü
+        # hiç bağlanmazken arayüze başarı dönüyordu. Arayüzü sürmek yerine açıkça söyle.
+        return {
+            "ok": False,
+            "asama": "elle",
+            "metin": "Fusion Browser eklentisi yüklü ama kapalı. chrome://extensions sayfasında "
+            "eklentiyi aç.",
+            **durum,
+        }
     hazir = prepare(home=home)  # kopyalar, yerel mesajlaşmayı yazar, sayfayı açar
     if not hazir["ok"]:
         return {**hazir, "asama": "hata"}
@@ -228,6 +265,11 @@ def auto_install(
 
 def _manual_message(result: str) -> str:
     """Otomatik adım neden bitmedi ve elle ne yapılır (açılan sayfada tek tık)."""
+    if result == "focus-lost":
+        return (
+            "Chrome öndeyken değildi; yol başka uygulamaya yazılmasın diye adım durduruldu. "
+            "Açılan sayfada Geliştirici modu > Paketlenmemiş öğe yükle ile panodaki klasörü seç."
+        )
     if result == "error":
         return (
             "Fusion Chrome'u süremedi. Sistem Ayarları > Gizlilik ve Güvenlik > Otomasyon'da "

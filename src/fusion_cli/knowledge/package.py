@@ -58,6 +58,10 @@ def manifest_from_dict(payload: dict[str, object]) -> KnowledgeManifest:
 def _entry_from_dict(item: object) -> KnowledgeEntry:
     if not isinstance(item, dict):
         raise ValueError("manifest girişi bir sözlük olmalı")
+    eksik = [alan for alan in ("entry_id", "text", "kind") if alan not in item]
+    if eksik:
+        # `KeyError` değil `ValueError`: belgelenen sözleşme bu ve çağıran tek tür yakalar.
+        raise ValueError(f"manifest girişinde eksik alan: {', '.join(eksik)}")
     return KnowledgeEntry(
         entry_id=str(item["entry_id"]),
         text=str(item["text"]),

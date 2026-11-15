@@ -18,6 +18,8 @@ Yalnızca "başarısız" demek kullanıcıyı ileri götürmez.
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import platform
 import sys
 from collections.abc import Awaitable, Callable
@@ -26,11 +28,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+
 from ..config.keys import NIM_ENV, OPENROUTER_ENV, ProviderKeys, detect
 from ..config.loader import load_config, load_environment
 from ..config.models import Config
 from ..config.paths import env_file_candidates, memory_dir, user_config_dir
 from ..config.readiness import Readiness, ReadinessReport, evaluate
+from ..config.sandbox_admin import sandbox_status
 from ..core.clock import SystemClock
 from ..core.errors import ConfigError
 from ..core.model_capability import CapabilityEvidence, ModelCapability, ToolSupport
@@ -41,6 +46,8 @@ from ..engines.capability_probe import probe_from_samples
 #: Anahtarın kendisi yerine yazılan değer. Tanı çıktısı paylaşılır.
 KEY_PRESENT = "ayarlı"
 KEY_MISSING = "yok"
+#: `--live` sondasında aynı sağlayıcıya aynı anda gidebilecek en fazla istek.
+LIVE_PER_PROVIDER = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +101,44 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     checks.append(_memory())
     checks.append(_path_check())
     checks.extend(_optional())
+    checks.append(sandbox_check(config))
+    # Claude `claude doctor`: ayar dosyası doğrulama hataları ve Remote Control (#309).
+    from .doctor_settings import remote_control_check, settings_checks
+
+    checks.extend(settings_checks(Path.cwd()))
+    checks.append(remote_control_check())
+    checks.extend(_permission_rule_checks())
+    checks.extend(tls_terminate_check(config))
     if live:
         checks.extend(_live(config))
     return DoctorReport(tuple(checks), hazir)
+
+
+def print_report(report: DoctorReport, console: Console) -> None:
+    """Tanıyı okunabilir biçimde bas. Sır içermez.
+
+    `fusion doctor` ve REPL/masaüstü `/doctor` aynı basıcıyı kullanır; iki yüzey
+    ayrışmasın diye çıktı burada tek kez tanımlanır.
+    """
+    from rich.markup import escape
+
+    from ..ui import messages, theme
+
+    console.print()
+    for check in report.checks:
+        isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
+        renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
+        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {escape(check.value)}")
+        if check.remedy:
+            console.print(f"  [{theme.DIM}]→ {escape(check.remedy)}[/{theme.DIM}]")
+    console.print()
+    durum = report.readiness.state
+    renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
+        durum, theme.ERROR
+    )
+    console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
+    for sebep in report.readiness.reasons:
+        console.print(f"  [{theme.DIM}]{escape(sebep)}[/{theme.DIM}]")
 
 
 def to_dict(report: DoctorReport) -> dict[str, Any]:
@@ -144,14 +186,23 @@ def _paths() -> list[Check]:
 
 def _keys(keys: ProviderKeys) -> list[Check]:
     """Anahtarların VARLIĞI. Değerleri hiçbir koşulda yazılmaz."""
+    # EN AZ BİR anahtar yeterlidir (readiness yalnız NIM ile de READY der; `setup_command`
+    # aynı kuralı uygular). OpenRouter yokken NIM varsa kırmızı ✗ göstermek tanıyı
+    # çelişkili yapıyordu: ölçüldü, doctor ✗ + "Kurulum hazır" + `ok:false` (L1-14).
+    openrouter_ok: bool | None = True if keys.openrouter else (None if keys.nim else False)
     return [
         Check(
             OPENROUTER_ENV,
             KEY_PRESENT if keys.openrouter else KEY_MISSING,
-            ok=keys.openrouter,
+            ok=openrouter_ok,
             remedy=""
             if keys.openrouter
-            else "https://openrouter.ai/keys adresinden ücretsiz al, `fusion setup` ile gir.",
+            else (
+                "Opsiyonel: NVIDIA NIM anahtarı tek başına yeterli. "
+                "https://openrouter.ai/keys ayrı bir ücretsiz kotadır."
+                if keys.nim
+                else "https://openrouter.ai/keys adresinden ücretsiz al, `fusion setup` ile gir."
+            ),
         ),
         Check(
             NIM_ENV,
@@ -225,14 +276,68 @@ def _path_check() -> Check:
     )
 
 
+def _permission_rule_checks() -> list[Check]:
+    """Ayar dosyalarında atlanan izin kuralları (#87)."""
+    from ..config.permission_warnings import skipped_rule_warnings
+
+    return [
+        Check("İzin kuralları", line, ok=False, remedy="Kuralı belirteçsiz MCP adıyla yaz.")
+        for line in skipped_rule_warnings(Path.cwd())
+    ]
+
+
+def sandbox_check(config: Config) -> Check:
+    """Kabuk sandbox'ı (P-010): kapalıysa bilgi, açık ve kurulamıyorsa kaldı."""
+    from ..ui import messages
+
+    status = sandbox_status(config, Path.cwd())
+    value = f"{'açık' if status.enabled else 'kapalı'} · {status.platform} · ağ {status.network}"
+    if not status.enabled:
+        return Check(messages.SANDBOX_DOCTOR_NAME, value, ok=None)
+    if status.available:
+        return Check(messages.SANDBOX_DOCTOR_NAME, value, ok=True)
+    effect = "çalıştırılmıyor" if status.fail_if_unavailable else "sandbox'sız çalışıyor"
+    return Check(
+        messages.SANDBOX_DOCTOR_NAME,
+        f"{value} · {status.reason}",
+        ok=False,
+        remedy=messages.SANDBOX_DOCTOR_REMEDY.format(effect=effect),
+    )
+
+
+def tls_terminate_check(config: Config) -> list[Check]:
+    """Claude `claude doctor` gibi: `tlsTerminate` açık ama CA kurulamıyorsa uyar (#350)."""
+    sandbox = getattr(config, "sandbox", None)
+    if sandbox is None or not getattr(sandbox, "tls_terminate", False):
+        return []
+    from ..config.sandbox_config import sandbox_policy
+    from ..core.errors import FusionError
+
+    policy = sandbox_policy(sandbox, home=Path.home(), root=Path.cwd())
+    name = "Sandbox TLS sonlandırma"
+    try:
+        from ..tools.sandbox_ca import validate_ca  # cryptography yalnız gerekince
+
+        validate_ca(policy.tls_ca_cert, policy.tls_ca_key)  # geçici dizin açmaz
+    except (FusionError, OSError, ValueError, ImportError) as error:
+        return [
+            Check(
+                name,
+                f"TLS sonlandırma kullanılamıyor: {error}",
+                ok=False,
+                remedy="sandbox.network.tlsTerminate caCertPath/caKeyPath yollarını düzelt "
+                "ya da {} ile geçici CA kullan; mask değerleri yerine konmaz.",
+            )
+        ]
+    source = "kullanıcı CA'sı" if policy.tls_ca_cert else "oturum başına geçici CA"
+    return [Check(name, f"hazır ({source})", ok=True)]
+
+
 def _optional() -> list[Check]:
     """Opsiyonel ekstralar. Yokluğu HATA değildir; kapının sessizce geçtiğini söyler."""
-    try:
-        import playwright  # noqa: F401
-
-        kurulu = True
-    except ImportError:
-        kurulu = False
+    # `find_spec`: paketi İÇE AKTARMADAN varlığını sorar (yavaş ve yan etkili `import`
+    # tanı için gereksiz; L1-17).
+    kurulu = importlib.util.find_spec("playwright") is not None
     return [
         Check(
             "Playwright (tarayıcı kapısı)",
@@ -266,8 +371,35 @@ def _live(config: Config) -> list[Check]:
     )
     health_path = user_data_dir() / health_cache.HEALTH_CACHE_FILENAME
 
+    # Aynı sağlayıcıya eş zamanlı istek sayısı sınırlı: ücretsiz kotalı sağlayıcıda
+    # hepsini birden göndermek 429 üretir ve sağlık önbelleğine YANLIŞ "kapalı"
+    # yazardı (L1-18).
+    kapilar: dict[str, asyncio.Semaphore] = {}
+
+    def _kapi(model: str) -> asyncio.Semaphore:
+        return kapilar.setdefault(model.split("/", 1)[0], asyncio.Semaphore(LIVE_PER_PROVIDER))
+
     async def _dene(model: str) -> Check:
+        async with _kapi(model):
+            return await _dene_kapili(model)
+
+    async def _native(model: str) -> Check:
+        async with _kapi(model):
+            return await probe_native_capability(
+                model, LiteLlmProvider(model, role="doctor"), istek
+            )
+
+    async def _dene_kapili(model: str) -> Check:
         sonuc = await LiteLlmProvider(model, role="doctor").complete(istek)
+        if sonuc.is_rate_limited:
+            # Kota/hız sınırı geçicidir: sağlık önbelleğine "kapalı" YAZILMAZ (seçici
+            # modeli bir sonraki `--live`a kadar kalıcı çalışmıyor sanardı; L1-18).
+            return Check(
+                f"canlı: {model}",
+                f"kotada: {_short(sonuc.error)}",
+                ok=None,
+                remedy="Geçici kota/hız sınırı; sağlık kaydı değişmedi. Biraz sonra tekrar dene.",
+            )
         detail = "" if sonuc.ok else _short(sonuc.error)
         health_cache.record(health_path, model, ok=sonuc.ok, detail=detail)
         return Check(
@@ -289,12 +421,7 @@ def _live(config: Config) -> list[Check]:
 
     async def _hepsi() -> list[Check]:
         health = list(await asyncio.gather(*[_dene(model) for model in modeller]))
-        native = await asyncio.gather(
-            *[
-                probe_native_capability(model, LiteLlmProvider(model, role="doctor"), istek)
-                for model in modeller
-            ]
-        )
+        native = await asyncio.gather(*[_native(model) for model in modeller])
         return [*health, *native]
 
     return asyncio.run(_hepsi())
@@ -376,16 +503,15 @@ def _short(error: str | None) -> str:
 
 
 def _writable(path: Path) -> bool:
-    """Dizin oluşturulabilir/yazılabilir mi? Var olmayan dizin sorun değildir."""
-    hedef = path if path.exists() else path.parent
-    try:
-        hedef.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return False
-    deneme = hedef / ".fusion-yazma-denemesi"
-    try:
-        deneme.touch()
-        deneme.unlink()
-    except OSError:
-        return False
-    return True
+    """Dizin yazılabilir mi? Var olmayan dizin için en yakın VAR OLAN üst dizine bakılır.
+
+    Tanı SALT OKUNURDUR: Ölçüldü (30 Ekim) eski sürüm `mkdir(parents=True)` ile dizin
+    ve `.fusion-yazma-denemesi` dosyası OLUŞTURUYORDU; iki eşzamanlı `doctor` aynı
+    deneme dosyasında çakışabiliyordu (L1-16). Artık yalnız `os.access` sorulur.
+    """
+    hedef = path
+    while not hedef.exists():
+        if hedef.parent == hedef:
+            return False
+        hedef = hedef.parent
+    return hedef.is_dir() and os.access(hedef, os.W_OK | os.X_OK)

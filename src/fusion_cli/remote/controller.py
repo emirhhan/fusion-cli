@@ -15,13 +15,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from ..config.paths import user_data_dir
+from ..accounts.workspaces import PERSONAL_WORKSPACE, bind_context, local_identity
+from ..config.paths import active_account, gallery_dir
+from ..core.atomic_file import atomic_replace_text
 from ..core.protocols import Clock
+from ..memory.run_store import SqliteRunStore
 from .account_login import AccountLogin
 from .asgi import RemoteApp
 from .backend import AppSessionBackend
 from .bind import BindPolicy, BindRefusedError, private_addresses, validate_bind
-from .constants import DEFAULT_REMOTE_HOST, DEFAULT_REMOTE_PORT
+from .constants import (
+    APPROVAL_TRUST_DEFAULT_HOURS,
+    APPROVAL_TRUST_MAX_HOURS,
+    DEFAULT_REMOTE_HOST,
+    DEFAULT_REMOTE_PORT,
+    HTTP_START_TIMEOUT_SECONDS,
+)
+from .data_dir import migrate_legacy, remote_data_dir
 from .devices import CHANNEL_SIGNED, CHANNEL_TELEGRAM, Device, DeviceRegistry
 from .mobile import MobileApi
 from .navigation import NavigationHost
@@ -37,6 +47,10 @@ from .telegram import HttpTelegramApi, OffsetStore, TelegramBridge
 from .uploads import MediaReader, UploadStore
 
 TELEGRAM_TOKEN_NAME = "FUSION_TELEGRAM_BOT_TOKEN"
+
+
+class _ServerStartError(RuntimeError):
+    """uvicorn dinlemeye başlayamadan çıktı (çoğunlukla port kullanımda)."""
 
 
 class TokenStore(Protocol):
@@ -56,16 +70,21 @@ class WallClock:
         return time.monotonic()
 
 
+#: Sunucunun kendiliğinden durması için tanınan süre; sonra zorla kapatılır.
+SERVER_STOP_TIMEOUT_SECONDS = 5
+
+
 def _expand(value: object) -> str:
     """Kullanıcının yazdığı dosya yolunu `~` açılmış metne çevir; boşsa boş metin."""
     return str(Path(str(value)).expanduser()) if value else ""
 
 
-def _authenticate_account(identifier: str, password: str) -> bool:
-    """Fusion hesap deposunda kimlik + parola doğrulaması (scrypt; parola saklanmaz/loglanmaz)."""
+def _authenticate_account(identifier: str, password: str) -> str | None:
+    """Doğrulanan hesabın kimliği (scrypt; parola saklanmaz/loglanmaz); başarısızsa None."""
     from ..accounts.store import SqliteAccountStore
 
-    return SqliteAccountStore().authenticate(identifier=identifier, password=password) is not None
+    account = SqliteAccountStore().authenticate(identifier=identifier, password=password)
+    return account.account_id if account is not None else None
 
 
 def _fail(message: str) -> dict[str, Any]:
@@ -84,28 +103,42 @@ class RemoteController:
         session_factory: Callable[[Callable[[str], None]], Any],
         clock: Clock | None = None,
         navigation: NavigationHost | None = None,
+        data_dir: Path | None = None,
     ) -> None:
-        directory = home / "remote"
+        # Eşleşme verisi Fusion veri dizininde durur (`~/remote` ev dizinini kirletiyordu);
+        # eski konumdan ilk açılışta otomatik, doğrulanarak taşınır.
+        directory = data_dir if data_dir is not None else remote_data_dir()
+        migrate_legacy(home / "remote", directory)
         self._clock = clock or WallClock()
         self._registry = DeviceRegistry(directory / "devices.json", self._clock)
         self._settings_path = directory / "settings.json"
-        self._require_approval = self._load_require_approval()
+        settings = self._load_settings()
+        self._require_approval = settings.get("requireApproval") is True
+        #: Uzaktan onay için cihaz başına süreli yetki zorunlu mu (P-040; varsayılan kapalı).
+        self._require_approval_trust = settings.get("requireApprovalTrust") is True
         self._last_paired: dict[str, Any] | None = None
         self._pairing = PairingService(
             self._registry,
             self._clock,
             require_approval=lambda: self._require_approval,
             on_paired=self._remember_paired,
+            account_id=active_account,
         )
-        self._store = TaskStore(self._clock)
+        self._runs = SqliteRunStore(directory / "runs.sqlite3", clock=self._clock)
+        self._store = TaskStore(self._runs)
         self._backend = AppSessionBackend(session_factory, root)
-        self._projects = ProjectStore(directory / "projects.json")
+        projects = self._projects = ProjectStore(directory / "projects.json")
         run_lock = asyncio.Lock()
         mobile = MobileApi(
             backend=self._backend,
             projects=self._projects,
             uploads=UploadStore(directory / "uploads", self._clock),
-            media=MediaReader([home, user_data_dir(), root, directory / "uploads"]),
+            # Kullanıcının ev dizini DEĞİL: yalnız Fusion'ın ürettiği klasörler (galeri, telefon
+            # yüklemeleri), çalışma kökü ve masaüstünün bildirdiği proje kökleri.
+            media=MediaReader(
+                [gallery_dir(), root, directory / "uploads"],
+                dynamic_roots=lambda: [Path(item) for item in projects.known_roots()],
+            ),
             clock=self._clock,
             default_root=root,
             session_lock=run_lock,
@@ -119,12 +152,15 @@ class RemoteController:
             store=self._store,
             backend=self._backend,
             screen_capture=MacScreenCapture(),
+            host_tenant=lambda: local_identity(active_account()).tenant_id,
+            require_approval_trust=lambda: self._require_approval_trust,
         )
         self._directory = directory
         self._secrets = secrets
         self._server: Any = None
         self._server_task: asyncio.Task[None] | None = None
         self._telegram_task: asyncio.Task[None] | None = None
+        self._telegram_api: HttpTelegramApi | None = None
         self._telegram_stop = asyncio.Event()
         self._telegram_error = ""
         self._address = ""
@@ -151,11 +187,16 @@ class RemoteController:
             "uzak.ekran_onizleme": self._screen_preview,
             "uzak.projeler_esitle": self._projects_sync,
             "uzak.ayar": self._set_setting,
+            "uzak.onay_yetkisi": self._approval_trust,
         }
         handler = handlers.get(name)
         if handler is None:
             return _fail("Bilinmeyen uzak erişim isteği.")
         return await handler(data)
+
+    def awaiting_approval(self, code: str) -> str | None:
+        """Kodu girmiş ve onay bekleyen cihazın adı (terminal kipinde onay sorusu için)."""
+        return self._pairing.awaiting_approval(code) if code else None
 
     async def _status(self, _data: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -168,16 +209,29 @@ class RemoteController:
             "port": self._port,
             "agAdresleri": private_addresses(),
             "onayIste": self._require_approval,
+            "onayYetkisiIste": self._require_approval_trust,
+            "onayYetkisiVarsayilanSaat": APPROVAL_TRUST_DEFAULT_HOURS,
             "sonEslesen": self._last_paired,
         }
 
-    def _load_require_approval(self) -> bool:
-        """Kodla eşleştirmede masaüstü onayı iste (varsayılan kapalı)."""
+    def _load_settings(self) -> dict[str, Any]:
+        """Kalıcı ayarlar (`requireApproval`, `requireApprovalTrust`); hepsi varsayılan kapalı."""
         try:
             raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return False
-        return isinstance(raw, dict) and raw.get("requireApproval") is True
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _save_settings(self) -> None:
+        atomic_replace_text(
+            self._settings_path,
+            json.dumps(
+                {
+                    "requireApproval": self._require_approval,
+                    "requireApprovalTrust": self._require_approval_trust,
+                }
+            ),
+        )
 
     def _remember_paired(self, device: Device) -> None:
         """Masaüstü arayüzü bunu durum yoklamasında görüp "bağlandı" bildirimi gösterir."""
@@ -188,28 +242,58 @@ class RemoteController:
         }
 
     async def _set_setting(self, data: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(data.get("onayIste"), bool):
+        """`onayIste` ve/veya `onayYetkisiIste`; en az biri bool olmalı."""
+        flags = {key: data.get(key) for key in ("onayIste", "onayYetkisiIste")}
+        if not any(isinstance(value, bool) for value in flags.values()) or any(
+            value is not None and not isinstance(value, bool) for value in flags.values()
+        ):
             return _fail("Ayar değeri geçersiz.")
-        self._require_approval = data["onayIste"]
-        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
-        self._settings_path.write_text(
-            json.dumps({"requireApproval": self._require_approval}), encoding="utf-8"
-        )
-        return {"ok": True, "onayIste": self._require_approval}
+        if isinstance(flags["onayIste"], bool):
+            self._require_approval = flags["onayIste"]
+        if isinstance(flags["onayYetkisiIste"], bool):
+            self._require_approval_trust = flags["onayYetkisiIste"]
+        self._save_settings()
+        return {
+            "ok": True,
+            "onayIste": self._require_approval,
+            "onayYetkisiIste": self._require_approval_trust,
+        }
+
+    @staticmethod
+    def _parse_hours(raw: object) -> float | None:
+        """Onay yetkisi saati: 0 (kaldır) ile tavan arası sayı; aksi `None`."""
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        return float(raw) if 0 <= raw <= APPROVAL_TRUST_MAX_HOURS else None
+
+    async def _approval_trust(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Cihaza süreli uzaktan onay yetkisi ver (`saat` 0 → kaldır) (P-040)."""
+        hours = self._parse_hours(data.get("saat", APPROVAL_TRUST_DEFAULT_HOURS))
+        if hours is None:
+            return _fail(f"Onay yetkisi süresi 0–{APPROVAL_TRUST_MAX_HOURS} saat arasında olmalı.")
+        device_id = str(data.get("cihazId", ""))
+        if not self._registry.set_approval_trust(device_id, hours):
+            return _fail("Cihaz bulunamadı ya da iptal edilmiş.")
+        device = self._registry.get(device_id)
+        return {"ok": True, "cihaz": device.public_view() if device is not None else {}}
 
     async def _pair_begin(self, data: dict[str, Any]) -> dict[str, Any]:
         try:
             scopes = parse_scopes(data.get("kapsamlar"))
         except ValueError as error:
             return _fail(str(error))
+        hours = self._parse_hours(data.get("onaySaat", 0))
+        if hours is None:
+            return _fail(f"Onay yetkisi süresi 0–{APPROVAL_TRUST_MAX_HOURS} saat arasında olmalı.")
         channel = CHANNEL_TELEGRAM if data.get("kanal") == "telegram" else CHANNEL_SIGNED
-        code, expires = self._pairing.begin(scopes, channel=channel)
+        code, expires = self._pairing.begin(scopes, channel=channel, approval_hours=hours)
         return {
             "ok": True,
             "kod": code,
             "bitis": expires,
             "kapsamlar": sorted(scopes),
             "yuksekYetki": sorted(scopes & ELEVATED_SCOPES),
+            "onaySaat": hours,
         }
 
     async def _pair_approve(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -231,7 +315,9 @@ class RemoteController:
         return {"ok": self._registry.revoke(device_id)}
 
     async def _tasks(self, _data: dict[str, Any]) -> dict[str, Any]:
-        return {"ok": True, "gorevler": [t.view() for t in self._store.list_tasks()]}
+        # Masaüstü yalnız açık hesabın uzak görevlerini görür.
+        owner = bind_context(local_identity(active_account()), PERSONAL_WORKSPACE)
+        return {"ok": True, "gorevler": [t.view() for t in self._store.list_tasks(owner)]}
 
     async def _pending(self, _data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "sorular": self._service.pending_questions()}
@@ -332,11 +418,39 @@ class RemoteController:
             ssl_keyfile=key_path or None,
         )
         self._server = uvicorn.Server(config)
-        self._server_task = asyncio.create_task(self._server.serve())
+        self._server_task = asyncio.create_task(self._serve_guarded(self._server))
+        failure = await self._wait_started(self._server, self._server_task)
+        if failure is not None:
+            self._server, self._server_task = None, None
+            return _fail(f"Uzak erişim {host}:{port} üzerinde başlatılamadı: {failure}")
         scheme = "https" if data.get("sertifika") else "http"
         self._address = f"{scheme}://{host}:{port}"
         self._port = port
         return {"ok": True, "adres": self._address}
+
+    async def _serve_guarded(self, server: Any) -> None:  # noqa: ANN401
+        """`serve()` bind hatasında `sys.exit(1)` atar; SystemExit görevden olay döngüsüne
+        yayılıp sidecar'ı düşürmesin diye burada yakalanır."""
+        try:
+            await server.serve()
+        except SystemExit as error:
+            raise _ServerStartError(f"çıkış kodu {error.code}") from None
+
+    async def _wait_started(self, server: Any, task: asyncio.Task[None]) -> str | None:  # noqa: ANN401
+        """Sunucu dinlemeye başlayana dek bekle; başlayamazsa nedeni döner.
+
+        Adres `ok:true` ile hemen dönerse port doluyken kullanıcı hatayı hiç görmezdi.
+        """
+        deadline = asyncio.get_running_loop().time() + HTTP_START_TIMEOUT_SECONDS
+        while not server.started:
+            if task.done():
+                error = task.exception() if not task.cancelled() else None
+                return f"port kullanımda olabilir ({error})" if error else "sunucu kapandı"
+            if asyncio.get_running_loop().time() > deadline:
+                server.should_exit = True
+                return "zaman aşımı"
+            await asyncio.sleep(0.02)
+        return None
 
     async def _stop_http(self, _data: dict[str, Any]) -> dict[str, Any]:
         await self._stop_server()
@@ -346,8 +460,18 @@ class RemoteController:
         if self._server is not None:
             self._server.should_exit = True
         if self._server_task is not None:
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(self._server_task, timeout=5)
+            # `wait` görevi iptal ETMEZ; wait_for iptal edip bitmesini beklerdi, inatçıda takılırdı.
+            done, _pending = await asyncio.wait(
+                {self._server_task}, timeout=SERVER_STOP_TIMEOUT_SECONDS
+            )
+            if not done:
+                # Nazik durma olmadı (açık bağlantılar): zorla kapat, yoksa port bağlı kalır.
+                if self._server is not None:
+                    self._server.force_exit = True
+                self._server_task.cancel()
+                await asyncio.wait({self._server_task}, timeout=SERVER_STOP_TIMEOUT_SECONDS)
+            elif not self._server_task.cancelled():
+                self._server_task.exception()  # görevin kendi hatası okunur (uyarı çıkmasın)
         self._server, self._server_task, self._address = None, None, ""
 
     async def _telegram_connect(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -361,8 +485,9 @@ class RemoteController:
             return _fail("Telegram bot belirteci gerekli.")
         await self._stop_telegram()
         self._telegram_stop = asyncio.Event()
+        self._telegram_api = HttpTelegramApi(stored)
         bridge = TelegramBridge(
-            api=HttpTelegramApi(stored),
+            api=self._telegram_api,
             service=self._service,
             registry=self._registry,
             pairing=self._pairing,
@@ -394,8 +519,13 @@ class RemoteController:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._telegram_task
         self._telegram_task = None
+        if self._telegram_api is not None:
+            with contextlib.suppress(Exception):
+                await self._telegram_api.aclose()  # httpx istemcisi sızmasın
+            self._telegram_api = None
 
     async def aclose(self) -> None:
         await self._stop_server()
         await self._stop_telegram()
         await self._service.aclose()
+        self._runs.close()

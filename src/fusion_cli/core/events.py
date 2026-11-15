@@ -14,9 +14,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
+from .auto_review import ReviewSource, ReviewVerdict
+from .evidence import CriterionEvidence
+from .lesson_runtime import LessonDelivery
+from .prompt_manifest import PromptManifest
+from .repair_ledger import FailureOrigin
 from .types import FusionResult, ModelResult
+
+ModelCallPurpose = Literal["actor", "other"]
 
 
 class Channel(Enum):
@@ -37,6 +44,7 @@ class Event:
     varsayılanı boştur: mevcut olay kurucuları değişmez.
     """
 
+    candidate_id: str | None = field(default=None, kw_only=True)
     agent_id: str = field(default="", kw_only=True)
     event_id: str | None = field(default=None, kw_only=True)
     session_id: str | None = field(default=None, kw_only=True)
@@ -66,16 +74,161 @@ class ModelCallStarted(Event):
     background: bool = False
 
 
+ProviderDiagnosticPhase = Literal[
+    "call_enter",
+    "rate_admission_enter",
+    "rate_wait",
+    "rate_wait_end",
+    "rate_admitted",
+    "rate_rejected",
+    "provider_retry_wait",
+    "provider_retry_wait_end",
+    "leaf_enter",
+    "sdk_await_enter",
+    "sdk_stream_open",
+    "sdk_response_returned",
+    "sdk_first_chunk",
+    "call_end",
+    "call_cancelled",
+    "call_error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCallDiagnostic(Event):
+    """Trace-only provider boundaries; SDK chunks are not wire-byte measurements."""
+
+    call_id: str
+    phase: ProviderDiagnosticPhase
+    previous_phase: ProviderDiagnosticPhase | None
+    elapsed_ms: int
+    leaf_attempts: int
+    sdk_chunks: int
+    sdk_text_chunks: int
+    sdk_empty_text_chunks: int
+    max_tokens: int
+    timeout_s: float
+    requested_sdk_retries: int
+    stream: bool
+    purpose: ModelCallPurpose
+    background: bool
+    wait_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class McpDiscoveryDiagnostic(Event):
+    """Private phase clock: no identifiers, configuration or remote content."""
+
+    stage: Literal[
+        "catalog_preparation",
+        "selected_connection_wait",
+        "selected_schema_discovery",
+        "runtime_publication",
+        "explicit_reference_expansion",
+    ]
+    elapsed_ms: int
+    selected_count: int
+    outcome: Literal["ready", "cancelled", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class AutomaticRecallDiagnostic(Event):
+    """Private automatic-hint outcome; never serialized onto the native protocol."""
+
+    status: Literal[
+        "disabled_lessons",
+        "disabled_hints",
+        "no_memory",
+        "exhausted_budget",
+        "busy",
+        "timeout",
+        "cancelled",
+        "worker_start_error",
+        "error",
+        "cooldown",
+        "lock_unavailable",
+        "empty",
+        "rejected_format",
+        "ready",
+        "stale_owner",
+        "offer_error",
+        "offered",
+    ]
+    phase: Literal[
+        "gate",
+        "admission",
+        "scope_resolution",
+        "recall",
+        "format",
+        "backend_check",
+        "backend_cooldown",
+        "backend_lock",
+        "backend_call",
+        "backend_returned",
+        "unknown",
+    ]
+    elapsed_ms: int
+    backend_operation: Literal["", "count", "query", "get", "peek"] = ""
+    backend_status: Literal[
+        "",
+        "checking",
+        "cooldown",
+        "lock_wait",
+        "lock_unavailable",
+        "running",
+        "error",
+        "ok",
+    ] = ""
+    error_class: Literal[
+        "",
+        "ModuleNotFoundError",
+        "ImportError",
+        "AttributeError",
+        "TypeError",
+        "TimeoutError",
+        "PermissionError",
+        "OSError",
+        "ValueError",
+        "RuntimeError",
+        "OtherError",
+    ] = ""
+    count_result: int | None = None
+    returned_count: int = 0
+    formatted_count: int = 0
+    memory_kind: Literal["none", "null", "chroma", "other"] = "other"
+    source_version: str = "auto_recall_diag_v1"
+
+
 @dataclass(frozen=True, slots=True)
 class ModelCallFinished(Event):
     """Bir model çağrısı bitti (başarılı ya da değil)."""
 
     call_id: str = field(default="", kw_only=True)
     requested_model: str = field(default="", kw_only=True)
+    #: Çağrının amacı aday adından bağımsızdır; None eski olay kayıtları içindir.
+    purpose: ModelCallPurpose | None = field(default=None, kw_only=True)
 
     role: str
     result: ModelResult
     #: Arka plan işi mi? Bkz. `ModelCallStarted.background`.
+    background: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallAbandoned(Event):
+    """Başlayan model çağrısı yanıt gelmeden iptal edildi (zaman aşımı, kesilen aday).
+
+    `ModelCallFinished` hiç gelmeyeceği için bu olay olmazsa çağrı muhasebede hiç
+    var olmamış sayılırdı. Oysa sağlayıcı isteği almış olabilir: token ve maliyet
+    BİLİNMİYOR — sıfır DEĞİL. Dinleyiciler bunu "ölçümü eksik çağrı" diye ayrı
+    sayar ve toplamı "alt sınır" olarak gösterir.
+    """
+
+    call_id: str = field(default="", kw_only=True)
+
+    role: str
+    model: str
+    reason: str = "iptal edildi"
     background: bool = False
 
 
@@ -180,6 +333,8 @@ class ToolStarted(Event):
 
     name: str
     args: Mapping[str, object]
+    call_id: str | None = None
+    attempt_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +350,17 @@ class ToolExecuted(Event):
     #: Diff dosya değişmeden önce üretilebildiği için burada taşınır; None ise araç
     #: değiştirici değildir ya da önizleme üretilememiştir.
     diff: str | None = None
+    #: `run_shell` için proje kökü parmak izi sonucu: "değişmedi" | "N dosya değişti: ..." |
+    #: "ölçülemedi: neden". Boş = ölçüm denenmedi (salt-okunur komut, ayar kapalı).
+    workspace: str = ""
+    call_id: str | None = None
+    attempt_id: str | None = None
+    mutating: bool | None = field(default=None, kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopEscapeStopped(Event):
+    """Kullanıcı fiziksel Esc ile masaüstü turunu durdurdu (P-033); arayüz nedenini gösterir."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +371,11 @@ class ToolCallRepaired(Event):
     tekrarlarsa turu bitirir. Ekranda hiçbir iz yokken arka planda üç çağrı yanmış
     olabilir; kullanıcı turun neden uzadığını göremezse Fusion'ı yavaş sanır.
     """
+
+    call_id: str | None = None
+    attempt_id: str | None = None
+    repair_kind: str = ""
+    failure_stage: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +411,9 @@ class SubAgentStarted(Event):
     #: Aynı anda başlatılan kardeş ajan sayısı (paralel grup); tek ajanda 1.
     group_size: int = 1
     started_at: float = 0.0
+    #: Yeni ajanın ağaçtaki derinliği (ana ajanın doğrudan çocuğu 1). Üst ajan `agent_id`
+    #: alanındadır; arayüz ağacı bu ikisiyle çizer (P-035).
+    depth: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,7 +523,7 @@ class PlatformChecked(Event):
 
 @dataclass(frozen=True, slots=True)
 class TeacherLimitationFound(Event):
-    """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
+    """Doğrulanmamış öğretmen değerlendirmesi ve önerilen alternatif bildirildi."""
 
     topic: str
     reason: str
@@ -393,10 +567,87 @@ class VerificationFailed(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationPassed(Event):
+    """Tur sonu kanıt özeti: geçen kontroller ve ölçülemeyenlerin nedeni.
+
+    Geçen kapı eskiden hiçbir olay yaymıyordu (yalnız `VerificationFailed` vardı) ve
+    rapor bloğu yalnız `final_text`'e ekleniyordu; cevap akıtılmışsa kullanıcı kapının
+    çalıştığını göremiyordu (ölçüldü, 30 Ekim). `checks` GERÇEKTEN çalışıp geçen
+    kontrollerdir; `unmeasured` çalışamayan ya da hiç koşmayan kontrollerin nedenidir.
+    """
+
+    checks: tuple[str, ...] = ()
+    unmeasured: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ChangesDigested(Event):
+    """Turda değişen dosyaların GERÇEK fark özeti (modelin anlatımı değil kayıt).
+
+    Satırlar `engines/agent/change_digest.py` tarafından değişiklik kaydından üretilir;
+    kullanıcı modelin "şunu düzelttim" iddiasını gerçek farkla karşılaştırabilir.
+    """
+
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GateEscalated(Event):
+    """Kapı iki düzeltmeden sonra da kırmızı; TEK ek tur üst modelle çalışacak.
+
+    Ölçüm izidir: `from_model` düzeltmeleri yapan, `to_model` yükseltilen model;
+    `source` üst modelin kaynağı (`ayar` = `runtime.escalation_model`, `kademe` =
+    merdiven); `failed_rounds` kapının kaç düzeltmeden sonra hâlâ kırmızı olduğu.
+    """
+
+    failed_rounds: int
+    from_model: str
+    to_model: str
+    source: str
+    findings: int
+
+
+@dataclass(frozen=True, slots=True)
+class GateEscalationFinished(Event):
+    """Üst modelli ek tur bitti ve kapı yeniden ölçüldü.
+
+    `gate_ok` GERÇEK kapı sonucudur (modelin beyanı değil): `True` yeşil, `False`
+    kırmızı. `measured=False` ise kapı ölçülemedi (tur bütçesi doldu) ve `gate_ok`
+    kırmızı sayılır.
+    """
+
+    model: str
+    gate_ok: bool
+    findings: int
+    measured: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class LessonsRecalled(Event):
-    """Göreve benzer dersler hatırlandı ve prompta eklendi."""
+    """Göreve benzer dersler bellekten bulundu."""
 
     count: int
+    lesson_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LessonOffered(Event):
+    """Kimliği bilinen ders modele gerçekten sunuldu."""
+
+    lesson_id: str
+    delivery: LessonDelivery
+
+
+@dataclass(frozen=True, slots=True)
+class LessonOutcome(Event):
+    """Ders kullanımının son doğrulanmış veya bilinmeyen sonucu."""
+
+    lesson_id: str
+    used: bool | None
+    outcome: str
+    feedback_reason: str
+    evidence_refs: tuple[str, ...] = ()
+    failure_origin: FailureOrigin | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -411,17 +662,123 @@ class CapabilityActivated(Event):
 
 @dataclass(frozen=True, slots=True)
 class LessonsLearned(Event):
-    """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı."""
+    """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı.
+
+    `external`: yazılanlardan kaçı dış içerik (web/tarayıcı/MCP/klonlanan site) okunan
+    turdan çıktığı için düşük güvenle "dış kaynaklı" etiketlendi (ölçüm izi).
+    """
 
     count: int
+    external: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class TamperSuspected(Event):
+    """Turda ajan var olan bir testi/test komutunu değiştirdi ya da zayıflattı.
+
+    Engelleme değil ölçüm izidir: `count` toplam bulgu, `weakening` bunlardan kanıtı
+    düşürenler (skip/assert/test silme, CI değişikliği), `kinds` bulgu türleri
+    (`tamper_check.TamperKind` değerleri), `paths` etkilenen yollar (en fazla 10).
+    """
+
+    count: int
+    weakening: int
+    kinds: tuple[str, ...] = ()
+    paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class ContextCompressed(Event):
-    """Uzun geçmiş özetlenerek kısaltıldı."""
+    """Uzun geçmiş özetlenerek kısaltıldı.
+
+    `saved_chars` modelin göreceği görünümde kazanılan karakter (0 = ölçülmedi).
+    Mesaj sayısı aynı kalabilir (eski araç çıktıları kısalır); ekranda anlamlı olan
+    kazanılan karakterdir.
+    """
 
     before: int
     after: int
+    saved_chars: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ToolOutputsMasked(Event):
+    """Model çağrısına giden görünümde eski araç sonuçları yer tutucuya indirildi.
+
+    Kalıcı geçmiş DEĞİŞMEZ; yalnız modele gönderilen kopya küçülür. Her model
+    çağrısında (maskeleme açık ve en az bir sonuç maskeliyse) yayınlanır ki önce/sonra
+    karşılaştırılabilsin: `masked` görünümdeki toplam maskeli sonuç, `newly_masked` bu
+    çağrıda yeni maskelenenler (önek kayması), `saved_chars` kazanılan karakter,
+    `window` ayardaki pencere.
+    """
+
+    masked: int
+    newly_masked: int
+    saved_chars: int
+    window: int
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSurfaceOffered(Event):
+    """Bir model çağrısına gerçekte sunulan araç yüzeyi (ölçüm izi, yol haritası 4. adım).
+
+    `count` sunulan şema sayısı, `schema_chars` şemaların JSON karakter boyu, `registered`
+    kayıt defterindeki SUNULABİLİR (takma ad olmayan) araç sayısı. `compact` sıkı yüzey
+    (zayıf model) açık mı, `profile` görev profili (`+` ile birleşik; boş = profil yok),
+    `widened` bu turda profil dışı çağrı yüzünden yüzey genişletildi mi.
+    """
+
+    count: int
+    schema_chars: int
+    registered: int
+    compact: bool
+    profile: str = ""
+    widened: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RepoMapBuilt(Event):
+    """Kök turda depo haritası üretildi (ölçüm izi, yol haritası 8. adım).
+
+    `chars` üretilen metin, `budget_chars` etkin bütçe, `candidates` haritaya uygun dosya,
+    `files` gerçekten okunan, `symbols`/`shown` bulunan/gösterilen tanım, `edges` çözülen
+    içe aktarma kenarı, `elapsed_ms` süre. `partial` dosya/karakter tavanı ya da zaman
+    sınırı yüzünden kısmi (`time_limited` kısmiliğin sebebi zaman sınırı mı), `cached` çözümleme
+    önbellekten mi geldi.
+    """
+
+    chars: int
+    budget_chars: int
+    candidates: int
+    files: int
+    symbols: int
+    shown: int
+    edges: int
+    elapsed_ms: int
+    partial: bool = False
+    time_limited: bool = False
+    cached: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class NestedInstructionsLoaded(Event):
+    """Model alt klasördeki bir dosyaya eriştiği için iç içe talimat dosyaları bağlama eklendi.
+
+    `files` eklenen talimat dosyaları (köke göreli), `chars` eklenen toplam karakter,
+    `trigger` tetikleyen dosya yolu.
+    """
+
+    files: tuple[str, ...]
+    chars: int
+    trigger: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolProfileExpanded(Event):
+    """Model profil dışı bir aracı adıyla çağırdı: yüzey bu tur için bir kez genişletildi."""
+
+    tool: str
+    profile: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,6 +852,10 @@ class ExecutionStepStarted(Event):
     index: int
     total_steps: int
     goal: str
+    #: Bu adımın alt turuna tanınan model çağrısı zarfı; 0 = bilinmiyor.
+    #: Adım zarfı politika/tur sınırının ÜSTÜNE çıkabilir (A3-40); arayüz bunu
+    #: göstererek maliyet sürprizini önler.
+    model_call_limit: int = field(default=0, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -617,6 +978,20 @@ class FollowupsSuggested(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class PlanDrafted(Event):
+    """Plan kipindeki tur bitti ve plan dosyaya yazıldı (P-025).
+
+    Arayüz yolu gösterir ("editörde aç"); REPL kabul kartını bunun ardından açar.
+    Plan metni olayda TAŞINMAZ: zaten asistan cevabıdır, dosyadan okunur.
+    """
+
+    #: Plan dosyasının mutlak yolu.
+    path: str
+    #: Planın ilk başlığı (yoksa ilk satırı).
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
 class TurnOutcome(Event):
     """Runtime'ın kesin tur sonucu; modelin doğal dil iddiasından bağımsızdır.
 
@@ -632,6 +1007,31 @@ class TurnOutcome(Event):
 @dataclass(frozen=True, slots=True)
 class TurnFinished(Event):
     """Tur bitti; dinleyiciler tamponlarını boşaltabilir."""
+
+
+@dataclass(frozen=True, slots=True)
+class AutoReviewDecided(Event):
+    """Otomatik kip denetçisi bir çağrıyı sınıflandırdı (P-011).
+
+    `source` modelin mi, kurallı yedeğin mi, önbelleğin mi karar verdiğini söyler;
+    sayaçlar karardan SONRAKİ değerlerdir. Denetim günlüğü ve arayüz izi buradan beslenir.
+    """
+
+    tool: str
+    verdict: ReviewVerdict
+    reason: str
+    source: ReviewSource
+    summary: str
+    consecutive: int
+    total: int
+
+
+@dataclass(frozen=True, slots=True)
+class AutoModeFellBack(Event):
+    """Denetçinin engel eşiği aşıldı; oturum Otomatik'ten Manuel kipe düştü (P-011)."""
+
+    reason: str
+    trips: int
 
 
 @runtime_checkable
@@ -651,3 +1051,113 @@ class EventPublisher(Protocol):
     """
 
     def publish(self, event: Event) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PromptManifestRecorded(Event):
+    """Gerçek çağrının içeriksiz istem ölçümü; mevcut korelasyonla yayınlanır."""
+
+    manifest: PromptManifest
+
+
+@dataclass(frozen=True, slots=True)
+class ContextProtectionMeasured(Event):
+    """Zorunlu son grup ve sınırlı pinler nedeniyle kalan bağlam taşması."""
+
+    threshold_chars: int
+    visible_chars: int
+    newest_group_chars: int
+    pinned_calls: int
+    omitted_pins: int
+    budget_exceeded: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateStarted(Event):
+    """İzole adayın önceden ayrılmış çağrı payı ve istenen modeli."""
+
+    plan_id: str
+    step_id: str
+    ordinal: int
+    requested_model: str
+    edit_format: Literal["exact", "whole"] | None
+    allocated_calls: int
+    arm: str
+    task_id: str
+    repeat: int
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateFinished(Event):
+    """Adayın gerçek çağrı kimlikleri ve seçimden önceki kabul snapshot'ı."""
+
+    plan_id: str
+    step_id: str
+    ordinal: int
+    ok: bool
+    criteria: tuple[CriterionEvidence, ...]
+    required_criteria: tuple[str, ...]
+    call_ids: tuple[str, ...]
+    scope: Literal["step", "task"] = field(default="step", kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSelected(Event):
+    """Seçim uygunluğu başarı değildir; terfi olayı ayrı kaydedilir."""
+
+    plan_id: str
+    step_id: str
+    selected_candidate_id: str | None
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CandidatePromoted(Event):
+    """Asıl çalışma alanında terfi sonrası yeniden ölçülen kabul snapshot'ı."""
+
+    plan_id: str
+    step_id: str
+    ok: bool
+    criteria: tuple[CriterionEvidence, ...]
+    required_criteria: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceConflictDetected(Event):
+    """Kaynak terfisi ve geri alma çakışmalarını metin ayrıştırmadan say."""
+
+    plan_id: str
+    step_id: str
+    phase: Literal["source-promotion", "rollback"]
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptExperimentFinished(Event):
+    """Bütün adımlar ve final kabulünden sonra aynı toplam hakla biten kol."""
+
+    task_id: str
+    repeat: int
+    arm: str
+    ok: bool
+    criteria: tuple[CriterionEvidence, ...]
+    required_criteria: tuple[str, ...]
+    used_calls: int
+    total_calls: int
+    measurement: Literal["measured", "unavailable"] = field(default="measured", kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherAdviceOffered(Event):
+    """Cevabı saklamadan öğretmen tavsiyesini mevcut tur kimliğine bağla."""
+
+    advice_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherAdviceOutcome(Event):
+    """Tavsiyenin ilgili son kanıtla doğrulanma durumu."""
+
+    advice_id: str
+    verified: bool
+    evidence_refs: tuple[str, ...] = ()

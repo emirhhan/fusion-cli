@@ -196,7 +196,7 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     kopru = _EkranKopru("Kampanyalar")
     baglam = SimpleNamespace(chrome=kopru)
     goruntu = await chrome.chrome_action({"action": "screenshot"}, baglam)
-    assert "click_at" in goruntu.output
+    assert "left_click coordinate" in goruntu.output
 
     # Görüntü 2880 px, sayfa 1440 CSS px: (400, 300) → (200, 150).
     assert (
@@ -207,7 +207,7 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     assert ("describe_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar
     assert ("click_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar
 
-    riskli = SimpleNamespace(chrome=_EkranKopru("Satın al"))
+    riskli = SimpleNamespace(chrome=_EkranKopru("Gönder"))
     assert await chrome.chrome_action_effect({"action": "click_at", "value": "1,1"}, riskli) is None
     assert not (await chrome.chrome_action({"action": "click_at", "value": "abc"}, baglam)).ok
 
@@ -396,3 +396,65 @@ class _EkranKopru2(_Kopru):
             gorsel = base64.b64encode(buf.getvalue()).decode()
             return {"ok": True, "veri": {"image": f"data:image/jpeg;base64,{gorsel}", "width": 400}}
         return {"ok": True, "veri": {}}
+
+
+def test_kod_kipi_panel_turu_gercek_arama_aracini_icerir():
+    """Ölçüldü (30 Ekim, S2-53): listede araç olmayan "grep" vardı, `search_code` yoktu."""
+    from fusion_cli.appserver.session import CHROME_CODE_TURN_TOOLS
+
+    assert "search_code" in CHROME_CODE_TURN_TOOLS
+    assert "grep" not in CHROME_CODE_TURN_TOOLS
+
+
+# --- Dalga 4 (T1-40) ---------------------------------------------------------------
+
+
+def test_chrome_action_semasi_enum_ve_deger_aciklamasi_tasir():
+    """Şema yalnız eylem adı listesiydi; value'nun her eylem için anlamı hata mesajlarındaydı."""
+    from fusion_cli.tools import build_registry
+
+    tool = build_registry().get("chrome_action")
+    properties = tool.parameters["properties"]
+
+    assert "click_at" in properties["action"]["enum"] and "zoom" in properties["action"]["enum"]
+    for ipucu in ("down:600", "x,y", "x1,y1,x2,y2", "1280,800"):
+        assert ipucu in tool.description
+
+
+async def test_zoom_sonucu_tiklama_koordinatinin_tam_goruntuye_gore_oldugunu_soyler(monkeypatch):
+    import base64
+    import io
+
+    from PIL import Image
+
+    from fusion_cli.core.tool_content import ToolContent
+    from fusion_cli.core.tools import ToolContext, ToolResult
+    from fusion_cli.tools import chrome
+
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 100), "red").save(buf, format="PNG")
+    veri = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    async def _shot(args, context):
+        return ToolResult("ok", content=(ToolContent.image("image/png", veri),))
+
+    monkeypatch.setattr(chrome, "chrome_screenshot", _shot)
+
+    sonuc = await chrome._zoom("10,10,60,40", ToolContext(root="."))
+    assert sonuc.ok and "KIRPIK" in sonuc.output and "TAM ekran" in sonuc.output
+
+    disinda = await chrome._zoom("500,10,600,40", ToolContext(root="."))
+    assert not disinda.ok and "dışında" in disinda.output
+
+
+async def test_kopru_json_hatasi_ham_istisna_olarak_cikmaz():
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import chrome
+
+    class _Bozuk:
+        async def invoke(self, name, data):
+            raise ValueError("bozuk yanıt")
+
+    sonuc = await chrome._call(ToolContext(root=".", chrome=_Bozuk()), "scroll", {})
+
+    assert not sonuc.ok and "köprüsü hatası" in sonuc.output

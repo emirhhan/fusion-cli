@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderLogo, type ProviderId } from "../../brand/ProviderLogo";
 import { Button } from "../../ui/Button";
 import type { ProtocolClient } from "../../protocol/client";
+import { errorMessage } from "../../protocol/result";
+import { approveModel, isModelApproved } from "../../screens/modelApprovals";
 import "./RoleModels.css";
 
 /**
@@ -25,6 +27,8 @@ const ROLES: { id: RoleId; baslik: string; aciklama: string; ikon: string }[] = 
 ];
 
 const AUTO = "";
+/** Captcha penceresinin kapanıp kapanmadığı bu aralıkla yoklanır. */
+const DOGRULAMA_YOKLAMA_MS = 2000;
 
 function providerOf(model: string): ProviderId | null {
   const id = model.split("/")[0];
@@ -46,13 +50,19 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
+  // Hazır olmayan (hazir:false) model satır içi onayla seçilir (U2-49).
+  const [confirming, setConfirming] = useState<{ role: RoleId; row: Option } | null>(null);
+  // Bölüm kapanınca captcha doğrulama döngüsü durur (U2-48): sökülmüş bileşene `setNotice` yazılmaz,
+  // `web.baglan`/`web.dogrula` çağrılmaz.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const load = useCallback(async () => {
     try {
       const payload = (await client.request("model.roller", {})) as { ok?: boolean; roller?: Roles; secenekler?: Option[]; oturumlar?: WebSession[] };
       if (payload.ok && payload.roller) { setRoles(payload.roller); setOptions(payload.secenekler ?? []); setSessions(payload.oturumlar ?? []); }
       else setNotice("Model listesi okunamadı.");
-    } catch { setNotice("Model listesi okunamadı."); }
+    } catch (reason) { setNotice(`Model listesi okunamadı: ${errorMessage(reason)}`); }
   }, [client]);
   useEffect(() => { void load(); }, [load]);
 
@@ -62,7 +72,7 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
       const result = (await client.request("model.rol_ata", { rol, deger })) as { ok?: boolean; metin?: string; roller?: Roles };
       setNotice(String(result.metin ?? (result.ok ? "Kaydedildi." : "Kaydedilemedi.")));
       if (result.ok && result.roller) setRoles(result.roller);
-    } catch { setNotice("Kaydedilemedi."); }
+    } catch (reason) { setNotice(`Kaydedilemedi: ${errorMessage(reason)}`); }
     setBusy(false);
   };
 
@@ -78,18 +88,21 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
       const deadline = Date.now() + 10 * 60_000;
       for (;;) {
         if (Date.now() >= deadline) { setNotice("Süre doldu. Tekrar dene."); return; }
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, DOGRULAMA_YOKLAMA_MS));
+        if (!mounted.current) return;
         const state = (await client.request("web.giris_durumu", { pid: opened.pid })) as { acik?: boolean; ok?: boolean; metin?: string };
         if (state.ok === false) { setNotice(state.metin ?? "Giriş tamamlanamadı."); return; }
         if (!state.acik) break;
       }
+      if (!mounted.current) return;
       setNotice("Oturum kaydediliyor ve sınanıyor…");
       const saved = (await client.request("web.baglan", who)) as { ok?: boolean; metin?: string };
       if (!saved.ok) { setNotice(saved.metin ?? "Oturum kaydedilemedi."); return; }
+      if (!mounted.current) return;
       const test = (await client.request("web.dogrula", who)) as { ok?: boolean; metin?: string };
       setNotice(test.ok ? `${row.etiket}: doğrulandı.` : (test.metin ?? `${row.etiket}: doğrulanamadı.`));
-    } catch { setNotice("Doğrulama tamamlanamadı."); }
-    finally { setVerifying(null); void load(); }
+    } catch (reason) { if (mounted.current) setNotice(`Doğrulama tamamlanamadı: ${errorMessage(reason)}`); }
+    finally { if (mounted.current) { setVerifying(null); void load(); } }
   };
 
   if (!roles) return <p className="settings__hint">{notice || "Modeller yükleniyor…"}</p>;
@@ -103,7 +116,15 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
   const markModel = (id: RoleId) => id === "candidates" ? roles.candidates[0] ?? "" : (roles[id] || "");
   const isSelected = (id: RoleId, model: string) => id === "candidates" ? roles.candidates.includes(model) : roles[id] === model;
 
-  const pick = (id: RoleId, model: string) => {
+  const pick = (id: RoleId, model: string, confirmed = false) => {
+    const row = options.find((item) => item.model === model);
+    const approvalKey = `role-models:${model}`;
+    if (row && !row.hazir && !confirmed && !isSelected(id, model) && !isModelApproved(approvalKey)) {
+      setConfirming({ role: id, row });
+      return;
+    }
+    if (confirmed) approveModel(approvalKey);
+    setConfirming(null);
     if (id === "candidates") {
       const next = roles.candidates.includes(model) ? roles.candidates.filter((item) => item !== model) : [...roles.candidates, model];
       if (next.length > 0) void assign("candidates", next);
@@ -150,8 +171,20 @@ export function RoleModels({ client }: { client: ProtocolClient }) {
         <div className="rm__picker" role="region" aria-label={`${active.baslik} için model seç`}>
           <div className="rm__picker-head">
             <div><h4>{active.baslik}</h4><p>{active.aciklama}</p></div>
-            <button aria-label="Kapat" className="rm__x" onClick={() => setOpen(null)} type="button">×</button>
+            <button aria-label="Kapat" className="rm__x" onClick={() => { setConfirming(null); setOpen(null); }} type="button">×</button>
           </div>
+          {confirming && confirming.role === active.id && (
+            <div className="rm__confirm" role="alertdialog" aria-label={`${confirming.row.etiket} seçimini onayla`}>
+              <p>
+                <b>{confirming.row.etiket}</b> şu an hazır değil{confirming.row.not ? ` (${confirming.row.not})` : ""}.
+                Yine de seçersen bu rol yanıt veremeyebilir.
+              </p>
+              <div className="rm__confirm-actions">
+                <Button variant="secondary" autoFocus onClick={() => setConfirming(null)}>Vazgeç</Button>
+                <Button variant="secondary" onClick={() => pick(confirming.role, confirming.row.model, true)}>Bu model şu an hazır değil, yine de seç</Button>
+              </div>
+            </div>
+          )}
           <ul className="rm__models">
             {active.id === "teacher" && (
               <li>

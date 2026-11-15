@@ -1,15 +1,16 @@
+/* Ortalama `margin: auto` ile yapılır: `justify-content/align-items: center` içerik kaptan uzun
+   olunca üst kısmı kırpıp kaydırılamaz bırakıyordu (CSS1-22). */
 .empty-state {
-  align-items: center;
   color: var(--text-primary);
   display: flex;
   flex: 1;
-  justify-content: center;
   min-height: 0;
   overflow: auto;
   padding: var(--space-8) var(--space-6);
 }
 
 .empty-state__content {
+  margin: auto;
   max-width: 680px;
   text-align: center;
   width: 100%;

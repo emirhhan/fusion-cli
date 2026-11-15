@@ -21,17 +21,16 @@ export function NewTaskDialog({
 }: NewTaskDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef(onCancel);
-  const busyRef = useRef(busy);
 
   useEffect(() => { cancelRef.current = onCancel; }, [onCancel]);
-  useEffect(() => { busyRef.current = busy; }, [busy]);
 
   useEffect(() => {
     if (!open) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busyRef.current) {
+      // Klasör seçici açıkken de Esc/Vazgeç çalışır: yerel pencere kaybolursa çıkış yolu kalmalı (U4-20).
+      if (event.key === "Escape") {
         event.preventDefault();
         cancelRef.current();
         return;
@@ -63,7 +62,7 @@ export function NewTaskDialog({
   if (!open) return null;
   return (
     <div className="new-task-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !busy) onCancel();
+      if (event.target === event.currentTarget) onCancel();
     }}>
       <div
         aria-labelledby="new-task-title"
@@ -79,18 +78,18 @@ export function NewTaskDialog({
           <p>Serbestçe sohbet et veya bilgisayarındaki bir klasörde çalış.</p>
         </header>
         <div className="new-task-dialog__choices">
-          <button aria-label="Sohbet başlat" disabled={busy} onClick={onChat} type="button">
+          <button aria-describedby="new-task-chat-desc" aria-labelledby="new-task-chat-title" disabled={busy} onClick={onChat} type="button">
             <Icon name="new" size={20} />
-            <span><strong>Sohbet başlat</strong><small>Dosya sistemine odaklanmadan tek yapay zekâyla konuş.</small></span>
+            <span><strong id="new-task-chat-title">Sohbet başlat</strong><small id="new-task-chat-desc">Dosya sistemine odaklanmadan tek yapay zekâyla konuş.</small></span>
           </button>
-          <button aria-label="Klasörde kod görevi" disabled={busy} onClick={onFolder} type="button">
+          <button aria-describedby="new-task-folder-desc" aria-labelledby="new-task-folder-title" disabled={busy} onClick={onFolder} type="button">
             <Icon name="files" size={20} />
-            <span><strong>Klasörde kod görevi</strong><small>Masaüstü veya bilgisayarındaki herhangi bir proje klasörünü aç.</small></span>
+            <span><strong id="new-task-folder-title">Klasörde kod görevi</strong><small id="new-task-folder-desc">Masaüstü veya bilgisayarındaki herhangi bir proje klasörünü aç.</small></span>
           </button>
         </div>
         {error && <p aria-live="polite" className="new-task-dialog__error">{error}</p>}
         <footer>
-          <button disabled={busy} onClick={onCancel} type="button">Vazgeç</button>
+          <button onClick={onCancel} type="button">Vazgeç</button>
           {busy && <span aria-live="polite">Klasör seçiliyor…</span>}
         </footer>
       </div>

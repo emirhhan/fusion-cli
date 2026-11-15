@@ -48,8 +48,21 @@ class SteeringQueue:
         Boşaltma tek seferliktir: aynı yönergeyi her turda yeniden göndermek,
         kullanıcının bir kez söylediğini sonsuz tekrar eden bir talimata çevirirdi.
         """
-        notlar = tuple(
-            Message("user", f"{_PREFIX} {text}", harness_note=True) for text in self._pending
-        )
-        self._pending.clear()
-        return notlar
+        # Önce listeyi atomik takasla, sonra dolaş: dolaşma ile clear() arasında başka
+        # iş parçacığından gelen push eskiden sessizce siliniyordu.
+        # Ölçüldü (30 Ekim): dolaşma bittikten sonra gelen yönerge drain ile kayboluyordu.
+        bekleyen, self._pending = self._pending, []
+        return tuple(Message("user", f"{_PREFIX} {text}", harness_note=True) for text in bekleyen)
+
+
+def steering_text(message: Message) -> str | None:
+    """Bu harness notu kullanıcının araya girdiği yönerge mi? Öyleyse yönerge metni.
+
+    Yönerge `harness_note` taşır ama sözü kullanıcınındır; Otomatik kip denetçisi (P-011)
+    kullanıcı niyetini okurken onu diğer harness notlarından (talimat, özet) ayırır.
+    """
+    if message.role != "user" or not message.harness_note:
+        return None
+    if not message.content.startswith(f"{_PREFIX} "):
+        return None
+    return message.content[len(_PREFIX) + 1 :]

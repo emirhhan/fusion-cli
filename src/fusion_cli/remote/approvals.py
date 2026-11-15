@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..core.mcp_tool_names import mcp_server_of
 from ..core.tools import ToolFamily, tool_family
 from .scopes import Scope
 
@@ -25,8 +26,8 @@ def classify_question(question: dict[str, Any]) -> ApprovalClass:
         return ApprovalClass(
             Scope.PROJECT_WRITE.value, True, "Tehlikeli işlem için açık ikinci teyit gerekir."
         )
-    if "__" in tool:
-        server = tool.split("__", 1)[0]
+    server = mcp_server_of(tool)
+    if server:
         return ApprovalClass(
             f"mcp.write.{server}", True, "Dış servis işlemi için açık ikinci teyit gerekir."
         )

@@ -65,16 +65,42 @@ def test_trace_son_kosuyu_ozetler(state):
     assert "Böyle bir koşu yok" in _run(state, "trace", "uydurma")
 
 
-def test_add_dir_acar_listeler_ve_kapatir(state, tmp_path):
+def test_add_dir_acar_dirs_listeler_ve_kapatir(state, tmp_path):
     ek = tmp_path / "ortak"
     ek.mkdir()
-    assert "Ek klasör yok" in _run(state, "add-dir")
+    assert "Ek klasör yok" in _run(state, "dirs")
     assert "Erişim açıldı" in _run(state, "add-dir", str(ek))
     assert state.extra_roots == (ek.resolve(),)
     assert "Zaten açık" in _run(state, "add-dir", str(ek))
-    assert str(ek.resolve()) in _run(state, "add-dir")
-    assert "proje kökünün içinde" in _run(state, "add-dir", str(state.root))
+    assert str(ek.resolve()) in _run(state, "dirs")
+    assert "zaten proje kökü" in _run(state, "add-dir", str(state.root))
     assert "bulunamadı" in _run(state, "add-dir", str(tmp_path / "yok"))
-    assert "ev dizininin" in _run(state, "add-dir", str(Path.home()))
-    assert "kapatıldı" in _run(state, "add-dir", f"kaldir {ek}")
+    # Claude Code (#77, kullanıcı kararı 2 Kasım): ev dizini de eklenebilir.
+    assert "Erişim açıldı" in _run(state, "add-dir", str(Path.home()))
+    _run(state, "dirs", f"kaldir {Path.home()}")
+    assert "Kullanım: /dirs" in _run(state, "dirs", "sil")
+    assert "kapatıldı" in _run(state, "dirs", f"kaldir {ek}")
     assert state.extra_roots == ()
+
+
+def test_add_dir_eski_listeleme_ve_kaldir_bir_kez_uyarir(state, tmp_path):
+    """Claude `/add-dir` yalnız ekler (#213); eski Fusion dalları /dirs'e gider, bir kez uyarır."""
+    ek = tmp_path / "ortak"
+    ek.mkdir()
+    _run(state, "add-dir", str(ek))
+    ilk = _run(state, "add-dir")
+    assert str(ek.resolve()) in ilk and "/dirs kullanın" in ilk
+    ikinci = _run(state, "add-dir", f"kaldir {ek}")
+    assert "kapatıldı" in ikinci and "/dirs kullanın" not in ikinci
+    assert state.extra_roots == ()
+
+
+def test_add_dir_alt_klasorun_tanimlarini_yukler(state):
+    """Claude (#77): birincil dizinin alt dizini reddedilmez; tanımları yüklenir."""
+    alt = state.root / "paket"
+    (alt / ".claude" / "skills" / "yerel-beceri").mkdir(parents=True)
+    (alt / ".claude" / "skills" / "yerel-beceri" / "SKILL.md").write_text(
+        "---\nname: yerel-beceri\ndescription: test\n---\ngovde\n", encoding="utf-8"
+    )
+    assert "tanımları yüklendi" in _run(state, "add-dir", str(alt))
+    assert "yerel-beceri" in {skill.name for skill in state.capabilities.skills()}

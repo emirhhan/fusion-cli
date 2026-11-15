@@ -24,13 +24,15 @@ export async function startLevelMeter(
     window.AudioContext ??
     (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctor || !navigator.mediaDevices) return null;
+  let stream: MediaStream | null = null;
   try {
-    const stream = await getMedia();
+    stream = await getMedia();
     const context = new Ctor();
     const source = context.createMediaStreamSource(stream);
     const analyser = context.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
+    const opened = stream;
     const buffer = new Uint8Array(analyser.frequencyBinCount);
 
     return {
@@ -45,11 +47,13 @@ export async function startLevelMeter(
         return Math.min(1, Math.sqrt(toplam / buffer.length) * 3);
       },
       stop: () => {
-        stream.getTracks().forEach((track) => track.stop());
+        opened.getTracks().forEach((track) => track.stop());
         void context.close().catch(() => undefined);
       },
     };
   } catch {
+    // `AudioContext` kurulamadıysa akış açık kalırsa mikrofon göstergesi sönmez (U2-33).
+    stream?.getTracks().forEach((track) => track.stop());
     return null;
   }
 }

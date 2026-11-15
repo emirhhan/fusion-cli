@@ -94,7 +94,7 @@ async def test_token_varken_oauth_akisi_hic_baslatilmaz(monkeypatch):
 
     monkeypatch.setattr(oauth_module, "oauth_provider_for", fake_provider)
     monkeypatch.setattr(client_module, "open_mcp_stream", open_stream)
-    monkeypatch.setattr(client_module, "ClientSession", lambda _r, _w: _Session())
+    monkeypatch.setattr(client_module, "ClientSession", lambda _r, _w, **_options: _Session())
     monkeypatch.setenv(TOKEN_ENV, "gizli-token")
 
     client = McpClient([_remote(token_env=TOKEN_ENV)])

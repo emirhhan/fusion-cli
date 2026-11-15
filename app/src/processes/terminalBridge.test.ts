@@ -1,8 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { invoke, listen } = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
+const { invoke, listen, channels } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  listen: vi.fn(),
+  channels: [] as Array<{ onmessage: (message: unknown) => void }>,
+}));
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+// Gerçek Channel Tauri çalışma zamanına bağlıdır; sahte sürüm `onmessage`'i dışarı verir.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke,
+  Channel: class {
+    onmessage: (message: unknown) => void = () => undefined;
+    constructor() { channels.push(this); }
+  },
+}));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
 import { createTerminalRuntime } from "./terminalBridge";
@@ -10,7 +21,13 @@ import { createTerminalRuntime } from "./terminalBridge";
 beforeEach(() => {
   invoke.mockReset();
   listen.mockReset();
+  channels.length = 0;
 });
+
+/** Rust'ın kanala yolladığı ham baytı (ArrayBuffer) en son açılan terminalin kanalına verir. */
+function emitOutput(data: number[]) {
+  channels.at(-1)!.onmessage(new Uint8Array(data).buffer);
+}
 
 describe("terminalBridge", () => {
   async function openOutputHarness() {
@@ -21,10 +38,7 @@ describe("terminalBridge", () => {
     });
     invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
     const session = await createTerminalRuntime().openSession("/repo", 80, 24);
-    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({
-      payload: { terminalId: "terminal-1", data },
-    });
-    return { emit, session };
+    return { emit: emitOutput, session };
   }
 
   it("limit üstü unterminated OSC retention'ı dondurur; clear yeni epoch'u temiz parser ile açar", async () => {
@@ -99,7 +113,7 @@ describe("terminalBridge", () => {
     const session = await createTerminalRuntime().openSession("/repo", 80, 24);
     const live: Uint8Array[] = [];
     session.onOutput((data) => live.push(data));
-    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    const emit = emitOutput;
     emit([36, 32]);
     emit(new Array<number>(256 * 1024 - 2).fill(97));
     emit([226, 130]);
@@ -124,7 +138,7 @@ describe("terminalBridge", () => {
     const session = await createTerminalRuntime().openSession("/repo", 80, 24);
     const live: Uint8Array[] = [];
     session.onOutput((data) => live.push(data));
-    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    const emit = emitOutput;
     emit([36, 32]);
     emit(new Array<number>(256 * 1024 - 2).fill(97));
     emit([27, 91, 51, 49]);
@@ -147,7 +161,7 @@ describe("terminalBridge", () => {
     });
     invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
     const session = await createTerminalRuntime().openSession("/repo", 80, 24);
-    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    const emit = emitOutput;
     emit([111, 108, 100]);
     session.clearRetention();
     emit([110, 101, 119]);
@@ -161,7 +175,7 @@ describe("terminalBridge", () => {
     listen.mockResolvedValue(vi.fn());
     let finishClose!: () => void;
     invoke.mockImplementation((command: string) => {
-      if (command === "terminal_ac") {
+      if (command === "terminal_ac_kanal") {
         return Promise.resolve({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
       }
       if (command === "terminal_kapat") return new Promise<void>((resolve) => { finishClose = resolve; });
@@ -176,28 +190,45 @@ describe("terminalBridge", () => {
     await Promise.all([first, second]);
   });
 
-  it("ikinci listener kurulamazsa daha önce kurulan listener'ı rollback eder", async () => {
-    const stopOutput = vi.fn();
-    listen
-      .mockResolvedValueOnce(stopOutput)
-      .mockRejectedValueOnce(new Error("closed listener kurulamadı"));
+  it("kapanma dinleyicisi kurulamazsa terminal açılmaz", async () => {
+    listen.mockRejectedValueOnce(new Error("closed listener kurulamadı"));
 
     await expect(createTerminalRuntime().openSession("/repo", 80, 24))
       .rejects.toThrow("closed listener kurulamadı");
 
-    expect(stopOutput).toHaveBeenCalledOnce();
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("terminal_ac sırasında senkron gelen ilk çıktıyı listener-before-open buffer'ından teslim eder", async () => {
-    const handlers = new Map<string, (event: { payload: unknown }) => void>();
-    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      handlers.set(name, handler);
-      return vi.fn();
-    });
+  it("terminal açılamazsa kapanma dinleyicisini bırakır", async () => {
+    const stopClosed = vi.fn();
+    listen.mockResolvedValue(stopClosed);
+    invoke.mockRejectedValue(new Error("pty açılamadı"));
+
+    await expect(createTerminalRuntime().openSession("/repo", 80, 24)).rejects.toThrow("pty açılamadı");
+
+    expect(stopClosed).toHaveBeenCalledOnce();
+  });
+
+  /* Ölçüldü (30 Ekim): çıktı `terminal://cikti` olayında JSON sayı dizisiydi (her bayt ayrı bir
+     JSON sayısı + kimlik süzmesi). Artık terminale özgü Channel'dan ham ArrayBuffer gelir. */
+  it("çıktı ham ArrayBuffer olarak kanaldan gelir ve olay dinleyicisi çıktı için kurulmaz", async () => {
+    listen.mockResolvedValue(vi.fn());
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const alinan: Uint8Array[] = [];
+    session.onOutput((data) => alinan.push(data));
+
+    emitOutput([0x1b, 0x5b, 0x33, 0x31, 0x6d, 0xff]);
+
+    expect(alinan).toEqual([new Uint8Array([0x1b, 0x5b, 0x33, 0x31, 0x6d, 0xff])]);
+    expect(listen.mock.calls.map(([name]) => name)).toEqual(["terminal://kapandi"]);
+  });
+
+  it("terminal_ac_kanal dönmeden gelen ilk çıktıyı kanaldan alıp abonelere tekrarlar", async () => {
+    listen.mockResolvedValue(vi.fn());
     invoke.mockImplementation(async (command: string) => {
-      if (command === "terminal_ac") {
-        handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-fast", data: [36, 32] } });
+      if (command === "terminal_ac_kanal") {
+        emitOutput([36, 32]);
         return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
       }
     });
@@ -207,7 +238,19 @@ describe("terminalBridge", () => {
     session.onOutput(output);
 
     expect(output).toHaveBeenCalledWith(new Uint8Array([36, 32]));
-    expect(listen.mock.invocationCallOrder[1]).toBeLessThan(invoke.mock.invocationCallOrder[0]);
+    expect(listen.mock.invocationCallOrder[0]).toBeLessThan(invoke.mock.invocationCallOrder[0]);
+  });
+
+  it("dispose sonrası gelen kanal iletisi abonelere ve dökümlere işlenmez", async () => {
+    listen.mockResolvedValue(vi.fn());
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    session.dispose();
+    emitOutput([97]);
+    const replay = vi.fn();
+    session.onOutput(replay);
+
+    expect(replay).not.toHaveBeenCalled();
   });
 
   it("retained transcript'i 256 KiB ile sınırlar ve güvenli akış başlangıcını korur", async () => {
@@ -220,7 +263,7 @@ describe("terminalBridge", () => {
     const session = await createTerminalRuntime().openSession("/repo", 80, 24);
     for (let index = 0; index < 257; index += 1) {
       const data = new Array<number>(1024).fill(97);
-      handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+      emitOutput(data);
     }
     const replayed: Uint8Array[] = [];
     session.onOutput((data) => replayed.push(data));
@@ -237,7 +280,7 @@ describe("terminalBridge", () => {
       return vi.fn();
     });
     invoke.mockImplementation(async (command: string) => {
-      if (command === "terminal_ac") {
+      if (command === "terminal_ac_kanal") {
         handlers.get("terminal://kapandi")?.({ payload: { terminalId: "terminal-fast", reason: "shell exited", exitCode: 1 } });
         return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
       }
@@ -249,52 +292,48 @@ describe("terminalBridge", () => {
     await session.close();
 
     expect(closed).toHaveBeenCalledWith({ reason: "shell exited", exitCode: 1 });
-    expect(invoke.mock.calls).toEqual([["terminal_ac", { cwd: "/repo", cols: 80, rows: 24 }]]);
+    expect(invoke.mock.calls).toEqual([["terminal_ac_kanal", { cwd: "/repo", cols: 80, rows: 24, output: channels[0] }]]);
   });
 
   it("Tauri terminal komutlarını kesin ad ve payload ile çağırır", async () => {
     invoke.mockResolvedValueOnce({ terminalId: "terminal-7", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
     const runtime = createTerminalRuntime();
+    const onOutput = vi.fn();
 
-    await expect(runtime.open("/repo", 80, 24)).resolves.toEqual({
+    await expect(runtime.open("/repo", 80, 24, onOutput)).resolves.toEqual({
       terminalId: "terminal-7", cwd: "/repo", cols: 80, rows: 24, pid: 42,
     });
     await runtime.write("terminal-7", new Uint8Array([3, 10]));
     await runtime.resize("terminal-7", 120, 36);
     await runtime.close("terminal-7");
+    emitOutput([226, 130]);
 
     expect(invoke.mock.calls).toEqual([
-      ["terminal_ac", { cwd: "/repo", cols: 80, rows: 24 }],
-      ["terminal_yaz", { terminalId: "terminal-7", data: [3, 10] }],
+      ["terminal_ac_kanal", { cwd: "/repo", cols: 80, rows: 24, output: channels[0] }],
+      // U4-25: girdi sayı dizisi değil HAM bayt; kimlik başlıkta.
+      ["terminal_yaz", new Uint8Array([3, 10]), { headers: { "x-terminal-id": "terminal-7" } }],
       ["terminal_boyutla", { terminalId: "terminal-7", cols: 120, rows: 36 }],
       ["terminal_kapat", { terminalId: "terminal-7" }],
     ]);
+    expect(onOutput).toHaveBeenCalledWith(new Uint8Array([226, 130]));
   });
 
-  it("çıktı ve kapanma olaylarını süzer ve dönen işlevle dinleyiciyi kaldırır", async () => {
-    const outputUnlisten = vi.fn();
+  it("kapanma olayını süzer ve dönen işlevle dinleyiciyi kaldırır", async () => {
     const closedUnlisten = vi.fn();
-    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
-      if (name === "terminal://cikti") {
-        handler({ payload: { terminalId: "terminal-2", data: [226, 130] } });
-        return outputUnlisten;
-      }
+    listen.mockImplementation(async (_name: string, handler: (event: { payload: unknown }) => void) => {
+      handler({ payload: { terminalId: "terminal-3", reason: "başkası", exitCode: 9 } });
       handler({ payload: { terminalId: "terminal-2", reason: "çıktı", exitCode: 0 } });
       return closedUnlisten;
     });
     const runtime = createTerminalRuntime();
-    const onOutput = vi.fn();
     const onClosed = vi.fn();
 
-    const stopOutput = await runtime.onOutput("terminal-2", onOutput);
     const stopClosed = await runtime.onClosed("terminal-2", onClosed);
-    stopOutput();
     stopClosed();
 
-    expect(listen.mock.calls.map(([name]) => name)).toEqual(["terminal://cikti", "terminal://kapandi"]);
-    expect(onOutput).toHaveBeenCalledWith(new Uint8Array([226, 130]));
+    expect(listen.mock.calls.map(([name]) => name)).toEqual(["terminal://kapandi"]);
+    expect(onClosed).toHaveBeenCalledTimes(1);
     expect(onClosed).toHaveBeenCalledWith({ reason: "çıktı", exitCode: 0 });
-    expect(outputUnlisten).toHaveBeenCalledOnce();
     expect(closedUnlisten).toHaveBeenCalledOnce();
   });
 

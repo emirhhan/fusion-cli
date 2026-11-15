@@ -10,20 +10,27 @@ sormaz; yalnızca sağlayıcıyı çağırır.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from uuid import uuid4
 
+from ..core import display_filter
 from ..core.events import (
     Channel,
     EventPublisher,
+    ModelCallAbandoned,
     ModelCallFinished,
+    ModelCallPurpose,
     ModelCallStarted,
     TierDegraded,
     TokenReceived,
 )
 from ..core.protocols import LlmProvider
+from ..core.provider_diagnostics import ProviderCallObserver, observe_phase
 from ..core.tier import tier_mismatch
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem, TextChunk
+from .stream_cleanup import closing_stream
 
 
 class EventingProvider:
@@ -37,6 +44,7 @@ class EventingProvider:
         role: str,
         channel: Channel = Channel.MAIN,
         background: bool = False,
+        purpose: ModelCallPurpose = "other",
         call_id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._call_id_factory = call_id_factory or (lambda: uuid4().hex)
@@ -45,6 +53,7 @@ class EventingProvider:
         self._role = role
         self._channel = channel
         self._background = background
+        self._purpose = purpose
 
     @property
     def label(self) -> str:
@@ -52,26 +61,102 @@ class EventingProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         call_id = self._call_id_factory()
+        request = self._correlate_request(request, call_id, stream=False)
         self._publisher.publish(self._started(call_id))
-        result = await self._inner.complete(request)
+        observe_phase(request, "call_enter")
+        try:
+            result = await self._inner.complete(request)
+        except (asyncio.CancelledError, Exception) as exc:
+            # Zaman aşımı, kesilen yavaş aday ya da sözleşme dışı istisna: bitiş olayı
+            # hiç gelmeyecek; açık kalan "çalışıyor" durumu kapatılır (P1-11).
+            observe_phase(
+                request,
+                "call_cancelled" if isinstance(exc, asyncio.CancelledError) else "call_error",
+            )
+            self._publish_abandoned(call_id)
+            raise
+        observe_phase(request, "call_end")
         self._publish_finished(result, call_id)
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         call_id = self._call_id_factory()
+        request = self._correlate_request(request, call_id, stream=True)
         self._publisher.publish(self._started(call_id))
-        async for item in self._inner.stream(request):
-            if isinstance(item, TextChunk) and item.text:
-                # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
-                # arayüze olay olarak gitmez.
-                self._publisher.publish(
-                    TokenReceived(
-                        channel=self._channel, text=item.text, provisional=item.provisional
-                    )
+        observe_phase(request, "call_enter")
+        finished = False
+        # MessageDisplay kancası (#90): ana konuşmanın görünen metni satır partileriyle süzülür.
+        display = display_filter.open_stream(call_id) if self._channel is Channel.MAIN else None
+        try:
+            async with closing_stream(self._inner.stream(request)) as stream:
+                async for item in stream:
+                    if isinstance(item, TextChunk) and item.text:
+                        # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
+                        # arayüze olay olarak gitmez.
+                        if display is None:
+                            self._publish_text(item.text, item.provisional)
+                        else:
+                            self._publish_pieces(await display.feed(item.text, item.provisional))
+                    elif isinstance(item, StreamDone):
+                        if display is not None:
+                            self._publish_pieces(await display.finish())
+                        observe_phase(request, "call_end")
+                        finished = True
+                        self._publish_finished(item.result, call_id)
+                    yield item
+        except (asyncio.CancelledError, GeneratorExit, Exception) as exc:
+            if not finished:
+                observe_phase(
+                    request,
+                    "call_cancelled"
+                    if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
+                    else "call_error",
                 )
-            elif isinstance(item, StreamDone):
-                self._publish_finished(item.result, call_id)
-            yield item
+                self._publish_abandoned(call_id)
+            raise
+
+    def _publish_text(self, text: str, provisional: bool) -> None:
+        self._publisher.publish(
+            TokenReceived(channel=self._channel, text=text, provisional=provisional)
+        )
+
+    def _publish_pieces(self, pieces: list[display_filter.Piece]) -> None:
+        for text, provisional in pieces:
+            self._publish_text(text, provisional)
+
+    def _correlate_request(
+        self, request: CompletionRequest, call_id: str, *, stream: bool
+    ) -> CompletionRequest:
+        """Bind diagnostics and optional web context to the same lifecycle identity."""
+        observer = ProviderCallObserver(
+            self._publisher.publish,
+            call_id=call_id,
+            max_tokens=request.max_tokens,
+            timeout_s=request.timeout_s,
+            requested_sdk_retries=request.max_retries,
+            stream=stream,
+            purpose=self._purpose,
+            background=self._background,
+        )
+        return replace(
+            request,
+            provider_observer=observer,
+            web_call_context=(
+                replace(request.web_call_context, model_call_id=call_id)
+                if request.web_call_context is not None
+                else None
+            ),
+        )
+
+    def _publish_abandoned(self, call_id: str) -> None:
+        self._publisher.publish(
+            ModelCallAbandoned(
+                role=self._role,
+                model=self._inner.label,
+                background=self._background,
+                call_id=call_id,
+            )
+        )
 
     def _started(self, call_id: str) -> ModelCallStarted:
         return ModelCallStarted(
@@ -86,6 +171,7 @@ class EventingProvider:
                 background=self._background,
                 call_id=call_id,
                 requested_model=self._inner.label,
+                purpose=self._purpose,
             )
         )
         # Yalnızca kullanıcı AÇIKÇA bir web kademesi seçtiyse (bkz. `core.tier`)

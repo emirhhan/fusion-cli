@@ -86,7 +86,11 @@ def _command(
 def _prepare(args: ToolArgs, context: ToolContext) -> dict[str, object]:
     _check_cancelled(context)
     if set(args) != {"output"}:
-        raise ValueError("Render aracı yalnız output kabul eder; plan/browser hosttan gelir.")
+        fazla = ", ".join(sorted(map(str, set(args) - {"output"}))) or "(yok)"
+        raise ValueError(
+            "Render aracı yalnız output kabul eder; plan/browser/composition_id/fps hosttan "
+            f"gelir. Fazladan alan: {fazla}; eksikse output ver."
+        )
     contract = context.remotion_contract.registered
     if contract is None:
         raise ValueError("Önce scaffold_remotion ile host kit planı kaydet.")

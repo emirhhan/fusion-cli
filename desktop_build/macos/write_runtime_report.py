@@ -25,8 +25,24 @@ def human_size(path: Path) -> str:
     raise AssertionError("ulaşılamaz")
 
 
-def write_report(root: Path, output: Path) -> None:
-    """Mevcut artefaktlardan sürüm, mimari ve boyut kanıtı üret."""
+def parse_results(raw: list[str]) -> list[str]:
+    """`Ad=değer` biçimindeki çağıran sonuçlarını doğrula."""
+    for item in raw:
+        name, separator, value = item.partition("=")
+        if not separator or not name.strip() or not value.strip():
+            raise ValueError(f"Sonuç 'Ad=değer' biçiminde olmalı: {item!r}")
+    return raw
+
+
+def write_report(root: Path, output: Path, results: list[str] | None = None) -> None:
+    """Mevcut artefaktlardan sürüm, mimari ve boyut kanıtı üret.
+
+    Kalite kapısı, smoke ve rollback sonuçları BU modülde ölçülmez. Eskiden
+    "Python kalite kapısı: geçti (2.514 test)" gibi sabit dizgiler yazılıyordu ve
+    hiçbir sonuç okunmadan rapor yeşil görünüyordu (Q1-04, ölçüldü 30 Ekim).
+    Artık yalnız çağıranın `results` ile verdiği, gerçekten ölçülmüş sonuçlar
+    yazılır; verilmeyen sonuç "Ölçülmedi" olarak açıkça belirtilir.
+    """
     runtime_dir = root / "app/src-tauri/resources/runtime"
     manifest = cast(
         dict[str, Any],
@@ -51,27 +67,39 @@ def write_report(root: Path, output: Path) -> None:
         f"- Runtime arşiv boyutu: {human_size(runtime_dir / manifest['archive'])}",
         f"- Fusion.app boyutu: {human_size(app)}",
         f"- DMG boyutu: {human_size(dmg)}",
-        "- Python kalite kapısı: geçti (2.514 test)",
-        "- Kilitlenme kapısı: geçti (105 test)",
-        "- React kalite kapısı: geçti (36 test)",
-        "- Rust kalite kapısı: geçti (28 test)",
-        "- Temiz HOME smoke: geçti",
-        "- İkinci açılış yeniden kurmadan geçti: evet",
-        "- Onarım/rollback: geçti",
-        "- Sistem fusion bağımlılığı: yok",
-        "- İmzalama/notarization: yok (Apple Developer hesabı gerektirmez)",
+        *_result_lines(results or []),
         "",
     ]
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _result_lines(results: list[str]) -> list[str]:
+    if not results:
+        return [
+            "- Kalite kapısı, smoke ve rollback sonuçları: Ölçülmedi "
+            "(bu rapor yalnız artefakt sürüm/boyut kanıtıdır)"
+        ]
+    lines = []
+    for item in results:
+        name, _, value = item.partition("=")
+        lines.append(f"- {name.strip()}: {value.strip()}")
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fusion macOS runtime raporunu üretir.")
     parser.add_argument("--output", required=True, type=Path, help="Markdown rapor yolu")
+    parser.add_argument(
+        "--sonuc",
+        action="append",
+        default=[],
+        metavar="AD=DEĞER",
+        help="Ölçülmüş sonuç satırı (örn. 'Python kalite kapısı=geçti (N test)'); yinelenebilir",
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
-    write_report(root, args.output.resolve())
+    write_report(root, args.output.resolve(), parse_results(args.sonuc))
     print(f"Rapor yazıldı: {args.output.resolve()}")
 
 

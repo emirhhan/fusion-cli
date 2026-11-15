@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -192,3 +193,45 @@ class TestPlanAyristirmaHatasi:
 
         assert "çift tırnak KULLANMA" in metin
         assert "tek tırnak" in metin
+
+
+def test_yeniden_plan_bagimli_adimin_dosya_teslimatini_dusuremez():
+    """Ölçüldü (30 Ekim, A3-15): aday, başarısız adıma bağlı adımın teslimatını
+    sessizce düşürebiliyordu; `merge` bunu denetlemiyordu."""
+    current = ExecutionPlan(
+        "p",
+        "oyun yap",
+        (
+            _step("asset", target="assets/missing.png"),
+            _step("level", target="levels/ilk.json", depends_on=("asset",)),
+        ),
+    )
+    dusuren = ExecutionPlan("aday", "oyun yap", (_step("asset-real", target="game/player.png"),))
+    koruyan = ExecutionPlan(
+        "aday",
+        "oyun yap",
+        (
+            _step("asset-real", target="game/player.png"),
+            _step("level-real", target="levels/ilk.json", depends_on=("asset-real",)),
+        ),
+    )
+
+    assert merge_replanned_plan(current, dusuren, "asset", "fp") is None
+    assert merge_replanned_plan(current, koruyan, "asset", "fp") is not None
+
+
+def test_hedefi_kelime_degistirerek_yeniden_yazan_plan_tekrar_sayilir():
+    failed = _step("asset", target="assets/missing.png")
+    current = ExecutionPlan("p", "oyun yap", (failed,))
+    yeniden_yazilmis = ExecutionPlan(
+        "aday",
+        "oyun yap",
+        (
+            replace(
+                _step("asset-2", target="assets/missing.png"),
+                goal="assets/missing.png HAZIRLA",
+            ),
+        ),
+    )
+
+    assert merge_replanned_plan(current, yeniden_yazilmis, "asset", "fp") is None

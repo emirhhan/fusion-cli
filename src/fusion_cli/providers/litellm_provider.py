@@ -21,9 +21,11 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock
-from ..core.reasoning import resolve_reasoning
+from ..core.provider_diagnostics import observe_phase
+from ..core.reasoning import ReasoningResolution, resolve_reasoning
 from ..core.redaction import redact
 from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
+from ..core.tool_schema_variants import accepts_raw_schemas, with_raw_schemas
 from ..core.types import (
     CompletionRequest,
     Message,
@@ -34,10 +36,13 @@ from ..core.types import (
     TokenUsage,
     ToolCall,
 )
-from .context_window import OLLAMA_NUM_CTX
+from . import beta_headers
+from .context_window import ollama_num_ctx
+from .stream_cleanup import closing_stream
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
+_NIM_BUDGET_MODEL = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
 
 #: Çıktı bütçesi düşünme sırasında dolduğunda kullanıcıya dönen açıklama.
 TRUNCATED_ERROR = (
@@ -100,8 +105,14 @@ class LiteLlmProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         started = self._clock.monotonic()
+        if request.provider_observer is not None:
+            request.provider_observer.leaf_enter()
         try:
-            response = await _litellm().acompletion(**self._call_kwargs(request, stream=False))
+            kwargs = self._call_kwargs(request, stream=False)
+            sdk = _litellm()
+            observe_phase(request, "sdk_await_enter")
+            response = await sdk.acompletion(**kwargs)
+            observe_phase(request, "sdk_response_returned")
         except Exception as exc:
             # Sağlayıcı hataları BEKLENEN durumdur (429, 5xx, zaman aşımı, soğuk uç):
             # akışı kesmemek için exception'a değil sonuç nesnesine çevrilir.
@@ -111,20 +122,29 @@ class LiteLlmProvider:
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         started = self._clock.monotonic()
         chunks: list[Any] = []
+        if request.provider_observer is not None:
+            request.provider_observer.leaf_enter()
         try:
-            response = await _litellm().acompletion(**self._call_kwargs(request, stream=True))
-            async for chunk in response:
-                chunks.append(chunk)
-                text = _chunk_text(chunk)
-                if text:
-                    yield TextChunk(text)
-                else:
-                    # Araç argümanı ya da düşünme parçası: metin yok ama model
-                    # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
-                    # olarak yazan model iki dakika "sessiz" sanılıp her denemede
-                    # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
-                    # sessizlik sınırını tazeler (bkz. `loop._call_model`).
-                    yield TextChunk("", provisional=True)
+            kwargs = self._call_kwargs(request, stream=True)
+            sdk = _litellm()
+            observe_phase(request, "sdk_await_enter")
+            response = await sdk.acompletion(**kwargs)
+            async with closing_stream(response):
+                observe_phase(request, "sdk_stream_open")
+                async for chunk in response:
+                    chunks.append(chunk)
+                    text = _chunk_text(chunk)
+                    if request.provider_observer is not None:
+                        request.provider_observer.sdk_chunk(has_text=bool(text))
+                    if text:
+                        yield TextChunk(text)
+                    else:
+                        # Araç argümanı ya da düşünme parçası: metin yok ama model
+                        # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
+                        # olarak yazan model iki dakika "sessiz" sanılıp her denemede
+                        # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
+                        # sessizlik sınırını tazeler (bkz. `loop._call_model`).
+                        yield TextChunk("", provisional=True)
         except Exception as exc:
             yield StreamDone(self._with_effort(self._failure(exc, started), request))
             return
@@ -141,8 +161,24 @@ class LiteLlmProvider:
             "timeout": request.timeout_s,
             "num_retries": request.max_retries,
         }
+        if self._model.startswith("nvidia_nim/"):
+            # NIM's LiteLLM mapping drops max_retries, restoring the SDK default
+            # of two retries even when the request explicitly asks for zero.
+            kwargs["allowed_openai_params"] = ["max_retries"]
+        if request.response_schema is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "fusion_response",
+                    "strict": True,
+                    "schema": dict(request.response_schema),
+                },
+            }
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
+            if accepts_raw_schemas(self._model):
+                # MCP aracının ham şeması (#262): Claude Code gibi olduğu gibi gider.
+                kwargs["tools"] = with_raw_schemas(kwargs["tools"])
             kwargs["tool_choice"] = "auto"
             # Nemotron 3'e `force_nonempty_content` GÖNDERİLMEZ. Ölçüldü (27 Eylül,
             # 6/6 deneme): bu şablon seçeneği düşünme metnini `reasoning_content`
@@ -159,6 +195,22 @@ class LiteLlmProvider:
             # Yalnız ölçülen sağlayıcıda: NIM şablon anahtarı. Başka uçlara ham gövde
             # gönderilmez (OpenAI 400 verir).
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        if request.reasoning_budget is not None:
+            if (
+                self._model != _NIM_BUDGET_MODEL
+                or request.reasoning_effort not in {"medium", "high"}
+                or request.disable_thinking
+                or isinstance(request.reasoning_budget, bool)
+                or not 0 < request.reasoning_budget <= request.max_tokens
+            ):
+                raise ValueError("Düşünme bütçesi bu model/istek için geçerli değil.")
+            # Resmî NIM infer API: yerel alanlar. LiteLLM reasoning_effort'u düşürür;
+            # extra_body içindeki yerel alanlar gerçek gövdeye aynen aktarılır.
+            kwargs.pop("reasoning_effort", None)
+            kwargs["extra_body"] = {
+                "reasoning_effort": request.reasoning_effort,
+                "reasoning_budget": request.reasoning_budget,
+            }
         measured_local_default = self._model in {
             "ollama/huihui_ai/qwen3.5-abliterated:9b",
             "ollama_chat/huihui_ai/qwen3.5-abliterated:9b",
@@ -175,16 +227,23 @@ class LiteLlmProvider:
             # araç şemaları tek başına bunu aşıyor; Ollama en eski mesajları, yani
             # SİSTEM İSTEMİNİ, sessizce kesiyordu. Model araç sözleşmesini görmeden
             # tekrar döngüsüne giriyor ve görevleri hiç bitiremiyordu.
-            kwargs["num_ctx"] = OLLAMA_NUM_CTX
+            kwargs["num_ctx"] = ollama_num_ctx(self._model)
             # Ollama boştaki modeli 5 dakikada boşaltır; ~16k token'lık sistem istemi
             # yeniden işlenince ilk yanıt ~4 dakika sürüyor (18 Ekim izinde 228 sn;
             # önbellekli turlar ~20 sn). Model yüklü kalsın.
             kwargs.setdefault("keep_alive", "60m")
             # Qwen'in önerdiği örnekleme (düşünmesiz mod); düşük sıcaklıkta tekrar
             # döngüsüne girmesini cezayla kırar.
-            kwargs.setdefault("top_k", 20)
-            kwargs.setdefault("top_p", 0.8)
-            kwargs.setdefault("repeat_penalty", 1.1)
+            # Yalnız Qwen ailesine: Llama/Gemma/DeepSeek için ölçülmedi (30 Ekim).
+            if "qwen" in self._model.lower():
+                kwargs.setdefault("top_k", 20)
+                kwargs.setdefault("top_p", 0.8)
+                kwargs.setdefault("repeat_penalty", 1.1)
+        if request.prompt_cache_ttl and "claude" in self._model.lower():
+            kwargs["messages"] = _cache_system_prompt(kwargs["messages"], request.prompt_cache_ttl)
+        if betas := beta_headers.headers_for(self._model):
+            # `--betas` (#301): yalnız Anthropic API'sine `anthropic-beta` başlığı.
+            kwargs["extra_headers"] = betas
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
@@ -192,6 +251,40 @@ class LiteLlmProvider:
 
     def _with_effort(self, result: ModelResult, request: CompletionRequest) -> ModelResult:
         resolution = resolve_reasoning(request.reasoning_effort, self._capability)
+        native_budget = (
+            self._model == _NIM_BUDGET_MODEL
+            and request.reasoning_budget is not None
+            and request.reasoning_effort in {"medium", "high"}
+            and not request.disable_thinking
+            and not isinstance(request.reasoning_budget, bool)
+            and 0 < request.reasoning_budget <= request.max_tokens
+        )
+        if native_budget:
+            resolution = ReasoningResolution(
+                request.reasoning_effort,
+                request.reasoning_effort,
+                "Yoğunluk ve sınırlı bütçe NIM yerel istek gövdesine iletildi.",
+            )
+        if (
+            resolution.applied is not None
+            and self._model.startswith("nvidia_nim/")
+            and not native_budget
+        ):
+            # Capability intent can survive our kwargs yet be dropped by the SDK's
+            # NIM mapper. The receipt must describe that transport, not the intent.
+            supported = _litellm().get_supported_openai_params(
+                model=self._model.removeprefix("nvidia_nim/"), custom_llm_provider="nvidia_nim"
+            )
+            if supported is None or "reasoning_effort" not in supported:
+                resolution = replace(
+                    resolution,
+                    applied=None,
+                    reason=(
+                        "NVIDIA NIM taşımasında düşünme yoğunluğunun iletildiği doğrulanmadı."
+                        if supported is None
+                        else "NVIDIA NIM taşıma adaptörü düşünme yoğunluğu parametresini iletmiyor."
+                    ),
+                )
         return replace(
             result,
             requested_effort=resolution.requested,
@@ -222,6 +315,11 @@ class LiteLlmProvider:
         # biter — kullanıcı bunu "hiçbir şey yapmadı" diye görür. Bu bir başarı
         # değildir; açık hataya çevrilir ki yedek zinciri devreye girebilsin.
         yarim = _finish_reason(response) == "length"
+        # Bütçe araç argümanı yazılırken de dolabilir: JSON yarım kalır ve araç
+        # kaydına gitmemeli (ölçüldü 30 Ekim: `ok=True` + yarım argüman dönüyordu).
+        if yarim and tool_calls and not all(_valid_json(call.arguments) for call in tool_calls):
+            tool_calls = ()
+            text = ""
         kesildi = yarim and not text and not tool_calls
         return ModelResult(
             name=self._role,
@@ -246,7 +344,9 @@ class LiteLlmProvider:
                 chunks,
                 messages=[_to_wire(message) for message in request.messages],
             )
-        except Exception:
+        except Exception as exc:
+            # Neden hiçbir yerde görünmüyordu; araç çağrıları da sessizce kayboluyordu.
+            _logger.warning("Akış parçaları toparlanamadı (%s).", type(exc).__name__)
             rebuilt = None
         akis_reasoning = "".join(_chunk_reasoning(chunk) for chunk in chunks)
         if rebuilt is None:
@@ -256,6 +356,7 @@ class LiteLlmProvider:
                 text="".join(_chunk_text(chunk) for chunk in chunks),
                 latency_ms=self._elapsed_ms(started),
                 ok=True,
+                tool_calls=_tool_calls_from_deltas(chunks),
                 reasoning=akis_reasoning,
                 served_by=next(
                     (
@@ -340,7 +441,23 @@ def _response_usage(response: Any, model: str) -> TokenUsage:
         prompt_measured=prompt_value is not None,
         completion_measured=completion_value is not None,
         cost_known=cost is not None and prompt_value is not None and completion_value is not None,
+        cache_read_tokens=_cache_read_tokens(usage),
+        cache_creation_tokens=_int_field(usage, "cache_creation_input_tokens"),
     )
+
+
+def _int_field(source: object, name: str) -> int:
+    value = source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _cache_read_tokens(usage: object) -> int:
+    """Anthropic `cache_read_input_tokens`; OpenAI `prompt_tokens_details.cached_tokens`."""
+    direct = _int_field(usage, "cache_read_input_tokens")
+    if direct:
+        return direct
+    details = getattr(usage, "prompt_tokens_details", None)
+    return _int_field(details, "cached_tokens") if details is not None else 0
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -379,14 +496,76 @@ def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:
     calls: list[ToolCall] = []
     for item in raw:
         try:
-            call_id = str(item.id)
+            raw_id = item.id
             name = str(item.function.name)
             arguments = str(item.function.arguments or "{}")
         except AttributeError:
             continue
         name, arguments = _unwrap_emulation_leak(name, arguments)
-        calls.append(ToolCall(id=call_id, name=name, arguments=arguments))
-    return tuple(calls)
+        calls.append(ToolCall(id=str(raw_id or "").strip(), name=name, arguments=arguments))
+    return _with_unique_ids(calls)
+
+
+def _with_unique_ids(calls: list[ToolCall]) -> tuple[ToolCall, ...]:
+    """Kimliği eksik çağrıya, yanıttaki hiçbir kimlikle çakışmayan host kimliği ver.
+
+    Ölçüldü (29 Ekim): `str(None)` "None" üretiyordu; kimliksiz iki çağrının sonucu
+    geçmişe aynı `tool_call_id` ile yazılıyor, sağlayıcı sonraki turu reddediyordu.
+    """
+    used = {call.id for call in calls if call.id}
+    kept: set[str] = set()
+    unique: list[ToolCall] = []
+    for index, call in enumerate(calls):
+        # Yinelenen kimlikte ilk çağrı kimliğini korur; sonrakiler eksik sayılır.
+        if call.id and call.id not in kept:
+            kept.add(call.id)
+            unique.append(call)
+            continue
+        candidate = f"fusion_call_{index}"
+        suffix = 0
+        while candidate in used:
+            suffix += 1
+            candidate = f"fusion_call_{index}_{suffix}"
+        used.add(candidate)
+        unique.append(replace(call, id=candidate))
+    return tuple(unique)
+
+
+def _valid_json(arguments: str) -> bool:
+    try:
+        json.loads(arguments)
+    except ValueError:
+        return False
+    return True
+
+
+def _tool_calls_from_deltas(chunks: list[Any]) -> tuple[ToolCall, ...]:
+    """`stream_chunk_builder` çökerse araç çağrılarını delta parçalarından birleştir.
+
+    Delta'lar `index` ile gelir: ilk parça kimlik + ad, sonrakiler argüman parçası.
+    """
+    slots: dict[int, dict[str, str]] = {}
+    for chunk in chunks:
+        try:
+            deltas = chunk.choices[0].delta.tool_calls or []
+        except (AttributeError, IndexError, TypeError):
+            continue
+        for fallback_index, delta in enumerate(deltas):
+            index = getattr(delta, "index", None)
+            slot = slots.setdefault(
+                index if isinstance(index, int) else fallback_index,
+                {"id": "", "name": "", "arguments": ""},
+            )
+            function = getattr(delta, "function", None)
+            slot["id"] = slot["id"] or str(getattr(delta, "id", None) or "")
+            slot["name"] = slot["name"] or str(getattr(function, "name", None) or "")
+            slot["arguments"] += str(getattr(function, "arguments", None) or "")
+    calls = [
+        ToolCall(id=slot["id"], name=slot["name"], arguments=slot["arguments"] or "{}")
+        for _, slot in sorted(slots.items())
+        if slot["name"]
+    ]
+    return _with_unique_ids(calls)
 
 
 def _unwrap_emulation_leak(name: str, arguments: str) -> tuple[str, str]:
@@ -447,6 +626,26 @@ def _valid_arguments(raw: str) -> str:
         if isinstance(nesne, dict):
             return json.dumps(nesne, ensure_ascii=False)
     return "{}"
+
+
+def _cache_system_prompt(messages: list[dict[str, Any]], ttl: str) -> list[dict[str, Any]]:
+    """İlk sistem mesajını Claude istem önbelleği işaretli metin bloğuna çevir (#23).
+
+    Claude Code ajan `experimental.cacheTtl` değerini istem önbelleği süresi olarak gönderir;
+    sistem istemi + araç şemaları önekin en uzun sabit parçasıdır.
+    """
+    result = list(messages)
+    for index, message in enumerate(result):
+        if message.get("role") != "system" or not isinstance(message.get("content"), str):
+            continue
+        block = {
+            "type": "text",
+            "text": message["content"],
+            "cache_control": {"type": "ephemeral", "ttl": ttl},
+        }
+        result[index] = {**message, "content": [block]}
+        break
+    return result
 
 
 def _to_wire(message: Message) -> dict[str, Any]:

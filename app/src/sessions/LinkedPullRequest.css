@@ -1,0 +1,24 @@
+/* Bağlı PR rozeti: proje seçici ile aynı kolon (bkz. TrustProject.css). */
+.linked-pr-kolon {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: calc(var(--icerik-en-fazla) + 2 * var(--space-5));
+  padding: 0 var(--space-5);
+  width: 100%;
+}
+.linked-pr {
+  align-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--text-xs);
+  gap: 6px;
+  margin: var(--space-2) 0 0;
+  padding: 3px var(--space-2);
+}
+.linked-pr:hover { color: var(--text-primary); border-color: var(--border-strong, var(--border-subtle)); }
+.linked-pr:focus-visible { outline: 2px solid var(--focus-ring, var(--text-primary)); outline-offset: 2px; }
+.linked-pr__etiket { color: var(--text-primary); font-weight: 600; }

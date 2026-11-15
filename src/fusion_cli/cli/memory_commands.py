@@ -10,6 +10,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ..config.loader import load_config
@@ -77,15 +78,7 @@ def retag() -> None:
 def reindex() -> None:
     """Kod tabanını anlamsal olarak indeksle (artımlı)."""
     memory = _open()
-    stats = memory.code_index.reindex()
-    console.print(
-        messages.MEMORY_REINDEXED.format(
-            total=stats.total,
-            added=stats.added,
-            removed=stats.removed,
-            unchanged=stats.unchanged,
-        )
-    )
+    console.print(messages.reindex_summary(memory.code_index.reindex()))
 
 
 @app.command("where")
@@ -145,7 +138,7 @@ def stats_table(rows: tuple[ModelStats, ...]) -> Table:
     table.add_column(messages.MEMORY_TABLE_LATENCY, justify="right", style=theme.DIM)
     for row in rows:
         table.add_row(
-            row.model,
+            escape(row.model),
             str(row.samples),
             f"[{_score_color(row.avg_score)}]{row.avg_score:.3f}[/{_score_color(row.avg_score)}]",
             str(row.wins),
@@ -176,7 +169,7 @@ def lessons_table(lessons: tuple[Lesson, ...]) -> Table:
             f"[{color}]{label}[/{color}]",
             _SOURCE_LABELS[lesson.source],
             f"[{renk}]{lesson.confidence:.2f}[/{renk}]",
-            lesson.text,
+            escape(lesson.text),
         )
     return table
 

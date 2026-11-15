@@ -25,7 +25,9 @@ from ..core.types import (
     StreamItem,
     TextChunk,
     is_authentication_error,
+    is_web_session_error,
 )
+from .stream_cleanup import closing_stream
 
 #: Devre açıkken dönen sonucun hata metni. `FallbackProvider` bunu görüp sıradakine geçer.
 CIRCUIT_OPEN_ERROR = "devre açık: model geçici olarak sağlıksız, atlanıyor"
@@ -66,6 +68,7 @@ class CircuitBreakingProvider:
             latency_ms=result.latency_ms,
             rate_limited=result.is_rate_limited,
             auth_blocked=is_authentication_error(result.error),
+            session_error=is_web_session_error(result.error),
         )
         return result
 
@@ -75,20 +78,22 @@ class CircuitBreakingProvider:
             return
         produced = False
         recorded = False
-        async for item in self._inner.stream(request):
-            if isinstance(item, TextChunk) and item.text:
-                produced = True
-            elif isinstance(item, StreamDone) and _budget_exhausted(item.result):
-                recorded = True
-            elif isinstance(item, StreamDone):
-                self._health.record(
-                    ok=item.result.is_usable,
-                    latency_ms=item.result.latency_ms,
-                    rate_limited=item.result.is_rate_limited,
-                    auth_blocked=is_authentication_error(item.result.error),
-                )
-                recorded = True
-            yield item
+        async with closing_stream(self._inner.stream(request)) as stream:
+            async for item in stream:
+                if isinstance(item, TextChunk) and item.text:
+                    produced = True
+                elif isinstance(item, StreamDone) and _budget_exhausted(item.result):
+                    recorded = True
+                elif isinstance(item, StreamDone):
+                    self._health.record(
+                        ok=item.result.is_usable,
+                        latency_ms=item.result.latency_ms,
+                        rate_limited=item.result.is_rate_limited,
+                        auth_blocked=is_authentication_error(item.result.error),
+                        session_error=is_web_session_error(item.result.error),
+                    )
+                    recorded = True
+                yield item
         # Protokol akışın tek `StreamDone` ile bitmesini garanti eder; yine de
         # savunmacı: hiç `StreamDone` görülmediyse üretilen metne göre kaydet.
         if not recorded:

@@ -10,7 +10,7 @@ import pytest
 
 from fusion_cli.appserver.bridges import PendingQuestions, ProtocolPrompter, ProtocolSink
 from fusion_cli.core.events import Event, TurnOutcome
-from fusion_cli.core.tools import AuthorizationScope, ToolEffect
+from fusion_cli.core.tools import AuthorizationScope, Tool, ToolEffect
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
 
 
@@ -270,3 +270,179 @@ async def test_answer_receipt_history_is_bounded_and_cleared_on_stop() -> None:
     assert pending.answer(*identifiers[-1])
     pending.cancel_all()
     assert not pending.answer(*identifiers[-1])
+
+
+def test_dairesel_yapi_valueerror_olay_kaybolmaz(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-10): `encode_event` `ValueError` (dairesel yapı) fırlatınca
+    yalnız `TypeError` yakalandığından olay `EventBus.failures`'a gömülüp kayboluyordu."""
+    from fusion_cli.appserver import bridges
+
+    def bozuk(_payload: dict) -> str:
+        raise ValueError("Circular reference detected")
+
+    monkeypatch.setattr(bridges, "encode_event", bozuk)
+    satirlar: list[str] = []
+
+    ProtocolSink(satirlar.append).handle(TurnOutcome(status="completed", elapsed_s=1.0))
+
+    yuk = json.loads(satirlar[0])
+    assert yuk["veri"]["olay"] == "ProtocolError"
+
+
+async def test_onay_argumani_uzunluk_sinirli_ve_maskelidir() -> None:
+    """Ölçüldü (30 Ekim, S1-12): 2 MB `content` olduğu gibi kartın telinde taşınıyordu."""
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(
+        prompter.confirm(
+            _request(args={"content": "a" * 100_000, "env": "Bearer abcdef1234567890xyz"})
+        )
+    )
+    await asyncio.sleep(0)
+
+    yuk = json.loads(satirlar[0])
+    assert len(satirlar[0]) < 10_000
+    assert any("karakter daha" in arguman for arguman in yuk["veri"]["argumanlar"])
+    assert "abcdef1234567890xyz" not in satirlar[0]
+
+    pending.resolve(yuk["id"], {"secim": "deny"})
+    await gorev
+
+
+# S1-11 — Ölçüldü (30 Ekim): cevapsız onay `await future` ile SONSUZA dek bekliyordu;
+# uygulama açık ama kullanıcı yokken tur (ve turu tutan kilit) hiç bitmiyordu.
+async def test_cevapsiz_onay_zaman_asiminda_reddedilir_ve_olay_yayilir() -> None:
+    satirlar: list[str] = []
+    kapananlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(
+        satirlar.append, pending, on_closed=kapananlar.append, approval_timeout_s=0.05
+    )
+
+    cevap = await prompter.confirm(_request())
+
+    assert cevap is ApprovalAnswer.DENY
+    soru_id = json.loads(satirlar[0])["id"]
+    assert kapananlar == [soru_id]
+    olay = json.loads(satirlar[-1])
+    assert olay["tip"] == "olay"
+    assert olay["veri"]["olay"] == "OnayZamanAsimi"
+    assert olay["veri"]["id"] == soru_id
+    assert olay["veri"]["arac"] == "write_file"
+    # Geç gelen cevap artık hiçbir soruyla eşleşmez; araç ikinci kez sorulmaz.
+    assert pending.resolve(soru_id, {"secim": "once"}) is False
+
+
+async def test_zaman_asimi_serbest_metin_sorusuna_uygulanmaz() -> None:
+    """Zaman aşımı yalnız ONAY içindir; kullanıcıya açık uçlu soru süreyle reddedilmez."""
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending, approval_timeout_s=0.05)
+
+    gorev = asyncio.ensure_future(prompter.ask("hangi dil?"))
+    await asyncio.sleep(0.15)
+    assert not gorev.done()
+    pending.resolve(json.loads(satirlar[0])["id"], {"metin": "python"})
+
+    assert await gorev == "python"
+
+
+async def test_zamaninda_gelen_onay_zaman_asimina_takilmaz() -> None:
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending, approval_timeout_s=5.0)
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[0])["id"], {"secim": "once"})
+
+    assert await gorev is ApprovalAnswer.ONCE
+    assert all(json.loads(s)["veri"].get("olay") != "OnayZamanAsimi" for s in satirlar)
+
+
+async def test_onay_yukunde_isteyen_alt_ajan_tasinir() -> None:
+    """P-034: kart "Alt ajan X izin istiyor" diyebilsin; ana ajanda alan None."""
+    import dataclasses
+
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(
+        prompter.confirm(dataclasses.replace(_request(), agent_label="Denetçi (denetci-1)"))
+    )
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[0])
+    assert soru["veri"]["ajan"] == "Denetçi (denetci-1)"
+    pending.resolve(soru["id"], {"secim": "deny"})
+    await gorev
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    assert json.loads(satirlar[1])["veri"]["ajan"] is None
+    pending.resolve(json.loads(satirlar[1])["id"], {"secim": "deny"})
+    await gorev
+
+
+async def test_kalici_izin_secenegi_yalniz_kalicilastirilabilen_istekte_sunulur() -> None:
+    """P-003: "bir daha sorma" seçeneği yazılacak kuralı açıklar; yıkıcı istekte yoktur."""
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    kabuk = ApprovalRequest(
+        tool=Tool(name="run_shell", description="", parameters={}, run=lambda a, c: None),
+        args={"command": "git status && npm test --watch"},
+        danger=None,
+    )
+    gorev = asyncio.ensure_future(prompter.confirm(kabuk))
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[0])
+    always = next(s for s in soru["veri"]["secenekler"] if s["deger"] == "always")
+    # Claude (#68): zincirde yalnız onay gereken alt komut için kural yazılır.
+    assert "Bash(npm test *)" in always["aciklama"]
+    assert "git status" not in always["aciklama"]
+    assert soru["veri"]["not_alinir"] is True
+    pending.resolve(soru["id"], {"secim": "always"})
+    assert await gorev is ApprovalAnswer.ALWAYS
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request(danger="dosya siler")))
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[-1])
+    assert "always" not in [s["deger"] for s in soru["veri"]["secenekler"]]
+    pending.resolve(soru["id"], {"secim": "always"})
+    # Yıkıcı istekte "always" cevabı bile kalıcı izne dönüşmez: red sayılır.
+    assert await gorev is ApprovalAnswer.DENY
+
+
+def test_dosya_duzenleme_onayi_kalici_kurala_donusmez() -> None:
+    """Claude (#68): dosya düzenleme onayı yalnız oturum sonuna dek geçerlidir."""
+    assert _request(args={"path": "src/a.py"}).can_persist is False
+
+
+async def test_ret_notu_kararla_birlikte_tasinir_ve_kirpilir() -> None:
+    """P-013: `not` alanı `ApprovalReply` olarak döner; uzun not kesilir, boş not enum bırakır."""
+    from fusion_cli.appserver.bridges import APPROVAL_NOTE_MAX_CHARS
+    from fusion_cli.engines.agent.approval import ApprovalReply
+
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[0])["id"], {"secim": "deny", "not": "  önce testleri yaz "})
+    assert await gorev == ApprovalReply(ApprovalAnswer.DENY, "önce testleri yaz")
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[-1])["id"], {"secim": "once", "not": "x" * 5_000})
+    cevap = await gorev
+    assert isinstance(cevap, ApprovalReply) and len(cevap.note) == APPROVAL_NOTE_MAX_CHARS
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    pending.resolve(json.loads(satirlar[-1])["id"], {"secim": "once", "not": "   "})
+    assert await gorev is ApprovalAnswer.ONCE

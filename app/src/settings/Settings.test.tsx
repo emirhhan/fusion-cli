@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
+import { resetLanguageCache } from "../i18n/language";
 import { Settings } from "./Settings";
 
 function client() {
@@ -72,6 +73,7 @@ function bolum(etiket: string) {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  resetLanguageCache();
 });
 
 describe("Settings — kontrol.durum hataları", () => {
@@ -203,13 +205,61 @@ describe("Settings — Genel", () => {
     expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
   });
 
-  it("dil seçeneği tek ve kapalıdır; sebebini yazar", async () => {
+  it("dil seçeneği Türkçe ve İngilizce sunar; seçili dil işaretlidir, seçim hemen uygulanır ve kalıcıdır (P-065)", async () => {
     ciz();
     await screen.findByRole("heading", { name: "Ayarlar" });
 
-    const dil = screen.getByRole("combobox", { name: "Dil" }) as HTMLSelectElement;
-    expect(dil.disabled).toBe(true);
-    expect(screen.getByText(/yalnız Türkçe/i)).toBeTruthy();
+    const grup = screen.getByRole("radiogroup", { name: "Dil" });
+    const turkce = screen.getByRole("radio", { name: "Türkçe" }) as HTMLInputElement;
+    const ingilizce = screen.getByRole("radio", { name: "English" }) as HTMLInputElement;
+    expect(grup.contains(turkce)).toBe(true);
+    expect(turkce.checked).toBe(true);
+    expect(turkce.closest("label")?.textContent).toContain("✓");
+    expect(ingilizce.closest("label")?.textContent).not.toContain("✓");
+    expect(screen.getByText(/İngilizce çeviri şimdilik kısmi/i)).toBeTruthy();
+
+    fireEvent.click(ingilizce);
+    // Belge dili çeviri tamamlanana dek tr kalır; yalnız çevrilen kart lang="en" taşır (31 Ekim).
+    expect(document.documentElement.lang).toBe("tr");
+    expect(document.documentElement.dataset.language).toBe("en");
+    expect(localStorage.getItem("fusion.language.v1")).toBe("en");
+    expect((screen.getByRole("radio", { name: "English" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("radio", { name: "English" }).closest("label")?.textContent).toContain("✓");
+    // Ayarlar'ın kendi gezinmesi de anında çevrilir: seçim "uygulanmadı" gibi görünmez.
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "General" })).toBeTruthy();
+    const tema = screen.getByRole("combobox", { name: "Theme" });
+    expect(tema.closest("article")?.getAttribute("lang")).toBe("en");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Türkçe" }));
+    expect(document.documentElement.dataset.language).toBe("tr");
+    expect(screen.getByRole("heading", { name: "Ayarlar" })).toBeTruthy();
+  });
+
+  it("aynı bölüm yeniden istenince Ayarlar oraya döner ve istenen satıra odaklanır (menü › Dil)", async () => {
+    const fake = client();
+    const props = { client: fake, onClose: () => undefined, onThemeChange: () => undefined, themePreference: "system" as const };
+    const view = render(<Settings {...props} />);
+    await screen.findByRole("heading", { name: "Ayarlar" });
+    fireEvent.click(screen.getByRole("button", { name: "Bildirimler" }));
+    expect(screen.getByRole("button", { name: "Bildirimler" }).getAttribute("aria-current")).toBe("page");
+
+    view.rerender(<Settings {...props} initialFocus="settings-language" initialSection="genel" requestKey={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Genel" }).getAttribute("aria-current")).toBe("page"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("radiogroup", { name: "Dil" })));
+  });
+
+  it("erişilebilirlik kartı yazı boyutunu belge köküne uygular (P-065)", async () => {
+    ciz();
+    await screen.findByRole("heading", { name: "Ayarlar" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Yazı boyutu" }), { target: { value: "large" } });
+    expect(document.documentElement.dataset.fontScale).toBe("large");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Yüksek kontrast" }));
+    expect(document.documentElement.dataset.contrast).toBe("high");
+    fireEvent.change(screen.getByRole("combobox", { name: "Yazı boyutu" }), { target: { value: "normal" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Yüksek kontrast" }));
+    expect(document.documentElement.dataset.fontScale).toBeUndefined();
+    expect(document.documentElement.dataset.contrast).toBeUndefined();
   });
 });
 
@@ -256,8 +306,10 @@ describe("Settings — İzinler", () => {
     await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
     const otomatik = screen.getByText("Otomatik").closest(".settings__choice");
     expect(otomatik?.getAttribute("data-active")).toBe("true");
-    expect(screen.getByText(/yalnız riskli işlemde sorar/i)).toBeTruthy();
-    expect(screen.getByText("İzinleri atla")).toBeTruthy();
+    expect(screen.getByText(/riskli işlemi denetçi denetler/i)).toBeTruthy();
+    // #442: İzinleri atla yalnız anahtar açılınca seçilebilir.
+    expect(screen.queryByRole("button", { name: /^İzinleri atlaHiçbir/ })).toBeNull();
+    expect(screen.getByRole("switch", { name: "İzinleri atla modunu etkinleştir" })).toBeTruthy();
   });
 
   it("klasör değiştirme isteğini iletir", async () => {
@@ -343,13 +395,14 @@ describe("Settings — Gelişmiş", () => {
 });
 
 describe("Nasıl yapılır", () => {
-  it("Sistem grubunun en altında durur ve konuları ekran görüntüleriyle açar", async () => {
+  it("Sistem grubunun en altında durur ve görevleri kısa başlıklarla, görselsiz listeler", async () => {
     ciz();
     const sistem = screen.getByRole("navigation", { name: "Ayar bölümleri" }).querySelectorAll("button");
     expect(sistem[sistem.length - 1].textContent).toContain("Nasıl yapılır");
     bolum("Nasıl yapılır");
-    expect(await screen.findByRole("heading", { name: "Chrome eklentisi", level: 3 })).toBeTruthy();
-    expect(screen.getAllByRole("img").length).toBeGreaterThan(10);
+    expect(await screen.findByText("Chrome eklentisini kurmak")).toBeTruthy();
+    expect(screen.getByText("Bilgisayar kullanımına izin vermek")).toBeTruthy();
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
   });
 
   it("Ayarlar'da aç düğmesi ilgili ayar bölümüne geçirir", async () => {
@@ -364,4 +417,165 @@ describe("Nasıl yapılır", () => {
 it("ayar menüsü görünür Ayarlar başlığını sunar", () => {
  ciz();
  expect(screen.getByRole("heading", { name: "Ayarlar" }).className).toBe("settings__title");
+});
+
+describe("Settings — dalga 4 (U2-37, U2-38, U2-53, U2-54)", () => {
+  it("diyalog aria-modal'dır ve Tab odağı dışarı kaçırmaz", async () => {
+    ciz();
+    const dialog = await screen.findByRole("dialog", { name: "Ayarlar" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled])"));
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toBe(focusable[0]);
+  });
+
+  it("yazarken Escape kaydedilmemiş girdiyi silmez: alandan çıkar, ikinci Escape kapatır", async () => {
+    const onClose = vi.fn();
+    ciz({ onClose });
+    bolum("Kişiselleştirme");
+    const input = await screen.findByRole("textbox", { name: "Yeni anı" });
+    input.focus();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(input);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("üst bileşen her çizimde yeni onClose verse de odak çalınmaz", async () => {
+    const fake = client();
+    const props = { client: fake, onThemeChange: () => undefined, themePreference: "system" as const };
+    const { rerender } = render(<Settings {...props} onClose={() => undefined} />);
+    bolum("Kişiselleştirme");
+    const input = await screen.findByRole("textbox", { name: "Yeni anı" });
+    input.focus();
+    rerender(<Settings {...props} onClose={() => undefined} />);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("arama Ses, İzin modu gibi bölümleri de bulur ve bölüm başlığına odaklanır", async () => {
+    ciz();
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Ayarları ara" }), { target: { value: "mikrofon" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ses ve konuşma ayarları" }));
+    await waitFor(() => expect(document.activeElement?.id).toBe("settings-section-heading"));
+    expect(document.activeElement?.textContent).toBe("Ses");
+  });
+
+  it("hata uyarı olarak duyurulur; veri gerektirmeyen bölümde 'yükleniyor' notu çıkmaz", async () => {
+    const fake = client();
+    vi.mocked(fake.request).mockImplementation(async (name: string) => name === "kontrol.durum" ? { ok: false, metin: "çekirdek yok" } : { ok: true });
+    ciz({ client: fake });
+    expect((await screen.findByRole("alert")).textContent).toContain("çekirdek yok");
+    vi.mocked(fake.request).mockImplementation(() => new Promise(() => undefined));
+    cleanup();
+    ciz({ client: fake });
+    expect(screen.queryByText("Ayarlar yükleniyor…")).toBeNull();
+    bolum("Gelişmiş");
+    expect(screen.getByText("Ayarlar yükleniyor…")).toBeTruthy();
+  });
+});
+
+describe("Settings — dalga 4 bölümleri (U2-48, U2-50, U2-51)", () => {
+  it("İzinleri atla tek tıkla açılmaz; önce açık onay ister (U2-51)", async () => {
+    const onRunCommand = vi.fn(async () => ({ ok: true }));
+    ciz({ onRunCommand });
+    bolum("İzinler");
+    fireEvent.click(await screen.findByRole("switch", { name: "İzinleri atla modunu etkinleştir" }));
+    await screen.findByText("İzinleri atla");
+    fireEvent.click(screen.getByRole("button", { name: /İzinleri atla/ }));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("hiçbir");
+    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(onRunCommand).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /İzinleri atla/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Evet, izinleri atla" }));
+    await waitFor(() => expect(onRunCommand).toHaveBeenCalledWith("/bypass"));
+    // Diğer modlar onaysız geçer.
+    fireEvent.click(screen.getByRole("button", { name: /Manuel/ }));
+    await waitFor(() => expect(onRunCommand).toHaveBeenCalledWith("/security"));
+  });
+
+  it("aday listesi eksik gelirse Modeller bölümü çökmez (U2-50)", async () => {
+    const fake = client();
+    const inner = vi.mocked(fake.request).getMockImplementation()!;
+    vi.mocked(fake.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+      const result = await inner(name, data);
+      if (name === "kontrol.durum") { const { adaylar: _drop, ...model } = (result as { model: Record<string, unknown> }).model; return { ...result, model }; }
+      return result;
+    });
+    ciz({ client: fake });
+    bolum("Modeller");
+    expect(await screen.findByText("Aday havuzu")).toBeTruthy();
+    expect(screen.getByText("Yok")).toBeTruthy();
+  });
+
+  it("Zeka durumu eksik listelerle gelse de çökmez ve yükleme hatasında yeniden dene sunar (U2-50)", async () => {
+    const fake = client();
+    const inner = vi.mocked(fake.request).getMockImplementation()!;
+    let kir = true;
+    vi.mocked(fake.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+      if (name === "zeka.durum") {
+        if (kir) throw new Error("zeka kapalı");
+        return { ok: true, motor: "agent" };
+      }
+      return inner(name, data);
+    });
+    ciz({ client: fake });
+    bolum("Zeka");
+    expect((await screen.findByRole("alert")).textContent).toContain("zeka kapalı");
+    kir = false;
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    // Ayarlar kabuğu başlığı tek kez yazar; panel içi çift başlık yok (U2-54).
+    expect(screen.getAllByRole("heading", { name: "Zeka" })).toHaveLength(1);
+  });
+
+  it("captcha doğrulama döngüsü bölüm kapanınca durur ve oturumu kaydetmez (U2-48)", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = client();
+      const inner = vi.mocked(fake.request).getMockImplementation()!;
+      vi.mocked(fake.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+        if (name === "model.roller") return { ok: true, roller: { agent: "", teacher: "", judge: "", candidates: ["x"] }, secenekler: [], oturumlar: [{ saglayici: "gemini_web", hesap: "a", etiket: "Gemini", dogrulandi: false }] };
+        if (name === "web.giris") return { ok: true, pid: 7 };
+        if (name === "web.giris_durumu") return { ok: true, acik: true };
+        return inner(name, data);
+      });
+      const { unmount } = render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" initialSection="modeller" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Captcha'yı doğrula" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+      const yoklama = () => vi.mocked(fake.request).mock.calls.filter(([n]) => n === "web.giris_durumu").length;
+      expect(yoklama()).toBe(1);
+      unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(yoklama()).toBeLessThanOrEqual(2);
+      expect(vi.mocked(fake.request).mock.calls.some(([n]) => n === "web.baglan")).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("Settings — kurulumu yeniden aç (U5-47)", () => {
+  it("Genel bölümünde 'Kurulumu yeniden aç' düğmesi geri çağrıyı tetikler", () => {
+    const reopen = vi.fn();
+    ciz({ onReopenSetup: reopen });
+    fireEvent.click(screen.getByRole("button", { name: "Kurulumu yeniden aç" }));
+    expect(reopen).toHaveBeenCalledTimes(1);
+  });
+
+  it("geri çağrı verilmezse kurulum kartı gösterilmez", () => {
+    ciz();
+    expect(screen.queryByRole("button", { name: "Kurulumu yeniden aç" })).toBeNull();
+  });
+});
+
+describe("Ayarlar › Hesap", () => {
+  it("hesap içeriğini doğrudan gösterir; ayrı bir 'Hesabımı aç' adımı yoktur", () => {
+    render(<Settings accountContent={<div data-testid="hesap-icerigi">Kullanici</div>} client={client() as unknown as ProtocolClient} initialSection="hesap" onClose={() => undefined} onOpenAccount={() => undefined} onThemeChange={() => undefined} themePreference="dark" />);
+    expect(screen.getByTestId("hesap-icerigi").textContent).toBe("Kullanici");
+    expect(screen.queryByRole("button", { name: "Hesabımı aç" })).toBeNull();
+  });
 });

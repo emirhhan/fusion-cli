@@ -33,10 +33,19 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
-from .types import ToolCall
+from .types import ParseWarning, ToolCall
+from .web_provenance import (
+    ORIGIN_WARNING,
+    PROTOCOL_VERSIONS,
+    QUOTED_WARNING,
+    WebCallContext,
+    WebResponseProvenance,
+)
 
 #: Kanonik sınırlayıcılar. Kendi satırlarında dururlar ve düz metindir.
 CALL_OPEN = "FUSION_TOOL_CALL"
@@ -50,6 +59,65 @@ LEGACY_CALL_OPEN = "<tool_call>"
 LEGACY_CALL_CLOSE = "</tool_call>"
 LEGACY_PAYLOAD_CLOSE = "</tool_payload>"
 
+#: Sıfır genişlikli boşluk: işaretin ortasına konunca ayrıştırıcı eşleştirmez, göz ayırt etmez.
+ZWSP = "\u200b"
+
+#: Araç SONUCU içeriğinde kaçışlanan protokol işaretleri (C1-45). Uzun olan önce gelir.
+_MARKER_PATTERN = re.compile(
+    rf"{re.escape(CALL_CLOSE)}|{re.escape(CALL_OPEN)}|{re.escape(PAYLOAD_CLOSE)}|"
+    rf"{re.escape(PAYLOAD_OPEN)}|{re.escape(PAYLOAD_SENTINEL)}|"
+    rf"{re.escape(LEGACY_CALL_CLOSE)}|{re.escape(LEGACY_CALL_OPEN)}|"
+    rf"{re.escape(LEGACY_PAYLOAD_CLOSE)}|<tool_payload"
+)
+_ESCAPED_MARKER_PATTERN = re.compile(
+    "|".join(
+        re.escape(token[0] + ZWSP + token[1:])
+        for token in (
+            CALL_CLOSE,
+            CALL_OPEN,
+            PAYLOAD_CLOSE,
+            PAYLOAD_OPEN,
+            PAYLOAD_SENTINEL,
+            LEGACY_CALL_CLOSE,
+            LEGACY_CALL_OPEN,
+            LEGACY_PAYLOAD_CLOSE,
+            "<tool_payload",
+        )
+    )
+)
+
+
+def escape_tool_markers(text: str) -> str:
+    """Protokol işaretlerinin ilk harfinden sonra ZWSP koy (C1-45).
+
+    Araç SONUCU (web sayfası, dosya, komut çıktısı) modele giderken bu işlemden geçer:
+    içinde `FUSION_TOOL_CALL` bloğu varsa model onu yanıtına yansıtsa bile ayrıştırıcı
+    çağrı saymaz. İşaret yoksa metin DEĞİŞMEZ; işlem idempotenttir.
+    """
+    return _MARKER_PATTERN.sub(lambda match: match.group(0)[0] + ZWSP + match.group(0)[1:], text)
+
+
+def unescape_tool_markers(text: str) -> str:
+    """`escape_tool_markers` işleminin tersi (yalnız protokol işaretlerindeki ZWSP'yi kaldırır)."""
+    return _ESCAPED_MARKER_PATTERN.sub(lambda match: match.group(0).replace(ZWSP, ""), text)
+
+
+def _unescape_value(value: object) -> object:
+    """Çözümlenmiş argümanlardaki kaçışlı işaretleri geri aç.
+
+    Model, kaçışlı işaret taşıyan bir dosyayı düzenlerken `old_string`'i kopyalar;
+    ZWSP kalsaydı eşleşme tutmazdı. Argümanlar yeniden AYRIŞTIRILMAZ, bu yüzden
+    geri açmak güvenlidir.
+    """
+    if isinstance(value, str):
+        return unescape_tool_markers(value)
+    if isinstance(value, dict):
+        return {key: _unescape_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_unescape_value(item) for item in value]
+    return value
+
+
 # Sınırlayıcılar satır başına SABİTLENMEZ: model çoğu zaman "Şunu yapıyorum."
 # dedikten sonra bloğu aynı satırda açıyor ve katı bir çapa bunu kaçırırdı.
 # İşaretler benzersiz büyük harfli dizeler olduğu için çapaya gerek de yok.
@@ -57,7 +125,10 @@ LEGACY_PAYLOAD_CLOSE = "</tool_payload>"
 _BLOCK_GAP = "\n\n"
 _EXTRA_GAPS = re.compile(r"\n\s*\n(?:\s*\n)+")
 _BLOCK = re.compile(
-    rf"{re.escape(CALL_OPEN)}\s*(?P<body>.*?)\s*{re.escape(CALL_CLOSE)}",
+    # `(?!_END)`: açılış sözcüğü kapanışın önekidir; yetim bir kapanış işareti (ya da
+    # düzyazıda anılan `FUSION_TOOL_CALL_END`) açılış sanılıp sonraki gerçek çağrıyı
+    # gövdesine yutardı. Ölçüldü (30 Ekim): yetim kapanış + gerçek blok → "geçersiz JSON".
+    rf"{re.escape(CALL_OPEN)}(?!_END)\s*(?P<body>.*?)\s*{re.escape(CALL_CLOSE)}",
     re.DOTALL,
 )
 _LEGACY_BLOCK = re.compile(
@@ -311,6 +382,18 @@ PAYLOAD_RULES = (
     '{"$ref":"id"} biçiminde kullanılır.',
 )
 
+_EXACT_EDIT_RULE = (
+    "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
+    "edit_file kullan; write_file DEĞİL."
+)
+_EXACT_MATCH_RULE = (
+    "- edit_file'da 'old' dosyadakiyle BİREBİR ve BENZERSİZ olmalı; eklemede "
+    "mevcut komşu satırı 'old'a al ve 'new' içinde aynen tekrar et."
+)
+_WHOLE_EDIT_RULE = (
+    "- Tam dosya düzenlemesi için önce dosyanın TAMAMINI yeniden oku; tazelik, "
+    "boyut ve onay kapıları geçmeden write_file kullanma."
+)
 _GENERAL_RULES = (
     "- name ve arguments zorunludur; arguments JSON nesnesidir ve şemaya uymalıdır.",
     "- Kullanıcının verdiği dosya yolu, komut ve arama desenini arguments içinde "
@@ -318,10 +401,8 @@ _GENERAL_RULES = (
     "- Çağrı gövdesini ```json kod bloğunun İÇİNE yaz. Kod bloğu dışındaki metin "
     "arayüzde Markdown olarak biçimlendiriliyor ve `__init__.py` gibi adlardaki alt "
     "çizgiler siliniyor.",
-    "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
-    "edit_file kullan; write_file DEĞİL.",
-    "- edit_file'da 'old' dosyadakiyle BİREBİR ve BENZERSİZ olmalı; eklemede "
-    "mevcut komşu satırı 'old'a al ve 'new' içinde aynen tekrar et.",
+    _EXACT_EDIT_RULE,
+    _EXACT_MATCH_RULE,
     "- Düzenleme sonucu dönen diff'i oku; istemediğin bir '-' satırı varsa geri ekle.",
     "- write_file yeni ya da tamamen yenilenecek dosya içindir.",
     "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap "
@@ -377,8 +458,40 @@ def _compact_schema(parameters: object) -> object:
 TOOL_INSTRUCTIONS_LEAD = "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan."
 
 
+def _edit_rules(edit_format: Literal["exact", "whole"] | None) -> tuple[str, ...]:
+    """Tam-dosya önerisini eski exact talimatıyla çeliştirme; izin kapıları korunur."""
+    if edit_format != "whole":
+        return _GENERAL_RULES
+    return tuple(
+        _WHOLE_EDIT_RULE if rule == _EXACT_EDIT_RULE else rule
+        for rule in _GENERAL_RULES
+        if rule != _EXACT_MATCH_RULE
+    )
+
+
+def _edit_examples(
+    schemas: Sequence[Mapping[str, object]],
+    edit_format: Literal["exact", "whole"] | None,
+) -> list[str]:
+    """Dondurulmuş edit tercihi yalnız sunulan araçların örneklerini seçer."""
+    names = {
+        function.get("name")
+        for schema in schemas
+        if isinstance(function := schema.get("function"), Mapping)
+    }
+    examples: list[str] = []
+    if "write_file" in names and edit_format != "exact":
+        examples.extend(("Kod / çok satırlı içerik payload örneği:", PAYLOAD_EXAMPLE, ""))
+    if "edit_file" in names and edit_format != "whole":
+        examples.extend(("Mevcut dosyada kısmi düzenleme örneği:", EDIT_EXAMPLE, ""))
+    return examples
+
+
 def render_tool_instructions(
-    schemas: Sequence[Mapping[str, object]], *, compact: bool = False
+    schemas: Sequence[Mapping[str, object]],
+    *,
+    compact: bool = False,
+    edit_format: Literal["exact", "whole"] | None = None,
 ) -> str:
     """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök.
 
@@ -391,21 +504,17 @@ def render_tool_instructions(
         "Kısa değer çağrısı:",
         render_call({"name": "read_file", "arguments": {"path": "src/app.py"}}),
         "",
-        "Kod / çok satırlı içerik payload örneği:",
-        PAYLOAD_EXAMPLE,
-        "",
-        "Mevcut dosyada kısmi düzenleme örneği:",
-        EDIT_EXAMPLE,
-        "",
+        *_edit_examples(schemas, edit_format),
         "Payload kuralları:",
         *PAYLOAD_RULES,
         "",
         "Genel kurallar:",
-        *_GENERAL_RULES,
+        *_edit_rules(edit_format),
         "",
         "Kullanılabilir araçlar:",
     ]
 
+    deferred: list[str] = []
     for schema in schemas:
         function = schema.get("function")
         if not isinstance(function, Mapping):
@@ -414,6 +523,9 @@ def render_tool_instructions(
         name = function.get("name", "")
         description = function.get("description", "")
         ham = function.get("parameters", {})
+        if name in DEFERRED_TOOL_NAMES:
+            deferred.append(_signature(str(name), ham))
+            continue
         parameters = _compact_schema(ham) if compact else _instruction_schema(ham)
 
         lines.append(f"- {name}: {description}")
@@ -425,8 +537,40 @@ def render_tool_instructions(
                 separators=(",", ":"),
             )
         )
+    if deferred:
+        lines.append(DEFERRED_LEAD + ", ".join(deferred))
 
     return "\n".join(lines)
+
+
+#: Claude Code'un ertelediği yerleşik araçlar (EnterWorktree, ExitWorktree, Monitor, TaskStop):
+#: her turda kullanılabilir, emülasyon isteminde yalnız imzayla sunulur (istem bütçesi; #334,
+#: #336, #342). Yerel araç çağrısı (function calling) yolunda şema tam gider.
+DEFERRED_TOOL_NAMES = frozenset(
+    {
+        "enter_worktree",
+        "exit_worktree",
+        "monitor",
+        "task_stop",
+        "task_create",
+        "task_get",
+        "task_list",
+        "task_update",
+    }
+)
+DEFERRED_LEAD = "- Ek araçlar (aynı biçimde çağır; ? isteğe bağlı): "
+
+
+def _signature(name: str, parameters: object) -> str:
+    """`ad(zorunlu,isteğe_bağlı?)` biçimi; şema yoksa yalnız ad."""
+    if not isinstance(parameters, Mapping):
+        return f"{name}()"
+    properties = parameters.get("properties")
+    required = parameters.get("required")
+    names = list(properties) if isinstance(properties, Mapping) else []
+    needed = set(required) if isinstance(required, list) else set()
+    args = [key if key in needed else f"{key}?" for key in names]
+    return f"{name}({','.join(args)})"
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,6 +578,7 @@ class EmulatedParse:
     calls: tuple[ToolCall, ...]
     text: str
     errors: tuple[str, ...]
+    warnings: tuple[ParseWarning, ...] = ()
 
 
 def _strip_payload_transport_prefix(body: str) -> str:
@@ -602,6 +747,44 @@ def _payload_matches(text: str) -> list[re.Match[str]]:
     return sorted(matches, key=lambda match: match.start())
 
 
+_FENCE_LINE = re.compile(r"^[ \t]{0,3}```", re.MULTILINE)
+
+
+def _fenced_ranges(text: str) -> list[tuple[int, int]]:
+    """Kapanışı OLAN ``` çitlerinin kapsadığı [başlangıç, bitiş) aralıkları.
+
+    Kapanmayan çit sayılmaz: yarıda kalmış bir çit, ardından gelen gerçek çağrıyı
+    "alıntı" yapmamalı. Payload blokları çağrıdan önce metinden çıkarıldığı için kendi
+    çitleri buraya girmez.
+    """
+    ranges: list[tuple[int, int]] = []
+    opened: int | None = None
+    for match in _FENCE_LINE.finditer(text):
+        if opened is None:
+            opened = match.start()
+        else:
+            ranges.append((opened, match.start()))
+            opened = None
+    return ranges
+
+
+def _split_by_origin(
+    text: str, matches: list[re.Match[str]]
+) -> tuple[list[re.Match[str]], list[re.Match[str]]]:
+    """Çağrı bloklarını (gerçek, alıntı) diye ayır (C1-45).
+
+    Bir çit ÇEVRELEYEN blok (açılış işareti çit içinde) örnek/alıntıdır; model protokolü
+    açıklarken ya da okuduğu enjekte bloğu yansıtırken yazar. Kanonik çağrıda çit
+    bloğun İÇİNDEDİR, dışında değildir. Çit dışında HİÇ blok yoksa ayırt edilemez
+    (web geri okuması model bloğunu tek `<pre>` içinde çizmiş olabilir): hepsi çağrı sayılır.
+    """
+    ranges = _fenced_ranges(text)
+    quoted = [m for m in matches if any(low < m.start() < high for low, high in ranges)]
+    if not quoted or len(quoted) == len(matches):
+        return matches, []
+    return [m for m in matches if m not in quoted], quoted
+
+
 def _call_matches(text: str) -> list[re.Match[str]]:
     """Kanonik ve eski biçimdeki çağrı bloklarını metindeki SIRAYLA döndür."""
     matches = [*_BLOCK.finditer(text), *_LEGACY_BLOCK.finditer(text)]
@@ -617,8 +800,38 @@ _NAME_ALIASES = ("tool", "function", "tool_name")
 #: `arguments` alanının karşılıkları.
 _ARGS_ALIASES = ("parameters", "args", "input")
 
-#: JSON'da nesne/dizi kapanışından hemen önce gelen fazla virgül.
-_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+def _remove_trailing_commas(raw: str) -> str:
+    """Yalnız JSON dizelerinin dışındaki kapanış öncesi fazla virgülleri kaldır."""
+    characters: list[str] = []
+    is_in_string = False
+    is_escaped = False
+    for index, character in enumerate(raw):
+        if is_in_string:
+            if is_escaped:
+                is_escaped = False
+            elif character == "\\":
+                is_escaped = True
+            elif character == '"':
+                is_in_string = False
+        elif character == '"':
+            is_in_string = True
+        elif character == ",":
+            following = index + 1
+            while following < len(raw) and raw[following] in " \t\r\n":
+                following += 1
+            preceding = index - 1
+            while preceding >= 0 and raw[preceding] in " \t\r\n":
+                preceding -= 1
+            if (
+                preceding >= 0
+                and raw[preceding] not in "[{,:"
+                and following < len(raw)
+                and raw[following] in "}]"
+            ):
+                continue
+        characters.append(character)
+    return "".join(characters)
 
 
 def _loads_tolerant(raw: str) -> object | None:
@@ -635,8 +848,8 @@ def _loads_tolerant(raw: str) -> object | None:
     for aday in (
         raw,
         raw.strip("*` \n"),
-        _TRAILING_COMMA.sub(r"\1", raw),
-        _TRAILING_COMMA.sub(r"\1", raw.strip("*` \n")),
+        _remove_trailing_commas(raw),
+        _remove_trailing_commas(raw.strip("*` \n")),
     ):
         try:
             cozulmus: object = json.loads(aday)
@@ -675,10 +888,47 @@ def _normalize_call_keys(obj: dict[str, object]) -> dict[str, object]:
     return duzeltilmis
 
 
-def parse_tool_calls(text: str) -> EmulatedParse:
+def _cut_spans(text: str, matches: list[re.Match[str]]) -> str:
+    """Eşleşmelerin kapsadığı aralıkları `_BLOCK_GAP` ile değiştir (örtüşenler birleşir)."""
+    pieces: list[str] = []
+    cursor = 0
+    for match in sorted(matches, key=lambda item: item.start()):
+        if match.start() < cursor:
+            continue
+        pieces.append(text[cursor : match.start()])
+        pieces.append(_BLOCK_GAP)
+        cursor = match.end()
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def _parse_warning(message: str) -> ParseWarning:
+    """Eski hata metnini korurken yürütme için ihtiyatlı sınıflandır."""
+    index_match = re.search(r"blok (\d+)", message)
+    call_index = int(index_match.group(1)) if index_match else None
+    if message.startswith("payload kullanılmadı:"):
+        return ParseWarning("unused_payload", message, call_index, blocks_mutation=False)
+    kind = "invalid_call" if call_index is not None else "invalid_protocol"
+    return ParseWarning(kind, message, call_index)
+
+
+def parse_tool_calls(
+    text: str,
+    *,
+    protocol: str = "v1",
+    provenance: WebResponseProvenance | None = None,
+    call_context: WebCallContext | None = None,
+) -> EmulatedParse:
     """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
+    if protocol not in PROTOCOL_VERSIONS:
+        raise ValueError("Taklit araç protokolü v1 veya v2 olmalı.")
     calls: list[ToolCall] = []
     errors: list[str] = []
+    origin_warnings: tuple[ParseWarning, ...] = ()
+    # Kimlik yanıt içi sıraya ek olarak her ayrıştırmaya özgü bir etiket taşır: ardışık
+    # turlarda `emu-0` tekrar ediyor, geçmiş yedek sağlayıcıya taşınınca `tool_call_id`
+    # eşlemesi çakışabiliyordu. Ölçüldü (30 Ekim).
+    run_tag = secrets.token_hex(3)
     payloads: dict[str, str] = {}
     used_payloads: set[str] = set()
 
@@ -714,7 +964,14 @@ def parse_tool_calls(text: str) -> EmulatedParse:
     ):
         errors.append("kapanmamış veya geçersiz payload bloğu")
 
-    for index, match in enumerate(_call_matches(without_payloads)):
+    live_matches, quoted_matches = _split_by_origin(
+        without_payloads, _call_matches(without_payloads)
+    )
+    if protocol == "v2":
+        live_matches, quoted_matches, origin_warnings = _v2_origin_matches(
+            without_payloads, live_matches, quoted_matches, provenance, call_context
+        )
+    for index, match in enumerate(live_matches):
         raw = strip_call_fence(match.group("body").strip())
         obj = _loads_tolerant(raw)
         if obj is None:
@@ -745,10 +1002,10 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         except _PayloadResolutionError as error:
             errors.append(str(error))
             continue
-        resolved = _apply_fence_strip(resolved)
+        resolved = _unescape_value(_apply_fence_strip(resolved))
         calls.append(
             ToolCall(
-                id=f"emu-{index}",
+                id=f"emu-{run_tag}-{index}",
                 name=name.strip(),
                 arguments=json.dumps(resolved, ensure_ascii=False),
             )
@@ -773,13 +1030,60 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         for payload_id in artan:
             errors.append(f"payload kullanılmadı: {payload_id}")
 
-    outside = _LEGACY_BLOCK.sub(_BLOCK_GAP, _BLOCK.sub(_BLOCK_GAP, without_payloads))
+    if quoted_matches:
+        # Alıntı bloklar düz metin olarak KALIR; yalnız gerçek çağrılar ayıklanır. İşaret
+        # denetimi alıntıları da dışarıda bırakır: örnek, "eşleşmeyen işaret" hatası olmasın.
+        outside = _cut_spans(without_payloads, live_matches)
+        unmatched_check = _cut_spans(without_payloads, [*live_matches, *quoted_matches])
+    else:
+        outside = _LEGACY_BLOCK.sub(_BLOCK_GAP, _BLOCK.sub(_BLOCK_GAP, without_payloads))
+        unmatched_check = outside
     outside = _EXTRA_GAPS.sub("\n\n", outside)
-    if any(marker in outside for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):
+    unmatched_check = _EXTRA_GAPS.sub("\n\n", unmatched_check)
+    if any(marker in unmatched_check for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):
         errors.append("kapanmamış veya eşleşmeyen araç çağrısı sınır işareti")
 
     return EmulatedParse(
         calls=tuple(calls),
         text=outside.strip(),
         errors=tuple(errors),
+        warnings=tuple(_parse_warning(message) for message in errors) + origin_warnings,
+    )
+
+
+def _v2_origin_matches(
+    text: str,
+    live: list[re.Match[str]],
+    quoted: list[re.Match[str]],
+    provenance: WebResponseProvenance | None,
+    context: WebCallContext | None,
+) -> tuple[list[re.Match[str]], list[re.Match[str]], tuple[ParseWarning, ...]]:
+    """V1 çit uyumunu yalnız opt-in güncel köken denetimiyle daralt."""
+    if not live and not quoted:
+        return live, quoted, ()
+    is_current = provenance is not None and provenance.has_current_assistant_origin(context)
+    warnings = [] if is_current else [ParseWarning("unverified_origin", ORIGIN_WARNING)]
+    ranges = _fenced_ranges(text)
+    is_quoted = provenance is not None and provenance.content_kind == "quoted"
+    outside_blocks = _cut_spans(text, [*live, *quoted])
+    has_only_frame = not _FENCE_LINE.sub("", outside_blocks).strip()
+    has_direct_evidence = (
+        is_current
+        and provenance is not None
+        and provenance.content_kind == "direct"
+        and has_only_frame
+    )
+    suppressed = [
+        match
+        for match in live
+        if is_quoted
+        or (not has_direct_evidence and any(low < match.start() < high for low, high in ranges))
+        or text[text.rfind("\n", 0, match.start()) + 1 : match.start()].lstrip().startswith(">")
+    ]
+    if suppressed:
+        warnings.append(ParseWarning("quoted_origin", QUOTED_WARNING))
+    return (
+        [match for match in live if match not in suppressed],
+        [*quoted, *suppressed],
+        tuple(warnings),
     )

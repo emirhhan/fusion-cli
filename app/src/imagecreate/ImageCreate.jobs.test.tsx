@@ -2,8 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ImageCreate } from "./ImageCreate";
 import { ImageJobJournal } from "./imageJobJournal";
+import { taslaklariSifirla } from "./taslakDeposu";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); taslaklariSifirla(); });
 afterEach(cleanup);
 const result = (jobId: string) => ({ ok: true, jobId, state: "completed", saglayici: "Offline", dosyalar: [{ yol: "/gallery/result.png", genislik: 9, yukseklik: 6, sha256: "a".repeat(64) }] });
 function clientFor(handler: (name: string, data: Record<string, unknown>) => Promise<Record<string, unknown>>) {
@@ -69,4 +70,13 @@ it("iptal temizliği doğrulanana kadar yeni üretimi açmaz", async () => {
   await waitFor(() => expect(screen.queryByRole("button", { name: "Üretimi durdur" })).toBeNull());
   await waitFor(() => expect((screen.getByRole("button", { name: "Görsel oluştur" }) as HTMLButtonElement).disabled).toBe(false));
   expect(new ImageJobJournal(localStorage, "scope").read()).toEqual([]);
+});
+it("kurtarılan görselde yer tutucu istem kutuya kopyalanmaz; yeniden kullan düğmesi çıkmaz (U3-02)", async () => {
+  new ImageJobJournal(localStorage, "scope").add("old-job");
+  const client = clientFor(async () => result("old-job"));
+  render(<ImageCreate client={client} jobScope="scope" toUrl={(path) => path} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Durumu kontrol et" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Toparlanan görsel büyük aç" }));
+  expect(screen.queryByRole("button", { name: "İstemi yeniden kullan" })).toBeNull();
+  expect((await screen.findByRole("dialog", { name: "Görsel görüntüleyici" })).textContent).toContain("istem kaydı yok");
 });

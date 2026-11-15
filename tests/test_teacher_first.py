@@ -119,7 +119,7 @@ async def test_dogrulanmamis_oturumda_cirak_tek_basina_ilerler(monkeypatch, tmp_
 
 async def test_ogretmen_zaman_asiminda_cirak_beklemeden_ilerler(monkeypatch, tmp_path) -> None:
     deps, _sink, teacher, apprentice = _setup(monkeypatch, tmp_path)
-    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, request_timeout_s=0.02))
+    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, teacher_timeout_s=0.02))
 
     async def _slow_complete(_request):
         await asyncio.sleep(1)
@@ -287,7 +287,7 @@ def test_plan_varken_yalniz_uzun_okuma_ogretmen_danismasi_acmaz(tmp_path) -> Non
 
     deps, _sink, _teacher, _apprentice = _setup_deps_only(tmp_path)
     state = agent_loop._State()
-    assert agent_loop._plateau_reason(state, deps, exploration_note="not") is not None
+    assert agent_loop._plateau_reason(state, deps, exploration_note="not") is None
 
     deps.pending_teacher_plan = parse_teacher_plan(
         '{"adimlar":["Oku"],"dosyalar":[],"riskler":[],"yapilamayanlar":[],"dogrulama":[]}'
@@ -309,7 +309,8 @@ def test_plan_varken_danisma_sorusu_takilma_nedenine_ozeldir(tmp_path) -> None:
     )
     ozel = agent_loop._plateau_question(deps, "aynı araç hatası tekrarlandı")
 
-    assert "ilk somut dosya değişikliği" in genel
+    assert "ilerleme yok uyarısı" in genel
+    assert "çok dosyalı" not in genel
     assert "aynı araç hatası tekrarlandı" in ozel
     assert "ilk somut dosya değişikliği" not in ozel
 

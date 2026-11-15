@@ -49,6 +49,18 @@ def _on_request_task_done(
         writer(encode_error(f"{messages.APP_BACKGROUND_TASK_FAILED}: {error}"))
 
 
+def _start_plugin_background(root: Path) -> None:
+    """Masaüstü oturumu da REPL gibi: bildirilen pazarlar (#376), renames eşlemesi (#397) ve
+    auto-update'i açık pazarların gecikmeli arka plan güncellemesi (#394)."""
+    from ..tools.plugin_auto_update import start_auto_update
+    from ..tools.plugin_declared import start_background_sync
+    from ..tools.plugin_market_sync import start_session_sync
+
+    start_background_sync(root)
+    start_session_sync()
+    start_auto_update(root)
+
+
 async def serve(
     lines: AsyncIterator[str],
     writer: Writer,
@@ -60,41 +72,54 @@ async def serve(
     require_remotion_kit: bool = False,
 ) -> None:
     """Satır akışını oturuma bağla ve akış bitene kadar sür."""
-    session = (
-        AppSession(
-            writer,
-            root=root,
-            home=home,
-            remotion_transport=remotion_transport,
-            remotion_browser=remotion_browser,
-            require_remotion_kit=require_remotion_kit,
-        )
-        if remotion_transport is not None or remotion_browser is not None or require_remotion_kit
-        else AppSession(writer, root=root, home=home)
-    )
-    tasks: set[asyncio.Task[None]] = set()
+    # Masaüstü yüzeyi (#428, #429): arka planda çalış ayarı ve sohbet başına computer use kilidi.
+    from ..tools import desktop_turn
+
+    desktop_turn.use_app_surface(True)
     try:
-        async for line in lines:
-            message = decode(line)
-            if message is None:
-                writer(encode_error(messages.APP_UNDECODABLE_LINE))
-                continue
-            if isinstance(message, Request):
-                _spawn_request_task(session, message, writer, tasks)
-                continue
-            if isinstance(message, Reply) and not session.resolve_reply(message):
-                writer(encode_error(messages.APP_UNMATCHED_REPLY_ID))
+        session = (
+            AppSession(
+                writer,
+                root=root,
+                home=home,
+                remotion_transport=remotion_transport,
+                remotion_browser=remotion_browser,
+                require_remotion_kit=require_remotion_kit,
+            )
+            if remotion_transport is not None
+            or remotion_browser is not None
+            or require_remotion_kit
+            else AppSession(writer, root=root, home=home)
+        )
+        _start_plugin_background(root)
+        tasks: set[asyncio.Task[None]] = set()
+        try:
+            async for line in lines:
+                message = decode(line)
+                if message is None:
+                    writer(encode_error(messages.APP_UNDECODABLE_LINE))
+                    continue
+                if isinstance(message, Request):
+                    _spawn_request_task(session, message, writer, tasks)
+                    continue
+                if isinstance(message, Reply) and not session.resolve_reply(message):
+                    writer(encode_error(messages.APP_UNMATCHED_REPLY_ID))
+        finally:
+            # Önce close(): çalışan turu ve bekleyen onay sorularını iptal
+            # eder. Sıra tersine çevrilirse — görevleri close()'dan önce
+            # bekleseydik — stdin zaten kapandığı için onay bekleyen bir
+            # görev asla `cevap` alamaz ve süreç asılı kalırdı. close()
+            # iptali tetikledikten sonra görevler bu iptali işleyip kendi
+            # sonuçlarını yazar; onları burada bekleyerek düzgün kapanışı
+            # garanti ederiz.
+            try:
+                await session.close()
+            finally:
+                # close() hata verse de görevler beklenir; yoksa yarım kalan sonuçlar yazılmaz.
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
     finally:
-        # Önce close(): çalışan turu ve bekleyen onay sorularını iptal
-        # eder. Sıra tersine çevrilirse — görevleri close()'dan önce
-        # bekleseydik — stdin zaten kapandığı için onay bekleyen bir
-        # görev asla `cevap` alamaz ve süreç asılı kalırdı. close()
-        # iptali tetikledikten sonra görevler bu iptali işleyip kendi
-        # sonuçlarını yazar; onları burada bekleyerek düzgün kapanışı
-        # garanti ederiz.
-        await session.close()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        desktop_turn.use_app_surface(False)
 
 
 async def _stdin_lines() -> AsyncIterator[str]:

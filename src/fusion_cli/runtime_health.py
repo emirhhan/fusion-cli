@@ -26,7 +26,10 @@ def _tokenizer_plugins_ok() -> bool:
         import tiktoken
 
         return tiktoken.get_encoding("cl100k_base").name == "cl100k_base"
-    except (ImportError, ValueError):
+    except (ImportError, ValueError, OSError):
+        # `OSError`: BPE dosyası önbellekte yoksa tiktoken internetten indirmeyi dener; çevrimdışı
+        # kullanıcıda ağ hatası (`requests` istisnaları OSError türevidir) denetimi çökertmemeli,
+        # yalnız "hazır değil" demeli (E1-40).
         return False
 
 

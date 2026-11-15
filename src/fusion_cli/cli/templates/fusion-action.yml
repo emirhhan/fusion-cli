@@ -1,0 +1,77 @@
+# Fusion GitHub Actions iş akışı (`fusion gh-action kur` üretti).
+#
+# Bir issue ya da PR yorumunda "@fusion <görev>" yazıldığında Fusion'ı headless çalıştırır
+# ve sonucu yoruma yazar. Claude Code'un GitHub App iş akışının karşılığıdır.
+#
+# Yalnız depo sahibi, üyesi ya da ortak çalışanı (author_association) tetikleyebilir.
+# `--mode auto` proje içi komutları sormadan çalıştırır; daha kısıtlı istiyorsan `--mode edits`.
+#
+# Gerekenler (Depo → Settings → Secrets and variables → Actions):
+#   FUSION_PROVIDER_KEY  : model sağlayıcı anahtarı (ör. OPENROUTER_API_KEY değeri)
+# `FUSION_CONFIG` ile depodaki bir config.yaml verilebilir; verilmezse paket varsayılanları.
+name: Fusion
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  fusion:
+    # Yalnız depo sahibi/üyesi/ortak çalışanın yorumu koşuyu tetikler: iş akışı sağlayıcı
+    # sırrı ve yazma yetkili token ile çalışır; açık depoda herkesin "@fusion" yazabilmesi
+    # sır sızıntısı ve kota tüketimi demektir (Claude Code eylemi de yazma yetkisi şart koşar).
+    if: >-
+      contains(github.event.comment.body, '@fusion') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fusion'ı kur
+        run: pip install "fusion-cli[mcp]"
+
+      - name: Görevi çalıştır
+        id: run
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.FUSION_PROVIDER_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          FUSION_KEYCHAIN: "off"
+          GOREV: ${{ github.event.comment.body }}
+        run: |
+          set -o pipefail
+          # "@fusion" etiketi düşer; kalan metin görevdir. Görev stdin'den gelir (`-`).
+          printf '%s' "${GOREV#*@fusion}" | fusion agent - \
+            --mode auto --bare --max-turns 40 --max-budget-usd 2 \
+            --output-format json --quiet | tee fusion-sonuc.json
+
+      - name: Sonucu yoruma yaz
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY' > yorum.md
+          import json, pathlib
+          try:
+              sonuc = json.loads(pathlib.Path("fusion-sonuc.json").read_text().splitlines()[-1])
+              print("### Fusion\n")
+              print(sonuc.get("sonuc", "(boş)"))
+              k = sonuc.get("kullanim", {})
+              print(f"\n_{sonuc.get('durum')} · {k.get('cagri', 0)} çağrı · ${k.get('maliyet_usd', 0):.4f}_")
+          except Exception as hata:  # noqa: BLE001
+              print(f"### Fusion\n\nÇalışma başarısız: {hata}")
+          PY
+          gh issue comment "${{ github.event.issue.number || github.event.pull_request.number }}" --body-file yorum.md

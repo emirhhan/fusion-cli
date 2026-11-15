@@ -64,14 +64,22 @@ def _temiz_baslangic(step: PlanStep) -> PlanStep:
     return replace(step, status=StepStatus.PENDING, attempts=0, last_progress_fingerprint="")
 
 
-def _first_dependent_execution(plan: ExecutionPlan, step_id: str) -> PlanStep | None:
+def _first_dependent_execution(
+    plan: ExecutionPlan, step_id: str, *, needs_shell: bool = False
+) -> PlanStep | None:
     """Bu adıma bağlı ilk yürütme adımı; yoksa None.
+
+    `needs_shell`: taşınan kontrol kabuk komutuysa hedef adım da `shell` ailesini
+    bildirmiş olmalı. Ölçüldü (29 Ekim, A3-16): kabuksuz adıma taşınan komut kontrolü
+    o adımın kendi kapısında yine ölçülemeyip adımı düşürüyordu.
 
     Plan sırası korunur: kontrolü mümkün olan EN ERKEN yürütme adımına taşımak,
     doğrulamayı görevin sonuna ertelemekten iyidir.
     """
     for item in plan.steps:
         if item.phase is PlanPhase.EXECUTION and step_id in item.depends_on:
+            if needs_shell and "shell" not in item.allowed_tool_families:
+                continue
             return item
     return None
 
@@ -90,7 +98,11 @@ def repair_discovery_phase(
     if not cakisan:
         return None
 
-    tasinan = _first_dependent_execution(plan, step.step_id)
+    tasinan = _first_dependent_execution(
+        plan,
+        step.step_id,
+        needs_shell=any(check.kind in SHELL_CHECK_KINDS for check in cakisan),
+    )
     if tasinan is None and "shell" in step.allowed_tool_families:
         # Adım kabuk araçlarını KENDİSİ istemiş; yanlış olan tek şey evre etiketi.
         # Yetki plandan gelir, bu onarımdan değil: `allowed_tool_families` zaten

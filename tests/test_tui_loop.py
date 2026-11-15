@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from fusion_cli.cli.repl.state import Engine, ReplState
 from fusion_cli.cli.repl.tui import FusionTui
@@ -77,7 +78,7 @@ async def test_prompter_confirm_sonrasi_onceki_calisma_satirini_geri_getirir():
     assert "hazırlanıyor…" in tui._work_now()
 
 
-async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
+async def test_prompter_kabukta_yalniz_kalici_secenek_sunar():
     tui = _noop_tui()
     prompter = TuiPrompter(tui, None)
 
@@ -87,7 +88,24 @@ async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
     await asyncio.sleep(0)
 
     assert tui._mode == "choice"
-    assert [choice.value for choice in tui._choices] == ["once", "session", "deny"]
+    # #82: Claude kabuk komutunda oturumluk seçenek sunmaz, yalnız "bir daha sorma".
+    assert [choice.value for choice in tui._choices] == ["once", "always", "deny"]
+    tui._resolve("always")
+    assert await task is ApprovalAnswer.ALWAYS
+
+
+async def test_prompter_kabuk_disi_istekte_oturum_secimi_sunar():
+    class _Web:
+        name = "web_fetch"
+
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+    request = ApprovalRequest(tool=_Web(), args={"url": "https://example.com"}, danger=None)
+    task = asyncio.ensure_future(prompter.confirm(request))
+    await asyncio.sleep(0)
+
+    values = [choice.value for choice in tui._choices]
+    assert "session" in values
     tui._resolve("session")
     assert await task is ApprovalAnswer.SESSION
 
@@ -101,7 +119,8 @@ async def test_prompter_yikici_istekte_oturum_secimi_sunmaz():
     )
     await asyncio.sleep(0)
 
-    assert [choice.value for choice in tui._choices] == ["once", "deny"]
+    # Tehlikede öntanımlı (ilk) seçenek RED'dir (L1-01).
+    assert [choice.value for choice in tui._choices] == ["deny", "once"]
     tui._resolve("deny")
     assert await task is ApprovalAnswer.DENY
 
@@ -212,35 +231,59 @@ async def test_agent_fusion_komutu_motoru_degistirir(tmp_path):
 
 
 async def test_argumansiz_secici_komut_yonlendirir(tmp_path):
-    """TUI çalışırken iç içe seçici açılmaz; argümansız /model yönlendirme basar."""
+    """TUI çalışırken iç içe seçici açılmaz; argümansız /mode, uygulama-içi modal açar."""
     session = _TuiSession(_state(tmp_path))
 
-    await session._command("/model")
-
-    assert "argüman ister" in session.tui.transcript
+    gorev = asyncio.ensure_future(session._command("/mode"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"
+    session.tui._resolve(None)
+    await gorev
 
 
 def test_would_open_picker_nested_secici_komutlarini_yakalar():
     from fusion_cli.cli.repl.tui_loop import _would_open_picker
 
-    assert _would_open_picker("provider", "")
     assert _would_open_picker("development", "x")
-    assert _would_open_picker("model", "")  # argümansız katalog
-    assert not _would_open_picker("model", "premium")  # argümanla uygular
-    assert _would_open_picker("profiles", "edit code")
+    # #211: argümansız /model modal açar; /provider, /verify, /profiles edit de modalla çözülür.
+    assert not _would_open_picker("model", "")
+    assert not _would_open_picker("provider", "")
+    assert not _would_open_picker("verify", "")
+    assert not _would_open_picker("profiles", "edit code")
     assert _would_open_picker("providers", "add")
     # mode/level/effort uygulama-içi modalla çözülür; guard'lanmaz.
     assert not _would_open_picker("mode", "")
     assert not _would_open_picker("level", "")
 
 
-async def test_provider_komutu_gorunumu_bozmaz(tmp_path):
-    """/provider nested seçici açacaktı; TUI'de yönlendirme basar, görünüm bozulmaz."""
+async def test_provider_komutu_uygulama_ici_modalla_cozulur(tmp_path):
+    """L2-14: /provider artık engellenmez; TUI modalı açılır, esc vazgeçmektir."""
     session = _TuiSession(_state(tmp_path))
 
-    await session._command("/provider")
+    gorev = asyncio.ensure_future(session._command("/provider"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"
+    session.tui._resolve(None)
+    await gorev
 
-    assert "argüman ister" in session.tui.transcript
+    assert "argüman ister" not in session.tui.transcript
+    assert "seçim yapılmadı" in session.tui.transcript
+
+
+async def test_model_argumansiz_model_seciciyi_acar(tmp_path):
+    """Claude Code ModelPicker (#211): argümansız /model uygulama içi seçiciyi açar."""
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    gorev = asyncio.ensure_future(session._command("/model"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"
+    assert session.tui._choice_alt_keys == ("s", "left", "right")
+    session.tui._resolve(None)
+    await gorev
+
+    assert "argüman ister" not in session.tui.transcript
+    assert "seçim yapılmadı" in session.tui.transcript
 
 
 async def test_mode_komutu_uygulama_ici_secimle_uygulanir(tmp_path):
@@ -376,6 +419,26 @@ async def test_tui_consumes_pending_digest_once_and_injects_home(tmp_path, monke
     assert other._transcript_store.session_id != calls[0].get("conversation_id")
 
 
+async def test_tui_kalici_kural_bildirimini_tur_sonunda_basar(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (31 Ekim): TUI döngüsü `approval_memory.take_notices()` çağırmıyordu; 'bir daha
+    sorma' sonrası kural yazıldı/yazılamadı bildirimi hiç görünmüyordu."""
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        kwargs["approval_memory"].notices.append("Bash(npm test *) → /proje/.claude/x.json")
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+    await session._turn("görev")
+
+    assert "İzin kuralı kaydedildi" in session.tui.transcript
+    assert "Bash(npm test *)" in session.tui.transcript
+    assert state.approval_memory.take_notices() == []
+
+
 async def test_tui_turlari_ayni_onay_hafizasini_paylasir(tmp_path, monkeypatch) -> None:
     """Oturum boyunca verilen izin TUI'de de tur değişince unutulmamalı."""
     from fusion_cli.engines.agent import AgentOutcome
@@ -450,3 +513,317 @@ async def test_kipsiz_turda_varsayilan_butce_korunur(tmp_path, monkeypatch) -> N
 
     assert calls[0]["step_limit"] is None
     assert calls[0]["extra_system"] == ""
+
+
+# --- Dalga 4: yol mesajı, iptalde kuyruk, hata ayrıntısı, künye, Ctrl-C (L2-16, L2-24) --- #
+
+
+def test_yolla_baslayan_mesaj_komut_sayilmaz():
+    """Ölçüldü (30 Ekim): '/Users/x/proje/main.py dosyasını incele' bilinmeyen komut oluyordu."""
+    from fusion_cli.cli.repl.commands import is_command_line
+
+    assert is_command_line("/help")
+    assert is_command_line("/mode auto")
+    assert is_command_line("/olmayan komut")  # bilinmeyen komut hatası korunur
+    assert not is_command_line("/Users/x/proje/main.py dosyasını incele")
+    assert not is_command_line("/tmp/a.txt")
+    assert not is_command_line("merhaba")
+
+
+async def test_yolla_baslayan_mesaj_tura_gider_komuta_degil(tmp_path, monkeypatch):
+    session = _TuiSession(_state(tmp_path))
+    gelen: list[str] = []
+
+    async def _tur(line, **kwargs):
+        gelen.append(line)
+
+    monkeypatch.setattr(session, "_turn", _tur)
+
+    await session._handle("/Users/x/proje/main.py dosyasını incele")
+
+    assert gelen == ["/Users/x/proje/main.py dosyasını incele"]
+    assert "bilinmeyen komut" not in session.tui.transcript.lower()
+
+
+async def test_tur_durdurulunca_kuyruktaki_mesaj_hemen_gonderilir(tmp_path, monkeypatch):
+    """Claude Code (#190): Esc turu keser, kuyruktakiler korunur ve hemen gönderilir."""
+    session = _TuiSession(_state(tmp_path))
+    session._queue = ["sıradaki iş"]
+    gelen: list[str] = []
+
+    async def _tur(line, **kwargs):
+        gelen.append(line)
+        if line == "uzun iş":
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(session, "_turn", _tur)
+
+    await session._handle("uzun iş")
+    assert session._task is not None
+    await session._task
+
+    assert gelen == ["uzun iş", "sıradaki iş"]
+    assert session._queue == []
+    assert "şimdi gönderiliyor" in session.tui.transcript
+
+
+async def test_beklenmeyen_hata_sebebini_kullaniciya_gosterir(tmp_path, monkeypatch):
+    session = _TuiSession(_state(tmp_path))
+
+    async def _patla(line, **kwargs):
+        raise RuntimeError("kota tükendi")
+
+    monkeypatch.setattr(session, "_turn", _patla)
+
+    await session._handle("iş")
+
+    assert "kota tükendi" in session.tui.transcript
+
+
+async def test_basarisiz_turda_devralma_kunyesi_kaybolmaz(tmp_path, monkeypatch):
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    async def _patla(task, config, **kwargs):
+        raise RuntimeError("motor çöktü")
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _patla)
+    state.pending_digest = "devralınan oturum künyesi"
+
+    with contextlib.suppress(RuntimeError):
+        await session._turn("görev")
+
+    assert state.pending_digest == "devralınan oturum künyesi"
+
+
+async def test_ctrl_c_calisan_turu_once_iptal_eder(tmp_path):
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekle() -> None:
+        await asyncio.sleep(30)
+
+    session._task = asyncio.ensure_future(_bekle())
+    session._queue = ["x"]
+    await asyncio.sleep(0)
+
+    session._exit()
+    await asyncio.sleep(0)
+
+    assert session._task.cancelled() or session._task.cancelling() > 0
+    assert session._queue == []
+    assert session._state.running is False
+
+
+async def test_prompter_ask_bos_cevap_modele_bos_metin_olarak_gitmez():
+    """Ölçüldü (30 Ekim): Esc boş string döndürüyor, model aynı soruyu tekrar soruyordu (L2-23)."""
+    from fusion_cli.ui import messages
+
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(prompter.ask("hangi dosya?"))
+    await asyncio.sleep(0)
+    tui._resolve("")
+
+    assert await task == messages.ASK_DECLINED
+
+
+async def test_prompter_ask_secici_esc_vazgecildi_der_etkilesimsiz_demez():
+    from fusion_cli.ui import messages
+
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.ask("hangisi?", options=(QuestionOption(label="a", description=""),))
+    )
+    await asyncio.sleep(0)
+    tui._resolve(None)  # Esc
+
+    sonuc = await task
+    assert sonuc == messages.ASK_DECLINED
+    assert sonuc != messages.NO_ANSWER_AVAILABLE
+
+
+async def test_tui_turu_kullanim_gunlugunu_besler(tmp_path, monkeypatch) -> None:
+    """Varsayılan TUI yolu da kalıcı kullanım günlüğünü sinks'e katmalı.
+
+    Ölçüldü (31 Ekim): günlük yalnız satır-içi yola bağlıydı; terminalde `fusion` açıp
+    `/usage` yazan kullanıcı TUI turlarının harcamasını hiç göremiyordu.
+    """
+    from fusion_cli.engines.agent import AgentOutcome
+    from fusion_cli.observability.usage_log import UsageLog
+
+    state = _state(tmp_path)
+    state.usage_log = UsageLog(tmp_path / "usage.jsonl", session_id="tui")
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("görev")
+
+    assert state.usage_log in calls[0]["sinks"]
+
+
+async def test_tui_turu_gunluk_kapaliyken_sinks_degismez(tmp_path, monkeypatch) -> None:
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("görev")
+
+    assert None not in calls[0]["sinks"]
+
+
+async def test_mesgulken_anlik_komutlar_hemen_calisir(tmp_path):
+    """Claude Code (#209): yanıt sürerken /status, /tasks, /usage, /model, /effort, /fast,
+    /add-dir ve /permissions kuyruğa girmez, hemen çalışır; diğer komutlar kuyruğa girer."""
+    from fusion_cli.cli.repl.busy_commands import runs_while_busy
+
+    session = _TuiSession(_state(tmp_path))
+    for line in ("/status", "/tasks", "/usage", "/cost", "/model", "/effort", "/permissions"):
+        assert runs_while_busy(session._registry, line), line
+    assert not runs_while_busy(session._registry, "/agent")
+    assert not runs_while_busy(session._registry, "düz mesaj")
+
+    async def _bekle() -> None:
+        await asyncio.sleep(10)
+
+    session._task = asyncio.ensure_future(_bekle())
+    session._submit("/model")
+    session._submit("/agent")
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert session._queue == ["/agent"]
+    assert session._task is not None and not session._task.done()
+    session._task.cancel()
+
+
+async def test_mesgulken_duz_mesaj_ayni_tura_verilir_up_geri_alir_sendnow_keser(tmp_path):
+    """Claude Code (#190): düz mesaj koşan agent turuna verilir; komut kuyrukta bekler.
+    Tüketilmeyen tur sonunda kuyruğun başına döner; ilk satırda Up geri alır;
+    chat:sendNow bekleyen varken turu keser."""
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekle() -> None:
+        await asyncio.sleep(10)
+
+    session._task = asyncio.ensure_future(_bekle())
+    steering = session._steer.begin()
+    session._submit("şunu da yap")
+    session._submit("/status")
+    session._submit("/compact")
+    assert steering.pending and session._queue == ["/compact"]
+    assert "sıraya alındı" in session.tui.transcript
+
+    taken = session._take_back_queue()
+    assert taken == ["şunu da yap", "/compact"] and session._queue == []
+    session._submit("bir daha")
+    session._settle_steer()
+    assert session._queue == ["bir daha"]
+
+    session._steer.begin()
+    session._submit("hemen")
+    session._send_now("taslak")
+    await asyncio.sleep(0)
+    assert session._task.cancelled()
+
+
+async def test_sendnow_suren_kabuk_komutunu_arka_plana_alir_turu_kesmez(tmp_path):
+    """Claude Code (#190, #218): ajanın kabuk komutu sürerken sendNow komutu arka plana
+    alır, kuyruktaki mesaj araç sonucu döner dönmez aynı tura verilir."""
+    session = _TuiSession(_state(tmp_path))
+    session._task = asyncio.ensure_future(asyncio.sleep(10))
+    session._steer.begin()
+    from fusion_cli.core import foreground_handoff
+
+    with foreground_handoff.handoff_slot() as event:  # süren `run_shell` komutu (#320)
+        session._submit("testler bitince şunu da yap")
+        session._send_now("")
+        await asyncio.sleep(0)
+        assert event.is_set() and not session._task.cancelled()
+    session._task.cancel()
+
+
+def test_ctrl_enter_dizileri_sendnow_tusuna_eslenir(tmp_path):
+    from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+    from prompt_toolkit.keys import Keys
+
+    from fusion_cli.cli.repl.tui_input_keys import CTRL_ENTER_SEQUENCES, register_shift_enter
+    from fusion_cli.config.claude_keybindings import keystroke_to_key
+    from fusion_cli.config.keybindings import load_keymap
+
+    register_shift_enter()
+    assert all(ANSI_SEQUENCES[seq] is Keys.F24 for seq in CTRL_ENTER_SEQUENCES)
+    assert keystroke_to_key("ctrl+enter") == "f24"
+    keymap = load_keymap(tmp_path / "yok.json", tmp_path / "yok-claude.json")
+    assert keymap.contexts["tui"]["f24"] == "simdi_gonder"
+
+
+def test_import_history_oturumsuz_kaynagi_ayiklar():
+    """`/import history claude` oturumsuzsa TUI modal seçici açar (#223)."""
+    from fusion_cli.cli.repl.tui_loop import _history_source
+
+    assert _history_source("history claude") == "claude"
+    assert _history_source("history claude s1") is None
+    assert _history_source("claude --yes") is None
+
+
+async def test_ctrl_x_ctrl_k_cift_basista_arka_plan_ajanlarini_durdurur(tmp_path):
+    """Claude Code chat:killAgents (#216): ilk basış uyarır, ikincisi durdurur."""
+    session = _TuiSession(_state(tmp_path))
+    runs = session._state.child_runs
+    task = asyncio.ensure_future(asyncio.sleep(10))
+    runs._background["ajan-1"] = task
+    session._tui._kill_agents_pressed()
+    assert "yeniden bas" in session.tui.transcript and not task.cancelled()
+    session._tui._kill_agents_pressed()
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if "durduruldu" in session.tui.transcript:
+            break
+    assert task.cancelled()
+    assert "1 arka plan alt ajanı durduruldu" in session.tui.transcript
+
+
+def test_bos_girdide_soru_isareti_kisayol_panelini_basar(tmp_path):
+    from fusion_cli.config.claude_keybindings import translate_action
+    from fusion_cli.config.keybindings import load_keymap
+
+    session = _TuiSession(_state(tmp_path))
+    session._tui._show_shortcuts()
+    assert "Ctrl+X Ctrl+K" in session.tui.transcript
+    keymap = load_keymap(tmp_path / "yok.json", tmp_path / "yok-claude.json")
+    assert keymap.contexts["tui"]["?"] == "kisayollar"
+    assert keymap.contexts["tui"]["c-x c-k"] == "ajanlari_durdur"
+    assert translate_action("chat:killAgents") == "ajanlari_durdur"
+
+
+def test_ctrl_t_gorev_listesini_gosterir_gizler(tmp_path):
+    """Claude Code app:toggleTodos (#216): tek uygulama oturum görev listesi (`task_view`, #330)."""
+    from fusion_cli.cli.repl.task_list import session_todos
+    from fusion_cli.core.tools import TodoItem, TodoStatus
+
+    session = _TuiSession(_state(tmp_path))
+    session_todos(session._state).replace(
+        (TodoItem("testleri yaz", TodoStatus.COMPLETED), TodoItem("düzelt", TodoStatus.PENDING))
+    )
+    assert session._tui._tasks_visible is False
+    session._tui._toggle_tasks()
+    metin = "".join(text for _style, text in session._tui._task_fragments())
+    assert "testleri yaz" in metin and "düzelt" in metin
+    session._tui._toggle_tasks()
+    assert session._tui._tasks_visible is False

@@ -15,9 +15,31 @@ from collections.abc import Sequence
 
 from ..core.constants import MAX_PREVIEW_LINES
 
+#: Bu satır sayısının üstünde `difflib` çağrılmaz (ikinci derece yavaşlar; minify JS, günlükler).
+MAX_DIFF_LINES = 20_000
+
+
+def _large_summary(old_lines: list[str], new_lines: list[str], path: str) -> str:
+    """Ortak baş/son satırları budayıp değişen bölgenin boyutunu söyleyen tek satır."""
+    start = 0
+    limit = min(len(old_lines), len(new_lines))
+    while start < limit and old_lines[start] == new_lines[start]:
+        start += 1
+    end_old, end_new = len(old_lines), len(new_lines)
+    while end_old > start and end_new > start and old_lines[end_old - 1] == new_lines[end_new - 1]:
+        end_old -= 1
+        end_new -= 1
+    return (
+        f"{path}: dosya çok büyük, ayrıntılı fark gösterilmedi. İlk değişen satır {start + 1}; "
+        f"değişen bölge: -{end_old - start} / +{end_new - start} satır."
+    )
+
 
 def unified_diff(old: str, new: str, path: str) -> str:
     """İki metin arasındaki farkı standart unified diff biçiminde üret."""
+    old_lines, new_lines = old.splitlines(), new.splitlines()
+    if max(len(old_lines), len(new_lines)) > MAX_DIFF_LINES:
+        return _large_summary(old_lines, new_lines, path)
     return "\n".join(
         difflib.unified_diff(
             old.splitlines(),

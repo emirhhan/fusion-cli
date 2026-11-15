@@ -50,4 +50,10 @@ describe("project actions", () => {
     await createAndOpenProject({ name: "Notes" }, s.actions);
     expect(s.actions.createChat).toHaveBeenCalledWith({ root: "/Desktop", mode: "kod" });
   });
+  it("açılış hatası adını ve asıl nedeni (cause) taşır (U4-56)", async () => {
+    const s = setup(true);
+    const hata = await createAndOpenProject({ name: "Blog", root: "/work/blog" }, s.actions).catch((e: unknown) => e);
+    expect(hata).toMatchObject({ name: "ProjectOpenError", projectId: "p1" });
+    expect((hata as Error).cause).toBeInstanceOf(Error);
+  });
 });

@@ -16,6 +16,13 @@
   grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) var(--inspector-width);
 }
 
+/* Denetçi sürüklenirken sütun geçişi kapalıdır: her fare hareketinde 300 ms yumuşatma tutamaç
+   imlecini geriden getiriyor ve her karede yeniden akış yaptırıyordu (CSS1-01). `Inspector`
+   sürüklemenin başında bu özniteliği koyar, sonunda kaldırır. */
+.app-shell[data-resizing="true"] {
+  transition: none;
+}
+
 /* Daraltılmış kenar çubuğu TAMAMEN gizlenir — ChatGPT ve Claude'daki gibi.
    Eskiden ikon şeridine iniyordu: başlıklar gizlenince geriye anlamsız
    simgeler, yarım kalmış arama kutusu ve baş harflere inmiş proje adları
@@ -144,6 +151,17 @@
 }
 @media (max-width: 620px) {
   .app-shell__welcome { padding: 20vh 16px 24px; }
+}
+
+/* Hoş geldin düzeninde yazma kutusu ekranın ortasındadır; yukarı açılan menüler üstteki kaydırma
+   kabının negatif taşmasında kırpılır ve kaydırılamaz. Aşağı taşma ise kaydırılabilir, bu yüzden
+   menüler burada aşağı açılır (CSS1-03). */
+.app-shell__welcome .model-picker__menu,
+.app-shell__welcome .approval-menu__list,
+.app-shell__welcome .composer__palette,
+.app-shell__welcome .context-gauge__popover {
+  bottom: auto;
+  top: calc(100% + var(--space-2));
 }
 
 .app-shell__inspector {

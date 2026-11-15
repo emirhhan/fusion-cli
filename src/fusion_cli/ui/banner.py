@@ -58,10 +58,15 @@ class SessionInfo:
     working_dir: str
     #: Bellek açıksa ders sayısı, kapalıysa None.
     lesson_count: int | None
+    #: Oturum ajanı (`--agent`, `agent` ayarı); Claude Code başlıkta `@<ad>` gösterir.
+    agent: str = ""
 
 
-def gradient(text: str, start: str = theme.ACCENT, end: str = theme.ACCENT_ALT) -> Text:
+def gradient(text: str, start: str | None = None, end: str | None = None) -> Text:
     """Metni karakter karakter iki renk arasında geçişli boya."""
+    # Varsayılanlar ÇAĞRI anında okunur: `/theme` paleti değiştirince imza da değişir (P-070).
+    start = start or theme.ACCENT
+    end = end or theme.ACCENT_ALT
     rendered = Text()
     visible = [char for char in text if char != "\n"]
     total = len(visible)
@@ -96,8 +101,10 @@ def print_welcome(
         # çıktısını görür — bir uygulamaya girilmiş hissi vermez. `ESC [ 3 J` geçmişi de
         # temizler. Yalnızca ilk karşılamada yapılır; sonraki yeniden çizimlerde oturumun
         # kendi geçmişi korunmalıdır.
-        console.file.write(_CLEAR_SCROLLBACK)
-        console.file.flush()
+        # Terminal DEĞİLSE (boru/dosya) kontrol karakteri yazılmaz: çıktıya `\x1b[3J` bulaşırdı.
+        if console.is_terminal:
+            console.file.write(_CLEAR_SCROLLBACK)
+            console.file.flush()
 
     blocks: list[RenderableType] = [Text(), *_logo_blocks(console.width), _welcome_panel(info)]
     for block in blocks:
@@ -147,8 +154,13 @@ def print_status(
 
 
 def mode_color(mode: str) -> str:
-    """Onay modunun rengi — riskli mod göze çarpsın."""
-    return {"auto": theme.OK, "plan": theme.WARN, "security": theme.ERROR}.get(mode, theme.DIM)
+    """Onay modunun rengi — riskli mod göze çarpsın (`theme.MODE_COLORS`).
+
+    Ölçüldü (30 Ekim): `bypass` (hiçbir şey sorma) ve `edits` soluk gri görünüyordu; en riskli
+    kip en sönük renkti (L1-24). `bypass` ayrıca kalın yazılır.
+    """
+    renk = theme.MODE_COLORS.get(mode, theme.DIM)
+    return f"bold {renk}" if mode == "bypass" else renk
 
 
 def pick_tip(seed: str) -> str:
@@ -224,6 +236,8 @@ def _facts_line(info: SessionInfo) -> Text:
         (messages.WELCOME_FIELD_MEMORY, _memory_text(info.lesson_count), theme.OK),
         (messages.WELCOME_FIELD_DIR, info.working_dir, theme.DIM),
     ]
+    if info.agent:
+        fields.insert(0, (messages.WELCOME_FIELD_AGENT, f"@{info.agent}", theme.ACCENT))
     line = Text()
     for index, (label, value, color) in enumerate(fields):
         if index:

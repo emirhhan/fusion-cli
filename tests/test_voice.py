@@ -643,3 +643,41 @@ def test_sistem_ses_listesi_bosluklu_kaliteli_adi_korur(monkeypatch):
     records = voice.installed_voice_records()
     assert ("Cem (Enhanced)", "tr-TR", "Cem (Enhanced)") in records
     assert voice.best_voice(records) == "Cem (Enhanced)"
+
+
+def test_onerilen_ses_zaten_kuruluysa_indirme_onerilmez() -> None:
+    """Ölçüldü (30 Ekim, S2-33): `say -v ?` kalite etiketi vermediğinden Cem kuruluyken de
+    "Cem'i indir" deniyordu."""
+    from fusion_cli.appserver.voice import upgrade_hint
+
+    assert upgrade_hint((("Cem", "tr_TR", "Cem"), ("Yelda", "tr_TR", "Yelda"))) is None
+    assert upgrade_hint((("Yelda", "tr_TR", "Yelda"),)) is not None
+
+
+def test_windows_calma_komutu_yoldaki_kesme_isaretini_kacirir(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S2-43): yol PowerShell tek tırnağına olduğu gibi gömülüyordu;
+    kullanıcı adında `'` (O'Brien) varsa çalma bozuluyordu."""
+    from fusion_cli.appserver import voice
+
+    gorulen: list[list[str]] = []
+
+    def yakala(argv, _yol):
+        gorulen.append(argv)
+        raise OSError("test")
+
+    monkeypatch.setattr(voice.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(voice, "_spawn_speech_process", yakala)
+    dosya = tmp_path / "O'Brien" / "ses.wav"
+
+    voice._play_wav_file(dosya)
+
+    assert "O''Brien" in gorulen[0][-1]
+
+
+def test_kesilen_soz_prompta_sinirli_girer() -> None:
+    """Ölçüldü (30 Ekim, S2-46): `kesilen` metin uzunluğu sınırsızdı."""
+    from fusion_cli.appserver.voice_context import MAX_INTERRUPTED_CHARS, parse_voice_context
+
+    baglam = parse_voice_context({"kesilen": "a" * 50_000})
+
+    assert baglam is not None and len(baglam.interrupted) == MAX_INTERRUPTED_CHARS

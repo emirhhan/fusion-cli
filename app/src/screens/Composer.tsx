@@ -1,15 +1,15 @@
 import { submissionAccepted, type SubmissionResult } from "../sessions/submission";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
+import { EffortMenu } from "./EffortMenu";
 import { ModelPicker, shortModelName, type ModelOption } from "./ModelPicker";
 import {
   ApprovalModeMenu,
   approvalInfo,
-  nextApprovalMode,
   type ApprovalMode,
 } from "./ApprovalModeMenu";
 import { ContextGauge } from "./ContextGauge";
@@ -24,7 +24,8 @@ import type { WorkspaceMode } from "../sessions/useSessions";
  */
 /** Yolun son parçası. Liste dar; kullanıcı önce dosya adını arar. */
 function dosyaAdi(yol: string): string {
-  const parcalar = yol.split("/");
+  // Windows yolları da `\` ile ayrılır (U1-19).
+  const parcalar = yol.split(/[\\/]/);
   return parcalar[parcalar.length - 1] || yol;
 }
 
@@ -56,9 +57,16 @@ export interface McpSunucusu {
   aciklama: string;
 }
 
-/** `@` listesindeki tek satır: MCP sunucusu ya da proje dosyası. */
+/** Kişilik seçicideki bir ajan (P-053): katalogdaki etkin ajanlar. */
+export interface PersonaOption {
+  ad: string;
+  unvan?: string;
+  aciklama?: string;
+}
+
+/** `@` listesindeki tek satır: MCP sunucusu, alt ajan ya da proje dosyası. */
 interface AnmaOgesi {
-  tur: "mcp" | "dosya";
+  tur: "mcp" | "ajan" | "dosya";
   deger: string;
   aciklama: string;
 }
@@ -77,6 +85,14 @@ interface ComposerProps {
   approval?: ApprovalMode;
   /** Verilmezse mod salt okunur gösterilir. */
   onApprovalChange?: (mode: ApprovalMode) => void;
+  /** İzin modunun yanında gösterilecek ek öğe (ör. Otomatik kip denetçisi rozeti, P-011). */
+  approvalExtra?: ReactNode;
+  /** Oturum kişiliği (ajan adı) ya da null; `onPersonaChange` yoksa seçici çizilmez. */
+  persona?: string | null;
+  personaOptions?: PersonaOption[];
+  onPersonaChange?: (persona: string | null) => void;
+  /** Konuşma başladıysa seçici kilitli: Claude Code'da ajan oturum başında seçilir (#34). */
+  personaLocked?: boolean;
   attachments?: ComposerAttachment[];
   attachmentError?: string | null;
   commandError?: string | null;
@@ -95,6 +111,8 @@ interface ComposerProps {
   fileSuggestions?: DosyaOnerisi[];
   /** `@ad` ile bu tur için seçilebilen etkin MCP sunucuları. */
   mcpServers?: McpSunucusu[];
+  /** `@agent-<ad>` ile çağrılabilen etkin alt ajanlar (Claude Code typeahead, #26). */
+  agentOptions?: PersonaOption[];
   /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
   onVoice?: () => void;
   /** Metni kutuya yazan dikte; konuşma kipinden ayrıdır. */
@@ -106,6 +124,9 @@ interface ComposerProps {
   /** Etkin ajan modeli. Boşsa seçici çizilmez. */
   activeModel?: string;
   activeModelLabel?: string;
+  activeModelPending?: boolean;
+  activeModelError?: string;
+  onActiveModelRetry?: () => void;
   /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
   modelOptions?: ModelOption[];
   modelsError?: string;
@@ -113,7 +134,7 @@ interface ComposerProps {
   onModelConnect?: () => void;
   modelsBusy?: boolean;
   onModelMenuOpen?: () => void;
-  onModelSelect?: (deger: string) => void;
+  onModelSelect?: (option: ModelOption) => void;
   onStop?: () => void;
   onValueChange?: (value: string) => void;
   running?: boolean;
@@ -122,6 +143,23 @@ interface ComposerProps {
   busySubmissionDisabled?: boolean;
   onBusySubmissionModeChange?: (mode: "steer" | "queue") => void;
   value?: string;
+}
+
+/** Sorguya uyan ajanlar `agent-<ad>` anması olarak (`@agent-code` ya da `@code`). */
+function ajanAnmalari(ajanlar: PersonaOption[], sorgu: string): AnmaOgesi[] {
+  const aranan = sorgu.toLocaleLowerCase("tr");
+  return ajanlar
+    .filter((ajan) => {
+      const ad = ajan.ad.toLocaleLowerCase("tr");
+      return ad.includes(aranan) || `agent-${ad}`.startsWith(aranan);
+    })
+    .map((ajan) => ({ tur: "ajan" as const, deger: `agent-${ajan.ad}`, aciklama: `${ajan.aciklama ?? ajan.unvan ?? ""} · Ajan` }));
+}
+
+function anmaEtiketi(oge: AnmaOgesi): string {
+  if (oge.tur === "mcp") return `MCP ${oge.deger}`;
+  if (oge.tur === "ajan") return `Ajan ${oge.deger.slice("agent-".length)}`;
+  return oge.deger;
 }
 
 export function Composer({
@@ -135,11 +173,17 @@ export function Composer({
   context = null,
   costUsd = null,
   onApprovalChange,
+  approvalExtra,
+  persona = null,
+  personaOptions = [],
+  onPersonaChange,
+  personaLocked = false,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
   onFileQuery,
   fileSuggestions = [],
   mcpServers = [],
+  agentOptions = [],
   onVoice,
   onDictation,
   dictating = false,
@@ -155,6 +199,9 @@ export function Composer({
   running = false,
   activeModel = "",
   activeModelLabel,
+  activeModelPending,
+  activeModelError,
+  onActiveModelRetry,
   modelOptions = [],
   modelsError = "",
   modelSelectionPending = false,
@@ -170,11 +217,23 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   /** Kullanıcı Esc ile listeyi kapattı mı? Sorgu değişince kendiliğinden sıfırlanır. */
   const [mentionDismissed, setMentionDismissed] = useState(false);
+  /** Gönderim reddedilirse/özel durum atarsa kullanıcıya gösterilen yerel hata (U1-05). */
+  const [sendError, setSendError] = useState<string | null>(null);
+  /** Desteklenmeyen komuta Enter basıldığında gösterilen ipucu (U1-06). */
+  const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingSubmission = useRef(false);
+  const [submissionPending, setSubmissionPending] = useState(false);
   const draft = value ?? internalValue;
+  // Masaüstünde /subtask için görünür yol (P-054): komut sunucuda varsa ve taslak bir istemse.
+  const subtaskAvailable = workspaceMode !== "sohbet" && !draft.trim().startsWith("/") && Boolean(draft.trim())
+    && commands.some((command) => command.ad === "subtask" && command.destekleniyor);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // Üst bileşen `onFileQuery` kimliğini her render'da değiştirebilir; efekt buna
+  // bağlanırsa aynı sorgu yeniden istenir ve Esc ile kapatılan liste yeniden açılır.
+  const onFileQueryRef = useRef(onFileQuery);
+  onFileQueryRef.current = onFileQuery;
   const compactLayout = attachments.length === 0 && !attachmentError && !dictationError
     && !draft.includes("\n") && draft.length < COMPACT_MESSAGE_CHARACTER_LIMIT;
   useLayoutEffect(() => {
@@ -203,10 +262,13 @@ export function Composer({
         ...mcpServers
           .filter((sunucu) => sunucu.ad.toLocaleLowerCase("tr").includes(mention.sorgu.toLocaleLowerCase("tr")))
           .map((sunucu) => ({ tur: "mcp" as const, deger: sunucu.ad, aciklama: `${sunucu.aciklama} · MCP` })),
+        ...ajanAnmalari(agentOptions, mention.sorgu),
         ...fileSuggestions.map((oneri) => ({ tur: "dosya" as const, deger: oneri.yol, aciklama: oneri.yol })),
       ]
     : [];
   const mentionOpen = mention !== null && !mentionDismissed && mentionItems.length > 0;
+  // Öneriler eşzamansız gelip kısalabilir; eski indeks listenin dışına taşmasın.
+  const mentionIndex = Math.min(activeMention, Math.max(mentionItems.length - 1, 0));
   const filteredCommands = useMemo(() => {
     if (!draft.startsWith("/") || draft.includes("\n")) return [];
     const query = draft.slice(1).trim().toLocaleLowerCase("tr");
@@ -215,20 +277,23 @@ export function Composer({
     ).slice(0, 8);
   }, [commands, draft]);
   const paletteOpen = filteredCommands.length > 0;
+  const commandIndex = Math.min(activeCommand, Math.max(filteredCommands.length - 1, 0));
   const mentionQuery = mention?.sorgu ?? null;
   useEffect(() => {
     // Anma kapalıyken sorgu gönderilmez: kapanır kapanmaz istek akışı da durur.
     if (mentionQuery === null) return;
-    onFileQuery?.(mentionQuery);
+    onFileQueryRef.current?.(mentionQuery);
     setActiveMention(0);
     // Sorgu değiştiyse kullanıcı yazmaya devam ediyor demektir: Esc ile
     // kapatılmış liste yeniden açılmalı.
     setMentionDismissed(false);
-  }, [mentionQuery, onFileQuery]);
+  }, [mentionQuery]);
   const setDraft = (next: string, nextCaret?: number) => {
     if (value === undefined) setInternalValue(next);
     onValueChange?.(next);
     setActiveCommand(0);
+    setSendError(null);
+    setCommandNotice(null);
     setCaret(nextCaret ?? next.length);
   };
   /** Seçilen yolu anmanın yerine koy ve imleci yolun ardına taşı. */
@@ -245,27 +310,49 @@ export function Composer({
       alan.setSelectionRange(sonuc.imlec, sonuc.imlec);
     });
   };
-  const send = () => {
-    const task = draft.trim();
+  const send = (prefix = "") => {
+    const task = draft.trim() ? `${prefix}${draft.trim()}` : "";
     if (!task || pendingSubmission.current) return;
     const snapshot = draft;
     pendingSubmission.current = true;
-    const accept = (result: SubmissionResult) => {
-      if (submissionAccepted(result) && draftRef.current === snapshot) setDraft("");
+    setSubmissionPending(true);
+    const finishSubmission = () => {
       pendingSubmission.current = false;
+      setSubmissionPending(false);
+    };
+    const fail = () => {
+      finishSubmission();
+      setSendError("Mesaj gönderilemedi. Yeniden dene.");
+    };
+    const accept = (result: SubmissionResult) => {
+      if (submissionAccepted(result)) {
+        // Gönderim beklenirken yazılan ek karakterler korunur; yalnız gönderilen
+        // kısım silinir. Aksi hâlde eski metin kutuda kalır ve çift gönderilir (U1-04).
+        const current = draftRef.current;
+        if (current === snapshot) setDraft("");
+        else if (current.startsWith(snapshot)) setDraft(current.slice(snapshot.length).replace(/^\s+/, ""));
+      }
+      finishSubmission();
     };
     try {
       const result = onSend(task);
-      if (result instanceof Promise) result.then(accept, () => { pendingSubmission.current = false; });
+      if (result instanceof Promise) result.then(accept, fail);
       else accept(result);
     } catch {
-      pendingSubmission.current = false;
+      fail();
     }
   };
-  /** Sıradaki izin modu (Shift+Tab). "İzinleri atla" döngüde yoktur. */
-  const nextApproval = (): ApprovalMode => nextApprovalMode(approval);
-
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // IME adayını onaylayan Enter ve composition sırasında basılan diğer
+    // kısayollar (aday penceresini kapatan Esc dahil), Fusion komutu, turu
+    // durdurma veya izin modu eylemi değildir (U1-12).
+    if (event.nativeEvent.isComposing) return;
+    // Açık anma listesi Esc'i önce kendi kapatmak için tüketir (U1-13).
+    if (mentionOpen && event.key === "Escape") {
+      event.preventDefault();
+      setMentionDismissed(true);
+      return;
+    }
     // Esc çalışan turu durdurur (Claude'daki davranış). Boş kutuda da çalışır;
     // kullanıcı durdurmak için fareye uzanmak zorunda kalmamalı.
     if (event.key === "Escape" && running && !stopping) {
@@ -273,24 +360,10 @@ export function Composer({
       onStop();
       return;
     }
-    // IME adayını onaylayan Enter ve composition sırasında basılan diğer
-    // kısayollar, Fusion komutu veya izin modu eylemi değildir.
-    if (event.nativeEvent.isComposing) return;
-    // Shift+Tab İZİN MODUNU döndürür — terminaldeki davranışın aynısı.
-    // Sohbet/Kod ayrımı ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
-    // kullanıcının beklediği terminal alışkanlığını bozuyordu.
-    if (event.key === "Tab" && event.shiftKey && onApprovalChange) {
-      event.preventDefault();
-      onApprovalChange(nextApproval());
-      return;
-    }
+    // Masaüstünde Shift+Tab izin modunu DÖNDÜRMEZ (Claude Code Desktop, #441): menü
+    // Cmd/Ctrl+Shift+M ile açılır (`ApprovalModeMenu`); Shift+Tab ters odak hareketidir.
     // Anma paleti açıkken ok/Enter/Esc ONA aittir; komut paleti `/` ile
     // başlar ve ikisi aynı anda açılamaz, ama sıra yine de belirli olmalı.
-    if (mentionOpen && event.key === "Escape") {
-      event.preventDefault();
-      setMentionDismissed(true);
-      return;
-    }
     if (mentionOpen && event.key === "ArrowDown") {
       event.preventDefault();
       setActiveMention((current) => (current + 1) % mentionItems.length);
@@ -303,7 +376,7 @@ export function Composer({
     }
     if (mentionOpen && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
       event.preventDefault();
-      const secili = mentionItems[activeMention];
+      const secili = mentionItems[mentionIndex];
       if (secili) chooseMention(secili.deger);
       return;
     }
@@ -327,24 +400,39 @@ export function Composer({
         send();
         return;
       }
-      if (exactCommands.length > 0) return;
-      const selected = filteredCommands[activeCommand];
+      if (exactCommands.length > 0) {
+        setCommandNotice(`/${exactCommands[0].ad} komutu uygulamada henüz desteklenmiyor.`);
+        return;
+      }
+      const selected = filteredCommands[commandIndex];
       if (selected && draft.trim() !== `/${selected.ad}`) {
-        setDraft(`/${selected.ad}`);
+        if (selected.destekleniyor) setDraft(`/${selected.ad}`);
+        else setCommandNotice(`/${selected.ad} komutu uygulamada henüz desteklenmiyor.`);
         return;
       }
       send();
     }
   };
+  /** Yalnız dosya sürüklemeleri bu kutunun işi; metin bırakmayı textarea kendisi ele alır (U1-09). */
+  const dosyaSurukleniyor = (event: DragEvent<HTMLDivElement>) =>
+    [...(event.dataTransfer?.types ?? [])].includes("Files") || (event.dataTransfer?.files?.length ?? 0) > 0;
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!dosyaSurukleniyor(event)) return;
     event.preventDefault();
     const files = [...event.dataTransfer.files];
     if (files.length) onDropFiles(files);
   };
+  /** Panodaki görsel/dosya (ekran görüntüsü) ek olarak eklenir; düz metin yapıştırma etkilenmez (U1-10). */
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (files.length === 0) return;
+    event.preventDefault();
+    onDropFiles(files);
+  };
 
   return (
     <div className="composer-wrap">
-      <div className="composer" data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+      <div className="composer" data-busy-submission={running && !!onBusySubmissionModeChange ? "true" : undefined} data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => { if (dosyaSurukleniyor(event)) event.preventDefault(); }} onDrop={handleDrop}>
         {running && onBusySubmissionModeChange && <label className="composer__submission">
           <span>Bu mesaj</span>
           <select aria-label="Çalışan işe mesaj" value={busySubmissionMode} disabled={stopping || busySubmissionDisabled}
@@ -355,12 +443,13 @@ export function Composer({
         </label>}
         {stopping && <p className="composer__notice" role="status">İşlem durduruluyor; açık işlemler kapatılıyor.</p>}
         {paletteOpen && (
-          <div aria-label="Komut önerileri" className="composer__palette" role="listbox">
+          <div aria-label="Komut önerileri" className="composer__palette" id="composer-komut-listesi" role="listbox">
             {filteredCommands.map((command, index) => (
               <button
                 aria-label={`${command.ad} — ${command.aciklama}`}
-                aria-selected={index === activeCommand}
+                aria-selected={index === commandIndex}
                 disabled={!command.destekleniyor}
+                id={`composer-komut-${index}`}
                 key={`${command.grup}:${command.ad}`}
                 onClick={() => setDraft(`/${command.ad}`)}
                 role="option"
@@ -375,17 +464,18 @@ export function Composer({
           </div>
         )}
         {mentionOpen && (
-          <div aria-label="Anma önerileri" className="composer__palette" role="listbox">
+          <div aria-label="Anma önerileri" className="composer__palette" id="composer-anma-listesi" role="listbox">
             {mentionItems.map((oge, index) => (
               <button
-                aria-label={oge.tur === "mcp" ? `MCP ${oge.deger}` : oge.deger}
-                aria-selected={index === activeMention}
+                aria-label={anmaEtiketi(oge)}
+                aria-selected={index === mentionIndex}
+                id={`composer-anma-${index}`}
                 key={`${oge.tur}:${oge.deger}`}
                 onClick={() => chooseMention(oge.deger)}
                 role="option"
                 type="button"
               >
-                <code>@{oge.tur === "mcp" ? oge.deger : dosyaAdi(oge.deger)}</code>
+                <code>@{oge.tur === "dosya" ? dosyaAdi(oge.deger) : oge.deger}</code>
                 <span>{oge.aciklama}</span>
               </button>
             ))}
@@ -402,13 +492,22 @@ export function Composer({
             ))}
           </div>
         )}
-        {[attachmentError, dictationError, commandError].map((error, index) => error && <p key={index} aria-live="polite" className="composer__attachment-error">{error}</p>)}
+        {[attachmentError, dictationError, commandError, commandNotice, sendError].map((error, index) => error && <p key={index} className="composer__attachment-error" role="alert">{error}</p>)}
         <textarea
           aria-label="Mesaj"
+          {...(paletteOpen || mentionOpen
+            ? {
+                "aria-activedescendant": paletteOpen ? `composer-komut-${commandIndex}` : `composer-anma-${mentionIndex}`,
+                "aria-autocomplete": "list" as const,
+                "aria-controls": paletteOpen ? "composer-komut-listesi" : "composer-anma-listesi",
+                "aria-haspopup": "listbox" as const,
+              }
+            : {})}
           onChange={(event) => setDraft(event.target.value, event.target.selectionStart)}
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+          onPaste={handlePaste}
           placeholder="İstediğin bir şeyi sor"
           ref={textareaRef}
           rows={1}
@@ -435,11 +534,35 @@ export function Composer({
             ) : (
               <span className="composer__agent">{approvalInfo(approval).label}</span>
             )}
+            {workspaceMode === "sohbet" && onWorkspaceModeChange ? null : approvalExtra}
+            {onPersonaChange && workspaceMode !== "sohbet" && (
+              <select
+                aria-label="Oturum kişiliği"
+                className="composer__persona"
+                data-active={persona ? "true" : undefined}
+                disabled={personaLocked}
+                onChange={(event) => onPersonaChange(event.target.value || null)}
+                title={
+                  personaLocked
+                    ? "Ajan oturum başında seçilir; başka ajanla sürmek için yeni sohbet aç"
+                    : "Oturumu bir ajan tanımıyla sür (explore, plan…); boş = varsayılan Fusion"
+                }
+                value={persona ?? ""}
+              >
+                <option value="">Kişilik yok</option>
+                {personaOptions.map((option) => (
+                  <option key={option.ad} title={option.aciklama} value={option.ad}>{option.unvan && option.unvan !== option.ad ? `${option.unvan} (${option.ad})` : option.ad}</option>
+                ))}
+                {persona && !personaOptions.some((option) => option.ad === persona) && <option value={persona}>{persona}</option>}
+              </select>
+            )}
           </div>
           {running ? (
             <span className="composer__actions">
-              {onModelSelect && activeModel && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
-              <ContextGauge olcu={context} onCompact={() => onSend("/compact")} />
+              {onModelSelect && <ModelPicker activePending={activeModelPending} activeError={activeModelError} onActiveRetry={onActiveModelRetry} active={activeModel} activeLabel={activeModelLabel || activeModel ? `${activeModelLabel || shortModelName(activeModel)} · sonraki tur` : undefined} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
+              {/* Çalışırken "Bağlamı sıkıştır" sunulmaz: onSend çalışan tura talimat/sıra olarak gider
+                  ve /compact komut yerine modele metin olarak iletilebilirdi (U1-11). */}
+              <ContextGauge olcu={context} />
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
               )}
@@ -447,7 +570,7 @@ export function Composer({
                   Düğme yalnız yazı varken çıkar; boşken soluk bir ok "gönder
                   çalışmıyor" gibi okunuyordu. */}
               {draft.trim() && (
-                <Button aria-label="Sıraya ekle" icon="send" iconOnly onClick={send} />
+                <Button aria-label="Sıraya ekle" aria-busy={submissionPending || undefined} disabled={submissionPending} icon="send" iconOnly onClick={() => send()} />
               )}
               {/* ChatGPT'deki gibi: tur sürerken ses düğmelerinin yerinde beyaz
                   yuvarlak içinde kare durdur düğmesi — Fusion'ın çalıştığı buradan anlaşılır. */}
@@ -478,8 +601,13 @@ export function Composer({
                   <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24" width="18"><path d="M3 10v4M7 6v12M11 3v18M15 7v10M19 5v14M23 10v4" /></svg>
                 </button>
               )}
-              {onModelSelect && activeModel && (
+              {/* Efor menüsü (⌘⇧E, #444): tur sürerken komut mesaj olarak gidebileceği için yok. */}
+              {onModelSelect && <EffortMenu onSelect={(level) => void onSend(`/effort ${level}`)} />}
+              {onModelSelect && (
                 <ModelPicker
+                  activePending={activeModelPending}
+                  activeError={activeModelError}
+                  onActiveRetry={onActiveModelRetry}
                   active={activeModel}
                   activeLabel={activeModelLabel}
                   busy={modelsBusy}
@@ -492,7 +620,20 @@ export function Composer({
                   options={modelOptions}
                 />
               )}
-              <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={send} variant="primary" />
+              {subtaskAvailable && (
+                <button
+                  aria-label="Alt görev olarak gönder"
+                  className="composer__subtask"
+                  aria-busy={submissionPending || undefined}
+                  disabled={submissionPending}
+                  onClick={() => send("/subtask ")}
+                  title="Bağlamı devralan bir alt ajanda çalıştır; sohbete yalnız özeti döner (/subtask)"
+                  type="button"
+                >
+                  Alt görev
+                </button>
+              )}
+              <Button aria-label="Gönder" aria-busy={submissionPending || undefined} disabled={!draft.trim() || submissionPending} icon="send" iconOnly onClick={() => send()} title={submissionPending ? "Mesaj gönderiliyor" : undefined} variant="primary" />
             </span>
           )}
         </div>

@@ -58,3 +58,11 @@ def test_onay_ve_sohbet_olaylari_liste_kuyrugunun_onune_gecer(result: dict[str, 
         "projects.list",
         "schedules.list",
     ]
+
+
+def test_json_olmayan_yanit_durum_koduyla_aciklanir(result: dict[str, Any]) -> None:
+    # Ölçüldü (30 Ekim): 502/HTML SyntaxError'a düşüp "bilgisayara ulaşılamıyor" diyordu.
+    non_json = result["nonJson"]
+    assert non_json["status"] == 502
+    assert "502" in non_json["message"]
+    assert "404" in non_json["rpcError"]

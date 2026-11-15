@@ -13,13 +13,15 @@ default-run = "fusion-desktop"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Yalnız masaüstü hedefi var; staticlib/cdylib (mobil şablonundan kalma) üç kat bağlama maliyeti getiriyordu (R2-28).
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
+# 2.12 fixes early unlisten aborting before backend cleanup (tauri#15800).
+tauri = { version = "2.12", features = ["macos-private-api", "protocol-asset", "tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -35,6 +37,11 @@ tauri-plugin-dialog = "2"
 portable-pty = "0.9"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"

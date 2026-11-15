@@ -1,6 +1,7 @@
 import type { Mesaj } from "../screens/Conversation";
 import { adimiEkle } from "../protocol/adimBirlestir";
 import { olayAdimi, type OlayAdimi } from "../protocol/olayMetni";
+import { orkestrasyonOlayi } from "./orkestrasyon";
 
 /**
  * Alt ajan ekibinin olaylarını sohbet akışına kart olarak işle.
@@ -30,6 +31,19 @@ export interface AjanKarti {
   cagriSayisi?: number;
   detayBekleniyor?: boolean;
   degisenYollar?: string[];
+  /** Bu ajanı başlatan alt ajanın kimliği (ana ajan başlattıysa boş). Ağaç görünümü bununla çizilir. */
+  ust?: string;
+  /** Ağaçtaki derinlik: ana ajanın doğrudan çocuğu 1. */
+  derinlik?: number;
+}
+
+/** Kimliği verilen kart hangi mesajda? (yoksa -1) */
+function kartMesaji(messages: Mesaj[], kimlik: string): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "ekip" && mesaj.ajanlar?.some((kart) => kart.id === kimlik)) return index;
+  }
+  return -1;
 }
 
 function metin(deger: unknown): string {
@@ -38,6 +52,8 @@ function metin(deger: unknown): string {
 
 /** Olay bir ekip olayıysa güncel akışı, değilse `null` döndür. */
 export function ekipOlayi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  const pano = orkestrasyonOlayi(messages, event);
+  if (pano) return pano;
   if (event.olay === "SubAgentStarted") return ajanBasladi(messages, event);
   if (event.olay === "SubAgentFinished") return ajanBitti(messages, event);
   const kimlik = metin(event.agent_id);
@@ -57,11 +73,22 @@ function ajanBasladi(messages: Mesaj[], event: Record<string, unknown>, placehol
     adimlar: [],
     detayBekleniyor: placeholder,
     baslangic: typeof event.started_at === "number" && event.started_at > 0 ? event.started_at * 1000 : Date.now(),
+    ust: metin(event.agent_id) || undefined,
+    derinlik: typeof event.depth === "number" && event.depth > 0 ? event.depth : undefined,
   };
   const existing = messages.some((message) => message.ajanlar?.some((entry) => entry.id === kart.id));
   if (existing) return kartiGuncelle(messages, kart.id, (current) => current.detayBekleniyor
-    ? { ...current, persona: kart.persona, unvan: kart.unvan, avatar: kart.avatar, renk: kart.renk, gorev: kart.gorev, baslangic: kart.baslangic, detayBekleniyor: false }
+    ? { ...current, persona: kart.persona, unvan: kart.unvan, avatar: kart.avatar, renk: kart.renk, gorev: kart.gorev, baslangic: kart.baslangic, detayBekleniyor: false, ust: kart.ust, derinlik: kart.derinlik }
     : current) ?? messages;
+  // Alt ajanın açtığı alt ajan (P-035): üstünün bulunduğu ekip mesajına girer, ağaçta
+  // onun altında çizilir; ayrı bir ekip mesajı açılmaz.
+  const ustIndeks = kart.ust ? kartMesaji(messages, kart.ust) : -1;
+  if (ustIndeks >= 0) {
+    const guncel = [...messages];
+    const ustMesaj = guncel[ustIndeks];
+    guncel[ustIndeks] = { ...ustMesaj, ajanlar: [...(ustMesaj.ajanlar ?? []), kart] };
+    return guncel;
+  }
   const grup = typeof event.group_size === "number" && event.group_size > 1 ? event.group_size : 1;
   const indeks = acikGrup(messages, grup);
   if (indeks < 0) {
@@ -73,13 +100,18 @@ function ajanBasladi(messages: Mesaj[], event: Record<string, unknown>, placehol
   return guncel;
 }
 
-/** Aynı paralel gruptan henüz dolmamış son ekip mesajı (yoksa -1). */
+/**
+ * Aynı paralel gruptan henüz dolmamış son ekip mesajı (yoksa -1).
+ *
+ * Tek kişilik grup (`grup` 1) yalnız bir pano mesajına (tek düğümlü iş akışı) girer;
+ * sıradan tek alt ajan her zaman kendi mesajını açar.
+ */
 function acikGrup(messages: Mesaj[], grup: number): number {
-  if (grup <= 1) return -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const mesaj = messages[index];
     if (mesaj.rol === "kullanici") return -1;
     if (mesaj.rol !== "ekip") continue;
+    if (grup <= 1 && !mesaj.akis && !mesaj.pano) return -1;
     const dolu = (mesaj.ajanlar ?? []).length;
     return mesaj.grupBoyutu === grup && dolu < grup ? index : -1;
   }

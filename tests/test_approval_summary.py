@@ -17,6 +17,39 @@ from fusion_cli.appserver.approval_summary import approval_summary
             "https://ads.google.com",
         ),
         ("desktop_type", {"text": "merhaba"}, "Bilgisayarında bu işlem yapılsın mı?", "merhaba"),
+        # Ölçüldü (31 Ekim): aile haritasında olmayan desktop_mouse kartı '“desktop_mouse”
+        # aracı çalıştırılsın mı?' ve boş ayrıntı gösteriyordu.
+        (
+            "desktop_mouse",
+            {"action": "right_click", "x": 784, "y": 490},
+            "Bilgisayarında bu işlem yapılsın mı?",
+            "sağ tık (784, 490)",
+        ),
+        (
+            "desktop_mouse",
+            {"action": "drag", "x": 10, "y": 20, "to_x": 300, "to_y": 400.5},
+            "Bilgisayarında bu işlem yapılsın mı?",
+            "sürükle (10, 20) → (300, 400.5)",
+        ),
+        (
+            "desktop_mouse",
+            {"action": "click", "x": 1, "y": 2, "modifiers": "cmd+shift"},
+            "Bilgisayarında bu işlem yapılsın mı?",
+            "sol tık (1, 2) (cmd+shift)",
+        ),
+        (
+            "desktop_click",
+            {"x": 5, "y": 6},
+            "Bilgisayarında bu işlem yapılsın mı?",
+            "sol tık (5, 6)",
+        ),
+        (
+            "desktop_scroll",
+            {"lines": -5, "delta_x": 2, "x": 100, "y": 200},
+            "Bilgisayarında bu işlem yapılsın mı?",
+            "5 satır aşağı ve 2 satır sola kaydır (100, 200)",
+        ),
+        ("desktop_displays", {}, "Bilgisayarında bu işlem yapılsın mı?", ""),
         (
             "wordpress-mcp__update_product",
             {"id": 5},

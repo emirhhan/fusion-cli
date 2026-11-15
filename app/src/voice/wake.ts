@@ -14,8 +14,16 @@ export function routeWakeSpeech(text: string, awake: boolean): { awake: boolean;
   return { awake, acknowledge: false, message: value || null };
 }
 
-export function speechFailureText(text: string): string {
-  return /Siri and Dictation are disabled/i.test(text)
+/** Swift yardımcısının yapısal hata kodu (U2-10); eski yardımcı kod yazmaz, metne düşülür. */
+export const DIKTE_KAPALI_KODU = "dikte_kapali";
+
+/** Sistem Dikte/Siri kapalı mı? Önce yapısal koda bakılır, yoksa (eski yardımcı) sistem metnine. */
+export function diktePasifMi(olay: { kod?: string; metin: string }): boolean {
+  return olay.kod === DIKTE_KAPALI_KODU || /Siri and Dictation are disabled/i.test(olay.metin);
+}
+
+export function speechFailureText(text: string, kod?: string): string {
+  return diktePasifMi({ kod, metin: text })
     ? "macOS Dikte kapalı. Sistem Ayarları → Klavye → Dikte’yi açıp karaktere yeniden tıkla. Sesle Denetim açıksa Dikte yerine onu kullanıyor olabilir."
     : text;
 }

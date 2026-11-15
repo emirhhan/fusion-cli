@@ -17,6 +17,7 @@ Modele kalan iş dinamik bağlamadır (menü bağlantıları, sepet sayacı, ma�
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,10 +47,24 @@ class ThemeFiles:
     problems: tuple[str, ...] = ()
 
 
+#: Yeniden yazımda ezilecek, içeriği değişmiş dosyaların eski sürümlerinin yedeği.
+PREVIOUS_DIR = "onceki"
+#: Yalnız ilk etiketi kullanılan en çok etiket sayısı (`sneaksup.com` → `sneaksup`).
+_SHORT_HOST_LABELS = 2
+
+
 def theme_slug(source_url: str) -> str:
-    """Kaynak alan adından tema klasörü adı (ör. sneaksup-kopya)."""
-    host = (urlparse(source_url).hostname or "site").removeprefix("www.").split(".")[0]
-    return f"{_SLUG.sub('-', host.lower()).strip('-') or 'site'}-kopya"
+    """Kaynak alan adından tema klasörü adı (ör. sneaksup-kopya).
+
+    Ölçüldü (29 Ekim): yalnız ilk etiket alınınca `shop.example.com` ve
+    `shop.other.com` ikisi de `shop-kopya` oluyor, farklı siteler birbirinin temasını
+    eziyordu. İki etiketli adreslerde (`sneaksup.com`) ad aynı kalır; alt alan adı ya
+    da çok etiketli TLD (`foo.co.uk`) varsa tam alan adı kullanılır.
+    """
+    host = (urlparse(source_url).hostname or "site").removeprefix("www.").lower()
+    labels = host.split(".")
+    base = labels[0] if len(labels) <= _SHORT_HOST_LABELS else host
+    return f"{_SLUG.sub('-', base).strip('-') or 'site'}-kopya"
 
 
 def _safe(html: str) -> str:
@@ -169,6 +184,9 @@ def buttons_to_links(html: str) -> str:
     return "".join(parcalar)
 
 
+_SAFE_SLUG = re.compile(r"[A-Za-z0-9_%\-]+")
+
+
 def wire_store_links(html: str, category_slugs: tuple[str, ...]) -> str:
     """Kaynak sitenin kategori/sepet/hesap bağlantılarını WooCommerce adreslerine bağla.
 
@@ -179,7 +197,11 @@ def wire_store_links(html: str, category_slugs: tuple[str, ...]) -> str:
     """
     hedefler: dict[str, str] = {}
     for slug in category_slugs:
-        hedefler[slug] = f"home_url( '/?product_cat={slug}' )"
+        # Slug PHP tek tırnaklı dizeye girer: `'` ya da `\` içeren değer dizeyi kapatıp kod
+        # enjekte ederdi (kaynak site kategori adları güvenilmez). WordPress slug'ı yalnız
+        # harf/rakam/`-`/`_`/`%` taşır; başka her şey atlanır (ölçüldü, 30 Ekim).
+        if _SAFE_SLUG.fullmatch(slug):
+            hedefler[slug] = f"home_url( '/?product_cat={slug}' )"
     for ifade, yollar in _STORE_PATHS.items():
         for yol in yollar:
             hedefler.setdefault(yol, ifade)
@@ -223,6 +245,11 @@ def _prepare(html: str, capture: SiteCapture, source_url: str) -> str:
     return same_site_paths(yerel, source_url)
 
 
+def _php_literal_safe(text: str) -> str:
+    """PHP tek tırnaklı dizeye girecek metinden `'` ve `\\` at (dizeyi bozar/kapatır)."""
+    return _safe(text).replace("'", "").replace("\\", "")
+
+
 def _inner_page_css(header_offset: int) -> str:
     """Sabit başlık iç sayfalarda içeriğin üstüne binmesin."""
     if header_offset <= 0:
@@ -245,26 +272,25 @@ def _apply_responsive(
     responsive = build_responsive_theme(ana, capture, prepare, THEME_URI)
     if responsive is None:
         return False
-    if responsive is not None:
-        dosyalar["header.php"] = _HEADER_TEMPLATE.format(
-            body_class=_safe(ana.body_class).replace("'", ""), header=responsive.header
-        )
-        dosyalar["front-page.php"] = (
-            "<?php get_header(); ?>\n" + responsive.main + "\n<?php get_footer(); ?>\n"
-        )
-        dosyalar["footer.php"] = _FOOTER_TEMPLATE.format(footer=responsive.footer)
-        dosyalar["responsive.js"] = responsive.runtime
-        dosyalar["functions.php"] += (
-            "\nadd_action( 'wp_enqueue_scripts', function () {\n"
-            "\twp_enqueue_script( 'kopya-responsive', "
-            "get_template_directory_uri() . '/responsive.js', "
-            "array(), '1.0', true );\n}, 20 );\n"
-        )
-        dosyalar["style.css"] += (
-            "\n.kopya-woocommerce, .kopya-sayfa { padding-top: "
-            "var(--fusion-header-offset, 0px); }\nbody:not(.home)::before { height: "
-            "var(--fusion-header-offset, 0px); }\n"
-        )
+    dosyalar["header.php"] = _HEADER_TEMPLATE.format(
+        body_class=_php_literal_safe(ana.body_class), header=responsive.header
+    )
+    dosyalar["front-page.php"] = (
+        "<?php get_header(); ?>\n" + responsive.main + "\n<?php get_footer(); ?>\n"
+    )
+    dosyalar["footer.php"] = _FOOTER_TEMPLATE.format(footer=responsive.footer)
+    dosyalar["responsive.js"] = responsive.runtime
+    dosyalar["functions.php"] += (
+        "\nadd_action( 'wp_enqueue_scripts', function () {\n"
+        "\twp_enqueue_script( 'kopya-responsive', "
+        "get_template_directory_uri() . '/responsive.js', "
+        "array(), '1.0', true );\n}, 20 );\n"
+    )
+    dosyalar["style.css"] += (
+        "\n.kopya-woocommerce, .kopya-sayfa { padding-top: "
+        "var(--fusion-header-offset, 0px); }\nbody:not(.home)::before { height: "
+        "var(--fusion-header-offset, 0px); }\n"
+    )
     return True
 
 
@@ -285,6 +311,41 @@ def _responsive_problems(capture: SiteCapture, paths: tuple[str, ...]) -> tuple[
             "çoklu tema aktarımı uygulanmadı.",
         )
     return ()
+
+
+def _back_up_changed(folder: Path, dosyalar: Mapping[str, str]) -> tuple[str, ...]:
+    """Üzerine yazılacak, içeriği değişmiş mevcut dosyaları `onceki/` altına yedekle.
+
+    Ölçüldü (29 Ekim): dosyalar koşulsuz yazılıyordu; kullanıcının/modelin elle
+    düzeltmeleri (`style.css` "Elle düzeltmeler buraya" der) sessizce kayboluyordu.
+    Yedek adı içerik özetini taşır: aynı içerik ikinci kez yedeklenmez.
+    """
+    yedeklenen: list[str] = []
+    for ad, yeni in dosyalar.items():
+        hedef = folder / ad
+        if not hedef.is_file():
+            continue
+        try:
+            eski = hedef.read_bytes()
+        except OSError:
+            continue
+        if eski == yeni.encode("utf-8"):
+            continue
+        ozet = hashlib.sha256(eski).hexdigest()[:8]
+        yedek = folder / PREVIOUS_DIR / f"{ad}.{ozet}"
+        yedek.parent.mkdir(parents=True, exist_ok=True)
+        yedek.write_bytes(eski)
+        yedeklenen.append(ad)
+    return tuple(yedeklenen)
+
+
+def _backup_notes(yedeklenen: tuple[str, ...]) -> tuple[str, ...]:
+    if not yedeklenen:
+        return ()
+    return (
+        f"Mevcut tema dosyaları yeniden yazıldı; eski sürümler {PREVIOUS_DIR}/ altında "
+        f"yedeklendi: {', '.join(yedeklenen)}",
+    )
 
 
 def write_theme(
@@ -311,7 +372,7 @@ def write_theme(
         "functions.php": _FUNCTIONS,
         "etkilesim.js": INTERACTIONS_RUNTIME.read_text(encoding="utf-8"),
         "header.php": _HEADER_TEMPLATE.format(
-            body_class=_safe(ana.body_class).replace("'", ""),
+            body_class=_php_literal_safe(ana.body_class),
             header=wire_store_links(_prepare(ana.header, capture, source_url), category_slugs),
         ),
         "footer.php": _FOOTER_TEMPLATE.format(
@@ -326,6 +387,7 @@ def write_theme(
     }
 
     has_responsive = _apply_responsive(dosyalar, capture, source_url, category_slugs)
+    yedeklenen = _back_up_changed(folder, dosyalar)
     for ad, icerik in dosyalar.items():
         (folder / ad).write_text(icerik, encoding="utf-8")
     referans = folder / "referans"
@@ -338,5 +400,5 @@ def write_theme(
             encoding="utf-8",
         )
     paths = (ana.url,) if has_responsive else ()
-    problems = _responsive_problems(capture, paths)
+    problems = (*_responsive_problems(capture, paths), *_backup_notes(yedeklenen))
     return ThemeFiles(folder, tuple(sorted(dosyalar)), paths, problems)

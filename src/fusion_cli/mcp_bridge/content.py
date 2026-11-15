@@ -20,10 +20,17 @@ from mcp.types import (
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolResult
+from .output_limits import limit_output
 
 
-def normalize_call_result(result: CallToolResult) -> ToolResult:
-    """SDK sonucunu metin, ikili blok ve yapılandırılmış veri kaybetmeden dönüştür."""
+def normalize_call_result(
+    result: CallToolResult, *, declared_chars: int | None = None
+) -> ToolResult:
+    """SDK sonucunu metin, ikili blok ve yapılandırılmış veri kaybetmeden dönüştür.
+
+    Çıktı Claude Code sınırlarıyla (`output_limits.py`, #240) modele verilir: büyük başarılı
+    sonuç dosyaya kaydedilir, uzun hata metninin başı ve sonu tutulur.
+    """
     blocks: list[ToolContent] = []
     priority_lines: list[str] = []
     body_lines: list[str] = []
@@ -31,15 +38,23 @@ def normalize_call_result(result: CallToolResult) -> ToolResult:
         _append_block(block, blocks, priority_lines, body_lines)
 
     structured = _structured_content(getattr(result, "structuredContent", None))
-    if structured is not None:
+    if structured is not None and not _text_repeats(structured, body_lines):
         priority_lines.append("Yapılandırılmış sonuç:\n" + _json_text(structured))
 
-    output = _compose_output(priority_lines, body_lines)
+    ok = not bool(getattr(result, "isError", False))
+    output = limit_output(
+        _compose_output(priority_lines, body_lines, budget=_UNBOUNDED),
+        ok=ok,
+        declared_chars=declared_chars,
+    )
     if not output and blocks:
         output = "[MCP aracı metin dışı içerik döndürdü.]"
+    elif not output and ok and structured is None:
+        # Boş başarı modele "hiçbir şey olmadı" gibi görünürdü; boş olduğunu söyle.
+        output = "[MCP aracı boş sonuç döndürdü.]"
     return ToolResult(
         output=output,
-        ok=not bool(getattr(result, "isError", False)),
+        ok=ok,
         content=tuple(blocks),
         structured=structured,
     )
@@ -126,6 +141,22 @@ def _structured_content(value: object) -> Mapping[str, object] | None:
     return cast(Mapping[str, object], value)
 
 
+def _text_repeats(structured: Mapping[str, object], body_lines: list[str]) -> bool:
+    """Metin bloklarından biri `structuredContent`'in aynı JSON'u mu?
+
+    Spec, geriye uyumluluk için yapılandırılmış sonucun metin olarak da dönmesini
+    önerir; ikisini birden bağlama koymak bütçeyi boşa harcar. `structured` alanı
+    `ToolResult`ta yine korunur.
+    """
+    for text in body_lines:
+        try:
+            if json.loads(text) == structured:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def _json_text(value: Mapping[str, object]) -> str:
     try:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
@@ -133,13 +164,19 @@ def _json_text(value: Mapping[str, object]) -> str:
         return str(dict(value))
 
 
-def _compose_output(priority_lines: list[str], body_lines: list[str]) -> str:
+#: Birleştirme kırpmaz; sınırı `limit_output` uygular (içerik dosyaya kaydedilir).
+_UNBOUNDED = 1 << 40
+
+
+def _compose_output(
+    priority_lines: list[str], body_lines: list[str], *, budget: int = MAX_OUTPUT_CHARS
+) -> str:
     """Metadata ve structured veriye ayrılmış bütçe ver; serbest metni sonra ekle."""
     body = "\n\n".join(body_lines)
     if not priority_lines:
-        return truncate_notice(body, MAX_OUTPUT_CHARS, ne="MCP araç çıktısı")
+        return truncate_notice(body, budget, ne="MCP araç çıktısı")
 
-    priority_budget = MAX_OUTPUT_CHARS * 2 // 3
+    priority_budget = budget * 2 // 3
     max_items = 64
     selected = priority_lines[:max_items]
     if len(priority_lines) > max_items:
@@ -156,7 +193,7 @@ def _compose_output(priority_lines: list[str], body_lines: list[str]) -> str:
     if not body:
         return priority
 
-    remaining = MAX_OUTPUT_CHARS - len(priority) - 2
+    remaining = budget - len(priority) - 2
     return f"{priority}\n\n{_fit_with_notice(body, remaining, 'MCP metin içeriği')}"
 
 

@@ -385,3 +385,154 @@ def test_turkish_search_normalizes_diacritics_and_bounded_suffixes(tmp_path):
     assert search((skill,), "olusturmak") == (skill,)
     assert search((skill,), "görsel") == (skill,)
     assert search((skill,), "ve in er") == ()
+
+
+# --- Dalga 4 (T1-47, T1-48) ----------------------------------------------------------------
+
+
+def test_frontmatter_blok_skaler_aciklamayi_birlestirir():
+    """`description: >` ve `|` yalnız ilk satırı (`>`) olarak kalıyor, arama bozuluyordu."""
+    from fusion_cli.tools.capabilities import parse_frontmatter
+
+    metin = (
+        "---\nname: video\ndescription: >\n  Remotion ile video\n  uretir ve izler.\n"
+        "tools: Read\n---\ngövde"
+    )
+
+    alanlar = parse_frontmatter(metin)
+
+    assert alanlar["description"] == "Remotion ile video uretir ve izler."
+    assert alanlar["name"] == "video"
+    assert alanlar["tools"] == ("Read",)
+
+
+def test_frontmatter_literal_blok_satir_sonlarini_korur():
+    from fusion_cli.tools.capabilities import parse_frontmatter
+
+    alanlar = parse_frontmatter("---\nname: a\ndescription: |\n  bir\n  iki\n---\n")
+
+    assert alanlar["description"] == "bir\niki"
+
+
+def test_uzun_frontmatter_bitis_isareti_kacmaz(tmp_path):
+    from fusion_cli.tools.capabilities import _read_head, parse_frontmatter
+
+    yol = tmp_path / "SKILL.md"
+    yol.write_text(
+        "---\nname: uzun\ndescription: " + "a" * 5_000 + "\n---\ngövde", encoding="utf-8"
+    )
+
+    assert parse_frontmatter(_read_head(yol)).get("name") == "uzun"
+
+
+def test_arama_durak_sozcukleri_ve_tekrarlari_saymaz():
+    """`the`, `to`, `create`, `code` hemen her açıklamada geçer; skor ayırt edici olmalı."""
+    from fusion_cli.tools.capabilities import Capability, search_scored
+
+    def _kap(ad, aciklama):
+        return Capability(ad, aciklama, Path("/x") / ad, "claude")
+
+    genel = _kap("genel", "create the code to build the thing for the user")
+    ozel = _kap("remotion-video", "render remotion video compositions")
+
+    sonuc = search_scored((genel, ozel), "create the code to render remotion video")
+
+    assert sonuc[0][0].name == "remotion-video"
+    assert all(item.name != "genel" for item, _ in sonuc)
+
+
+def test_yalniz_durak_sozcuklu_sorgu_bos_donmez():
+    from fusion_cli.tools.capabilities import Capability, search_scored
+
+    kap = Capability("a", "the code", Path("/x/a"), "claude")
+
+    assert search_scored((kap,), "the code")  # tümü durak sözcük: eski davranışa düş
+
+
+# --- Alt ajan ayar alanları (P-034) ------------------------------------------- #
+
+FULL_AGENT = """---
+name: denetci
+description: Kod denetler
+tools: Read, Grep, mcp__github__search, mcp__jira, Uydurma
+disallowedTools:
+  - Bash
+  - Write
+model: openrouter/qwen/qwen3.8-27b:free
+permissionMode: plan
+maxTurns: 12
+skills: [kod-inceleme, guvenlik]
+mcpServers: [github]
+memory: project
+background: true
+effort: high
+isolation: worktree
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: echo ok
+  Stop:
+    - hooks: []
+---
+Gövde.
+"""
+
+
+def test_alt_ajan_ayar_alanlari_okunur(tmp_path):
+    """Ölçüldü (31 Ekim): yalnız name/description/tools + kişilik okunuyordu."""
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    ajanlar = tmp_path / ".claude" / "agents"
+    ajanlar.mkdir(parents=True)
+    (ajanlar / "denetci.md").write_text(FULL_AGENT, encoding="utf-8")
+
+    ajan = CapabilityRegistry(tmp_path / "ev", tmp_path).get_agent("denetci")
+
+    assert ajan is not None
+    assert ajan.tools == ("Read", "Grep", "mcp__github__search", "mcp__jira", "Uydurma")
+    assert ajan.disallowed_tools == ("Bash", "Write")
+    assert ajan.model == "openrouter/qwen/qwen3.8-27b:free"
+    assert ajan.permission_mode == "plan" and ajan.max_turns == 12
+    assert ajan.skills == ("kod-inceleme", "guvenlik") and ajan.mcp_servers == ("github",)
+    assert ajan.memory == "project" and ajan.background is True
+    assert ajan.effort == "high" and ajan.isolation == "worktree"
+    assert ajan.hooks == ("PreToolUse", "Stop")
+    assert load_agent_prompt(ajan.path).strip() == "Gövde."
+
+
+def test_turkce_ayar_adlari_ve_bozuk_sayilar():
+    fields = parse_frontmatter(
+        "---\nname: a\nizin_kipi: security\nen_fazla_tur: bes\nbellek: user\n"
+        "yasak_araclar: Bash\nbeceriler:\n  - x\n---\ngövde"
+    )
+
+    assert fields["permission_mode"] == "security" and fields["memory"] == "user"
+    assert fields["max_turns"] == "bes" and fields["disallowed_tools"] == ("Bash",)
+    assert fields["skills"] == ("x",)
+    from fusion_cli.tools.capabilities import parse_setting_int
+
+    assert parse_setting_int("bes") == 0 and parse_setting_int("-3") == 0
+    assert parse_setting_int(" 7 ") == 7
+
+
+def test_yeni_claude_arac_adlari_ve_mcp_eslenir():
+    from fusion_cli.tools.capabilities import expand_tool_patterns, unmapped_tools
+
+    mapped = map_tools(("Agent", "Skill", "AskUserQuestion", "mcp__github__search", "mcp__jira"))
+
+    assert mapped is not None
+    assert {"spawn_agent", "invoke_agent", "read_skill", "ask_user"} <= mapped
+    # #242: kayıt adı Claude gibi `mcp__` önekli; eski öneksiz desen de yeni adı bulur.
+    assert "mcp__github__search" in mapped and "mcp__jira__*" in mapped
+    available = ("mcp__jira__list", "mcp__jira__get", "x")
+    assert expand_tool_patterns({"mcp__jira__*", "read_file"}, available) == {
+        "mcp__jira__list",
+        "mcp__jira__get",
+        "read_file",
+    }
+    assert expand_tool_patterns({"jira__*"}, available) == {"mcp__jira__list", "mcp__jira__get"}
+    assert "mcp__jira__get" in expand_tool_patterns({"jira__get"}, available)
+    assert unmapped_tools(("Read", "Uydurma", "mcp__x__y")) == ("Uydurma",)
+    assert unmapped_tools(("*",)) == ()

@@ -56,3 +56,25 @@ def test_bekleyen_var_mi_sorulabilir():
     assert not kuyruk.pending
     kuyruk.push("dur")
     assert kuyruk.pending
+
+
+def test_drain_ile_ayni_anda_gelen_yonerge_kaybolmaz():
+    """Dolaşma bittikten sonra, boşaltmadan önce gelen yönerge silinmemeli (C1-25).
+
+    Ölçüldü (30 Ekim): eski drain önce demet kurup SONRA clear() ediyordu; arada
+    başka iş parçacığından gelen push sessizce kayboluyordu.
+    """
+    kuyruk = SteeringQueue()
+
+    class _SonundaEkler(list):
+        def __iter__(self):
+            yield from super().__iter__()
+            kuyruk.push("geç gelen")  # dolaşma bitti, boşaltma henüz yapılmadı
+
+    kuyruk._pending = _SonundaEkler(["birinci"])
+
+    ilk = kuyruk.drain()
+    ikinci = kuyruk.drain()
+
+    assert len(ilk) == 1
+    assert [m.content.endswith("geç gelen") for m in ikinci] == [True]

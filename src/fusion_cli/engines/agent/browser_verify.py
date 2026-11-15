@@ -20,18 +20,22 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import signal
 import socket
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from ...core.delivery_contract import ContactIntent
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
+from .contact_form_probe import ContactObservation, probe_contact_forms
 from .page_audit import (
     AUDIT_PROBE,
     StyleSignature,
@@ -69,9 +73,31 @@ LAYOUT_SUFFIXES = frozenset({".css", ".scss", ".sass", ".less", ".tsx", ".jsx", 
 # kapı turu bekletmemelidir.
 DEV_SERVER_READY_S = 45.0
 
-#: Dev sunucusu için denenecek port aralığının başı. Kullanıcının kendi sunucusuyla
-#: çakışmamak için yaygın portlardan (3000, 5173, 8080) uzak seçilir.
-DEV_SERVER_PORT_BASE = 47_300
+
+#: Ölçüm yapılamadığında bildirilen uyarının başı (engelleyici DEĞİL, ama sessiz de değil).
+NOT_MEASURED_PREFIX = "TARAYICI ÖLÇÜLEMEDİ (not_measured):"
+
+
+def _not_measured(reason: str) -> VerificationResult:
+    """Tarayıcı ölçümü yapılamadı: tur düşmez ama rapor 'doğrulandı' demez.
+
+    Ölçüldü (30 Ekim, A1-09): Playwright yokken ya da `page.goto` zaman aşımına
+    uğradığında (sayfa HİÇ açılmıyor) kapı hata yutup `ok=True` ve boş sonuç
+    dönüyordu; rapor "ölçülemedi" hiç demiyordu. Artık uyarı taşır.
+    """
+    warning = f"{NOT_MEASURED_PREFIX} {reason}"
+    return VerificationResult(
+        ok=True,
+        warnings=(warning,),
+        evidence=(
+            CriterionEvidence(
+                criterion_id="tarayici_sayfalari",
+                kind=VerificationCheckKind.TOOL,
+                status=EvidenceStatus.UNVERIFIED,
+                summary=warning,
+            ),
+        ),
+    )
 
 
 def touches_layout(paths: Sequence[Path]) -> bool:
@@ -98,6 +124,32 @@ def dev_server_command(package_json: object) -> list[str] | None:
     return ["npm", "run", "dev"]
 
 
+def _signal_group(surec: asyncio.subprocess.Process, sinyal: int) -> None:
+    """Sinyali tüm süreç grubuna gönder (yoksa yalnız sürece)."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        if os.name == "posix":
+            os.killpg(surec.pid, sinyal)
+        elif sinyal == signal.SIGTERM:
+            surec.terminate()
+        else:
+            surec.kill()
+
+
+async def _stop_server(surec: asyncio.subprocess.Process) -> None:
+    """Dev sunucusunu ve altındaki çocukları kapat; 10 sn'de inmezse SIGKILL.
+
+    Ölçüldü (30 Ekim, A1-10): `terminate()` yalnız `npm`e gidiyordu, altındaki
+    node/next/vite yetim kalıp port ve CPU tutabiliyordu; zaman aşımında `kill()` yoktu.
+    """
+    _signal_group(surec, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(surec.wait(), timeout=10)
+    except TimeoutError:
+        _signal_group(surec, signal.SIGKILL if os.name == "posix" else signal.SIGTERM)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(surec.wait(), timeout=5)
+
+
 def _free_port() -> int:
     """Boş bir port bul. Sabit port kullanıcının kendi sunucusuyla çakışırdı."""
     with socket.socket() as s:
@@ -105,8 +157,11 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
-async def _wait_until_serving(adres: str) -> bool:
-    """Sunucu cevap verene kadar bekle; süre dolarsa False.
+async def _wait_until_serving(adres: str, surec: asyncio.subprocess.Process | None = None) -> bool:
+    """Sunucu cevap verene kadar bekle; süre dolarsa ya da süreç ölürse False.
+
+    Süreç erken ölmüşse (`node_modules` yok → `npm run dev` anında düşer) 45 sn
+    boşuna beklenmez (A1-10).
 
     Sağlık ölçütü HTTP cevabının GELMESİDİR, durum kodu değil: dev sunucuları
     derleme hatasında da sayfa döndürür ve o sayfayı ölçmek anlamlıdır — ölçtüğümüz
@@ -114,6 +169,8 @@ async def _wait_until_serving(adres: str) -> bool:
     """
     bitis = time.monotonic() + DEV_SERVER_READY_S
     while time.monotonic() < bitis:
+        if surec is not None and surec.returncode is not None:
+            return False
         try:
             await asyncio.to_thread(urllib.request.urlopen, adres, None, 3)
             return True
@@ -137,7 +194,7 @@ class PageObservation:
     oversized_icons: tuple[tuple[str, int, int], ...] = ()
     #: (seçici, kapsayıcı sağ kenarı, öğe sağ kenarı) — kırpılmış, erişilemez içerik.
     clipped: tuple[tuple[str, int, int], ...] = ()
-    #: (seçici, genişlik, yükseklik) — dokunma için çok küçük tıklanabilir öğeler.
+    #: (seçici, genişlik, yükseklik) — kanıtlanan istisnalar sonrası küçük hedef adayları.
     small_targets: tuple[tuple[str, int, int], ...] = ()
     #: Başlığı olan ama içi boş bölümlerin seçicileri.
     empty_sections: tuple[str, ...] = ()
@@ -147,6 +204,7 @@ class PageObservation:
     shrunk_media: tuple[tuple[str, int, int], ...] = ()
     #: Sayfanın stil imzası (sayfalar arası tutarlılık için; bkz. `page_audit`).
     style: StyleSignature = field(default_factory=StyleSignature)
+    contact_forms: tuple[ContactObservation, ...] = ()
 
 
 def page_findings_by_severity(
@@ -157,6 +215,19 @@ def page_findings_by_severity(
     warnings: list[str] = []
 
     for page in observations:
+        for contact in page.contact_forms:
+            if contact.status == "false_receipt":
+                blocking.append(
+                    f"{page.name} contact form claims receipt without attempted transport: "
+                    f'"{contact.visible_receipt}". Replace this false promise with a visible, '
+                    "honest demonstration/local draft or a real configured delivery path. "
+                    "Do not invent an endpoint/address or hide the disclosure."
+                )
+            elif contact.status in {"not_measured", "unverified_transport"}:
+                warnings.append(
+                    f"{page.name} contact form {contact.status}: {contact.reason}; "
+                    "delivery unverified."
+                )
         blocking.extend(_console(page))
         blocking.extend(_requests(page))
         blocking.extend(_overflow(page))
@@ -189,11 +260,12 @@ def browser_verification_result(
     observations: Sequence[PageObservation],
     *,
     source: str,
+    contact_intent: ContactIntent = ContactIntent.UNSPECIFIED,
 ) -> VerificationResult:
     blocking, warnings, advisories = page_findings_by_severity(observations)
     # Sayfalar GERÇEKTEN açıldıysa bu bir davranış kanıtıdır: rapor, komut
     # çalıştırılmadı diye turu doğrulanmamış saymamalı (bkz. `turn_report`).
-    kanit = (
+    kanit: tuple[CriterionEvidence, ...] = (
         (
             CriterionEvidence(
                 criterion_id="tarayici_sayfalari",
@@ -206,6 +278,47 @@ def browser_verification_result(
         else ()
     )
 
+    kanit += tuple(
+        CriterionEvidence(
+            criterion_id="contact_receipt_truth",
+            kind=VerificationCheckKind.TOOL,
+            status=EvidenceStatus.FAILED
+            if contact.status == "false_receipt"
+            else EvidenceStatus.PASSED
+            if (
+                contact_intent is ContactIntent.DEMO_NO_SEND
+                and contact.status == "observed_no_false_receipt"
+                and contact.transport_attempts == 0
+                and contact.visible_demo_disclosure
+                and contact.visible_no_send_outcome
+            )
+            else EvidenceStatus.UNVERIFIED,
+            summary=(
+                f"{page.name}: açık demo açıklaması ve gönderilmedi sonucu gözlendi; "
+                "gerçek mesaj teslimatı denenmedi"
+                if (
+                    contact_intent is ContactIntent.DEMO_NO_SEND
+                    and contact.status == "observed_no_false_receipt"
+                    and contact.transport_attempts == 0
+                    and contact.visible_demo_disclosure
+                    and contact.visible_no_send_outcome
+                )
+                else f"{page.name}: {contact.status}; bounded offline probe, delivery not verified"
+            ),
+            artifact=page.name,
+            output=json.dumps(
+                {
+                    "form_index": contact.form_index,
+                    "status": contact.status,
+                    "visible_receipt": contact.visible_receipt,
+                    "transport_attempts": contact.transport_attempts,
+                    "reason": contact.reason,
+                }
+            ),
+        )
+        for page in observations
+        for contact in page.contact_forms
+    )
     if not blocking and not warnings and not advisories:
         return VerificationResult(ok=True, evidence=kanit)
 
@@ -287,7 +400,7 @@ def _clipped(page: PageObservation) -> list[str]:
 
 
 def _targets(page: PageObservation) -> list[str]:
-    """WCAG 2.2 SC 2.5.8: tıklanabilir öğe en az 24x24 CSS px olmalı."""
+    """İspatlanmış istisnalar elendikten sonra olası hedef aralığı sorunları."""
     if not page.small_targets:
         return []
     ornek = ", ".join(
@@ -295,7 +408,8 @@ def _targets(page: PageObservation) -> list[str]:
     )
     return [
         f"{page.name} içinde {len(page.small_targets)} dokunma hedefi 24x24 px'ten küçük "
-        f"(WCAG 2.2 SC 2.5.8): {ornek}. Dolgu ya da min-height ekle."
+        f"ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): {ornek}. "
+        "Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
     ]
 
 
@@ -357,8 +471,22 @@ def _playwright_available() -> bool:
 class BrowserVerifier:
     """Agent'ın yazdığı HTML sayfalarını açar ve ölçer."""
 
-    def __init__(self, tool_context: ToolContext) -> None:
+    def __init__(
+        self,
+        tool_context: ToolContext,
+        *,
+        dev_server_allowed: Callable[[], bool] = lambda: True,
+    ) -> None:
         self._context = tool_context
+        #: Dev betiğini onaysız çalıştırmaya şu an izin var mı? (A1-11) Onay kipi tur
+        #: ortasında değişebildiği için değer değil, çağrı alır.
+        self._dev_server_allowed = dev_server_allowed
+
+    def _contact_intent(self) -> ContactIntent:
+        contract = self._context.delivery_contract.for_owner(
+            self._context.root, self._context.job_scope
+        )
+        return contract.contact if contract is not None else ContactIntent.UNSPECIFIED
 
     async def verify(self) -> VerificationResult:
         pages = [
@@ -373,17 +501,24 @@ class BrowserVerifier:
         if not pages:
             return await self._verify_dev_server()
         if not _playwright_available():
-            return VerificationResult(ok=True)
+            return _not_measured(
+                "Playwright kurulu değil; sayfanın konsol hataları, taşma ve düzeni doğrulanmadı."
+            )
 
         try:
             observations = await self._observe(pages)
         except Exception as exc:
-            # Tarayıcı ikilisi indirilmemiş, sandbox izin vermemiş, uç çökmüş olabilir.
-            # Doğrulama bir iyileştirmedir; turu düşürmesi kabul edilemez.
+            # Tarayıcı ikilisi indirilmemiş, sandbox izin vermemiş, uç çökmüş ya da sayfa
+            # zaman aşımına uğramış olabilir. Doğrulama bir iyileştirmedir; turu düşürmesi
+            # kabul edilemez ama ölçülemediği SÖYLENİR.
             _logger.debug("tarayıcı doğrulaması atlandı: %s", exc)
-            return VerificationResult(ok=True)
+            return _not_measured(
+                f"sayfalar açılıp ölçülemedi ({type(exc).__name__}); düzen doğrulanmadı."
+            )
 
-        return browser_verification_result(observations, source="tarayıcıda")
+        return browser_verification_result(
+            observations, source="tarayıcıda", contact_intent=self._contact_intent()
+        )
 
     async def _verify_dev_server(self) -> VerificationResult:
         """Dev sunucusunu ayağa kaldırıp kök sayfayı ölç; koşullar tutmazsa sessizce geç.
@@ -408,23 +543,47 @@ class BrowserVerifier:
             return VerificationResult(ok=True)
         if komut is None:
             return VerificationResult(ok=True)
+        # `dev` betiği onay politikasından GEÇMEDEN çalışır (A1-11). İki durumda
+        # çalıştırılmaz ama "ölçülmedi" diye söylenir: kullanıcı okuma dışı her şeyin
+        # sorulduğu kipteyse (SECURITY/PLAN) ya da `package.json`u bu turda MODEL
+        # yazdıysa (betiğe keyfi komut koyup tur sonunda yürütülmesini sağlayabilir).
+        if not self._dev_server_allowed():
+            return _not_measured(
+                "bu onay kipinde `dev` betiği sorulmadan çalıştırılmaz; sayfa düzeni ölçülmedi."
+            )
+        if self._model_wrote(paket):
+            return _not_measured(
+                "package.json bu turda değişti; modelin yazdığı `dev` betiği onaysız "
+                "çalıştırılmadı, sayfa düzeni ölçülmedi."
+            )
         # Tarayıcı en SONDA yoklanır: ölçülecek bir şey olmadığı anlaşıldığında
         # Playwright'ı hiç içeri almamak bu kapının kuralı.
         if not _playwright_available():
-            return VerificationResult(ok=True)
+            return _not_measured("Playwright kurulu değil; çalışan sayfanın düzeni doğrulanmadı.")
 
         try:
             observations = await self._observe_dev_server(root, komut)
         except Exception as exc:
             _logger.debug("dev sunucusu doğrulaması atlandı: %s", exc)
-            return VerificationResult(ok=True)
+            return _not_measured(
+                f"dev sunucusundaki sayfa ölçülemedi ({type(exc).__name__}); düzen doğrulanmadı."
+            )
         if observations is None:
-            return VerificationResult(ok=True)
+            return _not_measured("dev sunucusu zamanında ayağa kalkmadı; düzen doğrulanmadı.")
 
         return browser_verification_result(
             observations,
             source="çalışan sayfada",
+            contact_intent=self._contact_intent(),
         )
+
+    def _model_wrote(self, path: Path) -> bool:
+        """`package.json` bu turda araçlarla yazıldı/değiştirildi mi?"""
+        resolved = path.resolve()
+        written = {
+            item.resolve() for item in (*self._context.touched, *self._context.changes.paths)
+        }
+        return resolved in written
 
     async def _observe_dev_server(
         self, root: Path, komut: list[str]
@@ -440,10 +599,13 @@ class BrowserVerifier:
             cwd=str(root),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            # Kendi süreç grubu: `npm run dev` altındaki node/next/vite çocukları da
+            # kapatılabilsin (A1-10). Windows'ta grup ayrımı yok.
+            start_new_session=os.name == "posix",
         )
         adres = f"http://127.0.0.1:{port}/"
         try:
-            if not await _wait_until_serving(adres):
+            if not await _wait_until_serving(adres, surec):
                 return None
             async with async_playwright() as driver:
                 browser = await driver.chromium.launch()
@@ -453,10 +615,7 @@ class BrowserVerifier:
                     await browser.close()
         finally:
             # Sunucu HER YOLDA kapatılır: doğrulama kapısı arkasında süreç bırakamaz.
-            with contextlib.suppress(ProcessLookupError):
-                surec.terminate()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(surec.wait(), timeout=10)
+            await _stop_server(surec)
 
     async def observe_urls(self, urls: Sequence[str]) -> list[PageObservation]:
         """Çalışan sitedeki adresleri aç ve ölç; ilk adres ana sayfa (referans) olmalı.
@@ -484,7 +643,11 @@ class BrowserVerifier:
             browser = await driver.chromium.launch()
             try:
                 for path in pages:
-                    observations.append(await self._observe_page(browser, path.as_uri(), path.name))
+                    observation = await self._observe_page(browser, path.as_uri(), path.name)
+                    contacts = await probe_contact_forms(
+                        browser, path.read_text(encoding="utf-8", errors="replace")
+                    )
+                    observations.append(replace(observation, contact_forms=contacts))
             finally:
                 await browser.close()
         return observations
@@ -577,11 +740,15 @@ def _as_triples(rows: object) -> tuple[tuple[str, int, int], ...]:
     for row in rows:
         if isinstance(row, list) and len(row) == 3:
             secici, birinci, ikinci = row
-            triples.append((str(secici), int(birinci), int(ikinci)))
+            # `None`/NaN/inf tek satırı atar; tüm gözlemi düşürmez (A1-09b).
+            try:
+                triples.append((str(secici), int(birinci), int(ikinci)))
+            except (TypeError, ValueError, OverflowError):
+                continue
     return tuple(triples)
 
 
-#: Sayfa içinde çalışan ölçüm. Yorum DEĞİL ölçüm döndürür; karar Python tarafında.
+#: Sayfa içi ölçüm; hedef boyutu için kanıtlanan DOM/geometri istisnaları burada elenir.
 _LAYOUT_PROBE = """() => {
     const ad = (e) => e.tagName.toLowerCase() +
         (e.className && typeof e.className === 'string'
@@ -632,14 +799,77 @@ _LAYOUT_PROBE = """() => {
         }
     }
 
-    // 3) WCAG 2.2 SC 2.5.8 — tıklanabilir öğe en az 24x24 CSS px.
-    const smallTargets = [];
-    for (const e of document.querySelectorAll('a[href], button, input, select')) {
+    // 3) Target-size candidates, with provable WCAG 2.5.8 exceptions only.
+    // Custom controls count as neighbors too. Unknown JS listeners/hit-area shapes
+    // remain outside this heuristic; the resulting message is not a compliance claim.
+    const targetSelector = 'a[href],button,input,select,textarea,summary,' +
+        '[role="button"],[role="link"],[role="checkbox"],[role="radio"],' +
+        '[role="switch"],[role="tab"],[role="menuitem"],[role="slider"],' +
+        '[role="spinbutton"],[role="combobox"],[onclick]';
+    const candidates = document.querySelectorAll(targetSelector);
+    const targetLimit = 1500; // bound quadratic geometry; truncation cannot prove spacing
+    const complete = candidates.length <= targetLimit;
+    const targets = Array.from(candidates).slice(0, targetLimit).flatMap(e => {
         const r = e.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) continue;
-        if (r.width < 24 || r.height < 24) {
-            smallTargets.push([ad(e), Math.round(r.width), Math.round(r.height)]);
+        const style = getComputedStyle(e);
+        if (!r.width || !r.height || style.visibility !== 'visible' ||
+            style.pointerEvents === 'none' || e.closest('[inert]')) return [];
+        return [{e, r, small: r.width < 24 || r.height < 24}];
+    });
+    const inlineException = e => {
+        // Conservative proof: a native inline link sharing a prose line with text.
+        const parent = e.parentElement;
+        if (e.tagName !== 'A' || !parent || !parent.matches('p,li,dd,dt') ||
+            getComputedStyle(e).display !== 'inline' ||
+            getComputedStyle(parent).display !== 'block') return false;
+        // Prove visible non-target prose in the ORIGINAL DOM. Detached textContent
+        // includes hidden/screen-reader-only text and can exempt crowded controls.
+        const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT);
+        let text, visited = 0;
+        while ((text = walker.nextNode()) && ++visited <= 2000) {
+            if (!text.textContent.trim()) continue;
+            let visible = true;
+            for (let n = text.parentElement; n; n = n.parentElement) {
+                const style = getComputedStyle(n);
+                if (n.matches(targetSelector) || n.hidden || n.inert ||
+                    style.display === 'none' || style.visibility !== 'visible' ||
+                    Number(style.opacity) === 0 || style.contentVisibility === 'hidden' ||
+                    style.position === 'absolute' || style.position === 'fixed' ||
+                    style.clipPath !== 'none' || style.clip !== 'auto' ||
+                    style.overflowX === 'hidden' || style.overflowY === 'hidden') {
+                    visible = false;
+                    break;
+                }
+            }
+            if (!visible) continue;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            if (Array.from(range.getClientRects()).some(r => r.width > 0 && r.height > 0))
+                return true;
         }
+        return false;
+    };
+    const spacingException = target => complete && targets.every(other => {
+        if (other === target) return true;
+        const r = target.r, o = other.r;
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        // A radius-12 circle must not overlap another target's rectangle.
+        const dx = x - Math.max(o.left, Math.min(x, o.right));
+        const dy = y - Math.max(o.top, Math.min(y, o.bottom));
+        if (dx * dx + dy * dy < 144 - 1e-7) return false;
+        // Nor the radius-12 circle around another undersized target.
+        if (other.small) {
+            const cx = x - (o.left + o.width / 2);
+            const cy = y - (o.top + o.height / 2);
+            if (cx * cx + cy * cy < 576 - 1e-7) return false;
+        }
+        return true;
+    });
+    const smallTargets = [];
+    for (const target of targets) {
+        if (!target.small || inlineException(target.e) || spacingException(target)) continue;
+        smallTargets.push([ad(target.e), Math.round(target.r.width),
+                           Math.round(target.r.height)]);
     }
 
     // 4) Başlığı olan ama içi boş bölüm. İçerik JavaScript'le geliyorsa ve JS

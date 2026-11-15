@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import random
 import re
@@ -30,12 +31,13 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
 
 from ..config.credentials import FernetSecretStore
 from ..config.live import reload_if_changed, revision
+from ..config.model_lookup import configured_model_specs
 from ..config.models import Config, McpServerConfig, McpTransport
 from ..core.compression import compress_messages, saved_chars
 from ..core.errors import ConfigError, FusionError
 from ..core.health import HealthRegistry
 from ..core.protocols import LlmProvider
-from ..core.redaction import redact
+from ..core.redaction import StreamRedactor, redact
 from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
 from ..core.window_mode import WindowMode
@@ -44,10 +46,13 @@ from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
 from ..ui import messages
 from . import translate
+from .access import is_loopback_peer, token_matches
 from .analytics import Analytics, RequestRecord
 from .cache import PromptCache
 from .catalog_cache import CatalogCache
 from .routing import available_models, resolve_spec
+
+_logger = logging.getLogger(__name__)
 
 #: `build_provider` imzasının gateway'in ihtiyaç duyduğu sadeleştirilmiş hâli.
 ProviderFactory = Callable[[ModelSpec], LlmProvider]
@@ -70,8 +75,13 @@ class GatewayApp:
         secret_store: FernetSecretStore | None = None,
         catalog: CatalogCache | None = None,
         compact_context: bool = False,
+        access_token: str | None = None,
     ) -> None:
         self._config = config
+        #: Yerel olmayan bağlantıların taşıması gereken belirteç; yoksa ağ erişimi kapalı.
+        self._access_token = access_token or None
+        #: `/v1/embeddings` gömme işlevi; ilk istekte kurulur (`embeddings.build_embedder`).
+        self._embedder: tuple[Callable[[list[str]], list[list[float]]], str] | None = None
         #: Uzun geçmişi Fusion ajanının özetlemesiyle bağlam bütçesine sığdır (Kits açar).
         self._compact_context = compact_context
         self._config_revision = revision(config)
@@ -128,12 +138,47 @@ class GatewayApp:
             health=self._health,
             key_pools=self._key_pools,
             web_sessions=web_registry_for(self._config),
+            model_specs=configured_model_specs(self._config),
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """İsteği işle; işlenmeyen istisna JSON hata gövdesine çevrilir (uvicorn 500 metni değil).
+
+        Ölçüldü (30 Ekim): `_read_json` bozuk gövdede `JSONDecodeError` fırlatıyor ve yalnız
+        `_chat` yakalıyordu; ~20 POST ucunda istisna uvicorn'a kaçıyor, `ConfigError`
+        (`_api_set_key`/`_api_delete_key`) de aynı yoldan JSON olmayan 500 üretiyordu (E1-15).
+        """
         if scope["type"] != "http":
             return
-        if _foreign_host(scope):
+        started = False
+
+        async def tracked_send(message: dict[str, Any]) -> None:
+            nonlocal started
+            if message.get("type") == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self._dispatch(scope, receive, tracked_send)
+        except json.JSONDecodeError:
+            if not started:
+                await _json(send, _error_body("geçersiz JSON gövdesi"), status=400)
+        except Exception as error:
+            _logger.exception("gateway isteği beklenmeyen hatayla bitti")
+            if not started:
+                durum = 400 if isinstance(error, ConfigError) else 500
+                await _json(send, _error_body(_public_error(error)), status=durum)
+
+    async def _dispatch(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if not is_loopback_peer(scope):
+            # Host başlığını istemci yazar; ağdan gelen bağlantı yalnız belirteçle girer
+            # (Bearer ya da Anthropic SDK'nın x-api-key başlığı).
+            if not token_matches(scope.get("headers") or (), self._access_token):
+                await _json(
+                    send, {"error": {"message": messages.GATEWAY_REMOTE_UNAUTHORIZED}}, status=401
+                )
+                return
+        elif _foreign_host(scope):
             await _json(
                 send,
                 {"error": {"message": "Gateway yalnız yerel Host başlıklarını kabul eder."}},
@@ -246,6 +291,19 @@ class GatewayApp:
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
+        # Rota paritesi (P-074): Codex/OpenAI SDK (Responses), Claude SDK (Messages), gömme.
+        if method == "POST" and path == "/v1/responses":
+            await self._responses(receive, send)
+            return
+        if method == "POST" and path == "/v1/messages":
+            await self._messages(receive, send)
+            return
+        if method == "POST" and path == "/v1/messages/count_tokens":
+            await self._count_tokens(receive, send)
+            return
+        if method == "POST" and path == "/v1/embeddings":
+            await self._embeddings(receive, send)
+            return
         await _json(send, {"error": {"message": "bulunamadı", "type": "not_found"}}, status=404)
 
     # --- Panel yönetim uçları (yerel; durumu DEĞİŞTİRİR) -------------------- #
@@ -306,6 +364,10 @@ class GatewayApp:
             persisted = True
         # Her durumda CANLI uygula: çalışan gateway hemen kullanabilsin.
         os.environ[definition.auth_env] = value
+        # Anahtar havuzları başlangıçtaki ortam görüntüsünden kurulur: yeniden kurulmazsa
+        # panelden girilen anahtar yeniden başlatmaya ya da config değişikliğine kadar
+        # havuza girmiyordu (E1-17).
+        self._key_pools = _build_key_pools(self._config)
         await _json(send, {"ok": True, "persisted": persisted, "provider": provider_id})
 
     async def _api_delete_key(self, receive: Receive, send: Send) -> None:
@@ -322,6 +384,7 @@ class GatewayApp:
         if self._secret_store.available:
             self._secret_store.delete(definition.auth_env)
         os.environ.pop(definition.auth_env, None)
+        self._key_pools = _build_key_pools(self._config)
         await _json(send, {"ok": True, "provider": provider_id})
 
     async def _api_set_routing(self, receive: Receive, send: Send) -> None:
@@ -530,8 +593,11 @@ class GatewayApp:
         if found.transport == "browser":
             await close_browser_session(found.provider, found.account)
             if bool(body.get("purge_profile", True)):
-                shutil.rmtree(
-                    browser_profile_dir(found.provider, found.account), ignore_errors=True
+                # Büyük profil dizini olay döngüsünü bloklamasın (E1-20).
+                await asyncio.to_thread(
+                    shutil.rmtree,
+                    browser_profile_dir(found.provider, found.account),
+                    ignore_errors=True,
                 )
         self._config = updated
         self._config_revision = revision(updated)
@@ -571,6 +637,10 @@ class GatewayApp:
         updated = set_login_verified(self._config, session.provider, session.account, result.ok)
         if updated is not None:
             self._config = updated
+            # Yazıcı dosyayı değiştirdi: sürüm de güncellenir. Güncellenmezse sonraki istek
+            # "dosya değişti" sanıp diskten yeniden yükler ve anahtar havuzlarını (soğuma
+            # durumu dahil) gereksiz sıfırlar (E1-16).
+            self._config_revision = revision(updated)
         status = 200 if result.ok else 502
         await _json(
             send,
@@ -671,6 +741,7 @@ class GatewayApp:
             await _json(send, _error_body(str(error)), status=500)
             return
         self._config = updated
+        self._config_revision = revision(updated)
         await _json(
             send,
             {
@@ -1034,41 +1105,18 @@ class GatewayApp:
         await _json(send, {"object": "list", "data": data})
 
     async def _chat(self, receive: Receive, send: Send) -> None:
+        """OpenAI chat.completions köprüsü; `_prepare`/`_complete` ortak yolunu kullanır."""
         try:
             payload = await _read_json(receive)
             request, model, stream = translate.to_request(payload, self._config.runtime)
         except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
             await _json(send, _error_body(str(error)), status=400)
             return
-
-        runtime = self._config.runtime
-        # Güvenli sıkıştırma (opt-in): giden mesajları kısalt, tasarrufu say.
-        if runtime.gateway_compression:
-            original = request.messages
-            request = _dc_replace(request, messages=compress_messages(request.messages))
-            self._analytics.add_compression_saving(saved_chars(original, request.messages))
-
-        spec = self._routed_spec(resolve_spec(self._config, model))
-        if self._compact_context:
-            request = await self._compacted(request, spec)
-        route = f"{self._strategy.value}:{spec.model}"
+        request, spec, route = await self._prepare(request, model)
         if stream:
             await self._stream(send, self._factory(spec), request, model)
             return
-
-        # Önbellek: aynı istek daha önce geldiyse modeli hiç çağırma.
-        cached = self._cache.get(model, request) if runtime.gateway_cache else None
-        if cached is not None:
-            result, from_cache = cached, True
-        else:
-            result = await self._factory(spec).complete(request)
-            if runtime.gateway_cache:
-                self._cache.put(model, request, result)
-            from_cache = False
-        # Credential guardrail: yanıtta sızan sır/anahtar desenini maskele.
-        if runtime.gateway_mask_secrets and result.text:
-            result = _dc_replace(result, text=redact(result.text))
-        self._record(model, result, cached=from_cache)
+        result, from_cache = await self._complete(request, spec, model)
         usage = result.usage
         await _json(
             send,
@@ -1079,6 +1127,345 @@ class GatewayApp:
                 (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
             ],
         )
+
+    async def _prepare(
+        self, request: CompletionRequest, model: str
+    ) -> tuple[CompletionRequest, ModelSpec, str]:
+        """Sıkıştırma, profil çözümü ve bağlam bütçesi: üç sohbet rotasının ortak ön adımı.
+
+        Ölçüldü (31 Ekim): `_chat` bu mantığı satır satır kopyalıyordu; bir rotaya eklenen
+        koruma (maske, bütçe) diğerine gitmiyordu. Üç rota artık yalnız buradan geçer.
+        """
+        runtime = self._config.runtime
+        if runtime.gateway_compression:
+            original = request.messages
+            request = _dc_replace(request, messages=compress_messages(request.messages))
+            self._analytics.add_compression_saving(saved_chars(original, request.messages))
+        spec = self._routed_spec(resolve_spec(self._config, model))
+        if self._compact_context:
+            request = await self._compacted(request, spec)
+        return request, spec, f"{self._strategy.value}:{spec.model}"
+
+    async def _complete(
+        self, request: CompletionRequest, spec: ModelSpec, model: str
+    ) -> tuple[ModelResult, bool]:
+        """Akışsız tamamlama: önbellek, sır maskesi ve telemetri (chat/responses/messages ortak).
+
+        Önbellek anahtarı istemcinin yazdığı ham ad (`auto`) DEĞİL, çözülmüş model zinciridir:
+        yapılandırma/yedek zinciri değişince eski cevap dönmesin (E1-13).
+        """
+        runtime = self._config.runtime
+        cache_model = f"{model}->{'|'.join(spec.models)}"
+        cached = self._cache.get(cache_model, request) if runtime.gateway_cache else None
+        if cached is not None:
+            result, from_cache = cached, True
+        else:
+            result = await self._factory(spec).complete(request)
+            if runtime.gateway_cache:
+                self._cache.put(cache_model, request, result)
+            from_cache = False
+        if runtime.gateway_mask_secrets and result.text:
+            result = _dc_replace(result, text=redact(result.text))
+        self._record(model, result, cached=from_cache)
+        return result, from_cache
+
+    async def _responses(self, receive: Receive, send: Send) -> None:
+        """OpenAI Responses API köprüsü (`/v1/responses`)."""
+        from . import translate_responses as responses
+
+        try:
+            payload = await _read_json(receive)
+            request, model, stream = responses.to_request(payload, self._config.runtime)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, _error_body(str(error)), status=400)
+            return
+        request, spec, route = await self._prepare(request, model)
+        if stream:
+            await self._stream_responses(send, self._factory(spec), request, model)
+            return
+        result, from_cache = await self._complete(request, spec, model)
+        if not result.is_usable:
+            # /v1/messages ile aynı sözleşme: başarısız sağlayıcı 502, hata metni maskeli
+            # (`to_response` içinde). Eskiden 200 + ham hata dönüyordu (31 Ekim).
+            await _json(send, responses.to_response(result, model), status=502)
+            return
+        await _json(
+            send,
+            responses.to_response(result, model),
+            extra_headers=[
+                (b"x-fusion-route", route.encode()),
+                (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
+            ],
+        )
+
+    async def _stream_responses(
+        self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
+    ) -> None:
+        from . import translate_responses as responses
+
+        resp_id = responses.response_id()
+        item_id = f"msg_{resp_id}"
+        maske = StreamRedactor() if self._config.runtime.gateway_mask_secrets else None
+        await _sse_start(send)
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.created",
+                response={
+                    "id": resp_id,
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": model,
+                },
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.output_item.added",
+                output_index=0,
+                item={
+                    "type": "message",
+                    "id": item_id,
+                    "status": "in_progress",
+                    "role": "assistant",
+                    "content": [],
+                },
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.content_part.added",
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                part={"type": "output_text", "text": "", "annotations": []},
+            ),
+        )
+        collected: list[str] = []
+        final: ModelResult | None = None
+        async for item in provider.stream(request):
+            if isinstance(item, TextChunk) and item.text:
+                text = maske.feed(item.text) if maske is not None else item.text
+                if text:
+                    collected.append(text)
+                    await _sse_event(
+                        send,
+                        *responses.event(
+                            "response.output_text.delta",
+                            output_index=0,
+                            content_index=0,
+                            item_id=item_id,
+                            delta=text,
+                        ),
+                    )
+            elif isinstance(item, StreamDone):
+                final = item.result
+        kalan = maske.flush() if maske is not None else ""
+        if kalan:
+            collected.append(kalan)
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.output_text.delta",
+                    output_index=0,
+                    content_index=0,
+                    item_id=item_id,
+                    delta=kalan,
+                ),
+            )
+        if final is None:
+            final = ModelResult(
+                name=model, model=model, text="", latency_ms=0, ok=False, error="akış kesildi"
+            )
+        if final.text and not collected:
+            # Akışsız düşen yedek sağlayıcı metni yalnız sonuçta verebilir.
+            text = redact(final.text) if maske is not None else final.text
+            collected.append(text)
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.output_text.delta",
+                    output_index=0,
+                    content_index=0,
+                    item_id=item_id,
+                    delta=text,
+                ),
+            )
+        full_text = "".join(collected)
+        final = _dc_replace(final, text=full_text)
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.output_text.done",
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                text=full_text,
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.content_part.done",
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                part={"type": "output_text", "text": full_text, "annotations": []},
+            ),
+        )
+        await _sse_event(
+            send,
+            *responses.event(
+                "response.output_item.done",
+                output_index=0,
+                item=responses.message_item(final, item_id=item_id),
+            ),
+        )
+        for index, call_item in enumerate(responses.function_call_items(final), start=1):
+            await _sse_event(
+                send,
+                *responses.event("response.output_item.done", output_index=index, item=call_item),
+            )
+        self._record(model, final)
+        if final.is_usable:
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.completed",
+                    response=responses.to_response(final, model, resp_id=resp_id),
+                ),
+            )
+        else:
+            guvenli = _dc_replace(final, error=redact(final.error or ""))
+            await _sse_event(
+                send,
+                *responses.event(
+                    "response.failed",
+                    response=responses.to_response(guvenli, model, resp_id=resp_id),
+                ),
+            )
+        await _sse_done(send)
+
+    async def _messages(self, receive: Receive, send: Send) -> None:
+        """Anthropic Messages API köprüsü (`/v1/messages`)."""
+        from . import translate_anthropic as anthropic
+
+        try:
+            payload = await _read_json(receive)
+            request, model, stream = anthropic.to_request(payload, self._config.runtime)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, anthropic.error_body(str(error)), status=400)
+            return
+        request, spec, route = await self._prepare(request, model)
+        if stream:
+            await self._stream_messages(send, self._factory(spec), request, model)
+            return
+        result, from_cache = await self._complete(request, spec, model)
+        if not result.is_usable:
+            await _json(
+                send,
+                anthropic.error_body(
+                    redact(result.error or "model cevap üretmedi"), kind="api_error"
+                ),
+                status=502,
+            )
+            return
+        await _json(
+            send,
+            anthropic.to_message(result, model),
+            extra_headers=[
+                (b"x-fusion-route", route.encode()),
+                (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
+            ],
+        )
+
+    async def _stream_messages(
+        self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
+    ) -> None:
+        from . import translate_anthropic as anthropic
+
+        msg_id = anthropic.message_id()
+        maske = StreamRedactor() if self._config.runtime.gateway_mask_secrets else None
+        await _sse_start(send)
+        await _sse_event(send, *anthropic.event_message_start(model, msg_id=msg_id))
+        await _sse_event(send, *anthropic.event_block_start(0, {"type": "text", "text": ""}))
+        akan_metin = False
+        final: ModelResult | None = None
+        async for item in provider.stream(request):
+            if isinstance(item, TextChunk) and item.text:
+                text = maske.feed(item.text) if maske is not None else item.text
+                if text:
+                    akan_metin = True
+                    await _sse_event(send, *anthropic.event_text_delta(0, text))
+            elif isinstance(item, StreamDone):
+                final = item.result
+        kalan = maske.flush() if maske is not None else ""
+        if kalan:
+            akan_metin = True
+            await _sse_event(send, *anthropic.event_text_delta(0, kalan))
+        if final is None:
+            final = ModelResult(
+                name=model, model=model, text="", latency_ms=0, ok=False, error="akış kesildi"
+            )
+        if final.text and not akan_metin:
+            text = redact(final.text) if maske is not None else final.text
+            await _sse_event(send, *anthropic.event_text_delta(0, text))
+        await _sse_event(send, *anthropic.event_block_stop(0))
+        for index, call in enumerate(final.tool_calls, start=1):
+            await _sse_event(
+                send,
+                *anthropic.event_block_start(
+                    index, {"type": "tool_use", "id": call.id, "name": call.name, "input": {}}
+                ),
+            )
+            await _sse_event(send, *anthropic.event_json_delta(index, call.arguments or "{}"))
+            await _sse_event(send, *anthropic.event_block_stop(index))
+        self._record(model, final)
+        if final.is_usable:
+            await _sse_event(send, *anthropic.event_message_delta(final))
+            await _sse_event(send, *anthropic.event_message_stop())
+        else:
+            await _sse_event(
+                send, *anthropic.event_error(redact(final.error or "model cevap üretmedi"))
+            )
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    async def _count_tokens(self, receive: Receive, send: Send) -> None:
+        """Anthropic `/v1/messages/count_tokens`: Claude Code bağlam ölçümü için çağırır."""
+        from . import translate_anthropic as anthropic
+
+        try:
+            payload = await _read_json(receive)
+            await _json(send, anthropic.count_tokens(payload, self._config.runtime))
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, anthropic.error_body(str(error)), status=400)
+
+    async def _embeddings(self, receive: Receive, send: Send) -> None:
+        """OpenAI `/v1/embeddings` köprüsü: Fusion'ın gömme sağlayıcısı (nim ya da yerel)."""
+        from . import embeddings as gomme
+
+        try:
+            payload = await _read_json(receive)
+            texts, _requested = gomme.parse_inputs(payload)
+            encoding = gomme.parse_encoding(payload)
+        except (translate.GatewayError, json.JSONDecodeError, ValueError) as error:
+            await _json(send, _error_body(str(error)), status=400)
+            return
+        try:
+            if self._embedder is None:
+                # Bir kez kurulur: yerel ONNX modeli her istekte yüklenmesin (31 Ekim).
+                self._embedder = await asyncio.to_thread(gomme.build_embedder, self._config)
+            function, model = self._embedder
+            vectors = await gomme.embed(texts, function)
+        except gomme.EmbeddingUnavailableError as error:
+            await _json(send, _error_body(str(error)), status=501)
+            return
+        except Exception as error:  # sağlayıcı HTTP/ONNX hatası; sınır katmanı, maskeli
+            await _json(send, _error_body(redact(f"gömme hesaplanamadı: {error}")), status=502)
+            return
+        await _json(send, gomme.to_openai_embeddings(vectors, model, texts, encoding=encoding))
 
     async def _compacted(self, request: CompletionRequest, spec: ModelSpec) -> CompletionRequest:
         """Geçmiş modelin bağlam bütçesini aşıyorsa eski kısmı özetle (ilk tur ve son turlar
@@ -1116,18 +1503,29 @@ class GatewayApp:
         await _sse_start(send)
         finish = "stop"
         akan_metin = False
+        # Credential guardrail akışlı yolda da geçerli (E1-05): parça sınırındaki sır için
+        # satır sonuna kadar tutan gizleyici; kapalıysa metin olduğu gibi akar.
+        maske = StreamRedactor() if self._config.runtime.gateway_mask_secrets else None
         async for item in provider.stream(request):
             if isinstance(item, TextChunk) and item.text:
                 akan_metin = True
-                await _sse_data(
-                    send, translate.to_openai_chunk(item.text, model, chunk_id=chunk_id)
-                )
+                guvenli_metin = maske.feed(item.text) if maske is not None else item.text
+                if guvenli_metin:
+                    await _sse_data(
+                        send, translate.to_openai_chunk(guvenli_metin, model, chunk_id=chunk_id)
+                    )
             elif isinstance(item, StreamDone):
                 sonuc = item.result
+                kalan = maske.flush() if maske is not None else ""
+                if kalan:
+                    await _sse_data(
+                        send, translate.to_openai_chunk(kalan, model, chunk_id=chunk_id)
+                    )
                 # Akışsız düşen yedek sağlayıcı metni yalnız sonuçta verebilir.
                 if sonuc.text and not akan_metin:
+                    metin = redact(sonuc.text) if maske is not None else sonuc.text
                     await _sse_data(
-                        send, translate.to_openai_chunk(sonuc.text, model, chunk_id=chunk_id)
+                        send, translate.to_openai_chunk(metin, model, chunk_id=chunk_id)
                     )
                 # Araç çağrıları akışın sonunda gelir; eskiden düşüyordu (ölçüldü,
                 # 8 Ekim 2026: Kits akışlı istekte boş delta + "stop" aldı).
@@ -1144,6 +1542,10 @@ class GatewayApp:
                     guvenli = _dc_replace(sonuc, error=redact(sonuc.error or ""))
                     await _sse_data(send, translate.stream_error(guvenli))
                 self._record(model, sonuc)
+        # StreamDone gelmeden biten akışta tutulan kalan da maskelenip iletilir.
+        artik = maske.flush() if maske is not None else ""
+        if artik:
+            await _sse_data(send, translate.to_openai_chunk(artik, model, chunk_id=chunk_id))
         await _sse_data(send, translate.final_chunk(model, chunk_id=chunk_id, finish_reason=finish))
         await _sse_done(send)
 
@@ -1357,12 +1759,32 @@ def read_dashboard_asset(name: str) -> tuple[bytes, str] | None:
     return target.read_bytes(), content_type
 
 
+#: Panel yanıtlarına eklenen güvenlik başlıkları. Panel MCP komutu eklemek, anahtar silmek gibi
+#: yıkıcı işlemleri tek tıkla yapar; yabancı bir sayfa paneli `<iframe>` ile gömüp tıklama
+#: hırsızlığı (clickjacking) deneyebilir. Origin denetimi iframe İÇİNDEN gelen istekleri
+#: (Origin yerel) engellemez; çözüm sayfanın çerçevelenmesini yasaklamaktır (E1-18).
+_PANEL_SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
+    (b"x-frame-options", b"DENY"),
+    (b"content-security-policy", b"frame-ancestors 'none'"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+]
+
+
+def _public_error(error: Exception) -> str:
+    """İstemciye dönen hata metni: `ConfigError` mesajı kullanıcıya yöneliktir, diğerleri DEĞİL."""
+    return str(error) if isinstance(error, ConfigError) else "gateway dahili hata"
+
+
 async def _html(send: Send, body: str) -> None:
     await send(
         {
             "type": "http.response.start",
             "status": 200,
-            "headers": [(b"content-type", b"text/html; charset=utf-8")],
+            "headers": [
+                (b"content-type", b"text/html; charset=utf-8"),
+                *_PANEL_SECURITY_HEADERS,
+            ],
         }
     )
     await send({"type": "http.response.body", "body": body.encode()})
@@ -1376,6 +1798,7 @@ async def _asset(send: Send, body: bytes, content_type: str) -> None:
             "headers": [
                 (b"content-type", content_type.encode()),
                 (b"cache-control", DASHBOARD_ASSET_CACHE.encode()),
+                *_PANEL_SECURITY_HEADERS,
             ],
         }
     )
@@ -1422,6 +1845,12 @@ async def _sse_start(send: Send) -> None:
 
 async def _sse_data(send: Send, data: dict[str, Any]) -> None:
     payload = f"data: {json.dumps(data)}\n\n".encode()
+    await send({"type": "http.response.body", "body": payload, "more_body": True})
+
+
+async def _sse_event(send: Send, name: str, data: dict[str, Any]) -> None:
+    """Adlı SSE olayı (`event:` + `data:`): Anthropic ve Responses akış sözleşmesi."""
+    payload = f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
     await send({"type": "http.response.body", "body": payload, "more_body": True})
 
 

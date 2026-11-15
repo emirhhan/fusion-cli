@@ -142,3 +142,44 @@ it("sağ tık menüsünden Tanı bilgisi son adımları gösterir", () => {
   fireEvent.click(screen.getByRole("menuitem", { name: "Tanı bilgisi" }));
   expect(screen.getByRole("dialog", { name: "Tanı bilgisi" }).textContent).toContain("izin denetimi: tamam");
 });
+
+describe("VoiceMode — Esc ve erişilebilirlik (U2-29, U2-30)", () => {
+  const ASK = { acik: true, metin: "Dosya yazılsın mı?", secenekler: [{ deger: "evet", etiket: "Onayla" }] };
+
+  it("onay sorusu açıkken Esc bütün pencereyi kapatmaz", () => {
+    const onClose = vi.fn();
+    render(<VoiceMode ask={ASK} listening onAnswer={vi.fn()} onClose={onClose} onMinimize={vi.fn()} state="approval" />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("Esc önce tanı kutusunu kapatır, pencereyi değil", () => {
+    const onClose = vi.fn();
+    render(<VoiceMode listening onClose={onClose} onMinimize={vi.fn()} state="idle" />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Tanı bilgisi" }));
+    expect(screen.getByRole("dialog", { name: "Tanı bilgisi" }).getAttribute("aria-modal")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("menü açılınca ilk öğeye odaklanır ve ok tuşlarıyla gezilir", () => {
+    render(<VoiceMode listening onClose={vi.fn()} onMinimize={vi.fn()} onPrefsChange={vi.fn()} onTopChange={vi.fn()} state="idle" />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Fusion.*dinle/i }));
+    const items = screen.getAllByRole("menuitem");
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1], { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
+  it("durum metni canlı bölgede okunur, onay kartı duyurulur", () => {
+    render(<VoiceMode ask={ASK} listening onAnswer={vi.fn()} onClose={vi.fn()} onMinimize={vi.fn()} state="approval" />);
+    expect(screen.getByRole("alert").textContent).toContain("Onay bekleniyor");
+    expect(screen.getAllByText("Onayın bekleniyor").some((el) => el.getAttribute("aria-live") === "polite")).toBe(true);
+  });
+});

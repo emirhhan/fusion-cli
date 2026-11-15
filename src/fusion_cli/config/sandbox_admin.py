@@ -1,0 +1,389 @@
+"""Sandbox durumu ve ayar eylemleri: `/sandbox`, `fusion sandbox`, masaüstü `sandbox.*` (P-010).
+
+Üç yüzey aynı işlevleri kullanır. Durum, sandbox'ın bu makinede GERÇEKTEN kurulabilir
+olup olmadığını planlayıcıya sorarak söyler (proxy başlatılmaz, komut çalıştırılmaz).
+Eylemler `settings_access.write_setting` üzerinden kullanıcı dosyasına yazar; alan adı
+doğrulaması ve kanonik biçim oradan gelir.
+"""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+from ..core.errors import ConfigError
+from ..core.sandbox_policy import NETWORK_ALLOWLIST, NETWORK_MODES, normalize_domain
+from ..core.shell_sandbox import (
+    SHELL_SANDBOX_OFF,
+    SHELL_SANDBOX_WRITE_ROOT,
+    ProxyEndpoint,
+    plan_shell_sandbox,
+)
+from .models import Config
+from .sandbox_config import (
+    SandboxConfig,
+    effective_deny_read,
+    fusion_secret_paths,
+    sandbox_policy,
+    validate_sandbox,
+)
+from .settings_access import apply_setting, write_setting
+
+__all__ = [
+    "SANDBOX_ACTIONS",
+    "SandboxChange",
+    "SandboxStatus",
+    "apply_sandbox_action",
+    "debug_port_guard",
+    "sandbox_status",
+]
+
+#: Eylem kimlikleri: aç/kapat, ağ kipi, alan adı listeleri ve üç bayrak.
+SANDBOX_ACTIONS = (
+    "ac",
+    "kapat",
+    "ag",
+    "izin",
+    "engelle",
+    "kaldir",
+    "oto",
+    "zorunlu",
+    "disari",
+    "sir",
+    "localhost",
+)
+_PROBE_SOCKET = Path("fusion-sandbox-durum.sock")
+_FLAG_PATHS = {
+    "oto": "sandbox.auto_allow",
+    "zorunlu": "sandbox.fail_if_unavailable",
+    "disari": "sandbox.allow_unsandboxed",
+    "sir": "sandbox.hide_secret_env",
+    "localhost": "sandbox.allow_localhost",
+}
+#: Eylem sonucuna eklenen açıklamalar (kullanıcıya görünür; `/sandbox`, CLI, masaüstü).
+NOTE_NETWORK_SWITCHED = (
+    "Ağ kipi allowlist'e geçti: sandbox içindeki komutlar artık yalnız {domains} adreslerine "
+    "erişir, diğer tüm trafik (npm, pip dahil) kapalı. Geri almak: /sandbox ag open"
+)
+NOTE_UNAVAILABLE = "Uyarı: sandbox bu makinede kurulamıyor ({reason})."
+#: Fusion Chrome'larının CDP portu korumasının platforma/ağ kipine göre kapsamı.
+GUARD_DARWIN = "her kipte kapalı (Seatbelt + proxy)"
+GUARD_LINUX_ALLOWLIST = "kapalı (komut ayrı ağ ad alanında; proxy de reddeder)"
+GUARD_LINUX_OPEN = (
+    "korunmaz: Linux'ta ağ open iken komut ana makinenin localhost'una ulaşır; "
+    "oturumlu web profilleriyle /sandbox ag allowlist kullanın"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxStatus:
+    """Sandbox'ın bu makinedeki durumu ve etkin politikası (sırsız)."""
+
+    enabled: bool
+    platform: str
+    available: bool
+    reason: str
+    network: str
+    allowed_domains: tuple[str, ...]
+    denied_domains: tuple[str, ...]
+    allow_localhost: bool
+    allow_write: tuple[str, ...]
+    #: Etkin okuma engeli: varsayılan + `deny_read` − `allow_read` + Fusion sırları.
+    deny_read: tuple[str, ...]
+    fail_if_unavailable: bool
+    allow_unsandboxed: bool
+    auto_allow: bool
+    excluded_commands: tuple[str, ...]
+    hide_secret_env: bool
+    #: Fusion Chrome'larının hata ayıklama (CDP) portu korumasının kapsamı (metin).
+    debug_ports: str = ""
+    #: Varsayılan okuma engelinden bilerek açılan yollar (`sandbox.allow_read`).
+    allow_read: tuple[str, ...] = ()
+    #: Ek Claude anahtarlarının etkin hâli (kendi proxy, tlsTerminate, mask…; #350, #368).
+    extras: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        """Masaüstü RPC biçimi (Türkçe anahtarlar, listeler JSON dizisi)."""
+        return {
+            "ok": True,
+            "acik": self.enabled,
+            "platform": self.platform,
+            "kullanilabilir": self.available,
+            "neden": self.reason,
+            "ag": self.network,
+            "izinli_alanlar": list(self.allowed_domains),
+            "yasak_alanlar": list(self.denied_domains),
+            "localhost": self.allow_localhost,
+            "ek_yazma": list(self.allow_write),
+            "okuma_engeli": list(self.deny_read),
+            "okuma_izni": list(self.allow_read),
+            "ek_ayarlar": list(self.extras),
+            "cdp_korumasi": self.debug_ports,
+            "zorunlu": self.fail_if_unavailable,
+            "disari_izinli": self.allow_unsandboxed,
+            "oto_izin": self.auto_allow,
+            "disari_komutlar": list(self.excluded_commands),
+            "sir_ortami_gizli": self.hide_secret_env,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxChange:
+    """Bir eylemin sonucu: güncel yapılandırma, yazılan ayar ve dosya."""
+
+    config: Config
+    setting: str
+    value: str
+    path: Path
+    #: Değişikliğin yan etkileri ve uyarılar (ağ kipi değişti, sandbox kurulamıyor…).
+    notes: tuple[str, ...] = ()
+
+
+def _platform_label(system: str) -> str:
+    if system == "darwin":
+        return "macOS (sandbox-exec)"
+    if system.startswith("linux"):
+        return "Linux (bubblewrap)"
+    return "desteklenmiyor"
+
+
+def debug_port_guard(system: str, network: str) -> str:
+    """CDP portu korumasının bu platform ve ağ kipindeki kapsamı (`tools.sandbox_cdp`)."""
+    if system == "darwin":
+        return GUARD_DARWIN
+    if system.startswith("linux"):
+        return GUARD_LINUX_ALLOWLIST if network == NETWORK_ALLOWLIST else GUARD_LINUX_OPEN
+    return ""  # sandbox'ın kurulamadığı platform: durum satırı gösterilmez
+
+
+def sandbox_status(config: Config, root: Path, *, platform: str | None = None) -> SandboxStatus:
+    """Durumu planlayıcıya sorarak kur; kip kapalıyken de "açılsa kurulur mu" söylenir."""
+    system = platform or sys.platform
+    policy = sandbox_policy(config.sandbox, home=Path.home(), root=root)
+    needs_proxy = policy.restricts_network and bool(policy.allowed_domains)
+    # Yalnız "proxy gerekir" bilgisini taşıyan sahte uç: socat denetimi için; soket açılmaz.
+    probe = ProxyEndpoint(port=1, unix_path=_PROBE_SOCKET) if needs_proxy else None
+    plan = plan_shell_sandbox(
+        SHELL_SANDBOX_WRITE_ROOT, (root,), policy=policy, platform=system, proxy=probe
+    )
+    sandbox = config.sandbox
+    return SandboxStatus(
+        enabled=config.runtime.shell_sandbox == SHELL_SANDBOX_WRITE_ROOT,
+        platform=_platform_label(system),
+        available=plan.is_active,
+        reason=plan.notice or plan.refused,
+        network=sandbox.network,
+        allowed_domains=sandbox.allowed_domains,
+        denied_domains=sandbox.denied_domains,
+        allow_localhost=sandbox.allow_localhost,
+        allow_write=sandbox.allow_write,
+        deny_read=(
+            *effective_deny_read(sandbox),
+            *(str(path) for path in fusion_secret_paths()),
+        ),
+        allow_read=sandbox.allow_read,
+        debug_ports=debug_port_guard(system, sandbox.network),
+        fail_if_unavailable=sandbox.fail_if_unavailable,
+        allow_unsandboxed=sandbox.allow_unsandboxed,
+        auto_allow=sandbox.auto_allow,
+        excluded_commands=sandbox.excluded_commands,
+        hide_secret_env=sandbox.hide_secret_env,
+        extras=_extras(sandbox),
+    )
+
+
+def _extras(sandbox: SandboxConfig) -> tuple[str, ...]:
+    """Etkin ek anahtarlar (Claude adlarıyla), durum ekranı ve masaüstü kartı için."""
+    items: list[str] = []
+    if sandbox.http_proxy_port or sandbox.socks_proxy_port:
+        ports = ", ".join(
+            f"{name} {port}"
+            for name, port in (
+                ("HTTP", sandbox.http_proxy_port),
+                ("SOCKS5", sandbox.socks_proxy_port),
+            )
+            if port
+        )
+        items.append(
+            f"kendi proxy'n (httpProxyPort/socksProxyPort): {ports}; alan adı listesi uygulanmaz"
+        )
+    if sandbox.tls_terminate:
+        source = "kullanıcı CA'sı" if sandbox.tls_ca_cert else "oturum başına geçici CA"
+        items.append(f"TLS sonlandırma (tlsTerminate): {source}")
+    if sandbox.credential_mask:
+        names = ", ".join(entry.partition("=")[0] for entry in sandbox.credential_mask)
+        items.append(f"maskeli ortam (credentials mode: mask): {names}")
+    for flag, text in (
+        (sandbox.allow_plaintext_inject, "düz HTTP'de de yerine koy (allowPlaintextInject)"),
+        (sandbox.filesystem_disabled, "dosya sistemi yalıtımı kapalı (filesystem.disabled)"),
+        (sandbox.enable_weaker_nested_sandbox, "zayıf iç içe sandbox (enableWeakerNestedSandbox)"),
+        (sandbox.allow_nested_user_namespaces, "iç içe kullanıcı ad alanı açık"),
+    ):
+        if flag:
+            items.append(text)
+    return tuple(items)
+
+
+def _domain(value: str) -> str:
+    domain = normalize_domain(value)
+    if domain is None:
+        raise ConfigError(
+            f"Geçerli bir alan adı değil: {value!r} (ör. github.com, *.npmjs.org, 127.0.0.1)."
+        )
+    return domain
+
+
+def _write(config: Config, path: str, raw: str, file: Path | None) -> SandboxChange:
+    if path == "sandbox.network":
+        return _write_network_mode(config, raw, file)
+    updated, target = write_setting(config, path, raw, file)
+    _migrate_file(target)
+    return SandboxChange(updated, path, raw, target)
+
+
+def _write_network_mode(config: Config, mode: str, file: Path | None) -> SandboxChange:
+    """Ağ kipi `sandbox.network.mode`'a yazılır; Claude `network` nesnesi ezilmez (#322)."""
+    from .sandbox_claude_keys import NETWORK_MODE_KEY
+    from .writer import _target_path
+
+    updated = replace(config, sandbox=validate_sandbox(replace(config.sandbox, network=mode)))
+    target = file or _target_path(config)
+
+    def _set(data: dict[str, object]) -> dict[str, object]:
+        section = data.get("sandbox")
+        sandbox = dict(section) if isinstance(section, dict) else {}
+        network = sandbox.get("network")
+        nested = dict(network) if isinstance(network, dict) else {}
+        nested[NETWORK_MODE_KEY] = mode
+        return {**data, "sandbox": {**sandbox, "network": nested}}
+
+    _migrate_file(target, _set)
+    return SandboxChange(updated, "sandbox.network.mode", mode, target)
+
+
+def _migrate_file(
+    target: Path, before: Callable[[dict[str, object]], dict[str, object]] | None = None
+) -> None:
+    """Yazılan dosyada sandbox ayarlarını Claude adlarına taşı (#321, #322)."""
+    from .sandbox_claude_keys import migrate_to_claude_names
+    from .writer import _atomic_write, _read_existing, config_lock
+
+    with config_lock(target):
+        existing = _read_existing(target)
+        migrated = migrate_to_claude_names(before(existing) if before else existing)
+        if migrated != existing:
+            _atomic_write(target, migrated)
+
+
+def _domain_lists(config: Config, action: str, domain: str, file: Path | None) -> SandboxChange:
+    allowed = [item for item in config.sandbox.allowed_domains if item != domain]
+    denied = [item for item in config.sandbox.denied_domains if item != domain]
+    if action == "izin":
+        allowed.append(domain)
+    elif action == "engelle":
+        denied.append(domain)
+    change = _write(config, "sandbox.denied_domains", ",".join(denied), file)
+    change = _write(change.config, "sandbox.allowed_domains", ",".join(allowed), file)
+    notes: tuple[str, ...] = ()
+    if action == "izin" and change.config.sandbox.network != NETWORK_ALLOWLIST:
+        # Liste yalnız allowlist kipinde anlamlıdır; kullanıcıya ayrı bir adım bırakılmaz,
+        # ama ağın daraldığı açıkça söylenir. Ölçüldü (31 Ekim): çıktı yalnız
+        # "Kaydedildi: sandbox.izin = …" diyordu (var olmayan ayar adı, kip değişimi yok).
+        change = _write(change.config, "sandbox.network", NETWORK_ALLOWLIST, file)
+        notes = (
+            NOTE_NETWORK_SWITCHED.format(domains=", ".join(change.config.sandbox.allowed_domains)),
+        )
+    setting = "sandbox.denied_domains" if action == "engelle" else "sandbox.allowed_domains"
+    if action == "kaldir":
+        setting = "sandbox.allowed_domains, sandbox.denied_domains"
+    return SandboxChange(change.config, setting, domain, change.path, notes)
+
+
+#: Claude `/sandbox` Mode sekmesinin yazdığı ayarlar: eylem → (iç yol, Claude adı) (#352).
+_LOCAL_MODE = {
+    "ac": ("runtime.shell_sandbox", "enabled"),
+    "kapat": ("runtime.shell_sandbox", "enabled"),
+    "oto": ("sandbox.auto_allow", "autoAllowBashIfSandboxed"),
+    # Claude `/sandbox` › Overrides sekmesi (#352).
+    "disari": ("sandbox.allow_unsandboxed", "allowUnsandboxedCommands"),
+}
+
+
+def _local_mode_change(
+    config: Config, action: str, value: str, file: Path | None, root: Path | None
+) -> SandboxChange | None:
+    """Kip seçimi Claude gibi projenin `.claude/settings.local.json`'ına yazılır (#352).
+
+    Açık dosya verildiyse ya da proje yerel ayarı güvenilmiyorsa (Fusion onu okumaz) `None`:
+    çağıran eski yolla kullanıcı dosyasına yazar.
+    """
+    from . import trust
+    from .claude_sandbox_settings import write_local_sandbox
+
+    project = root or Path.cwd()
+    if action not in _LOCAL_MODE or file is not None or not trust.is_permissions_trusted(project):
+        return None
+    internal, claude_name = _LOCAL_MODE[action]
+    if action == "oto":
+        updated = apply_setting(config, internal, value)
+        flag = updated.sandbox.auto_allow
+    elif action == "disari":
+        updated = apply_setting(config, internal, value)
+        flag = updated.sandbox.allow_unsandboxed
+    else:
+        flag = action == "ac"
+        mode = SHELL_SANDBOX_WRITE_ROOT if flag else SHELL_SANDBOX_OFF
+        updated = apply_setting(config, internal, mode)
+    path = write_local_sandbox(project, {claude_name: flag})
+    return SandboxChange(updated, f"sandbox.{claude_name}", str(flag).lower(), path)
+
+
+def _with_notes(change: SandboxChange, *notes: str) -> SandboxChange:
+    return replace(change, notes=(*change.notes, *notes)) if notes else change
+
+
+def apply_sandbox_action(
+    config: Config,
+    action: str,
+    value: str = "",
+    file: Path | None = None,
+    *,
+    root: Path | None = None,
+    local: bool = False,
+) -> SandboxChange:
+    """Eylemi uygula ve kullanıcı dosyasına yaz; geçersiz eylem/değer `ConfigError`.
+
+    `root` kurulabilirlik denetimi içindir (sandbox açılırken uyarı); verilmezse çalışma dizini.
+    `local=True` (Claude `/sandbox` paneli: REPL ve masaüstü) kip seçimini (aç/kapat/oto)
+    projenin `.claude/settings.local.json`'ına yazar (#352); `fusion sandbox` kullanıcı dosyasına.
+    """
+    if action not in SANDBOX_ACTIONS:
+        raise ConfigError(
+            f"Bilinmeyen sandbox eylemi: {action!r}. Eylemler: {', '.join(SANDBOX_ACTIONS)}"
+        )
+    change_local = _local_mode_change(config, action, value, file, root) if local else None
+    if change_local is not None and action in ("oto", "disari"):
+        return change_local
+    if action in ("ac", "kapat"):
+        mode = SHELL_SANDBOX_WRITE_ROOT if action == "ac" else SHELL_SANDBOX_OFF
+        change = change_local or _write(config, "runtime.shell_sandbox", mode, file)
+        # Dosyaya Claude adıyla yazılır (`_migrate_file`); kullanıcıya da o ad gösterilir.
+        change = replace(change, setting="sandbox.enabled", value=str(action == "ac").lower())
+        if action == "kapat":
+            return change
+        status = sandbox_status(change.config, root or Path.cwd())
+        return (
+            change
+            if status.available
+            else _with_notes(change, NOTE_UNAVAILABLE.format(reason=status.reason))
+        )
+    if action == "ag":
+        if value not in NETWORK_MODES:
+            raise ConfigError(f"Ağ kipi {' ya da '.join(NETWORK_MODES)} olmalı: {value!r}")
+        return _write(config, "sandbox.network", value, file)
+    if action in _FLAG_PATHS:
+        # Claude: auto-allow ağ kipinden bağımsızdır (#347); ağ uyarısı yok.
+        return _write(config, _FLAG_PATHS[action], value, file)
+    return _domain_lists(config, action, _domain(value), file)

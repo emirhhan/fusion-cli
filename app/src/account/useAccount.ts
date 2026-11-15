@@ -23,6 +23,11 @@ export interface AccountController {
   durum: HesapDurumu | null;
   yukleniyor: boolean;
   hata: string | null;
+  /**
+   * Kayıttan dönen, henüz gösterilmemiş kurtarma kodu. Kapı `etkin` dolunca kalkar;
+   * kod burada tutulmazsa kapıyla birlikte (bileşen durumuyla) kaybolurdu.
+   */
+  kurtarmaKodu: string | null;
   /** Kayıt başarılıysa kurtarma kodunu taşıyan sonucu döner, değilse null. */
   kayit: (girdi: {
     kullanici_adi: string;
@@ -34,14 +39,19 @@ export interface AccountController {
   cikis: () => Promise<boolean>;
   kurtar: (kimlik: string, kod: string, yeniParola: string) => Promise<boolean>;
   guncelle: (hesap: Hesap) => Promise<boolean>;
-  sil: (kimlik: string) => Promise<boolean>;
+  /** Hesabı siler; çekirdek parolayı ya da kurtarma kodunu yeniden doğrular (U5-33). */
+  sil: (kimlik: string, kanit: SilmeKaniti) => Promise<boolean>;
   tazele: () => Promise<void>;
 }
+
+/** Hesap silmede yeniden doğrulama: parola YA DA kurtarma kodu. */
+export type SilmeKaniti = { parola: string } | { kurtarma_kodu: string };
 
 export function useAccount(client: ProtocolClient | null): AccountController {
   const [durum, setDurum] = useState<HesapDurumu | null>(null);
   const [yukleniyor, setYukleniyor] = useState(true);
   const [hata, setHata] = useState<string | null>(null);
+  const [kurtarmaKodu, setKurtarmaKodu] = useState<string | null>(null);
 
   const tazele = useCallback(async () => {
     if (!client) return;
@@ -75,7 +85,12 @@ export function useAccount(client: ProtocolClient | null): AccountController {
 
   /** Ortak istek yolu: hata metnini çekirdekten alır, durumu tazeler. */
   const cagir = useCallback(
-    async (ad: string, veri: Record<string, unknown>, yedek: string): Promise<Yanit | null> => {
+    async (
+      ad: string,
+      veri: Record<string, unknown>,
+      yedek: string,
+      dogrula?: (yanit: Yanit) => string | null,
+    ): Promise<Yanit | null> => {
       if (!client) return null;
       setHata(null);
       try {
@@ -84,7 +99,14 @@ export function useAccount(client: ProtocolClient | null): AccountController {
           setHata(hataMetni(yanit, yedek));
           return null;
         }
+        // Durum tazelenince (`etkin` dolunca) giriş kapısı kalkar; yanıtın gerektirdiği
+        // iş (ör. kurtarma kodunu saklamak) bundan ÖNCE yapılmalı.
+        const sorun = dogrula?.(yanit) ?? null;
         await tazele();
+        if (sorun) {
+          setHata(sorun);
+          return null;
+        }
         return yanit;
       } catch {
         setHata(yedek);
@@ -98,9 +120,19 @@ export function useAccount(client: ProtocolClient | null): AccountController {
     durum,
     yukleniyor,
     hata,
+    kurtarmaKodu,
     tazele,
     kayit: async (girdi) => {
-      const yanit = await cagir("hesap.kayit", girdi, "Hesap açılamadı.");
+      // Ölçüldü (29 Ekim, U5-30): yanıt doğrulanmadan KayitSonucu'na zorlanıyor, kod eksikse
+      // form sessizce geri dönüyordu; durum tazelenince kapı kalkıp kod ekranı hiç çizilmiyordu.
+      const yanit = await cagir("hesap.kayit", girdi, "Hesap açılamadı.", (gelen) => {
+        const kod = gelen.kurtarma_kodu;
+        if (typeof kod !== "string" || !kod.trim()) {
+          return "Hesap açıldı ama kurtarma kodu alınamadı. Fusion'ı yeniden açıp Hesabım ekranından kontrol et.";
+        }
+        setKurtarmaKodu(kod);
+        return null;
+      });
       return yanit ? (yanit as unknown as KayitSonucu) : null;
     },
     giris: async (kimlik, parola) =>
@@ -124,7 +156,7 @@ export function useAccount(client: ProtocolClient | null): AccountController {
         },
         "Hesap güncellenemedi.",
       )) !== null,
-    sil: async (kimlik) =>
-      (await cagir("hesap.sil", { kimlik }, "Hesap silinemedi.")) !== null,
+    sil: async (kimlik, kanit) =>
+      (await cagir("hesap.sil", { kimlik, ...kanit }, "Hesap silinemedi.")) !== null,
   };
 }

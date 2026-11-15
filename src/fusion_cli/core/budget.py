@@ -23,16 +23,24 @@ Modül saftır: yapılandırma okumaz, olay yayınlamaz, saati `Clock` üzerinde
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .checkpoint import TurnRepairCheckpoint
 from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
+from .delivery_contract import AcceptedDeliveryContract
 from .protocols import Clock
 from .repair_ledger import RepairLedger
+from .research_grounding import GroundingVerdict, SourceSnapshot
 from .usage_ledger import UsageLedger
+from .verification import VerificationResult
+
+if TYPE_CHECKING:
+    from .tools import SourceReadScope
 
 
 class BudgetStop(Enum):
@@ -52,6 +60,9 @@ class BudgetStop(Enum):
     EMPTY_RESPONSES = "empty_responses"
     #: Bağlam her sıkıştırmadan hemen sonra yeniden eşiği aşıyor (tek dev çıktı).
     CONTEXT_THRASH = "context_thrash"
+    #: Turun bilinen maliyeti kullanıcının verdiği USD tavanını aştı
+    #: (`fusion agent --max-budget-usd`, Claude Code `--max-budget-usd`; P-026).
+    COST_LIMIT = "cost_limit"
     #: Kullanıcı bir değiştirici araç çağrısını GERÇEKTEN reddetti (insan "hayır"
     #: dedi — oturumun etkileşimsiz olup kimseye sorulamaması değil). Diğer
     #: sebeplerin aksine bu bir BÜTÇE olayı değildir: `TurnBudgetExhausted`
@@ -69,6 +80,14 @@ class BudgetStop(Enum):
 CallSignature = tuple[str, str, int]
 
 
+@dataclass(frozen=True, slots=True)
+class DataObservation:
+    """Current-dispatch receipt; never hydrated from messages or checkpoints."""
+
+    tool_name: str
+    call_id: str
+
+
 @dataclass(slots=True)
 class TurnBudget:
     """Tur boyunca paylaşılan sayaçlar, sınırlar ve tekrar/ilerleme takibi."""
@@ -84,6 +103,10 @@ class TurnBudget:
     #: Turun tamamı için üst süre sınırı. `None` ise süre sınırı uygulanmaz.
     total_timeout_s: float | None = None
     idle_timeout_s: float | None = None
+    #: Turun BİLİNEN maliyeti (USD) için tavan; `None` = tavan yok. Ölçülmemiş/ücretsiz
+    #: çağrı tavanı doldurmaz: bilinmeyen maliyeti sıfır sayıp turu kesmek de, sonsuz
+    #: saymak da yanlış olurdu — tavan yalnız sağlayıcının bildirdiği tutarı sayar.
+    max_cost_usd: float | None = None
 
     model_calls: int = 0
     verify_rounds: int = 0
@@ -125,6 +148,16 @@ class TurnBudget:
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
     )
+    data_observations: list[DataObservation] = field(default_factory=list)
+    #: Observed URLs from successful authorized Chrome content-read receipts.
+    successful_source_reads: list[str] = field(default_factory=list)
+    research_required: bool = False
+    research_contract: AcceptedDeliveryContract | None = None
+    research_sources: list[SourceSnapshot] = field(default_factory=list, repr=False)
+    research_verdict: GroundingVerdict | None = field(default=None, repr=False)
+    research_mechanical: VerificationResult | None = field(default=None, repr=False)
+    #: Coverage is minted by authorized tools, never by model or MCP arguments.
+    successful_source_read_scopes: list[tuple[str, SourceReadScope]] = field(default_factory=list)
     #: Başarılı OKUMA çağrılarının sonucu: imza → çıktı.
     #
     # Tekrarlanan bir okumayı engellemek yerine ilk sonucu geri vermek için
@@ -225,12 +258,16 @@ class TurnBudget:
         self.usage.reserve(self.model_calls)
         return True
 
-    def record_model_call(self) -> None:
-        self.model_calls += 1
-
     @property
     def model_calls_exhausted(self) -> bool:
         return self.max_model_calls is not None and self.model_calls >= self.max_model_calls
+
+    @property
+    def cost_exhausted(self) -> bool:
+        """Bilinen maliyet USD tavanına ulaştı mı? Tavan yoksa ya da maliyet bilinmiyorsa False."""
+        if self.max_cost_usd is None:
+            return False
+        return self.usage.snapshot().cost_usd >= self.max_cost_usd
 
     def take_empty_retry(self) -> bool:
         """Boş cevap için bir deneme hakkı al. Hak kalmadıysa False."""
@@ -372,8 +409,14 @@ class TurnBudget:
         """
         aranan = {str(path) for path in paths}
         aranan |= {path.name for path in paths}
+        # Ölçüldü (30 Ekim): düz alt-dize testi `a.py` için `data.py`/`meta.py` imzalarını,
+        # tek karakterli ad için hemen her imzayı da siliyordu. Ad bir dosya adı
+        # sınırında (başında/sonunda ad karakteri olmadan) geçmeli.
+        desenler = [
+            re.compile(rf"(?<![\w.-]){re.escape(parca)}(?![\w-])") for parca in aranan if parca
+        ]
         for imza in [i for i in self.seen_calls if i in self.mutating_signatures]:
-            if any(parca and parca in imza[1] for parca in aranan):
+            if any(desen.search(imza[1]) for desen in desenler):
                 self.seen_calls.pop(imza, None)
                 self.failed_signatures.discard(imza)
 

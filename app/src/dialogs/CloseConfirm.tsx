@@ -19,16 +19,24 @@ export function CloseConfirm({
   running?: boolean;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // Çağıran satır içi işlev verse de efekt yeniden kurulmaz: yeniden kurulum odağı her seferinde
+  // "Vazgeç"e geri çekiyordu (U4-51).
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
 
   useEffect(() => {
+    const previous = document.activeElement;
     // Odak VAZGEÇ'te başlar: yanlışlıkla Enter'a basan kapatmasın.
     cancelRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
+      if (event.key === "Escape") onCancelRef.current();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, []);
 
   return (
     <div className="close-confirm" role="presentation">

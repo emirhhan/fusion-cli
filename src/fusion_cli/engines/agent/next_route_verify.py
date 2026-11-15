@@ -23,6 +23,8 @@ _STATIC_SUCCESS = re.compile(
     r"(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)?\s*\}\s*\)"
 )
 _LOCAL_IMPORT = re.compile(r"\bfrom\s*[\"'](?:@/|\.{1,2}/)")
+#: `next/*` dışındaki paket içe aktarması (nodemailer, stripe, supabase...): rota gerçek iş yapar.
+_PACKAGE_IMPORT = re.compile(r"\bfrom\s*[\"'](?!next[/\"'])(?![@.]/|\.)[^\"']+[\"']")
 _NAMED_LOCAL_IMPORT = re.compile(
     r"\bimport\s*\{(?P<names>[^}]+)\}\s*from\s*[\"']"
     r"(?P<module>@/[^\"']+|\.{1,2}/[^\"']+)[\"']"
@@ -131,6 +133,7 @@ def _is_stub_post(relative: Path, content: str) -> bool:
     return bool(
         _STATIC_SUCCESS.search(content)
         and not _LOCAL_IMPORT.search(content)
+        and not _PACKAGE_IMPORT.search(content)
         and not re.search(r"\b(?:fetch|writeFile|prisma)\s*[.(]", content)
     )
 
@@ -227,23 +230,42 @@ def _has_route(root: Path, base: str) -> bool:
     for prefix in (root, root / "src"):
         app = prefix / "app/api" / segments
         pages = prefix / "pages/api" / segments
-        if app.is_dir():
-            for entry in app.iterdir():
-                if _is_catchall(entry.name) and any(
-                    (entry / f"route{suffix}").is_file() for suffix in (".ts", ".js")
-                ):
-                    return True
+        if app.is_dir() and _app_dir_serves_dynamic(app):
+            return True
         if pages.is_dir() and any(
-            _is_catchall(entry.stem) and entry.suffix in (".ts", ".js") for entry in pages.iterdir()
+            _is_dynamic_segment(entry.stem) and entry.suffix in (".ts", ".js")
+            for entry in pages.iterdir()
         ):
             return True
     return False
 
 
-def _is_catchall(name: str) -> bool:
-    return (name.startswith("[...") and name.endswith("]")) or (
-        name.startswith("[[...") and name.endswith("]]")
-    )
+def _app_dir_serves_dynamic(directory: Path) -> bool:
+    """`app/api/<base>/` altında `${...}` çağrısını karşılayan dinamik rota var mı?
+
+    Ölçüldü (30 Ekim, A2-34): yalnız catch-all (`[...x]`) kabul ediliyordu; `${id}` ile
+    çağrılan meşru `[id]/route.ts` "404 dönecek" yanlış pozitifi veriyor ve modeli gereksiz
+    catch-all yazmaya itiyordu. Route group (`(v1)`) klasörü URL'ye girmez; içine bakılır.
+    """
+    for entry in directory.iterdir():
+        if not entry.is_dir():
+            continue
+        if _is_dynamic_segment(entry.name) and any(
+            (entry / f"route{suffix}").is_file() for suffix in (".ts", ".js")
+        ):
+            return True
+        if _is_route_group(entry.name) and _app_dir_serves_dynamic(entry):
+            return True
+    return False
+
+
+def _is_dynamic_segment(name: str) -> bool:
+    """`[id]`, `[...slug]`, `[[...slug]]`: URL'de `${...}` ile eşleşen segment."""
+    return name.startswith("[") and name.endswith("]")
+
+
+def _is_route_group(name: str) -> bool:
+    return name.startswith("(") and name.endswith(")")
 
 
 def _has_rewrite(root: Path, base: str) -> bool:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fusion_cli.core.tool_emulation import (
     CALL_CLOSE,
     CALL_OPEN,
+    DEFERRED_TOOL_NAMES,
     PAYLOAD_SENTINEL,
     render_tool_instructions,
 )
@@ -19,7 +20,37 @@ def rendered() -> str:
 #: araçları (+1.300) ise yalnız Remotion isteğinde sunulur (`SCOPED_TOOLS`).
 # 18 Ekim 2026: chrome_action'a double_click/right_click/drag/wheel (+44 karakter) eklendi;
 # arka plan masaüstü araçları ise yalnız masaüstü isteğinde sunulur (`SCOPED_TOOLS`).
-PROMPT_BUDGET = 10_760
+# 30 Ekim 2026 (T1-40): chrome_action şeması eylem `enum`'u ve her eylem için `value` anlamını
+# taşır (+~600 karakter). Zayıf modeller bu bilgiyi yalnız başarısızlık mesajlarından öğreniyor ve
+# her model aynı deneme-yanılma turlarını yaşıyordu; tek seferlik bütçe artışı turdan tasarruf eder.
+# 31 Ekim 2026 (P-057): salt-okunur `gh` aracı eklendi (+~200 karakter; açıklaması zaten en
+# kısa hâlinde). Ölçüldü (dalda): 11_605.
+# 31 Ekim 2026 (P-042/043/044/073): chrome_action'a console/network/record/shortcut/window/group
+# eylemleri ve chrome_page'e tree/depth/ref parametreleri eklendi (ölçüldü: 11_400 → 11_818,
+# +418 karakter). Açıklamalar kısaltıldı; kalan artış eylem adları ve değer biçimleridir.
+# 31 Ekim 2026 (parite birleştirmesi): masaüstü fare/klavye/ekran araçları (P-030…P-032),
+# Kit araçları (P-063) ve yukarıdaki chrome eylemleri TAM yüzeyi 14_458'e çıkardı. Bu
+# yüzey güçlü modele gider; zayıf/web modelin gördüğü kompakt yüzey `desktop_*`/`chrome_*`
+# ailesini gizler ve ayrı, daha sıkı bütçeyle korunur (`COMPACT_PROMPT_BUDGET`, ölçüldü 9_623).
+# 1 Kas 2026 (#334/#336/#342): job_status şemadan çıktı (takma ad), task_stop/monitor ve
+# enter/exit_worktree Claude'un ertelenmiş araçları gibi tek imza satırında: 14_541.
+# 4 Kas 2026 (B06): recency_days/date_from/date_to zorunlu araştırma filtre şemaları
+# bağımsız ölçümde tam 104 karakter ekledi: full14578→14682, compact9711→9815.
+# Full sınır aynı 22 karakter payını korur; compact 10k sınırı aynen kalır.
+PROMPT_BUDGET = 14_704
+COMPACT_PROMPT_BUDGET = 10_000
+
+
+def test_kompakt_yuzey_istemi_zayif_model_butcesinde_kalir():
+    from dataclasses import replace
+
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _permitted
+
+    registry = build_registry()
+    kompakt = replace(ExecutionPolicy(is_web=False), compact_tool_surface=True)
+    sirada = _permitted(None, registry, kompakt)
+    assert len(render_tool_instructions(registry.schemas(sirada))) <= COMPACT_PROMPT_BUDGET
 
 
 def test_emulated_tool_prompt_budgeti():
@@ -70,7 +101,10 @@ def test_tum_registry_toollari_promptta_hala_var():
         function = schema.get("function", {})
         name = function.get("name")
 
-        if name:
+        if name in DEFERRED_TOOL_NAMES:
+            # Claude'un ertelediği yerleşikler imzayla sunulur (#334, #336, #342).
+            assert f"{name}(" in text.splitlines()[-1]
+        elif name:
             assert f"- {name}:" in text
 
 

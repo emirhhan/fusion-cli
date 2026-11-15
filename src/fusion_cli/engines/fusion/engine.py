@@ -19,10 +19,13 @@ Motor konsolu tanımaz: ilerlemeyi olay olarak yayınlar.
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.concurrency import gather_with_cutoff
 from ...core.events import CandidatesStarted, EventPublisher, JudgingStarted
@@ -40,6 +43,8 @@ from ...core.types import (
 from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
 from .judge import parse_verdict
+
+_logger = logging.getLogger(__name__)
 
 _PROMPTS = Path(__file__).parent / "prompts"
 _JUDGE_PROMPT = (_PROMPTS / "judge.txt").read_text(encoding="utf-8")
@@ -179,6 +184,7 @@ async def _call_candidates(
             retry_delays_s=runtime.retry_delays_s,
             health=health,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         return lambda: provider.complete(request)
 
@@ -257,10 +263,16 @@ async def _judge_and_synthesize(
     publisher.publish(JudgingStarted(with_synthesis=use_synthesis))
     if config.runtime.verified_synthesis and use_synthesis:
         return await _verified(task, answers, names, config, publisher, health=health)
-    verdict_result, synthesis_result = await asyncio.gather(
+    # `return_exceptions=True`: hakem ya da sentezin sağlayıcı kurulumu/çağrısı fırlatırsa
+    # (eksik anahtar → `FusionError`) bütün Fusion turu düşmesin; docstring "kullanıcı hiçbir
+    # senaryoda beklemede kalmaz" diyordu ama yalnız `TimeoutError` yakalanıyordu (E1-23).
+    verdict_outcome, synthesis_outcome = await asyncio.gather(
         _judge(task, answers, config, publisher, health=health),
         _synthesize(task, answers, config, publisher, health=health) if use_synthesis else _none(),
+        return_exceptions=True,
     )
+    verdict_result = _result_or_none(verdict_outcome, "hakem")
+    synthesis_result = _result_or_none(synthesis_outcome, "sentez")
 
     if verdict_result is not None and verdict_result.ok:
         verdict = parse_verdict(verdict_result.text, names)
@@ -272,6 +284,19 @@ async def _judge_and_synthesize(
         else None
     )
     return verdict, synthesized
+
+
+def _result_or_none(outcome: ModelResult | BaseException | None, role: str) -> ModelResult | None:
+    """Eşzamanlı çağrının sonucu; hata ise loglanıp None (sezgisel geri düşüş) olur.
+
+    `Exception` olmayan (iptal, KeyboardInterrupt) istisnalar yutulmaz, yeniden fırlatılır.
+    """
+    if isinstance(outcome, BaseException):
+        if not isinstance(outcome, Exception):
+            raise outcome
+        _logger.warning("Fusion %s çağrısı başarısız: %s", role, outcome)
+        return None
+    return outcome
 
 
 async def _judge(
@@ -299,6 +324,7 @@ async def _judge(
         background=True,
         health=health,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     try:
         return await asyncio.wait_for(
@@ -330,6 +356,7 @@ async def _synthesize(
         background=True,
         health=health,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     return await provider.complete(request)
 
@@ -371,8 +398,18 @@ async def _none() -> None:
 # --------------------------------------------------------------------------- #
 
 
+_PLACEHOLDER = re.compile(r"\{(task|answers)\}")
+
+
 def _fill(template: str, task: str, answers: str) -> str:
-    return template.replace("{task}", task).replace("{answers}", answers)
+    """Şablondaki yer tutucuları TEK geçişte doldur.
+
+    İki ardışık `str.replace` görev metninde geçen `{answers}`ı da genişletiyor ve aday
+    cevapları görev kısmına enjekte ediyordu (istem çoğalması; E1-24). Tek geçişte
+    yerleştirilen metin yeniden taranmaz.
+    """
+    degerler = {"task": task, "answers": answers}
+    return _PLACEHOLDER.sub(lambda eslesme: degerler[eslesme.group(1)], template)
 
 
 def _request(

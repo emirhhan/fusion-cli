@@ -327,33 +327,40 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   inset-inline-start: 0;
+  max-width: calc(100vw - 32px);
   padding: var(--space-3);
   position: absolute;
   top: calc(100% + var(--space-3));
-  width: 264px;
+  width: 292px;
   z-index: 20;
 }
+/* Hesabım'daki büyük avatar ortada durur; seçici de onun altında ortalanır. */
+.account-screen__hero-avatar .account-avatar__menu { inset-inline-start: 50%; top: calc(100% + 26px); transform: translateX(-50%); }
 
+.account-avatar__title { color: var(--text-secondary); font-size: var(--text-xs); margin: 0 0 var(--space-2); text-align: start; }
+
+/* 7 avatar: 4 + 3, ikinci satır ortalanır (boş hücre kalmaz). */
 .account-avatar__grid {
-  display: grid;
-  gap: var(--space-1);
-  grid-template-columns: repeat(6, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
 }
 
 .account-avatar__option {
+  aspect-ratio: 1;
+  flex: 0 0 calc((100% - 3 * var(--space-2)) / 4);
   background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-xs);
+  border: 2px solid transparent;
+  border-radius: 50%;
   cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  padding: var(--space-2) 0;
+  padding: 2px;
+  transition: border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
-.account-avatar__option:hover { background: var(--surface-hover); }
-.account-avatar__option[aria-pressed="true"] {
-  background: var(--surface-accent-subtle);
-  border-color: var(--accent-text);
-}
+.account-avatar__option img { border-radius: 50%; display: block; height: 100%; width: 100%; }
+.account-avatar__option:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.account-avatar__option:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.account-avatar__option[aria-pressed="true"] { border-color: var(--accent-text); }
 
 .account-avatar__foot {
   align-items: center;
@@ -367,3 +374,28 @@
 
 /* Avatar kutusu artık görsel de taşıyabilir: taşma kırpılır. */
 .account-screen__avatar { overflow: hidden; }
+
+/* Sağlayıcı hesapları (P-066): katlanmayan bölüm; başlık summary değil h3'tür. */
+.account-screen__section--open { display: grid; gap: var(--space-2); padding: 20px 22px 22px; }
+.account-screen__section--open h3 { font-size: 15px; font-weight: 600; margin: 0; }
+.account-screen__section--open .account-screen__list button { margin-top: 0; }
+
+/* Ayarlar › Hesap: aynı hesap içeriği sütuna sola hizalı oturur (Hesabım ortalar).
+   Avatar solda, ad/e-posta/rozet sağında; sayaçlar ve kartlar tam genişlikte. */
+.account-screen__content[data-layout="embedded"] { gap: var(--space-3); margin: var(--space-5) 0 0; max-width: none; }
+.account-screen__content[data-layout="embedded"] .account-screen__hero {
+  align-items: center;
+  column-gap: var(--space-5);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-items: start;
+  padding: 0 0 var(--space-2);
+  row-gap: var(--space-1);
+  text-align: start;
+}
+.account-screen__content[data-layout="embedded"] .account-screen__hero-avatar { grid-row: 1 / span 3; padding-bottom: var(--space-3); }
+.account-screen__content[data-layout="embedded"] .account-screen__hero h2 { font-size: var(--text-xl); letter-spacing: -0.02em; margin: 0; overflow-wrap: anywhere; }
+.account-screen__content[data-layout="embedded"] .account-screen__hero p { overflow-wrap: anywhere; }
+.account-screen__content[data-layout="embedded"] .account-screen__local { margin-top: var(--space-1); }
+.account-screen__content[data-layout="embedded"] .account-screen__stats { grid-column: 1 / -1; justify-content: flex-start; margin-top: var(--space-5); padding-top: var(--space-4); }
+.account-screen__content[data-layout="embedded"] .account-screen__hero-avatar .account-avatar__menu { inset-inline-start: 0; transform: none; }

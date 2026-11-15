@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import "./MainRail.css";
 
 /** En soldaki ana menünün bölümleri; sıra kullanıcının belirlediği sıradır. */
-export type MainSection = "home" | "scheduled" | "library" | "media" | "kits";
+// Görsel oluştur rayda yer almaz; ekran yalnız komut paletinden
+// (⌘K › Görsel oluştur) açılır ve Home vurgulu kalır.
+export type MainSection = "home" | "scheduled" | "library" | "kits";
 
 interface RailItem {
   icon: IconName;
@@ -15,7 +17,6 @@ export const MAIN_SECTIONS: readonly RailItem[] = [
   { id: "home", label: "Home", icon: "home" },
   { id: "scheduled", label: "Zamanlananlar", icon: "clock" },
   { id: "library", label: "Kitaplık", icon: "library" },
-  { id: "media", label: "Görsel ve video üretimi", icon: "image" },
   { id: "kits", label: "Kits", icon: "sparkle" },
 ];
 
@@ -38,7 +39,6 @@ export function MainRail({ active, onSelect, accountHostRef }: MainRailProps) {
       {MAIN_SECTIONS.map((item) => (
         <button
           aria-label={item.label}
-          aria-describedby={`rail-tooltip-${item.id}`}
           data-tooltip-hidden={dismissed || undefined}
           aria-current={item.id === active ? "page" : undefined}
           className="main-rail__item"
@@ -49,7 +49,8 @@ export function MainRail({ active, onSelect, accountHostRef }: MainRailProps) {
           type="button"
         >
           <Icon name={item.icon} size={22} />
-          <span className="main-rail__label" id={`rail-tooltip-${item.id}`} role="tooltip">{item.label}</span>
+          {/* Etiket aria-label ile aynı metin: ekran okuyucuya ikinci kez okunmasın (U1-65). */}
+          <span aria-hidden="true" className="main-rail__label" id={`rail-tooltip-${item.id}`} role="tooltip">{item.label}</span>
         </button>
       ))}
       <div className="main-rail__account" ref={accountHostRef} />

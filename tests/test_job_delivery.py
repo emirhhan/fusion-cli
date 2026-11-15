@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fusion_cli.core.evidence import ToolUse
 from fusion_cli.core.job_evidence import ArtifactReceipt, JobCompletion, JobPhase
 from fusion_cli.core.repair_ledger import SourceFingerprint
@@ -200,7 +202,7 @@ def test_unrelated_write_before_first_poll_does_not_rewrite_completion_receipt(t
 async def test_real_agent_launch_only_is_not_success_and_poll_is_not_mutation(
     monkeypatch, tmp_path
 ) -> None:
-    from fusion_cli.core.events import ToolOutcome
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.engines.agent import loop
 
@@ -214,31 +216,49 @@ async def test_real_agent_launch_only_is_not_success_and_poll_is_not_mutation(
                 model_result(
                     tool_calls=[tool_call("run_shell", command="render", background=True)]
                 ),
+                model_result(tool_calls=[tool_call("job_status", id="one")]),
                 model_result(TAM_CEVAP),
             ]
         ),
     )
 
-    async def execute(*args, **kwargs):
+    def launch(args, context):
         return ToolResult(
             "başladı", job_completion=JobCompletion("one", "render", JobPhase.STARTED)
-        ), ToolOutcome.OK
+        )
 
-    monkeypatch.setattr(loop, "_execute", execute)
-    result = await loop.run_agent(
-        "video üret", _deps(tmp_path, RecordingSink()), self_review=False, verify=False
-    )
+    def poll(args, context):
+        return ToolResult(
+            "sürüyor",
+            job_completion=JobCompletion("one", "render", JobPhase.RUNNING),
+            is_observation=True,
+        )
+
+    sink = RecordingSink()
+    deps = _deps(tmp_path, sink)
+    registry = deps.base_registry
+    assert registry is not None
+    for name, executor in (("run_shell", launch), ("job_status", poll)):
+        tool = registry.get(name)
+        assert tool is not None
+        registry.register_or_replace(replace(tool, run=executor))
+
+    result = await loop.run_agent("video üret", deps, self_review=False, verify=False)
     assert not result.ok and "sürüyor" in result.final_text
-    state = loop._State()
-    loop._note_tool_use(
-        state,
-        "job_status",
-        None,
-        ok=True,
-        is_observation=True,
-        job_completion=JobCompletion("one", "render", JobPhase.COMPLETED, 0),
-    )
-    assert not state.tool_uses[0].mutating
+    assert [item.call_id for item in result.tool_uses] == ["call_run_shell", "call_job_status"]
+    assert [item.job_completion.phase for item in result.tool_uses] == [
+        JobPhase.STARTED,
+        JobPhase.RUNNING,
+    ]
+    assert result.mutating_tool_calls_made == 1
+    assert not result.tool_uses[1].mutating
+    executed = [event for event in sink.events if isinstance(event, ToolExecuted)]
+    assert [event.call_id for event in executed] == ["call_run_shell", "call_job_status"]
+    assert all(event.outcome is ToolOutcome.OK for event in executed)
+    report = result.completion_report
+    assert report is not None and report.blocks_success and not report.is_verified
+    assert len(report.job_deliveries) == 1
+    assert report.job_deliveries[0].completion.phase is JobPhase.RUNNING
 
 
 async def test_real_agent_completed_background_exit_reaches_report(monkeypatch, tmp_path) -> None:
@@ -280,3 +300,119 @@ async def test_real_agent_completed_background_exit_reaches_report(monkeypatch, 
     poll = next(item for item in result.tool_uses if item.name == "job_status")
     assert not poll.mutating and poll.job_completion.exit_code == 0
     assert poll.job_completion.outputs[0].is_refreshed
+
+
+# --- Dalga 4 (T1-60) --------------------------------------------------------------
+
+
+def test_makbuz_kilidi_kisa_sure_yeniden_denenir(tmp_path, monkeypatch) -> None:
+    """Sarmalayıcı ve yoklama aynı anda gelirse makbuz hiç yazılmadan ValueError atılıyordu."""
+    from fusion_cli.tools import job_delivery
+
+    cagrilar = {"n": 0}
+
+    class _Kilit:
+        def __init__(self, _yol):
+            pass
+
+        def try_acquire(self):
+            cagrilar["n"] += 1
+            return cagrilar["n"] >= 3
+
+        def close(self):
+            pass
+
+    yazilan: list = []
+    monkeypatch.setattr(job_delivery, "FileLease", _Kilit)
+    monkeypatch.setattr(job_delivery, "_save_completion_locked", lambda *a: yazilan.append(a))
+    monkeypatch.setattr(job_delivery.time, "sleep", lambda _s: None)
+
+    job_delivery.save_completion(tmp_path, tmp_path, "j1", 0)
+
+    assert cagrilar["n"] == 3 and len(yazilan) == 1
+
+
+def test_makbuz_kilidi_hic_alinamazsa_hata_surer(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from fusion_cli.tools import job_delivery
+
+    class _Kilit:
+        def __init__(self, _yol):
+            pass
+
+        def try_acquire(self):
+            return False
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(job_delivery, "FileLease", _Kilit)
+    monkeypatch.setattr(job_delivery.time, "sleep", lambda _s: None)
+
+    with pytest.raises(ValueError, match="eşzamanlı"):
+        job_delivery.save_completion(tmp_path, tmp_path, "j1", 0)
+
+
+def test_cmd_dosyasi_yoksa_kontrollu_sonuc(tmp_path) -> None:
+    from fusion_cli.tools.job_delivery import snapshot_delivery
+
+    sonuc = snapshot_delivery(tmp_path, tmp_path, "yok", None)
+
+    assert sonuc.job_id == "yok" and "kaydı yok" in sonuc.command
+
+
+def test_delivery_json_atomik_yazilir(tmp_path, monkeypatch) -> None:
+    from fusion_cli.tools import job_delivery
+
+    cagrilar: list = []
+    monkeypatch.setattr(
+        job_delivery, "atomic_replace_text", lambda yol, metin: cagrilar.append(yol.name)
+    )
+
+    job_delivery.save_delivery(tmp_path, "j9", "echo", None, ())
+
+    assert cagrilar == ["j9.delivery.json"]
+
+
+def test_oldurulmus_surmekte_gorunen_isi_ayni_kapsamdaki_basarili_retry_kapatir() -> None:
+    """A2-37: hiç COMPLETED görülmeyen eski iş, taze başarılı retry ile çözülür."""
+    launch_outputs = (ArtifactReceipt("out.mp4", "old", None),)
+    new = use(JobPhase.COMPLETED, 0, (ArtifactReceipt("out.mp4", "old", "new"),), job="two")
+    report = build_turn_report(
+        (),
+        (
+            use(JobPhase.STARTED, outputs=launch_outputs),
+            use(JobPhase.RUNNING, outputs=launch_outputs),
+            use(JobPhase.STARTED, outputs=launch_outputs, job="two"),
+            new,
+        ),
+        None,
+    )
+    assert not report.blocks_success
+
+
+def test_surmekte_gorunen_is_farkli_komutlu_basarili_isle_kapanmaz() -> None:
+    other = JobCompletion("other", "baska komut", JobPhase.COMPLETED, 0)
+    report = build_turn_report(
+        (),
+        (use(JobPhase.STARTED), ToolUse("run_shell", job_completion=other)),
+        None,
+    )
+    assert report.blocks_success
+
+
+def test_surmekte_gorunen_is_oncesinde_biten_retry_ile_kapanmaz() -> None:
+    """Retry eski işten SONRA başlamalı; sıralama bozuksa kapanmaz."""
+    launch_outputs = (ArtifactReceipt("out.mp4", "old", None),)
+    new = use(JobPhase.COMPLETED, 0, (ArtifactReceipt("out.mp4", "old", "new"),), job="two")
+    report = build_turn_report(
+        (),
+        (
+            use(JobPhase.STARTED, outputs=launch_outputs, job="two"),
+            new,
+            use(JobPhase.STARTED, outputs=launch_outputs),
+        ),
+        None,
+    )
+    assert report.blocks_success

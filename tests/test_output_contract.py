@@ -26,6 +26,7 @@ from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.classify import TaskKind, classify_task
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import run_agent
+from fusion_cli.engines.agent.web_contract import render_answer_contract
 from fusion_cli.engines.effects.detect import required_effect_for
 from fusion_cli.providers.web_browser import format_browser_prompt, strip_role_headers
 from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
@@ -190,8 +191,11 @@ def test_rol_basligi_cevaba_tasinmaz():
 
 
 def test_prompt_uydurma_teslimi_yasaklar():
+    # Sözleşme metnini artık motor üretir (P1-33); taşıma yalnız yerleştirir.
+    sozlesme = render_answer_contract({"todo_write", "ask_user", "read_file"}, has_todos=False)
     prompt = format_browser_prompt(
-        (Message("system", TOOL_INSTRUCTIONS_LEAD), Message("user", GERCEK_ISTEK))
+        (Message("system", TOOL_INSTRUCTIONS_LEAD), Message("user", GERCEK_ISTEK)),
+        answer_contract=sozlesme,
     )
 
     assert "YALNIZCA bu turda gerçekten çağırdığın araçlarla" in prompt

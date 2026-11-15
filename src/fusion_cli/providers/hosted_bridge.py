@@ -27,8 +27,9 @@ __all__ = ["PREAMBLE", "HostedSessionChannel"]
 
 #: Connector başına konuşmayı açan SABİT mesaj. Sabit olması zorunludur (bkz.
 #: modül açıklaması): havuz konuşmayı bu mesajın özetiyle bulur.
-#: Geçmişte tutulan en fazla mesaj: önsöz + son istem + son cevap.
-_KEPT_MESSAGES = 3
+#: Geçmişin en çok mesaj sayısı (önsöz + 20 alışveriş). Aşılınca konuşma BİR KEZ
+#: sıfırlanır (yeni sohbet); her çağrıda kırpılmaz — gerekçesi `_start_fresh_if_full`.
+_MAX_MESSAGES = 41
 
 PREAMBLE = (
     "Bu konuşma Fusion ile kurulmuş otomatik bir köprüdür. Sana bağlı connector "
@@ -55,6 +56,7 @@ class HostedSessionChannel:
         session = self._session_for(connector)
         key = (connector.provider, connector.account)
         history = self._histories.setdefault(key, [Message(role="user", content=PREAMBLE)])
+        self._start_fresh_if_full(history)
         history.append(Message(role="user", content=prompt))
         timeout_s = session.timeout_s
         if self.timeout_floor_s is not None:
@@ -62,23 +64,20 @@ class HostedSessionChannel:
         transport = build_browser_transport(session, timeout_s=timeout_s, trace_dir=self.trace_dir)
         turn = await transport(self._credential(session), tuple(history), session.model)
         history.append(Message(role="assistant", content=turn.text))
-        self._trim(history)
         return turn.text
 
     @staticmethod
-    def _trim(history: list[Message]) -> None:
-        """Önsözü ve yalnız SON alışverişi tut.
+    def _start_fresh_if_full(history: list[Message]) -> None:
+        """Geçmiş tavana ulaştıysa konuşmayı önsöze indir (yeni sohbet, bir kez).
 
-        Gönderilmiş önek korunmak zorunda değil: `_deliver_turn` konuşmaya yalnız
-        gönderilmemiş kısmı yazar. Sınırsız biriken liste iki maliyet üretiyordu —
-        oturum boyunca büyüyen bellek ve her çağrıda tüm geçmişi tarayan
-        `_task_reminder`, yani N çağrıda O(N²) iş. Önsöz yerinde KALIR: havuz
-        konuşmayı `messages[:1]` ile eşler, onu düşürmek her çağrıda yeni sekme
-        açardı.
+        Gönderilmiş önek DEĞİŞMEMELİ: `_deliver_turn` sohbeti yalnız `messages[:sent_count]`
+        özeti birebir eşleşirse sürdürür. Eskiden her çağrıda ortadan kırpılıyordu; 3.
+        çağrıdan itibaren önek uyuşmuyor, her connector çağrısı yeni sohbet/sekme açıp
+        hız sınırı bekliyordu (P1-02). Bellek ve `_task_reminder` taraması tavanla
+        sınırlı kalır; önsöz yerinde durur (havuz konuşmayı `messages[:1]` ile eşler).
         """
-        if len(history) <= _KEPT_MESSAGES:
-            return
-        del history[1 : len(history) - (_KEPT_MESSAGES - 1)]
+        if len(history) >= _MAX_MESSAGES:
+            del history[1:]
 
     def _session_for(self, connector: HostedConnectorConfig) -> WebSessionConfig:
         """Connector'ı taşıyacak oturumu bul; yoksa SEBEBİ söyleyerek düş.

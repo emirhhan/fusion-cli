@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { macTerminalShortcut } from "./macShortcuts";
-import { SCROLLBACK_LINES, resolveMonoFont } from "./terminalTheme";
+import { SCROLLBACK_LINES, resolveMonoFont, resolveTerminalTheme, type TerminalTheme } from "./terminalTheme";
 import type { TerminalClosedEvent, TerminalSession } from "./terminalBridge";
 
 export interface XtermAdapter {
@@ -17,6 +17,8 @@ export interface XtermAdapter {
   getSelection(): string;
   paste(data: string): void;
   dispose(): void;
+  /** Uygulama teması/kontrastı değişince terminal renklerini güncelle (P-065). */
+  setTheme?(theme: TerminalTheme): void;
 }
 
 export function createXtermAdapter(): XtermAdapter {
@@ -29,7 +31,8 @@ export function createXtermAdapter(): XtermAdapter {
     fontFamily: resolveMonoFont(),
     fontSize: 12,
     scrollback: SCROLLBACK_LINES,
-    theme: { background: "#0f1115" },
+    // Tema token'lardan gelir: açık temada açık zemin, koyu temada koyu (P-065).
+    theme: resolveTerminalTheme(),
   });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
@@ -41,7 +44,11 @@ export function createXtermAdapter(): XtermAdapter {
       // kendi varsayılanıyla çalışmaya devam eder — terminal açılmamazlık
       // etmez.
       try {
-        terminal.loadAddon(new WebglAddon());
+        const webgl = new WebglAddon();
+        // Bağlam kaybı (GPU sıfırlanması, tarayıcının bağlam sınırı) olursa eklenti atılır ve xterm
+        // varsayılan renderer'a döner; aksi halde terminal boş/donuk kalıyordu (U4-23).
+        webgl.onContextLoss(() => webgl.dispose());
+        terminal.loadAddon(webgl);
       } catch {
         // WebGL yok; varsayılan renderer yeterlidir.
       }
@@ -74,6 +81,9 @@ export function createXtermAdapter(): XtermAdapter {
     getSelection: () => terminal.getSelection(),
     paste: (data) => terminal.paste(data),
     dispose: () => terminal.dispose(),
+    setTheme: (theme) => {
+      terminal.options.theme = theme;
+    },
   };
 }
 
@@ -119,6 +129,9 @@ export function XtermSession({
   const hostRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<XtermAdapter | null>(null);
   const decoderRef = useRef<TextDecoder | null>(null);
+  const closedRef = useRef(closed);
+  closedRef.current = closed;
+  const [ioError, setIoError] = useState<string | null>(null);
 
   useEffect(() => {
     const adapter = createAdapter?.() ?? providedAdapter ?? createXtermAdapter();
@@ -128,7 +141,13 @@ export function XtermSession({
     decoderRef.current = decoder;
     const encoder = new TextEncoder();
     adapter.open(host);
-    const stopData = adapter.onData((data) => { void session.write(encoder.encode(data)); });
+    // Kapanmış terminale yazılan tuş IPC'ye gitmez; başarısız yazma/boyutlandırma kullanıcıya
+    // durum çubuğunda görünür, işlenmemiş promise reddi olmaz (U4-24).
+    const bildir = (reason: unknown) => setIoError(reason instanceof Error ? reason.message : String(reason));
+    const stopData = adapter.onData((data) => {
+      if (closedRef.current !== null) return;
+      session.write(encoder.encode(data)).catch(bildir);
+    });
     // Yeniden boyutlandırma, çerçeve başına EN FAZLA bir kez ölçülür ve boyut
     // gerçekten değiştiyse çekirdeğe bildirilir. Eskiden her ResizeObserver
     // tetiklemesi senkron ölçüm + IPC yapıyordu; pencere sürüklenirken bu
@@ -141,7 +160,7 @@ export function XtermSession({
       if (cols <= 0 || rows <= 0) return;
       if (cols === son.cols && rows === son.rows) return;
       son = { cols, rows };
-      void session.resize(cols, rows);
+      session.resize(cols, rows).catch(bildir);
     };
     const planla = () => {
       if (bekleyen) return;
@@ -174,6 +193,16 @@ export function XtermSession({
     if (active) adapterRef.current?.focus();
   }, [active]);
 
+  // Tema (data-theme), kontrast ve vurgu belge kökünde değişince terminal renkleri de değişir;
+  // eskiden terminal açık temada da koyu kalıyordu (P-065).
+  useEffect(() => {
+    if (typeof MutationObserver === "undefined") return;
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => adapterRef.current?.setTheme?.(resolveTerminalTheme()));
+    observer.observe(root, { attributeFilter: ["data-theme", "data-contrast", "data-accent"], attributes: true });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!closed) return;
     const tail = decoderRef.current?.decode() ?? "";
@@ -181,10 +210,20 @@ export function XtermSession({
   }, [closed]);
 
   const copy = async () => {
-    const selection = adapterRef.current?.getSelection() ?? "";
-    if (selection) await navigator.clipboard.writeText(selection);
+    try {
+      const selection = adapterRef.current?.getSelection() ?? "";
+      if (selection) await navigator.clipboard.writeText(selection);
+    } catch {
+      setIoError("Panoya kopyalanamadı (izin verilmedi).");
+    }
   };
-  const paste = async () => adapterRef.current?.paste(await navigator.clipboard.readText());
+  const paste = async () => {
+    try {
+      adapterRef.current?.paste(await navigator.clipboard.readText());
+    } catch {
+      setIoError("Panodan yapıştırılamadı (izin verilmedi).");
+    }
+  };
 
   return (
     <div className="xterm-session" hidden={!active}>
@@ -202,10 +241,11 @@ export function XtermSession({
       </div>
       <div aria-label="Terminal ekranı" className="xterm-session__host" ref={hostRef} />
       <span className="xterm-session__status" role="status">
-        {closed === null ? "Terminal çalışıyor"
-          : closed.exitCode === null ? "Terminal durduruldu"
-            : closed.exitCode === 0 ? "Terminal bitti"
-              : `Terminal hata ile kapandı (çıkış kodu: ${closed.exitCode})`}
+        {ioError ? ioError
+          : closed === null ? "Terminal çalışıyor"
+            : closed.exitCode === null ? "Terminal durduruldu"
+              : closed.exitCode === 0 ? "Terminal bitti"
+                : `Terminal hata ile kapandı (çıkış kodu: ${closed.exitCode})`}
       </span>
     </div>
   );

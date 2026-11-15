@@ -147,3 +147,63 @@ def test_dosya_tavani_asilinca_kismi_oldugunu_soyler(tmp_path, monkeypatch):
     harita = build_repo_map(tmp_path, budget_chars=2_000)
 
     assert "kısmi" in harita
+
+
+def test_tsx_php_ve_diger_diller_icin_harita_bos_donmez(tmp_path):
+    """React TSX, PHP ve JVM/Swift/Ruby kaynakları da haritaya girer (C1-34).
+
+    Ölçüldü (30 Ekim): yalnız .py .js .ts .gd .rs .go vardı; Fusion'ın kendi `app/src`
+    (TSX) ve kullanıcının WordPress/PHP temaları için harita BOŞ dönüyordu.
+    """
+    (tmp_path / "Panel.tsx").write_text(
+        "export default function Panel() {\n  return null\n}\n"
+        "export const Rozet = (props: Props) => null\n"
+        "export interface PanelProps {}\n",
+        "utf-8",
+    )
+    (tmp_path / "tema.php").write_text("<?php\nfunction mg_fiyat() {}\nclass Urun {}\n", "utf-8")
+    (tmp_path / "Servis.java").write_text("public class Servis {\n}\n", "utf-8")
+    (tmp_path / "araclar.kt").write_text("fun topla(a: Int) = a\n", "utf-8")
+    (tmp_path / "modul.rb").write_text("module Yardim\n  def kur; end\nend\n", "utf-8")
+
+    harita = build_repo_map(tmp_path, budget_chars=2_000)
+
+    for ad in ("Panel", "Rozet", "PanelProps", "mg_fiyat", "Urun", "Servis", "topla", "Yardim"):
+        assert ad in harita, ad
+
+
+def test_sabit_ve_sade_degiskenler_tanim_sayilmaz(tmp_path):
+    (tmp_path / "a.ts").write_text("const SAYI = 5\nexport const f = () => 1\n", "utf-8")
+
+    harita = build_repo_map(tmp_path, budget_chars=500)
+
+    assert "SAYI" not in harita and "f" in harita
+
+
+def test_farkli_odaklar_onbellekte_karismaz_ve_genel_kesif_kalir(tmp_path):
+    from fusion_cli.core.repo_map import build_repo_map_report
+
+    root = _proje(tmp_path)
+    first = build_repo_map_report(root, focus_paths=("rapor.py",), budget_chars=2000)
+    second = build_repo_map_report(root, focus_symbols=("oran",), budget_chars=2000)
+    general = build_repo_map_report(root, budget_chars=2000)
+
+    assert first.text.splitlines()[0] == "rapor.py: ozet"
+    assert second.text.splitlines()[0] == "sabitler.py: oran"
+    assert first.text != second.text
+    assert general.text.splitlines()[0] != "rapor.py: ozet"
+    assert second.stats.cached and general.stats.cached
+    assert "fatura.py: toplam" in first.text
+
+
+def test_odak_genel_siradan_duzenli_kesif_alani_birakir(tmp_path):
+    from fusion_cli.core.repo_map import build_repo_map_report
+
+    (tmp_path / "focus.py").write_text(
+        "\n".join(f"def focused{n}():\n    pass\n" for n in range(12)), encoding="utf-8"
+    )
+    (tmp_path / "global.py").write_text("def discovery():\n    pass\n", encoding="utf-8")
+    report = build_repo_map_report(tmp_path, focus_paths=("focus.py",), budget_chars=100)
+    assert report.text.startswith("focus.py:")
+    assert "global.py: discovery" in report.text
+    assert len(report.text) <= 100

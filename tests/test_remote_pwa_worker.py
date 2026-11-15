@@ -52,3 +52,40 @@ async function run(mode, path) {
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """
     subprocess.run([str(NODE), "-e", script, str(WORKER)], check=True, timeout=15)
+
+
+@pytest.mark.skipif(NODE is None, reason="node yok")
+def test_worker_kurulumu_tek_dosya_404_verse_de_dusmez() -> None:
+    """R1-34. Ölçüldü (30 Ekim): `cache.addAll` tek 404'te bütün kurulumu reddediyordu."""
+    script = r"""
+const vm = require('node:vm');
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const handlers = {};
+const added = [];
+const cache = {add: async (url) => {
+ if (url === '/chat.js') throw new Error('404');
+ added.push(url);
+}};
+const context = {
+ URL, Response, Promise,
+ self: {addEventListener: (name, fn) => handlers[name] = fn, skipWaiting() {}},
+ caches: {open: async () => cache},
+};
+vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+let pending;
+handlers.install({waitUntil: (promise) => pending = promise});
+pending.then(() => {
+ assert.ok(added.includes('/app.js'), 'diğer dosyalar önbelleğe alınmalı');
+ assert.ok(!added.includes('/chat.js'));
+}).catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    subprocess.run([str(NODE), "-e", script, str(WORKER)], check=True, timeout=15)
+
+
+def test_sohbet_metni_yalniz_gonderim_basarisindan_sonra_temizlenir() -> None:
+    """R1-21: `tasks.create` başarısızsa kutudaki metin ve ekler korunur."""
+    chat = (WORKER.parent / "chat.js").read_text()
+    submit = chat[chat.index("async function submit()") : chat.index("async function stop()")]
+    assert submit.index("tasks.create") < submit.index('input.value = ""')
+    assert "catch (error)" in submit

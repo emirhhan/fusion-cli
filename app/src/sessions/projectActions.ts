@@ -9,6 +9,9 @@ interface ProjectActions {
 export class ProjectOpenError extends Error {
   constructor(public readonly projectId: string, cause: unknown) {
     super(`Proje kaydedildi fakat sohbet açılamadı: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "ProjectOpenError";
+    // ES2022 `cause` seçeneği hedef kütüphanede tanımlı değil; alan elle atanır.
+    (this as { cause?: unknown }).cause = cause;
   }
 }
 

@@ -48,10 +48,49 @@ export async function saveImageAs(defaultName: string): Promise<string | null> {
 /** Kits ekrana bakmak istediğinde her seferinde kullanıcıya yerel pencereyle sorar. */
 export async function askComputerAccess(reason: string): Promise<boolean> {
   const { ask } = await import("@tauri-apps/plugin-dialog");
-  const neden = reason.trim() ? `\n\nNedeni: ${reason.trim()}` : "";
+  const neden = reason.trim() ? `\n\nKits'in belirttiği neden (Fusion doğrulamaz): ${reason.trim()}` : "";
   return ask(
     "Kits ekranının bir görüntüsünü ve öndeki pencerenin öğelerini okumak istiyor. " +
-      "Tıklama ya da yazma yapamaz; yalnız bakar." + neden,
+      "Tıklama ya da yazma yapamaz; yalnız bakar. Ekrandaki anahtar ve parola benzeri metinler gizlenir." + neden,
     { title: "Kits bilgisayarına bakmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
+  );
+}
+
+/** Kits bir Kit adına kullanıcının Chrome'unu (Fusion eklentisi) kullanmak istediğinde sorar.
+ * Okuma eylemleri Kit ve gruba göre 30 dakika bir kez, etkileşim eylemleri her seferinde sorulur;
+ * `risky` ise hedef gönder/sil/satın al gibi bir düğmedir ve pencere daha sert uyarır. */
+export async function askKitsBrowserAccess(summary: string, interactive: boolean, risky = false): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  const scope = interactive
+    ? "Bu eylem sayfayı değiştirebilir; her seferinde ayrıca sorulur."
+    : "Yalnız okur; izin verirsen bu Kit'in aynı tür okuma istekleri 30 dakika boyunca tekrar sorulmaz.";
+  return ask(
+    `${summary}\n\n${scope} Sayfadaki anahtar ve parola benzeri metinler Kits'e gönderilmez; ekran görüntüsü taşınmaz.`,
+    {
+      title: risky ? "Kits riskli bir Chrome eylemi istiyor" : "Kits Chrome'unu kullanmak istiyor",
+      kind: risky ? "error" : "warning",
+      okLabel: risky ? "Yine de izin ver" : "İzin ver",
+      cancelLabel: "Reddet",
+    },
+  );
+}
+
+/** Kits'in sesli konuşması mikrofonu ilk kez istediğinde yerel pencereyle sorar. İzin, Kits açık kaldığı sürece hatırlanır. */
+export async function askMicrophoneAccess(): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  return ask(
+    "Kits sesli konuşma için mikrofonunu dinlemek istiyor. Tanıma bu Mac'te yapılır; ses dışarı çıkmaz. " +
+      "İzin verirsen Kits açık kaldığı sürece tekrar sorulmaz.",
+    { title: "Kits mikrofonunu kullanmak istiyor", kind: "warning", okLabel: "İzin ver", cancelLabel: "Reddet" },
+  );
+}
+
+/** Kits bir Kit adına Fusion tarayıcı profilini Kit tarayıcısına yüklemek istediğinde HER seferinde sorar (P-023). */
+export async function askKitsProfileAccess(summary: string): Promise<boolean> {
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  return ask(
+    `${summary}\n\nÇerezler yalnız bu Kit oturumunun belleğine verilir: Kits diske yazmaz, Kit'in modeli değerleri görmez. ` +
+      "Kit tarayıcısı kapanınca (boşta kalınca ya da Kit durdurulunca) oturum silinir. Bu izin hatırlanmaz.",
+    { title: "Kits girişli bir tarayıcı oturumu istiyor", kind: "warning", okLabel: "Oturumu ver", cancelLabel: "Reddet" },
   );
 }

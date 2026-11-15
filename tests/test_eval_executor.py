@@ -226,3 +226,166 @@ async def test_kurtarma_yoksa_yeniden_deneme_sifir_kalir(tmp_path):
     execution = await executor.run(task)
 
     assert execution.retries == 0
+
+
+class _TranskriptYazanKosucu:
+    """Gerçek koşucular gibi transkripti koşu sırasında çalışma dizininde yaratır."""
+
+    def __init__(self, *, dosyalar: dict[str, str] | None = None) -> None:
+        self._dosyalar = dosyalar or {}
+
+    async def run(
+        self,
+        request: str,
+        *,
+        root: Path,
+        strict_approval: bool = False,
+        transcript: Path | None = None,
+    ) -> AgentRunObservation:
+        from evals.transcript import TranscriptRecorder
+
+        assert transcript is not None
+        kayit = TranscriptRecorder(transcript)
+        kayit.close()
+        for ad, icerik in self._dosyalar.items():
+            (root / ad).write_text(icerik, encoding="utf-8")
+        return AgentRunObservation(output_text="", model_calls=1)
+
+
+async def test_transkript_dosyasi_workspace_unchanged_olcutunu_bozmaz(tmp_path):
+    """Q1-03: kanıt dosyası (`_transkript.jsonl`) 'değişen dosya' sayılmamalı.
+
+    Ölçüldü (30 Ekim): TranscriptRecorder dosyayı koşu sırasında workspace içinde
+    yaratır; snapshot onu dışlamadığı için agent HİÇBİR şey yazmasa bile
+    workspace_unchanged ölçütü başarısız çıkıyordu (parite setinde 5 görev).
+    """
+    executor = AgentTaskExecutor(
+        _TranskriptYazanKosucu(), workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0)
+    )
+    task = _task("t", SuccessCriterion(kind=CriterionKind.WORKSPACE_UNCHANGED))
+
+    execution = await executor.run(task)
+
+    assert (tmp_path / "t" / "_transkript.jsonl").exists()
+    assert execution.changed_files == frozenset()
+    assert evaluate_criterion(task.criterion, execution) is True
+
+
+async def test_gercek_dosya_yazilirsa_workspace_unchanged_yine_basarisiz(tmp_path):
+    """Dışlama yalnız kanıt dosyalarını kapsar; `_` önekli kullanıcı dosyası sayılır."""
+    executor = AgentTaskExecutor(
+        _TranskriptYazanKosucu(dosyalar={"_notlar.md": "x"}),
+        workspace_root=tmp_path,
+        clock=_FakeClock(0.0, 1.0),
+    )
+    task = _task("t", SuccessCriterion(kind=CriterionKind.WORKSPACE_UNCHANGED))
+
+    execution = await executor.run(task)
+
+    assert execution.changed_files == frozenset({"_notlar.md"})
+    assert evaluate_criterion(task.criterion, execution) is False
+
+
+async def test_dogrulama_zaman_asimi_ve_calistirilamama_beklenen_kodla_eslesmez(
+    tmp_path, monkeypatch
+):
+    """Q1-18. Ölçüldü (30 Ekim): ikisi de `1` dönüyor, `expected_exit_code=1` görevi yanlışlıkla
+    geçiyor ve altyapı arızası ajan başarısızlığından ayırt edilemiyordu."""
+    import asyncio
+
+    from evals import executor as executor_module
+
+    monkeypatch.setattr(executor_module, "SHELL_TIMEOUT_S", 0.2)
+    task = _task(
+        "t",
+        SuccessCriterion(kind=CriterionKind.EXIT_CODE, expected_exit_code=1, command="sleep 5"),
+    )
+    runner = _FakeRunner()
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    execution = await executor.run(task)
+    assert execution.exit_code == executor_module.EXIT_VERIFICATION_TIMEOUT
+    assert evaluate_criterion(task.criterion, execution) is False
+
+    async def bozuk(*_args, **_kwargs):
+        raise OSError("kabuk yok")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", bozuk)
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    execution = await executor.run(task)
+    assert execution.exit_code == executor_module.EXIT_VERIFICATION_UNAVAILABLE
+    assert evaluate_criterion(task.criterion, execution) is False
+
+
+async def test_temiz_kabul_agentin_sildigi_testle_yesile_donmez(tmp_path):
+    """Ürün düzelmeden görünür testi silmek dış kabulü etkileyemez."""
+
+    class TestDeletingRunner:
+        async def run(self, request, *, root, **kwargs):
+            (root / "test_behavior.py").unlink()
+            return AgentRunObservation(output_text="tamam", model_calls=1)
+
+    task = EvalTask(
+        id="clean-acceptance",
+        request="hesaplamayı düzelt",
+        setup={
+            "product.py": "def calculate():\n    return 0\n",
+            "test_behavior.py": (
+                "from product import calculate\n\ndef test_value():\n    assert calculate() == 7\n"
+            ),
+        },
+        criterion=SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE, expected_exit_code=0, command="python -m pytest -q"
+        ),
+    )
+    execution = await AgentTaskExecutor(
+        TestDeletingRunner(), workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0)
+    ).run(task)
+    assert execution.exit_code != 0
+    assert "test_behavior.py" in execution.changed_files
+    assert (
+        "assert calculate() == 7" in (tmp_path / task.id / "_acceptance.stderr.txt").read_text()
+        or "1 failed" in (tmp_path / task.id / "_acceptance.stdout.txt").read_text()
+    )
+
+
+async def test_temiz_kabul_agentin_zayiflattigi_testle_yesile_donmez(tmp_path):
+    task = EvalTask(
+        id="weakened",
+        request="hesaplamayı düzelt",
+        setup={
+            "product.py": "def calculate():\n    return 0\n",
+            "test_behavior.py": (
+                "from product import calculate\n\ndef test_value():\n    assert calculate() == 7\n"
+            ),
+        },
+        criterion=SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE, expected_exit_code=0, command="python -m pytest -q"
+        ),
+    )
+    execution = await AgentTaskExecutor(
+        _FakeRunner(files={"test_behavior.py": "def test_value():\n    assert True\n"}),
+        workspace_root=tmp_path,
+        clock=_FakeClock(0.0, 1.0),
+    ).run(task)
+    assert execution.exit_code != 0
+
+
+async def test_eval_workspace_task_id_cannot_delete_outside_root(tmp_path):
+    import pytest
+
+    from fusion_cli.core.errors import EvalError
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    sentinel = sibling / "keep.txt"
+    sentinel.write_text("koru")
+    executor = AgentTaskExecutor(
+        _FakeRunner(),
+        workspace_root=tmp_path / "runs",
+        clock=_FakeClock(0.0, 1.0),
+    )
+    with pytest.raises(EvalError):
+        await executor.run(
+            _task("../sibling", SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="x"))
+        )
+    assert sentinel.read_text() == "koru"

@@ -22,6 +22,8 @@ from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
 from fusion_cli.tools import build_registry
 from tests.test_plan_runner import _FakeDeps, _step
 
+from .fakes import make_config
+
 
 def _file_step(name, path, *, depends_on=()):
     step = _step(name, depends_on=depends_on, expected_effects=(f"file:{path}",))
@@ -63,13 +65,13 @@ def _deps(root, *, recovery=12, final=2):
         execution=ExecutionPolicy(is_web=False),
         checkpoint_store=JsonCheckpointStore(root / ".cp"),
         conversation_id="conv",
-        config=SimpleNamespace(
-            runtime=SimpleNamespace(
-                workflow_step_calls=24,
-                workflow_recovery_calls=recovery,
-                workflow_final_verification_calls=final,
-                workflow_planning_calls=2,
-            )
+        config=make_config(
+            runtime={
+                "workflow_step_calls": 24,
+                "workflow_recovery_calls": recovery,
+                "workflow_final_verification_calls": final,
+                "workflow_planning_calls": 2,
+            }
         ),
     )
     return deps

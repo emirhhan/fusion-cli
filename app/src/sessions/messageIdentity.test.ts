@@ -13,3 +13,11 @@ it("persistent id korunur, özdeş eski satırlar ayrı occurrence alır", () =>
   expect(messages[0].id).not.toBe(messages[1].id);
   expect(messages[2].id).toBe("kalıcı");
 });
+
+it("kimlik içeriği değil kısa özetini taşır (U4-38)", () => {
+  const uzun = "x".repeat(50_000);
+  const [mesaj] = migrateMessageIds([{ rol: "asistan", metin: uzun }], "sohbet");
+  expect(mesaj.id!.length).toBeLessThan(60);
+  expect(migrateMessageIds([{ rol: "asistan", metin: uzun }], "sohbet")[0].id).toBe(mesaj.id);
+  expect(migrateMessageIds([{ rol: "asistan", metin: uzun + "y" }], "sohbet")[0].id).not.toBe(mesaj.id);
+});

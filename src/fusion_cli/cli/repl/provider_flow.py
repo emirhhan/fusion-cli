@@ -89,12 +89,13 @@ def add_credential(
     picker: Picker = pick,
     ask_secret: SecretAsker,
     providers: tuple[ProviderDefinition, ...] = BUILTIN_PROVIDERS,
+    on_saved: Callable[[str, str], None] | None = None,
 ) -> str:
     """`/providers add` — bir sağlayıcı seç, anahtarını ŞİFRELİ depoya kaydet.
 
     Anahtar ekranda gösterilmez, log'a yazılmaz; yalnızca şifreli dosyaya girer ve
-    sonraki oturumda ortama uygulanır. Depo ana anahtarı (FUSION_SECRET_KEY) yoksa
-    işlem yapılmaz ve kullanıcı bilgilendirilir.
+    sonraki oturumda ortama uygulanır (`on_saved` verilirse bu oturumda da). Depo ana
+    anahtarı (FUSION_SECRET_KEY) yoksa işlem yapılmaz ve kullanıcı bilgilendirilir.
     """
     if not store.available:
         return messages.CRED_NO_KEY
@@ -114,4 +115,9 @@ def add_credential(
     except ConfigError as error:
         return str(error)
     # DİKKAT: mesajda anahtar YOK; yalnızca hangi sağlayıcının kaydedildiği yazılır.
+    if on_saved is not None:
+        # Oturum içinde de etkin olsun (ölçüldü: ekleyip aynı oturumda model çağıran
+        # kullanıcı kimlik doğrulama hatası alıyordu; L2-25).
+        on_saved(definition.auth_env, secret.strip())
+        return messages.CRED_SAVED_LIVE.format(name=definition.name, env=definition.auth_env)
     return messages.CRED_SAVED.format(name=definition.name, env=definition.auth_env)

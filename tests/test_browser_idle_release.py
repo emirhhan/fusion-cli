@@ -50,3 +50,26 @@ async def test_kullanim_surerken_birakilmaz_ve_sure_yenilenir():
     assert ("gemini_web", "main") in havuz._contexts
     await asyncio.sleep(0.2)
     assert ("gemini_web", "main") not in havuz._contexts
+
+
+async def test_birakma_gorevi_tutulur_ve_birakma_boyunca_hesap_kilidi_alinir():
+    """Ölçüldü (30 Ekim): (1) `create_task` sonucu referanssız (asyncio zayıf referans tutar,
+    görev toplanabilir); (2) kilit yalnız bakılıp bırakılıyor, `await` sırasında başka tur
+    kilidi alırsa bağlam tur ortasında kapanıyordu (P1-27)."""
+    havuz = BrowserSessionPool(idle_release_s=0.01)
+    havuz._contexts[("gemini_web", "main")] = object()
+    kilitli_mi: list[bool] = []
+
+    async def yavas_birak(provider: str, account: str) -> None:
+        kilitli_mi.append(havuz.lock_for(provider, account).locked())
+        await asyncio.sleep(0.05)
+
+    havuz.drop_account_conversations = yavas_birak  # type: ignore[method-assign]
+
+    havuz.schedule_idle_release("gemini_web", "main")
+    await asyncio.sleep(0.03)
+
+    assert havuz._background_tasks, "görev referansı tutulmalı"
+    assert kilitli_mi == [True], "bırakma kilit altında yapılmalı"
+    await asyncio.sleep(0.2)
+    assert not havuz._background_tasks

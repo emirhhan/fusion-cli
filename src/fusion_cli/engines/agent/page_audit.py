@@ -98,6 +98,9 @@ def pick_audit_pages(home: str, links: Sequence[str], limit: int = MAX_AUDIT_PAG
         adres = link.split("#")[0]
         if adres.rstrip("/") == ana or not adres.startswith(("http://", "https://")):
             continue
+        # Yalnız İÇ sayfalar: dış site (instagram.com/…) stil karşılaştırmasına girmez (A3-38).
+        if urlparse(adres).netloc != urlparse(home).netloc:
+            continue
         anahtar = _template_key(adres)
         if anahtar in gorulen:
             continue

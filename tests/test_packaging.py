@@ -209,12 +209,25 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
     fusion = ortam / ("Scripts" if sys.platform == "win32" else "bin") / "fusion"
     # Repo kökündeki editable `*.egg-info`, pip'in wheel'i zaten kurulu sanmasına
     # yol açmamalı; gerçek temiz kullanıcı ortamını repo dışından ölç.
+    # Testi koşan ortamın `PYTHONPATH=src`'i pip'e sızarsa paket "zaten kurulu" sayılır ve
+    # `fusion` betiği hiç oluşmaz (ölçüldü, 31 Ekim); temiz ortam gerçekten temiz olmalı.
+    temiz_ortam = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     subprocess.run(
         [str(pip), "install", "-q", str(tekerlekler[0])],
         check=True,
         cwd=tmp_path,
+        env=temiz_ortam,
     )
 
+    # `doctor` yapılandırmayı yükler: gerçek kullanıcı dizinine ve Keychain'e dokunmasın.
+    ev = tmp_path / "ev"
+    ortam_degiskenleri = {
+        **os.environ,
+        "HOME": str(ev),
+        "XDG_CONFIG_HOME": str(ev / "config"),
+        "XDG_DATA_HOME": str(ev / "data"),
+        "FUSION_KEYCHAIN": "off",
+    }
     for argumanlar in (["version"], ["--help"], ["doctor"]):
         sonuc = subprocess.run(
             [str(fusion), *argumanlar],
@@ -222,6 +235,7 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
             text=True,
             timeout=120,
             cwd=tmp_path,
+            env=ortam_degiskenleri,
         )
         # doctor yapılandırma eksikse 1 döner; çökmesi (>1) kabul edilemez.
         assert sonuc.returncode in (0, 1), f"fusion {argumanlar}: {sonuc.stderr[:400]}"

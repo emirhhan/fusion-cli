@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { Approval } from "../dialogs/Approval";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Approval, KARAR_KORUMA_MS } from "../dialogs/Approval";
 
 const approval = {
   tur: "onay" as const,
@@ -19,13 +19,16 @@ const question = {
   secenekler: [{ etiket: "Örnek" }],
 };
 
-afterEach(cleanup);
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+const korumaGec = () => vi.advanceTimersByTime(KARAR_KORUMA_MS + 1);
 
 describe("Onay kartı yaşam döngüsü sözleşmesi", () => {
   it("yanıt beklenirken tıklama ve klavye aynı kararı iki kez göndermez", () => {
     const onCevap = vi.fn(() => new Promise<void>(() => undefined));
     render(<Approval soru={approval} onCevap={onCevap} />);
     fireEvent.click(screen.getByRole("button", { name: "Evet" }));
+    korumaGec();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
     expect(onCevap).toHaveBeenCalledTimes(1);
   });
@@ -50,6 +53,7 @@ describe("Onay kartı yaşam döngüsü sözleşmesi", () => {
 
   it("serbest cevap kapalıysa sayı tuşu gizli Diğer seçeneğini açmaz", () => {
     render(<Approval soru={question} serbestCevap={false} onCevap={vi.fn()} />);
+    korumaGec();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "2" });
     expect(screen.queryByLabelText("Cevabın")).toBeNull();
   });

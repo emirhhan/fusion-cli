@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -62,7 +63,7 @@ def save_delivery(
         "source_scopes": list(manifest.scopes) if manifest is not None else [],
         "outputs": [[item.path, item.before_hash] for item in outputs],
     }
-    (folder / f"{job_id}.delivery.json").write_text(json.dumps(value), encoding="utf-8")
+    atomic_replace_text(folder / f"{job_id}.delivery.json", json.dumps(value))
     return JobCompletion(
         job_id,
         command,
@@ -91,13 +92,13 @@ def snapshot_delivery(folder: Path, root: Path, job_id: str, code: int | None) -
     phase = JobPhase.RUNNING if code is None else JobPhase.COMPLETED
     path = folder / f"{job_id}.delivery.json"
     if not path.exists():
-        return JobCompletion(job_id, (folder / f"{job_id}.cmd").read_text(), phase, code)
+        return JobCompletion(job_id, _command_text(folder, job_id), phase, code)
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or not isinstance(value.get("command"), str):
         raise ValueError("İş teslim manifesti geçersiz.")
     before: list[SourceFingerprint] = []
     after: list[SourceFingerprint] = []
-    for raw, digest in _pairs(value.get("sources")):
+    for raw, digest in _pairs(value.get("sources", [])):
         if raw is None or digest is None:
             raise ValueError("İş kaynak hash kaydı eksik.")
         before.append(SourceFingerprint(raw, digest))
@@ -128,10 +129,29 @@ def snapshot_delivery(folder: Path, root: Path, job_id: str, code: int | None) -
     )
 
 
+_LEASE_ATTEMPTS = 20
+_LEASE_WAIT_S = 0.1
+
+
+def _command_text(folder: Path, job_id: str) -> str:
+    """Çalıştırılan komutun kaydı; `.cmd` yoksa kontrollü yer tutucu (FileNotFoundError yok)."""
+    try:
+        return (folder / f"{job_id}.cmd").read_text()
+    except OSError:
+        return "(komut kaydı yok)"
+
+
 def save_completion(folder: Path, root: Path, job_id: str, code: int) -> None:
     """Sarmalayıcı süreç exit dosyasından önce tamamlanma anını sabitler."""
     lease = FileLease(folder / f"{job_id}.receipt.lock")
-    if not lease.try_acquire():
+    # Sarmalayıcı süreç ile yoklama aynı anda gelirse ikinci yazıcı KISA süre bekler; hemen
+    # vazgeçmek başarılı işi makbuzsuz bırakıyordu (ölçüldü, 30 Ekim).
+    for deneme in range(_LEASE_ATTEMPTS):
+        if lease.try_acquire():
+            break
+        if deneme < _LEASE_ATTEMPTS - 1:
+            time.sleep(_LEASE_WAIT_S)
+    else:
         raise ValueError("İş tamamlanma kanıtına eşzamanlı yazma isteği var.")
     try:
         _save_completion_locked(folder, root, job_id, code)
@@ -166,9 +186,7 @@ def observe_delivery(folder: Path, root: Path, job_id: str, code: int | None) ->
                 pending = snapshot_delivery(folder, root, job_id, None)
                 return replace(pending, phase=JobPhase.COMPLETED, exit_code=code)
             raise ValueError("İş tamamlanma anı receipt'i yok; sonraki disk kanıt sayılamaz.")
-        return JobCompletion(
-            job_id, (folder / f"{job_id}.cmd").read_text(), JobPhase.COMPLETED, code
-        )
+        return JobCompletion(job_id, _command_text(folder, job_id), JobPhase.COMPLETED, code)
     value = json.loads(path.read_text(encoding="utf-8"))
     if (
         not isinstance(value, dict)

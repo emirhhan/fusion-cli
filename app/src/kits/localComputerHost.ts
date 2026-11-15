@@ -1,3 +1,5 @@
+import { redactSecrets } from "../feedback/report";
+
 /** Kits'in "bilgisayarıma bak" isteğini karşılar: her istekte kullanıcıya sorar, izin
  * verilirse Fusion oturumundan salt okunur gözlem alıp yalnız Kits iframe'ine döner.
  *
@@ -72,7 +74,8 @@ export class LocalComputerHost {
     }
     try {
       const sonuc = await this.request("bilgisayar.snapshot", {});
-      const text = typeof sonuc.text === "string" ? sonuc.text.slice(0, COMPUTER_TEXT_LIMIT) : "";
+      // Ekrandaki parola yöneticisi/terminal çıktısı gibi sırlar Kits'e (ve onun modeline) gitmez.
+      const text = typeof sonuc.text === "string" ? redactSecrets(sonuc.text.slice(0, COMPUTER_TEXT_LIMIT)) : "";
       this.reply(nonce, {
         status: typeof sonuc.status === "string" ? sonuc.status : "unavailable",
         snapshotId: typeof sonuc.snapshot_id === "string" ? sonuc.snapshot_id : null,

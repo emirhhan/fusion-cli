@@ -1,4 +1,9 @@
-"""Web alanı — sayfa gerçekten yükleniyor ve konsolda hata yok.
+"""Web alanı — planlayıcıya verilen kabul koşulları.
+
+Bu adaptör kapı komutu ya da çıktı işareti TANIMLAMAZ; yalnız planlayıcıya "bitti"nin ne
+demek olduğunu söyler. Sayfanın gerçekten yüklendiğini ve konsolda hata olmadığını ÖLÇEN
+şey `engines/agent/browser_verify.py::BrowserVerifier`'dır (`build_verifier` ekler);
+docstring eskiden bu ölçümü adaptöre atfediyordu (E1-11).
 
 İşaret kökteki `index.html`'dir. `package.json` tek başına web kanıtı DEĞİLDİR:
 CLI araçları, kütüphaneler ve sunucular da onu taşır.

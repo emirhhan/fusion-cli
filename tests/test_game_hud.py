@@ -78,3 +78,34 @@ def test_oyun_sonunda_yeniden_baslatinca_hud_sifirlanmali(tmp_path, duzgun, bekl
 
     assert len(sorunlar) == beklenen
     assert all(sorun.startswith("yeniden başlattıktan sonra") for sorun in sorunlar)
+
+
+# --- Dalga 4 (T1-56) --------------------------------------------------------------------
+
+
+import pytest as _pytest  # noqa: E402
+
+from fusion_cli.tools import game_hud as _game_hud  # noqa: E402
+
+
+@_pytest.mark.parametrize("deger", ["overworld", "hover", "cover", "overview", "orbit", "habit"])
+def test_oyun_bitti_sezgisi_benzer_sozcuklerde_tetiklenmez(deger):
+    assert not _game_hud._ended(f'{{"state": "{deger}"}}')
+
+
+@_pytest.mark.parametrize(
+    "deger", ["over", "game_over", "gameOver", "bitti", "dead", "lost", "kaybetti", "GAME OVER"]
+)
+def test_oyun_bitti_durumlari_yakalanir(deger):
+    assert _game_hud._ended(f'{{"state": "{deger}"}}')
+
+
+def test_hud_turkce_binlik_ayiraci_dogru_okunur():
+    assert hud_numbers(["Skor: 1.250"]) == {"skor": 1250}
+    assert hud_numbers(["Score 12,500"]) == {"skor": 12500}
+    assert hud_numbers(["Skor: 120"]) == {"skor": 120}
+
+
+def test_durum_anahtarlari_buyuk_kucuk_harf_duyarsiz():
+    assert _game_hud._state_number({"Lives": 3}, "can") == 3
+    assert _game_hud._state_number({"Score": 40}, "skor") == 40

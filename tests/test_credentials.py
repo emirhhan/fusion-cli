@@ -130,3 +130,90 @@ def test_wizard_yerel_saglayiciyi_sunmaz(tmp_path):
     assert "ollama" not in kimlikler
     assert "chatgpt_web" not in kimlikler
     assert "openai" in kimlikler
+
+
+# --- L2-04: atomik yazım, kilit, bozuk içerik ------------------------------ #
+
+
+def test_yazma_yarida_cokerse_eski_depo_bozulmaz(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    store.set("A", "1")
+    onceki = (tmp_path / "secrets.enc").read_bytes()
+
+    def coker(*args, **kwargs):
+        raise OSError("disk dolu")
+
+    monkeypatch.setattr("fusion_cli.config.credentials.os.fsync", coker)
+    with pytest.raises(ConfigError, match="yazılamadı"):
+        store.set("B", "2")
+
+    assert (tmp_path / "secrets.enc").read_bytes() == onceki
+    assert store.get("A") == "1"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_yazimdan_once_bak_kopyasi_alinir(tmp_path):
+    store = _store(tmp_path)
+    store.set("A", "1")
+    ilk = (tmp_path / "secrets.enc").read_bytes()
+    store.set("B", "2")
+
+    assert (tmp_path / "secrets.enc.bak").read_bytes() == ilk
+
+
+def test_eszamanli_yazimlar_birbirini_ezmez(tmp_path):
+    import threading
+
+    isimler = [f"K{i}" for i in range(12)]
+
+    def yaz(isim):
+        _store(tmp_path).set(isim, "v")
+
+    kanallar = [threading.Thread(target=yaz, args=(isim,)) for isim in isimler]
+    for kanal in kanallar:
+        kanal.start()
+    for kanal in kanallar:
+        kanal.join()
+
+    assert set(_store(tmp_path).list_names()) == set(isimler)
+
+
+@pytest.mark.parametrize("icerik", [b"{bozuk", b"[1, 2]", b'"yazi"', b"\xff\xfe"])
+def test_cozulen_icerik_bozuksa_config_error(tmp_path, icerik):
+    store = _store(tmp_path)
+    token = store._fernet().encrypt(icerik)  # type: ignore[attr-defined]
+    (tmp_path / "secrets.enc").write_bytes(token)
+
+    with pytest.raises(ConfigError, match="bozuk"):
+        store.list_names()
+
+
+def test_wizard_on_saved_ile_anahtar_ayni_oturumda_etkin_olur(tmp_path):
+    """Ölçüldü (30 Ekim): eklenen anahtar 'sonraki oturumda' etkindi; aynı oturumda model
+    çağıran kullanıcı kimlik doğrulama hatası alıyordu (L2-25)."""
+    store = _store(tmp_path)
+    uygulanan: list[tuple[str, str]] = []
+
+    mesaj = provider_flow.add_credential(
+        store,
+        picker=_pick("openai"),
+        ask_secret=lambda prompt: "sk-canli",
+        on_saved=lambda ad, deger: uygulanan.append((ad, deger)),
+    )
+
+    assert uygulanan == [("OPENAI_API_KEY", "sk-canli")]
+    assert "bu oturumda da etkin" in mesaj
+    assert "sk-canli" not in mesaj
+
+
+def test_wizard_vazgecilirse_on_saved_cagrilmaz(tmp_path):
+    cagrildi = []
+
+    provider_flow.add_credential(
+        _store(tmp_path),
+        picker=_pick("openai"),
+        ask_secret=lambda prompt: "",
+        on_saved=lambda ad, deger: cagrildi.append(ad),
+    )
+
+    assert cagrildi == []

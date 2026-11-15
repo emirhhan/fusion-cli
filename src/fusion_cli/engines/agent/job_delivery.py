@@ -79,9 +79,17 @@ def collect_job_deliveries(
 
 
 def _is_resolved(previous: JobDelivery, deliveries: tuple[JobDelivery, ...]) -> bool:
-    """Süren işi kapatma; yalnız aynı kapsamın sonraki taze başarılı retry'ı çözebilir."""
+    """Yalnız aynı kapsamın sonraki taze BAŞARILI retry'ı eski işi çözebilir.
+
+    Ölçüldü (30 Ekim, A2-37): öldürülmüş/zaman aşımına uğramış, hiç COMPLETED
+    görülmemiş ("sürüyor" kalan) bir işin aynı komutla başarılı yeniden denemesi onu
+    kapatmıyordu; tur sonuna kadar "İş X sürüyor" sorunu başarıyı engelliyordu. Artık
+    kapatır — ama yalnız aynı komut + kaynak + çıktı kapsamında SONRA başlayan ve
+    COMPLETED/çıkış 0/taze çıktılı retry ile (`other.problem` boş olmak bunu garanti
+    eder). Tek başına süren iş (retry yok) engel olmaya devam eder.
+    """
     job = previous.completion
-    if job.phase is not JobPhase.COMPLETED or not previous.problem:
+    if not previous.problem:
         return False
     scope = tuple(item.path for item in job.outputs)
     return any(

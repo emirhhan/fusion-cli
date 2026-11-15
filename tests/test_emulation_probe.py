@@ -162,14 +162,14 @@ async def test_ham_cikti_teshis_icin_saklanir():
     assert "erişimim yok" in ilk.raw_output
 
 
-async def test_olculemeyen_metrik_sayaci_sifir_kalir():
-    """Payda sıfırken oran 1.0 döner; sayaç bunun ölçülmediğini söyler."""
+async def test_ayristirilamayan_cagri_sema_metrigini_dusurur():
+    """Hiç çağrı üretemeyen model şema/argüman metriğinde 1.0 ALMAZ (T1-54, 30 Ekim)."""
     ciktilar = ["düz metin"] * 5
 
     rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
 
-    assert rapor.score.schema_validity == 1.0
-    assert rapor.score.schema_validity_measured == 0
+    assert rapor.score.schema_validity == 0.0
+    assert rapor.score.schema_validity_measured > 0
     assert rapor.score.tool_selection_measured == 4
     assert not rapor.score.passes()
 
@@ -258,3 +258,49 @@ async def test_oran_sinirinda_olcum_derhal_durur():
         await probe_emulation(_config(), MODEL, registry=_Registry(saglayici))
 
     assert saglayici.cagri == 1
+
+
+async def test_bounded_probe_rejects_oversize_before_retaining_sample():
+    from fusion_cli.engines.emulation_probe import ProbeLimits, ProbeScenario
+
+    provider = _ScriptedProvider(["x" * 20, "ikinci yanıt"])
+    with pytest.raises(FusionError, match="saklama bütçesini"):
+        await probe_emulation(
+            _config(),
+            MODEL,
+            registry=_Registry(provider),
+            scenarios=(ProbeScenario("bir", None), ProbeScenario("iki", None)),
+            limits=ProbeLimits(2, 10, 100, 1),
+        )
+    assert len(provider.seen) == 1
+
+
+async def test_bounded_probe_rejects_call_budget_before_provider_construction():
+    from fusion_cli.engines.emulation_probe import ProbeLimits
+
+    registry = _Registry(_ScriptedProvider([]))
+    with pytest.raises(FusionError, match="çağrı bütçesini"):
+        await probe_emulation(
+            _config(), MODEL, registry=registry, limits=ProbeLimits(1, 100, 1000, 1)
+        )
+    assert registry.built_session is None
+
+
+async def test_bounded_probe_propagates_cancellation_without_next_call():
+    import asyncio
+
+    from fusion_cli.engines.emulation_probe import ProbeLimits
+
+    class CancelledProvider:
+        calls = 0
+
+        async def complete(self, request):
+            self.calls += 1
+            raise asyncio.CancelledError
+
+    provider = CancelledProvider()
+    with pytest.raises(asyncio.CancelledError):
+        await probe_emulation(
+            _config(), MODEL, registry=_Registry(provider), limits=ProbeLimits(5, 100, 1000, 1)
+        )
+    assert provider.calls == 1

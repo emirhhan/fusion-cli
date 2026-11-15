@@ -24,12 +24,21 @@ from evals.compare import compare_reports
 from evals.executor import AgentTaskExecutor
 from evals.loader import load_tasks
 from evals.metrics import RunReport
-from evals.profiles import EvalProfile, RunMetadata, build_runner, exclusions_for
+from evals.profiles import (
+    EvalProfile,
+    build_attempt_runner_factory,
+    build_run_metadata,
+    build_runner,
+    prepare_attempt_experiment,
+    prepare_eval_config,
+    resolve_profile_config,
+    validate_profile_tasks,
+)
 from evals.report import read_report, write_report
+from evals.research_metadata import complete_metadata
 from evals.runner import EvaluationUnavailableError, RateLimitedError, TaskExecutor, run_suite
 from evals.tasks import EvalTask
 from fusion_cli.config.loader import load_config
-from fusion_cli.config.model_select import apply_single_model
 from fusion_cli.core.clock import SystemClock
 from fusion_cli.providers.web_browser import close_all_browser_sessions
 
@@ -41,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser("run", help="Seti koştur ve metrik topla")
     run_parser.add_argument("suite", type=Path, help="Görev seti (YAML) yolu")
     run_parser.add_argument("--out", type=Path, default=None, help="Raporun yazılacağı JSON")
+    run_parser.add_argument(
+        "--corpus", type=Path, default=None, help="Task3 kabul yükleyicisinden geçen corpus kaynağı"
+    )
     run_parser.add_argument(
         "--model",
         default=None,
@@ -79,16 +91,82 @@ def main(argv: list[str] | None = None) -> int:
         "Tek koşu gürültülüdür; bir ayarın etkisini ölçmek için 3-5 önerilir.",
     )
 
+    run_parser.add_argument(
+        "--attempt-arm",
+        choices=("candidates", "serial"),
+        default=None,
+        help="Varsayılan kapalı: eşit toplam bütçeli aday veya seri deney kolu",
+    )
+    run_parser.add_argument(
+        "--attempt-total-calls",
+        type=int,
+        default=None,
+        help="Her görev ve tekrar için toplam model çağrısı tavanı",
+    )
+    run_parser.add_argument(
+        "--attempt-first-slot-calls",
+        type=int,
+        default=None,
+        help="Her görev ve tekrarda ilk adaya ayrılan sabit çağrı payı",
+    )
+
     compare_parser = sub.add_parser("compare", help="İki raporu karşılaştır")
     compare_parser.add_argument("baseline", type=Path, help="Eski (temel) rapor JSON")
     compare_parser.add_argument("candidate", type=Path, help="Yeni (aday) rapor JSON")
 
+    replay_parser = sub.add_parser(
+        "emulation-replay", help="Etiketli araç corpus dosyasını ağsız tekrar oyna"
+    )
+    replay_parser.add_argument("corpus", type=Path)
+    replay_parser.add_argument("--require-complete", action="store_true")
+
+    record_parser = sub.add_parser(
+        "emulation-record", help="Açık manifest senaryolarını sınırlı corpus olarak kaydet"
+    )
+    record_parser.add_argument("manifest", type=Path)
+    record_parser.add_argument("--out-dir", type=Path, required=True)
+    record_parser.add_argument("--validate-only", action="store_true")
+
     args = parser.parse_args(argv)
-    if args.command == "run":
-        return _run(args)
-    if args.command == "matrix":
-        return _matrix(args)
+    _validate_attempt_args(parser, args)
+    if args.command == "emulation-record":
+        return asyncio.run(_emulation_record(args))
+    if args.command == "emulation-replay":
+        return _emulation_replay(args.corpus, require_complete=args.require_complete)
+    if args.command in {"run", "matrix"}:
+        try:
+            return _run(args) if args.command == "run" else _matrix(args)
+        except ValueError as error:
+            parser.error(str(error))
     return _compare(args)
+
+
+def _validate_attempt_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Deney kapalıyken bütçe flag'lerini kabul etme; config öncesi doğrula."""
+    arm = getattr(args, "attempt_arm", None)
+    total = getattr(args, "attempt_total_calls", None)
+    first = getattr(args, "attempt_first_slot_calls", None)
+    if arm is None:
+        if total is not None or first is not None:
+            parser.error("Çağrı bütçeleri için --attempt-arm gerekli.")
+        return
+    if total is None or first is None or not 0 < first < total:
+        parser.error("Deney için pozitif ilk pay ve ondan büyük toplam çağrı bütçesi gerekli.")
+    if args.profile not in {EvalProfile.FUSION_FULL, EvalProfile.PRODUCTION} or args.repeat < 1:
+        parser.error("Deney tam Fusion profili ve pozitif tekrar sayısı gerektirir.")
+
+
+def _emulation_replay(path: Path, *, require_complete: bool = False) -> int:
+    """Sağlayıcı açmadan ortak puanlayıcıyla JSON raporu üret."""
+    from fusion_cli.tools.emulation_eval import load_corpus, replay_corpus_report
+
+    try:
+        report = replay_corpus_report(load_corpus(path))
+    except (OSError, ValueError) as error:
+        print(json.dumps({"passed": False, "error": str(error)}, ensure_ascii=False))
+        return 2
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["passed"] and (not require_complete or report["complete"]) else 1
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -96,14 +174,49 @@ def _run(args: argparse.Namespace) -> int:
     workspace_root = args.workspace or Path(tempfile.mkdtemp(prefix="fusion-eval-"))
     workspace_root.mkdir(parents=True, exist_ok=True)
 
-    config = load_config()
-    if args.model:
-        config = apply_single_model(config, args.model)
+    config = resolve_profile_config(args.profile, prepare_eval_config(load_config(), args.model))
+    experiment = None
+    if getattr(args, "attempt_arm", None) is not None:
+        prepared = prepare_attempt_experiment(
+            config,
+            arm=args.attempt_arm,
+            total_calls=args.attempt_total_calls,
+            first_slot_calls=args.attempt_first_slot_calls,
+            task_id=args.suite.stem,
+            repeat=args.repeat,
+        )
+        config, experiment = prepared.config, prepared.experiment
+    metadata = build_run_metadata(
+        suite=args.suite,
+        tasks=tasks,
+        profile=args.profile,
+        config=config,
+        repeat=args.repeat,
+        seed=args.seed,
+        calls=(),
+        experiment=experiment,
+    )
+    runner = (
+        build_runner(args.profile, config, source_split=metadata.split)
+        if experiment is None
+        else build_runner(args.profile, config, experiment=experiment, source_split=metadata.split)
+    )
     executor = AgentTaskExecutor(
-        build_runner(args.profile, config),
+        runner,
         workspace_root=workspace_root,
         clock=SystemClock(),
         seed_dir=args.seed,
+        runner_factory=build_attempt_runner_factory(
+            args.profile, config, experiment, source_split=metadata.split
+        )
+        if experiment is not None
+        else (
+            lambda task, repeat: build_runner(
+                args.profile, config, source_split=metadata.split, task=task
+            )
+        )
+        if any(task.budget or task.runtime_scenario for task in tasks)
+        else None,
     )
     tekrar = f" × {args.repeat} tekrar" if args.repeat > 1 else ""
     print(f"{len(tasks)} görev{tekrar} koşturuluyor (çalışma dizini: {workspace_root})…")
@@ -117,13 +230,8 @@ def _run(args: argparse.Namespace) -> int:
 
     report = replace(
         report,
-        metadata=RunMetadata(
-            suite=str(args.suite),
-            profile=args.profile.value,
-            model=config.agent.model,
-            repeat=args.repeat,
-            seed=None if args.seed is None else str(args.seed),
-            exclusions=exclusions_for(args.profile),
+        metadata=complete_metadata(
+            metadata, tuple(executor.executions), corpus=getattr(args, "corpus", None)
         ),
     )
     _print_summary(report)
@@ -147,6 +255,9 @@ async def _run_suite_and_close(
 
 
 def _matrix(args: argparse.Namespace) -> int:
+    tasks = load_tasks(args.suite)
+    for profile in EvalProfile:
+        validate_profile_tasks(profile, tasks)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     workspace = args.workspace or Path(tempfile.mkdtemp(prefix="fusion-eval-matrix-"))
     reports: list[RunReport] = []
@@ -242,6 +353,52 @@ def _print_summary(report: RunReport) -> None:
         print("\n  KARARSIZ görevler (her koşuda aynı sonucu vermiyor):")
         for item in kararsiz:
             print(f"    {item.task_id:<32} {item.passes}/{item.runs} geçti")
+
+
+async def _emulation_record(args: argparse.Namespace) -> int:
+    """Önce yerel doğrulama; yalnız açık kayıt çağrısında sağlayıcı kur."""
+    from evals.emulation_capture import (
+        load_capture_manifest,
+        record_emulation,
+        validate_capture_destination,
+    )
+    from fusion_cli.core.errors import FusionError
+    from fusion_cli.core.event_scope import new_trace_id
+
+    try:
+        manifest = await load_capture_manifest(args.manifest)
+        await asyncio.to_thread(validate_capture_destination, args.out_dir)
+        if args.validate_only:
+            print(json.dumps({"valid": True, "calls": len(manifest.scenarios), "recorded": False}))
+            return 0
+        config = load_config()
+        try:
+            result = await record_emulation(
+                config, manifest, args.out_dir, clock=SystemClock(), id_factory=new_trace_id
+            )
+        finally:
+            await close_all_browser_sessions()
+    except (OSError, ValueError, FusionError):
+        print(
+            json.dumps(
+                {"ok": False, "error": "Manifest, kaynak veya kayıt sınırı doğrulanamadı."},
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    print(
+        json.dumps(
+            {
+                "ok": result.ok,
+                "cases": result.cases,
+                "path": str(result.path) if result.path else None,
+                "error": result.error,
+                "commit_uncertain": result.is_commit_uncertain,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0 if result.ok else 2
 
 
 if __name__ == "__main__":

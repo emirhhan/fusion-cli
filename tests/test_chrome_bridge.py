@@ -34,7 +34,8 @@ async def test_yalniz_eklenti_origin_ve_anahtari_kabul_edilir() -> None:
             headers={"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"},
         )
         assert response.status_code == 200
-        assert response.json()["bagli"] is True
+        # Panel trafiği (/status) komut kanalının canlı olduğunu KANITLAMAZ (S1-07).
+        assert response.json()["bagli"] is False
         assert "anahtar" in response.json() and response.json()["anahtar"] is None
         # Chrome uzantı sayfasının ayrıcalıklı fetch'i GET'te Origin göndermeyebilir.
         response = await client.get(
@@ -51,7 +52,7 @@ async def test_komut_izinli_eklentiye_gider_ve_sonuc_araca_doner(tmp_path) -> No
     address = f"http://127.0.0.1:{state['port']}"
     headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
     async with httpx.AsyncClient(trust_env=False) as client:
-        await client.get(f"{address}/status", headers=headers)
+        bridge._mark_command_channel_alive()  # gerçek eklentinin poll döngüsü
         context = ToolContext(root=tmp_path, chrome=bridge)
         task = asyncio.create_task(chrome.chrome_page({}, context))
         command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
@@ -95,7 +96,7 @@ async def test_kapat_ac_eski_komutu_yeni_eklentiye_vermez() -> None:
     address = f"http://127.0.0.1:{first['port']}"
     headers = {"Origin": ORIGIN, "Authorization": f"Bearer {first['anahtar']}"}
     async with httpx.AsyncClient(trust_env=False) as client:
-        await client.get(f"{address}/status", headers=headers)
+        bridge._mark_command_channel_alive()  # gerçek eklentinin poll döngüsü
         task = asyncio.create_task(bridge.invoke("snapshot", {}))
         await asyncio.sleep(0)
         await bridge.close()
@@ -104,7 +105,7 @@ async def test_kapat_ac_eski_komutu_yeni_eklentiye_vermez() -> None:
         second = await bridge.start()
         address = f"http://127.0.0.1:{second['port']}"
         headers["Authorization"] = f"Bearer {second['anahtar']}"
-        await client.get(f"{address}/status", headers=headers)
+        bridge._mark_command_channel_alive()  # gerçek eklentinin poll döngüsü
         response = await client.post(f"{address}/poll", headers=headers, json={})
         assert response.json() == {}
     await bridge.close()
@@ -199,7 +200,7 @@ async def test_tiklamadan_once_okunan_oge_adi_izin_karti_icin_saklanir() -> None
     address = f"http://127.0.0.1:{state['port']}"
     headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
     async with httpx.AsyncClient(trust_env=False) as client:
-        await client.get(f"{address}/status", headers=headers)
+        bridge._mark_command_channel_alive()  # gerçek eklentinin poll döngüsü
         task = asyncio.create_task(bridge.invoke("describe", {"ref": "e52"}))
         command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
         await client.post(
@@ -277,10 +278,12 @@ async def test_panel_ayar_ucu_yalniz_izinli_alanlari_iletir() -> None:
     headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
     async with httpx.AsyncClient(trust_env=False) as client:
         cevap = await client.post(
-            f"{address}/settings", headers=headers, json={"mod": "auto", "kotu": "x"}
+            f"{address}/settings",
+            headers=headers,
+            json={"mod": "bypass", "bypass_onay": True, "kotu": "x"},
         )
     assert cevap.json() == {"ok": True, "mod": "auto"}
-    assert gelen == [{"mod": "auto"}]
+    assert gelen == [{"mod": "bypass", "bypass_onay": True}]
     await bridge.close()
 
 
@@ -376,4 +379,151 @@ async def test_eklenti_kuruluysa_kurulum_baslatilmaz_ve_acik_hata_verilir(monkey
     with pytest.raises(ConnectionError):
         await bridge.invoke("snapshot", {})
     assert cagri == []
+    await bridge.close()
+
+
+async def test_ref_onu_ureten_belgenin_kimligiyle_gonderilir() -> None:
+    """WP09: eski sayfa ref'i kendi belge kimliğiyle gider; eklenti yeni sayfada reddeder."""
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+
+    async def cevapla(client, veri):
+        command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
+        await client.post(
+            f"{address}/result",
+            headers=headers,
+            json={"id": command["id"], "ok": True, "veri": veri},
+        )
+        return command
+
+    async with httpx.AsyncClient(trust_env=False) as client:
+        bridge._mark_command_channel_alive()  # gerçek eklentinin poll döngüsü
+        task = asyncio.create_task(bridge.invoke("snapshot", {}))
+        await cevapla(client, {"doc": "belge-a", "elements": [{"ref": "e0", "name": "Sil"}]})
+        await task
+        task = asyncio.create_task(bridge.invoke("find", {"query": "abone"}))
+        await cevapla(client, {"doc": "belge-b", "matches": [{"ref": "e3", "name": "Abone"}]})
+        await task
+
+        eski = asyncio.create_task(bridge.invoke("click", {"ref": "e0"}))
+        eski_komut = await cevapla(client, {})
+        await eski
+        yeni = asyncio.create_task(bridge.invoke("click", {"ref": "e3"}))
+        yeni_komut = await cevapla(client, {})
+        await yeni
+        bilinmeyen = asyncio.create_task(bridge.invoke("click", {"ref": "e99"}))
+        bilinmeyen_komut = await cevapla(client, {})
+        await bilinmeyen
+
+    assert eski_komut["veri"] == {"ref": "e0", "doc": "belge-a"}
+    assert yeni_komut["veri"] == {"ref": "e3", "doc": "belge-b"}
+    assert bilinmeyen_komut["veri"] == {"ref": "e99"}
+    await bridge.close()
+
+
+async def test_panel_trafigi_komut_kanalini_bagli_saymaz_poll_sayar() -> None:
+    """Panel açıkken eklenti ölü olsa da `bagli=True` görünmemeli (S1-07)."""
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    async with httpx.AsyncClient(trust_env=False) as client:
+        await client.get(f"{address}/status", headers=headers)
+        bridge.publish({"tur": "adim"})
+        await client.post(f"{address}/events", headers=headers, json={"after": 0})
+        assert bridge.status()["bagli"] is False
+        poll = asyncio.create_task(client.post(f"{address}/poll", headers=headers, json={}))
+        await asyncio.sleep(0.1)
+        assert bridge.status()["bagli"] is True
+        await bridge.close()
+        poll.cancel()
+        await asyncio.gather(poll, return_exceptions=True)
+
+
+async def test_paralel_invoke_chrome_i_bir_kez_acar(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-15): bağlı değilken eşzamanlı iki `invoke` Chrome'u iki kez
+    açıyordu (kilit yoktu)."""
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "COMMAND_TIMEOUT_SECONDS", 0.3)
+    acilis: list[str] = []
+    bridge = ChromeBridge()
+    await bridge.start()
+
+    async def chrome_ac() -> None:
+        acilis.append("açıldı")
+        await asyncio.sleep(0.05)
+        bridge._mark_command_channel_alive()
+
+    bridge._launch_browser = chrome_ac
+    sonuclar = await asyncio.gather(
+        bridge.invoke("snapshot", {}), bridge.invoke("snapshot", {}), return_exceptions=True
+    )
+    assert all(isinstance(sonuc, TimeoutError) for sonuc in sonuclar)
+    assert acilis == ["açıldı"]
+    await bridge.close()
+
+
+async def test_islenemeyen_istek_500_doner_baglanti_sessiz_kapanmaz() -> None:
+    """Ölçüldü (30 Ekim, S1-14): `on_turn` KeyError fırlatınca yanıt yazılmadan bağlantı
+    kapanıyordu; durum satırı da 401/404 için hep 'OK' idi."""
+
+    async def bozuk(_prompt: str) -> dict:
+        raise KeyError("x")
+
+    bridge = ChromeBridge(on_turn=bozuk)
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    async with httpx.AsyncClient(trust_env=False) as client:
+        yanit = await client.post(f"{address}/turn", headers=headers, json={"prompt": "merhaba"})
+        assert yanit.status_code == 500
+        assert yanit.json()["hata"]
+        yetkisiz = await client.get(f"{address}/status")
+        assert yetkisiz.status_code == 401 and yetkisiz.reason_phrase == "Unauthorized"
+    await bridge.close()
+
+
+async def test_yavas_govde_zaman_asimina_ugrar(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-14): `readexactly` zaman aşımsızdı; anahtarı bilen ama gövdeyi
+    göndermeyen bağlantı sonsuza dek açık kalırdı."""
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "BODY_READ_TIMEOUT_SECONDS", 0.2)
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", state["port"])
+    writer.write(
+        (
+            "POST /events HTTP/1.1\r\nHost: x\r\nContent-Length: 50\r\n"
+            f"Authorization: Bearer {state['anahtar']}\r\n\r\n{{"
+        ).encode()
+    )
+    await writer.drain()
+    yanit = await asyncio.wait_for(reader.read(), 3)
+    assert yanit.startswith(b"HTTP/1.1 400")
+    writer.close()
+    await bridge.close()
+
+
+async def test_baska_thread_ten_publish_uzun_yoklamayi_hemen_uyandirir(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-16): `asyncio.Event.set` thread-güvenli değil; başka thread'den
+    yayınlanan öğe bekleyen `/events` yoklamasını zaman aşımına kadar uyandırmıyordu."""
+    import threading
+    import time
+
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    monkeypatch.setattr(modul, "EVENTS_WAIT_SECONDS", 3)
+    bridge = ChromeBridge()
+    await bridge.start()
+    threading.Timer(0.1, bridge.publish, args=({"tur": "adim"},)).start()
+
+    baslangic = time.monotonic()
+    sonuc = await bridge._events(0)
+
+    assert time.monotonic() - baslangic < 1.5
+    assert [oge["tur"] for oge in sonuc["olaylar"]] == ["adim"]
     await bridge.close()

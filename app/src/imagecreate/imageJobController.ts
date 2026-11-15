@@ -3,7 +3,8 @@ import { cancelImageJob, observeImageJob, readImageJobPage } from "./imageJobCli
 import { ImageJobJournal } from "./imageJobJournal";
 
 type Payload = Record<string, unknown>;
-export interface PendingImageJob { jobId: string; state: string; busy: boolean; stopping?: boolean; message?: string }
+/** `notFound`: sunucu bu kapsamda işi tanımadığını AÇIKÇA söyledi; yalnız o zaman unutulabilir. */
+export interface PendingImageJob { jobId: string; state: string; busy: boolean; stopping?: boolean; message?: string; notFound?: boolean }
 export interface ImageJobControllerState { ready: boolean; error: string | null; jobs: PendingImageJob[] }
 const PENDING = new Set(["accepted", "running", "recoveryRequired"]);
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
@@ -67,6 +68,19 @@ export class ImageJobController {
   observe(jobId: string): Promise<Payload> { return this.execute(jobId, "observe"); }
   cancel(jobId: string): Promise<Payload> { return this.execute(jobId, "cancel"); }
 
+  /**
+   * Sunucunun tanımadığı işin yerel kaydını siler. Ölçüldü (29 Ekim, U3-08): sunucuda artık
+   * bulunmayan iş `recoveryRequired` kalıp yeni üretimi sonsuza dek engelliyordu. Yalnız sunucu
+   * "bulunamadı" dediyse ve işlem sürmüyorsa izin verilir: canlı bir işin korumasını açmaz.
+   */
+  async forget(jobId: string): Promise<void> {
+    const job = this.state.jobs.find((item) => item.jobId === jobId);
+    if (this.disposed || !job) throw new Error("Görsel işinin sahibi değişti.");
+    if (!job.notFound || job.busy) throw new Error("İş sunucuda bulunmadığı doğrulanmadan unutulamaz; önce durumunu kontrol et.");
+    this.journal.remove(jobId);
+    this.publish({ ...this.state, jobs: this.state.jobs.filter((item) => item.jobId !== jobId) });
+  }
+
   private async execute(jobId: string, action: "start" | "observe" | "cancel", payload?: Payload): Promise<Payload> {
     if (this.disposed || !this.state.jobs.some((job) => job.jobId === jobId)) throw new Error("Görsel işinin sahibi değişti.");
     const previous = this.operations.get(jobId);
@@ -87,7 +101,10 @@ export class ImageJobController {
         if (TERMINAL.has(String(result.state))) {
           this.journal.remove(jobId);
           this.publish({ ...this.state, jobs: this.state.jobs.filter((job) => job.jobId !== jobId) });
-        } else this.update(jobId, { state: "recoveryRequired", message: String(result.metin ?? "İşin sonucu doğrulanamadı.") });
+        } else this.update(jobId, {
+          state: "recoveryRequired", message: String(result.metin ?? "İşin sonucu doğrulanamadı."),
+          notFound: result.code === "job_not_found",
+        });
       }
       return result;
     } catch (error) {

@@ -1,11 +1,19 @@
+import { ensurePermission } from "./permissionWait.js";
+import { taskScopedTab } from "./taskScope.js";
+export { PERMISSION_KEY, setPermissionWait, answerPermission, currentPermission } from "./permissionWait.js";
 // Fusion Browser ortak çekirdeği: sayfa eylemleri ve sekme yönetimi.
 // Hem arka plan hizmeti (otomatik bağlantı) hem yan panel (elle bağlantı) kullanır.
+
+import { SHORTCUT_NAME, findShortcut } from "./shortcuts.js";
 
 const TAB_KEY = "fusionTab";
 const LOAD_TIMEOUT_MS = 20000;
 
 export function pageAction(operation, args) {
   const calistir = () => {
+  if (args.__taskOrigin && location.origin !== args.__taskOrigin) {
+    throw new Error("Görevin başlangıçtaki sitesi değişti; sayfa okunmadı.");
+  }
   // Sayfanın İÇİNDE çalışır (chrome.scripting ile enjekte edilir); dış kapsam yoktur.
   const INTERACTIVE = "button, a[href], input, textarea, select, summary, [role='button'], " +
     "[role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='checkbox'], " +
@@ -36,6 +44,13 @@ export function pageAction(operation, args) {
     el.getAttribute("mattooltip") || iconName(el) || el.getAttribute("name") || "")
     .replace(/\s+/g, " ").trim().slice(0, 120);
   const refs = globalThis.__fusionRefs || (globalThis.__fusionRefs = []);
+  // Ref'ler (`e0`, `e1`…) her BELGEDE sıfırdan sayılır: sayfa değişince eski `e0` yeni
+  // sayfada başka bir öğeye denk gelir. Her belge kendi kimliğini taşır; komut başka
+  // belgenin kimliğiyle gelirse öğe aranmadan reddedilir.
+  const docId = globalThis.__fusionDoc ||
+    (globalThis.__fusionDoc = Math.random().toString(36).slice(2, 10) + Date.now().toString(36));
+  const STALE_REF = "Bu öğe referansı önceki sayfaya ait (sayfa değişti). chrome_page ile yeniden oku ve güncel ref kullan.";
+  const checkDoc = () => { if (args.doc && args.doc !== docId) throw new Error(STALE_REF); };
   const refOf = (el) => {
     let index = refs.indexOf(el);
     if (index === -1) { refs.push(el); index = refs.length - 1; }
@@ -76,6 +91,7 @@ export function pageAction(operation, args) {
     return item;
   };
   const refElement = (ref) => {
+    checkDoc();
     const match = /^e(\d+)$/.exec(ref || "");
     const element = match ? refs[Number(match[1])] : null;
     if (!element || !element.isConnected || !safe(element)) {
@@ -86,10 +102,16 @@ export function pageAction(operation, args) {
   const MouseKind = (type) => (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent);
   // Tıklama türleri: tek (varsayılan), çift ve sağ. Sağ tık yalnız bağlam menüsü olayını
   // gönderir; `click()` ÇAĞRILMAZ (sağ tık bağlantıya/düğmeye basmış olmamalı).
-  const pressAt = (element, x, y, kind) => {
+  // Claude computer `modifiers` (cmd+shift…): Python tarafı ["meta", "shift"] gönderir.
+  const modFlags = (mods) => {
+    const list = Array.isArray(mods) ? mods : [];
+    return { ctrlKey: list.includes("ctrl"), shiftKey: list.includes("shift"),
+      altKey: list.includes("alt"), metaKey: list.includes("meta") };
+  };
+  const pressAt = (element, x, y, kind, mods) => {
     const right = kind === "right";
     const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
-      button: right ? 2 : 0, buttons: right ? 2 : 1 };
+      button: right ? 2 : 0, buttons: right ? 2 : 1, ...modFlags(mods) };
     const rounds = kind === "triple" ? 3 : kind === "double" ? 2 : 1;
     for (let detail = 1; detail <= rounds; detail += 1) {
       for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
@@ -106,6 +128,7 @@ export function pageAction(operation, args) {
     }
   };
   const target = () => {
+    checkDoc();
     const match = /^e(\d+)$/.exec(args.ref || "");
     const element = match ? refs[Number(match[1])] : null;
     if (!element || !element.isConnected || !safe(element)) {
@@ -139,8 +162,12 @@ export function pageAction(operation, args) {
       const text = node.nodeValue.replace(/\s+/g, " ").trim();
       const parent = node.parentElement;
       if (!text || !parent || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName) || !isShown(parent)) continue;
-      parts.push(BLOCK.test(getComputedStyle(parent).display) ? `\n${text}` : ` ${text}`);
-      length += text.length + 1;
+      // Count only emitted UTF-16 units: a leading separator would be trimmed,
+      // consuming the text_page lookahead before it reaches the following node.
+      const separator = parts.length ? (BLOCK.test(getComputedStyle(parent).display) ? "\n" : " ") : "";
+      const part = separator + text;
+      parts.push(part);
+      length += part.length;
     }
     return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, limit);
   };
@@ -159,6 +186,92 @@ export function pageAction(operation, args) {
       text: visibleText(),
       elements: all.slice(0, MAX_ELEMENTS).map(describe),
       truncated: all.length > MAX_ELEMENTS,
+      doc: docId,
+    };
+  }
+  if (operation === "tree") {
+    // Erişilebilirlik AĞACI (Claude'un read_page'i gibi): rol, ad, durum ve ref ile girintili
+    // satırlar. `filter: interactive` yalnız etkileşimli öğeleri, `ref` yalnız o öğenin alt
+    // ağacını, `depth` en fazla kaç seviye inileceğini belirler (P-043).
+    const maxDepth = Math.max(1, Math.min(30, Number(args.depth) || 12));
+    const interactiveOnly = args.filter === "interactive";
+    const MAX_LINES = 600;
+    const TAG_ROLES = {
+      header: "banner", nav: "navigation", main: "main", footer: "contentinfo", aside: "complementary",
+      form: "form", section: "region", article: "article", dialog: "dialog", table: "table", thead: "rowgroup",
+      tbody: "rowgroup", tr: "row", td: "cell", th: "columnheader", ul: "list", ol: "list", li: "listitem",
+      h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading", img: "img",
+      a: "link", button: "button", textarea: "textbox", select: "combobox", option: "option", label: "label",
+      summary: "button", details: "group", fieldset: "group", legend: "legend", figure: "figure", hr: "separator",
+      iframe: "iframe",
+    };
+    const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", submit: "button", button: "button", reset: "button",
+      search: "searchbox", range: "slider", file: "button", image: "button" };
+    const roleOf = (el) => el.getAttribute("role") ||
+      (el.tagName === "INPUT" ? INPUT_ROLES[(el.getAttribute("type") || "").toLowerCase()] || "textbox"
+        : el.isContentEditable && el.getAttribute("contenteditable") !== null ? "textbox"
+          : el.tagName === "A" && !el.hasAttribute("href") ? "" : TAG_ROLES[el.tagName.toLowerCase()] || "");
+    const stateOf = (el) => {
+      const parts = [];
+      if (/^H[1-6]$/.test(el.tagName)) parts.push(`level=${el.tagName[1]}`);
+      if (el.disabled || el.getAttribute("aria-disabled") === "true") parts.push("disabled");
+      if (el.matches("input[type='checkbox'], input[type='radio'], [role='checkbox'], [role='switch'], [role='radio']")) {
+        parts.push((el.checked ?? el.getAttribute("aria-checked") === "true") ? "checked" : "unchecked");
+      }
+      if (el.getAttribute("aria-expanded")) parts.push(`expanded=${el.getAttribute("aria-expanded")}`);
+      if (el.getAttribute("aria-selected") === "true" || el.getAttribute("aria-current")) parts.push("selected");
+      if (el.matches("input, textarea") && el.value && safe(el)) parts.push(`value="${String(el.value).slice(0, 60)}"`);
+      if (el.matches("select") && el.selectedOptions?.[0]) parts.push(`value="${el.selectedOptions[0].text.slice(0, 60)}"`);
+      if (el.tagName === "A" && el.getAttribute("href")) parts.push(`href="${el.getAttribute("href").slice(0, 120)}"`);
+      return parts.length ? ` ${parts.join(" ")}` : "";
+    };
+    // Adı kendi metninden gelen öğelerin (düğme, başlık, bağlantı) altına inilmez: metin
+    // satırı iki kez yazılmasın.
+    const LEAF = /^(H[1-6]|LABEL|OPTION|IMG|SUMMARY|BUTTON|A|SELECT|TEXTAREA|INPUT)$/;
+    const SKIP = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|LINK|META|HEAD)$/;
+    const lines = [];
+    let truncated = false;
+    const root = args.ref ? target() : (document.body || document.documentElement);
+    if (!args.ref) refs.length = 0; // tam ağaç snapshot gibi ref'leri sıfırdan sayar
+    const walk = (node, depth) => {
+      if (lines.length >= MAX_LINES) { truncated = true; return; }
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (interactiveOnly) return;
+        const text = node.nodeValue.replace(/\s+/g, " ").trim();
+        const parent = node.parentElement;
+        if (text && parent && !SKIP.test(parent.tagName) && visibleBox(parent)) {
+          lines.push(`${"  ".repeat(depth)}text "${text.slice(0, 160)}"`);
+        }
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const el = node;
+      if (SKIP.test(el.tagName) || !visibleBox(el) || !safe(el)) return;
+      const interactive = el.matches(INTERACTIVE);
+      const role = roleOf(el);
+      const own = interactive || (Boolean(role) && !interactiveOnly);
+      if (own) {
+        const name = nameOf(el);
+        let line = `${"  ".repeat(depth)}${role || el.tagName.toLowerCase()}`;
+        if (name) line += ` "${name}"`;
+        if (interactive) line += ` [${refOf(el)}]`;
+        lines.push(line + stateOf(el));
+        if (LEAF.test(el.tagName) || el.getAttribute("role") === "button") return;
+      }
+      const next = depth + (own ? 1 : 0);
+      if (next >= maxDepth) return;
+      const children = [...(el.shadowRoot ? el.shadowRoot.childNodes : []), ...el.childNodes];
+      if (el.tagName === "IFRAME") {
+        let inner = null;
+        try { inner = el.contentDocument; } catch { inner = null; }
+        if (inner?.body) children.push(inner.body);
+      }
+      for (const child of children) walk(child, next);
+    };
+    walk(root, 0);
+    return {
+      title: document.title, url: location.href, filter: interactiveOnly ? "interactive" : "all",
+      depth: maxDepth, lines: lines.length, truncated, tree: lines.join("\n"), doc: docId,
     };
   }
   if (operation === "find") {
@@ -167,13 +280,80 @@ export function pageAction(operation, args) {
     // Modeller "campaigns, kampanyalar" gibi birden çok terimle arıyor; her biri ayrı
     // aranır, biri tutarsa yeter (ölçüldü: tek öbek sanılıp hep 0 sonuç dönüyordu).
     const terms = query.split(/[,|]/).map((term) => term.trim()).filter(Boolean);
-    const hits = deepAll(INTERACTIVE + ", label, h1, h2, h3, td, li, span, p, div")
-      .filter((el) => safe(el) && visibleBox(el))
-      .filter((el) => { const name = nameOf(el).toLocaleLowerCase("tr"); return terms.some((term) => name.includes(term)); })
+    // Doğal dilli sorgu (P-043): "kaydet düğmesi", "e-posta alanı", "giriş bağlantısı"
+    // gibi. Rol sözcüğü (düğme → button) ayrılır, dolgu sözcükleri atılır, kalan
+    // sözcüklerin HEPSİ öğenin adında/ipucunda geçmeli; rol de tutarsa öne çıkar.
+    // Hiçbir aday tam tutmazsa eski "herhangi bir terim" eşleşmesine düşülür.
+    const ROLE_WORDS = {
+      düğme: "button", düğmesi: "button", düğmesine: "button", buton: "button", butonu: "button",
+      butonuna: "button", button: "button", bağlantı: "link", bağlantısı: "link", bağlantısına: "link",
+      link: "link", linki: "link", linkine: "link", alan: "input", alanı: "input", alanına: "input",
+      kutu: "input", kutusu: "input", kutusuna: "input", input: "input", field: "input", textbox: "input",
+      seçim: "select", select: "select", dropdown: "select", checkbox: "checkbox", sekme: "tab",
+      sekmesi: "tab", tab: "tab", menü: "menuitem", menüsü: "menuitem", başlık: "heading",
+      başlığı: "heading", heading: "heading", görsel: "img", görseli: "img", image: "img", resim: "img",
+      resmi: "img",
+    };
+    const FILLER = new Set(["the", "a", "an", "bir", "ve", "ile", "için", "olan", "on", "in", "at", "to", "of",
+      "sayfadaki", "sayfanın", "üstteki", "alttaki", "sağdaki", "soldaki", "üst", "alt", "sağ", "sol", "top",
+      "bottom", "left", "right", "yazan", "adlı", "isimli", "named", "labeled", "called", "onay", "metin"]);
+    const ROLE_SELECTOR = {
+      button: "button, [role='button'], input[type='submit'], input[type='button'], summary",
+      link: "a[href], [role='link']",
+      input: "input, textarea, [contenteditable='true'], [role='textbox'], [role='searchbox'], [role='combobox']",
+      select: "select, [role='combobox'], [role='listbox']",
+      checkbox: "input[type='checkbox'], input[type='radio'], [role='checkbox'], [role='switch']",
+      tab: "[role='tab']", menuitem: "[role='menuitem']", heading: "h1, h2, h3, h4, h5, h6, [role='heading']",
+      img: "img, [role='img']",
+    };
+    const hintOf = (el) => [nameOf(el), el.getAttribute("placeholder"), el.getAttribute("title"),
+      el.getAttribute("aria-label"), el.getAttribute("name"), el.getAttribute("id"), el.getAttribute("alt"),
+      el.getAttribute("type"), el.getAttribute("role"), (el.getAttribute("href") || "").split("/").pop()]
+      .filter(Boolean).join(" ").toLocaleLowerCase("tr");
+    const wordHits = (word, hint) => hint.includes(word) ||
+      (word.length >= 5 && hint.includes(word.slice(0, Math.max(4, word.length - 3))));
+    const parsed = terms.map((term) => {
+      const words = term.split(/\s+/).filter(Boolean);
+      const roles = words.map((word) => ROLE_WORDS[word]).filter(Boolean);
+      return { term, roles, words: words.filter((word) => !ROLE_WORDS[word] && !FILLER.has(word)) };
+    });
+    const candidates = deepAll(INTERACTIVE + ", label, h1, h2, h3, td, li, span, p, div, img")
+      .filter((el) => safe(el) && visibleBox(el));
+    const scoreOf = (el) => {
+      const hint = hintOf(el);
+      const name = nameOf(el).toLocaleLowerCase("tr");
+      let best = 0;
+      for (const { term, roles, words } of parsed) {
+        const roleOk = !roles.length || roles.some((role) => el.matches(ROLE_SELECTOR[role]));
+        const allWords = words.length > 0 && words.every((word) => wordHits(word, hint));
+        let score = 0;
+        if (allWords) score = roleOk ? 3 : 2;
+        else if (!words.length && roles.length) {
+          // Sorgu rol sözcüğünün kendisi ("Menü", "Select", "Alan"): o adı taşıyan öğe
+          // önde, rol eşleşmeleri arkada. Ölçüldü (31 Ekim): yalnız rol eşleşmesi
+          // puanlandığı için "Menü" yazan hamburger düğmesi yerine menü öğeleri dönüyordu.
+          if (name.includes(term)) score = 3;
+          else if (roleOk) score = 2;
+        }
+        if (score && name === term) score += 2;
+        best = Math.max(best, score);
+      }
+      return best;
+    };
+    let scored = candidates.map((el) => ({ el, score: scoreOf(el) })).filter((item) => item.score >= 2);
+    if (!scored.length) {
+      scored = candidates
+        .filter((el) => { const name = nameOf(el).toLocaleLowerCase("tr"); return terms.some((term) => name.includes(term)); })
+        .map((el) => ({ el, score: 1 }));
+    }
+    const inView = (el) => { const rect = el.getBoundingClientRect(); return rect.bottom > 0 && rect.top < innerHeight; };
+    const hits = scored
       // En içteki eşleşme: "div > span > button" zincirinde düğmeyi döndür.
-      .filter((el, _, list) => !list.some((other) => other !== el && el.contains(other)))
-      .slice(0, 20);
-    const result = { query, matches: hits.map(describe) };
+      .filter((item, _, list) => !list.some((other) => other.el !== item.el && item.el.contains(other.el)))
+      .sort((a, b) => b.score - a.score || Number(inView(b.el)) - Number(inView(a.el)))
+      .slice(0, 20)
+      .map((item) => item.el);
+    const result = { query, matches: hits.map(describe), doc: docId };
     if (!hits.length) {
       result.ipucu = "Eşleşme yok. Sayfada ne olduğunu görmek için chrome_page'i query olmadan çağır; " +
         "sayfadaki gerçek yazıyı ara ya da adresi biliyorsan doğrudan git.";
@@ -217,17 +397,23 @@ export function pageAction(operation, args) {
     const PAGE = MAX_TEXT;
     const page = Math.max(1, Number(args.page) || 1);
     const full = visibleText(PAGE * page + 1);
-    return { page, text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
+    return { page, title: document.title, url: location.href,
+      text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
   }
   if (operation === "hover") {
-    const element = target();
-    element.scrollIntoView({ block: "center" });
+    // ref ya da ekran görüntüsü koordinatı (Claude computer hover coordinate).
+    const atPoint = !args.ref && Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y));
+    const element = atPoint ? document.elementFromPoint(Number(args.x), Number(args.y)) : target();
+    if (!element || !safe(element)) throw new Error("Bu noktada öğe yok ya da hassas alan.");
+    if (!atPoint) element.scrollIntoView({ block: "center" });
     const rect = element.getBoundingClientRect();
-    const point = { bubbles: true, composed: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+    const point = { bubbles: true, composed: true,
+      clientX: atPoint ? Number(args.x) : rect.left + rect.width / 2,
+      clientY: atPoint ? Number(args.y) : rect.top + rect.height / 2 };
     for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "mousemove"]) {
       element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
     }
-    return { hovered: args.ref, name: nameOf(element) };
+    return { hovered: args.ref || [point.clientX, point.clientY], name: nameOf(element) };
   }
   if (operation === "describe_at" || operation === "click_at") {
     // Ekran görüntüsündeki koordinat (CSS piksel): Claude'un computer tıklaması gibi.
@@ -245,14 +431,14 @@ export function pageAction(operation, args) {
         link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
       };
     }
-    pressAt(element, x, y, args.kind);
+    pressAt(element, x, y, args.kind, args.mods);
     return { clicked_at: [x, y], kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "click") {
     const element = target();
     element.scrollIntoView({ block: "center", inline: "center" });
     const rect = element.getBoundingClientRect();
-    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind);
+    pressAt(element, rect.left + rect.width / 2, rect.top + rect.height / 2, args.kind, args.mods);
     return { clicked: args.ref, kind: args.kind || "single", name: nameOf(element), url: location.href };
   }
   if (operation === "type") {
@@ -362,12 +548,15 @@ export function pageAction(operation, args) {
     return { checked: after, name: nameOf(element) };
   }
   if (operation === "drag") {
-    // Kaynak ref'ten hedef ref'e ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
-    const source = target();
-    source.scrollIntoView({ block: "center", inline: "center" });
+    // Kaynak ref'ten ya da (from_x,from_y) noktasından (Claude start_coordinate) hedef ref'e
+    // ya da (x,y) noktasına: fare olayları ve HTML5 sürükle-bırak.
+    const fromPoint = !args.ref && Number.isFinite(Number(args.from_x)) && Number.isFinite(Number(args.from_y));
+    const source = fromPoint ? document.elementFromPoint(Number(args.from_x), Number(args.from_y)) : target();
+    if (!source || !safe(source)) throw new Error("Sürüklenecek noktada öğe yok ya da hassas alan.");
+    if (!fromPoint) source.scrollIntoView({ block: "center", inline: "center" });
     const from = source.getBoundingClientRect();
-    const sx = from.left + from.width / 2;
-    const sy = from.top + from.height / 2;
+    const sx = fromPoint ? Number(args.from_x) : from.left + from.width / 2;
+    const sy = fromPoint ? Number(args.from_y) : from.top + from.height / 2;
     let destination;
     let dx;
     let dy;
@@ -445,13 +634,28 @@ export function pageAction(operation, args) {
     };
   }
   if (operation === "upload") {
-    const element = target();
-    if (!element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
+    const atPoint = !args.ref && Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y));
+    const element = atPoint ? null : target();
+    if (element && !element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
     const files = (args.files || []).map((file) => {
       const bytes = Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0));
       return new File([bytes], file.name, { type: file.mime || "application/octet-stream" });
     });
     if (!files.length) throw new Error("Yüklenecek dosya yok.");
+    if (atPoint) {
+      // Claude upload_image coordinate: dosyayı noktadaki bırakma hedefine sürükle-bırak.
+      const x = Number(args.x);
+      const y = Number(args.y);
+      const zone = document.elementFromPoint(x, y);
+      if (!zone || !safe(zone)) throw new Error("Bu noktada bırakma hedefi yok ya da hassas alan.");
+      const transfer = new DataTransfer();
+      files.forEach((file) => transfer.items.add(file));
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, composed: true,
+          clientX: x, clientY: y, dataTransfer: transfer }));
+      }
+      return { dropped: files.map((file) => file.name), name: nameOf(zone) };
+    }
     if (files.length > 1 && !element.multiple) throw new Error("Bu alan tek dosya kabul ediyor.");
     const transfer = new DataTransfer();
     files.forEach((file) => transfer.items.add(file));
@@ -912,35 +1116,47 @@ export async function clearSelected() {
   await chrome.storage.session.remove(TAB_KEY);
 }
 
-/** Panelin "Bu siteye izin ver" kartını açan kayıt (panel `PERMISSION_KEY`i dinler). */
-export const PERMISSION_KEY = "fusionPermission";
-
-/** Kullanıcının izin kartına basması için komutun bekleyeceği süre (köprü zaman aşımı 30 sn). */
-let permissionWaitMs = 25000;
-/** Testler bekleme süresini kısaltır. */
-export function setPermissionWait(ms) { permissionWaitMs = ms; }
-
 /**
- * İzni olmayan siteye girişte: paneldeki izin kartını aç ve kullanıcının tıklamasını BEKLE;
- * izin gelince komut kaldığı yerden sürer (ajanın yeniden denemesine gerek kalmaz).
- * İzin yalnız kullanıcı tıklamasıyla verilebilir (Chrome kuralı). Süre dolarsa ya da
- * kullanıcı reddederse modele ne yapacağı söylenir.
+ * Oturum sekme grubu (#436, Claude in Chrome): Fusion'ın açtığı sekmeler pencere başına tek bir
+ * "Fusion" grubunda toplanır. Kapanış kuralı köprüden gelir (`group_close`): `/clear` grubu
+ * sayfalarıyla kapatır; oturum değişince ya da çıkışta grup yalnız boş yeni sekmelerden
+ * oluşuyorsa kapanır.
  */
-async function ensurePermission(origin, reason) {
-  if (await permitted(origin)) return;
-  try { await chrome.storage.session.set({ [PERMISSION_KEY]: { origin, at: Date.now() } }); } catch { /* kart açılamazsa mesaj yeter */ }
-  const until = Date.now() + permissionWaitMs;
-  while (Date.now() < until) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    if (await permitted(origin)) return;
-    const pending = (await chrome.storage.session.get(PERMISSION_KEY).catch(() => ({})))[PERMISSION_KEY];
-    if (!pending) break; // kullanıcı "Şimdi değil" dedi
-  }
-  if (await permitted(origin)) return;
-  throw new Error(
-    `${reason} ${origin} için kullanıcı izin vermedi (panelde izin kartı açıldı). ` +
-    "Kullanıcıya kısaca söyle; izin gelirse aynı komutu yeniden dene, vermezse o siteye girme.");
+const GROUP_KEY = "fusionGroups";
+const GROUP_TITLE = "Fusion";
+const EMPTY_TAB = /^(chrome:\/\/newtab\/?|about:blank|edge:\/\/newtab\/?)?$/;
+
+async function sessionGroups() {
+  return (await chrome.storage.session.get(GROUP_KEY))[GROUP_KEY] || {};
 }
+
+async function addToSessionGroup(tab) {
+  if (!tab?.id || !chrome.tabs.group) return null;
+  const groups = await sessionGroups();
+  const known = groups[tab.windowId];
+  const alive = known !== undefined && await chrome.tabGroups?.get(known).then(() => true, () => false);
+  const groupId = alive
+    ? await chrome.tabs.group({ groupId: known, tabIds: [tab.id] })
+    : await chrome.tabs.group({ tabIds: [tab.id], createProperties: { windowId: tab.windowId } });
+  if (!alive && chrome.tabGroups?.update) await chrome.tabGroups.update(groupId, { title: GROUP_TITLE });
+  await chrome.storage.session.set({ [GROUP_KEY]: { ...groups, [tab.windowId]: groupId } });
+  return groupId;
+}
+
+async function closeSessionGroups(onlyEmpty) {
+  const groups = await sessionGroups();
+  let closed = 0;
+  for (const groupId of Object.values(groups)) {
+    const tabs = await chrome.tabs.query({ groupId }).catch(() => []);
+    if (!tabs.length) continue;
+    if (onlyEmpty && !tabs.every((tab) => EMPTY_TAB.test(tab.pendingUrl || tab.url || ""))) continue;
+    await chrome.tabs.remove(tabs.map((tab) => tab.id));
+    closed += 1;
+  }
+  await chrome.storage.session.remove(GROUP_KEY);
+  return closed;
+}
+
 
 async function permitted(origin) {
   return /^https?:/.test(origin) && chrome.permissions.contains({ origins: [`${origin}/*`] });
@@ -969,23 +1185,28 @@ export async function selectActiveTab({ request = true } = {}) {
   return setSelected(tab);
 }
 
-export async function checkedTab() {
+/** Yalnız gerçek sekme bağlama eksikliği navigate→yeni sekme geri dönüşünü açar. */
+export class TabBindingError extends Error {
+  constructor(message) { super(message); this.name = "TabBindingError"; }
+}
+
+export async function checkedTab(permissionContext = {}) {
   let selected = await getSelected();
   if (!selected) {
     // Seçili sekme yoksa etkin sekme izinliyse ona bağlan (Claude in Chrome gibi).
     try { selected = await selectActiveTab({ request: false }); } catch {
-      throw new Error("Bağlı sekme yok. chrome_action ile 'open' (adres) ya da 'tabs' kullan.");
+      throw new TabBindingError("Bağlı sekme yok. chrome_action ile 'open' (adres) ya da 'tabs' kullan.");
     }
   }
   let tab;
   try { tab = await chrome.tabs.get(selected.id); } catch {
     await clearSelected();
-    throw new Error("Bağlı sekme kapandı. 'tabs' ile listele ya da 'open' ile yeni sekme aç.");
+    throw new TabBindingError("Bağlı sekme kapandı. 'tabs' ile listele ya da 'open' ile yeni sekme aç.");
   }
   const origin = new URL(tab.pendingUrl || tab.url).origin;
   if (origin !== selected.origin) {
     if (!await permitted(origin)) {
-      await ensurePermission(origin, "Sekme izin verilmeyen bir siteye geçti.");
+      await ensurePermission(origin, "Sekme izin verilmeyen bir siteye geçti.", permissionContext);
     }
     await setSelected(tab);
   }
@@ -1008,40 +1229,333 @@ export function injectionOutcome(injection, urlAfter) {
   return { navigated: true, url: urlAfter ?? null };
 }
 
+/** Konsol ve ağ izleme açık mı (paneldeki Bağlantı ayarları; varsayılan açık). */
+export const MONITOR_KEY = "fusionMonitor";
+/** Kayıtlı içerik betiğinin kimliği (`chrome.scripting.registerContentScripts`). */
+export const MONITOR_SCRIPT_ID = "fusion-monitor";
+/** Kullanıcının kaydettiği kısayollar: `[{ ad, metin }]` (`chrome.storage.local`). */
+export const SHORTCUTS_KEY = "fusionShortcuts";
+
+export async function monitorEnabled() {
+  const stored = (await chrome.storage.local.get(MONITOR_KEY).catch(() => ({})))[MONITOR_KEY];
+  return stored !== false;
+}
+
+/** Kayıt çağrıları tek zincirde: getRegistered → unregister → register adımları atomik değil. */
+let monitorChain = Promise.resolve();
+
+/**
+ * Sayfa izleyicisini (pageMonitor.js) yalnız kullanıcının izin verdiği sitelere, belge
+ * yüklenmeye başlarken, ANA dünyada kayıtlı içerik betiği olarak ekle (P-042). `debugger`
+ * izni istenmez. İzleme kapalıysa ya da izinli site yoksa kayıt kaldırılır.
+ *
+ * Ölçüldü (31 Ekim, bağımsız inceleme): `permissions.onAdded`/`onRemoved`/`storage.onChanged`
+ * eşzamanlı çağırınca ikinci kayıt "Duplicate script ID" ile düşüyor ve ikinci site izleyicisiz
+ * kalıyordu; çağrılar artık sırayla çalışır. Ekran görüntüsü/kayıt için verilen `<all_urls>`
+ * izni izleyiciyi HER siteye kuruyordu; artık yalnız site başına verilmiş izinler sayılır
+ * (o sitelerde izleyici yoksa ilk okuma şimdi ekler ve ipucu döner).
+ */
+export function registerMonitor() {
+  const run = monitorChain.then(registerMonitorNow);
+  monitorChain = run.catch(() => undefined);
+  return run;
+}
+
+async function registerMonitorNow() {
+  const enabled = await monitorEnabled();
+  const granted = enabled ? (await chrome.permissions.getAll()).origins || [] : [];
+  const origins = granted.filter((origin) => /^https?:\/\//.test(origin) && !origin.startsWith("http://127.0.0.1"));
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [MONITOR_SCRIPT_ID] }).catch(() => []);
+  if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [MONITOR_SCRIPT_ID] });
+  if (!origins.length) return { registered: false };
+  await chrome.scripting.registerContentScripts([{
+    id: MONITOR_SCRIPT_ID, js: ["pageMonitor.js"], matches: origins, runAt: "document_start",
+    world: "MAIN", allFrames: true, persistAcrossSessions: true,
+  }]);
+  return { registered: true, origins };
+}
+
+/**
+ * Sayfadaki izleyicinin tamponunu oku. ANA dünyada çalışır (`world: "MAIN"`), dış kapsamı
+ * yoktur. `kind: console` → iletiler (`only_errors`, `pattern` alt dize, `limit`, `clear`);
+ * `kind: network` → istekler (`url_pattern` alt dize, `request_id` ile gövde).
+ */
+export function readMonitor(args) {
+  if (args.__taskOrigin && location.origin !== args.__taskOrigin) {
+    throw new Error("Görevin başlangıçtaki sitesi değişti; izleme okunmadı.");
+  }
+  const monitor = globalThis.__fusionMonitor;
+  if (!monitor) return { present: false };
+  const limit = Math.max(1, Math.min(200, Number(args.limit) || 50));
+  const contains = (text, needle) => String(text || "").toLowerCase().includes(String(needle).toLowerCase());
+  if (args.kind === "console") {
+    let items = monitor.console;
+    if (args.only_errors) items = items.filter((item) => item.level === "error");
+    if (args.pattern) items = items.filter((item) => contains(item.text, args.pattern) || contains(item.stack, args.pattern));
+    const result = { present: true, total: monitor.console.length, matched: items.length, messages: items.slice(-limit) };
+    if (args.clear) monitor.console.length = 0;
+    return result;
+  }
+  if (args.request_id) {
+    const request = monitor.network.find((item) => item.id === Number(args.request_id)) || null;
+    return { present: true, request };
+  }
+  let items = monitor.network;
+  if (args.url_pattern) items = items.filter((item) => contains(item.url, args.url_pattern));
+  return {
+    present: true, total: monitor.network.length, matched: items.length, pending: monitor.pending,
+    requests: items.slice(-limit).map(({ body, ...rest }) => ({ ...rest, has_body: typeof body === "string" })),
+  };
+}
+
+/** Ağ boşta mı: izleyici varsa bekleyen istek sayısı, yoksa yalnız belge durumu ve düğüm sayısı. */
+export function monitorState(taskOrigin) {
+  if (taskOrigin && location.origin !== taskOrigin) throw new Error("Görevin başlangıçtaki sitesi değişti.");
+  const monitor = globalThis.__fusionMonitor;
+  return {
+    present: Boolean(monitor), pending: monitor ? monitor.pending : 0,
+    ready: document.readyState, nodes: document.getElementsByTagName("*").length,
+  };
+}
+
+/** javascript_tool (#432) sınırı: betik ve sonuç metni en çok bu kadar karakter. */
+export const SCRIPT_LIMIT = 20000;
+
+/**
+ * Sayfanın ANA dünyasında betiği çalıştır; son ifadenin değeri (söz verilmişse beklenir) JSON
+ * metni olarak döner. Kapsamsızdır (executeScript serileştirir). Sayfanın CSP'si `unsafe-eval`e
+ * izin vermiyorsa tarayıcı EvalError fırlatır ve hata olarak döner.
+ */
+export async function evaluateInPage(code, limit) {
+  try {
+    let value = (0, eval)(code);
+    if (value && typeof value.then === "function") value = await value;
+    let text;
+    try { text = JSON.stringify(value); } catch { text = undefined; }
+    if (text === undefined) text = String(value);
+    return { result: text.slice(0, limit), truncated: text.length > limit };
+  } catch (error) {
+    return { error: `${error?.name || "Error"}: ${error?.message || String(error)}` };
+  }
+}
+
+/** Sayfanın ANA dünyasında kapsamsız bir işlevi çalıştır (izleyici tamponu orada yaşar). */
+async function runInMain(tab, func, args) {
+  const [injection] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func, args });
+  return injectionOutcome(injection, tab.url);
+}
+
+/** İzleyici sayfaya henüz eklenmemişse (sayfa izinden önce yüklendi) şimdi ekle. */
+async function readMonitored(tab, kind, veri) {
+  if (!await monitorEnabled()) {
+    throw new Error("Konsol ve ağ izleme kapalı. Paneldeki Bağlantı ayarlarından “Konsol ve ağ isteklerini izle”yi aç.");
+  }
+  const result = await runInMain(tab, readMonitor, [{ kind, ...veri, __taskOrigin: tab.__taskOrigin }]);
+  if (result.present) return result;
+  // File injections cannot check the document origin atomically. A scoped read must
+  // not install into whichever document replaced this one during the previous await.
+  if (tab.__taskScope) return {
+    present: false, total: 0, matched: 0, messages: [], requests: [],
+    ipucu: "İzleyici bu sayfada hazır değil; bu görevde yeni izleyici kurulmadı. Geçmiş kayıtlar okunamadı.",
+  };
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["pageMonitor.js"] });
+  return {
+    present: false, total: 0, matched: 0, messages: [], requests: [],
+    ipucu: "İzleme bu sayfada şimdi başladı; sayfa yüklenirken olanlar kaydedilmedi. " +
+      "İşlemi yap ya da sayfayı yenile, sonra yeniden oku.",
+  };
+}
+
+/** Ağ boşta bekleme (P-043): bekleyen istek yok, belge yüklendi ve DOM 600 ms sabit. */
+async function waitNetworkIdle(tab, limit) {
+  const QUIET_MS = 600;
+  const started = Date.now();
+  let previous = null;
+  let quietSince = 0;
+  while (Date.now() - started < limit) {
+    const state = await runInMain(tab, monitorState, [tab.__taskOrigin]).catch((error) => {
+      if (tab.__taskOrigin) throw error;
+      return null;
+    });
+    const settled = state && state.ready === "complete" && state.pending === 0 &&
+      previous !== null && previous.nodes === state.nodes;
+    if (settled) {
+      if (!quietSince) quietSince = Date.now();
+      if (Date.now() - quietSince >= QUIET_MS) {
+        return { idle: true, waited_ms: Date.now() - started, monitored: state.present };
+      }
+    } else {
+      quietSince = 0;
+    }
+    previous = state;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return { idle: false, waited_ms: limit, pending: previous?.pending ?? null };
+}
+
+async function savedShortcuts() {
+  const stored = (await chrome.storage.local.get(SHORTCUTS_KEY).catch(() => ({})))[SHORTCUTS_KEY];
+  return Array.isArray(stored) ? stored.filter((item) => item && item.ad && item.metin) : [];
+}
+
 async function runInTab(tab, operation, args) {
+  if (tab.__taskScope) await taskScopedTab({taskScope: tab.__taskScope, islem: "snapshot"});
   let injection;
   try {
     [injection] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id }, func: pageAction, args: [operation, { ...args, __hataDondur: true }],
+      target: { tabId: tab.id }, func: pageAction,
+      args: [operation, { ...args, __hataDondur: true, __taskOrigin: tab.__taskOrigin }],
     });
   } catch (error) {
+    if (tab.__taskScope) await taskScopedTab({taskScope: tab.__taskScope, islem: "snapshot"});
     // Çerçeve işlem sırasında kapandıysa (gönderim sonrası yönlendirme) adres değişmiştir.
     const current = await chrome.tabs.get(tab.id).catch(() => null);
     if (current && current.url !== tab.url) return { navigated: true, url: current.url };
     throw error;
   }
   const current = await chrome.tabs.get(tab.id).catch(() => null);
+  if (tab.__taskScope) await taskScopedTab({taskScope: tab.__taskScope, islem: "snapshot"});
   return injectionOutcome(injection, current?.url);
 }
 
-export async function execute(command) {
+export async function execute(command, { onPermissionProgress } = {}) {
+  let scopedTab = await taskScopedTab(command);
+  const permissionContext = { commandId: command.id, onProgress: onPermissionProgress };
   const veri = command.veri || {};
+  if (scopedTab && command.islem !== "tabs") {
+    if (!await permitted(command.taskScope.origin)) {
+      await ensurePermission(command.taskScope.origin, "Bu görevdeki site için izin yok.", permissionContext);
+    }
+    // A user can navigate while a consent card is open. Revalidate after its await.
+    scopedTab = await taskScopedTab(command);
+    scopedTab.__taskOrigin = command.taskScope.origin;
+    scopedTab.__taskScope = command.taskScope;
+  }
   if (command.islem === "tabs") {
-    const tabs = await chrome.tabs.query({});
-    const selected = await getSelected();
+    const tabs = scopedTab ? [scopedTab] : await chrome.tabs.query({});
+    const selected = scopedTab || await getSelected();
     return {
       tabs: tabs.filter((t) => /^https?:/.test(t.url || "")).slice(0, 60).map((t) => ({
         id: t.id, title: (t.title || "").slice(0, 100), url: t.url, active: t.active,
         bound: t.id === selected?.id, windowId: t.windowId, icon: (t.favIconUrl || "").startsWith("data:image/") ? t.favIconUrl : "",
+        ...(t.groupId >= 0 ? { groupId: t.groupId } : {}),
       })),
     };
+  }
+  if (command.islem === "shortcuts") {
+    // Kullanıcının kaydettiği kısayollar (Claude in Chrome shortcuts_list gibi).
+    return { shortcuts: (await savedShortcuts()).map(({ ad, metin }) => ({ ad, metin: String(metin).slice(0, 2000) })) };
+  }
+  if (command.islem === "shortcut_run") {
+    const shortcuts = await savedShortcuts();
+    const hit = findShortcut(shortcuts, veri.name);
+    if (!hit) {
+      const names = shortcuts.map((item) => item.ad).join(", ") || "(hiç yok)";
+      throw new Error(`“${veri.name}” adlı kısayol yok. Kayıtlı kısayollar: ${names}.`);
+    }
+    return { ad: hit.ad, metin: String(hit.metin).slice(0, 20000) };
+  }
+  if (command.islem === "monitor_get") {
+    // Masaüstü Ayarlar → Tarayıcı: paneldeki anahtarla aynı depo (storage.local).
+    return { enabled: await monitorEnabled() };
+  }
+  if (command.islem === "monitor_set") {
+    const enabled = veri.enabled !== false;
+    await chrome.storage.local.set({ [MONITOR_KEY]: enabled });
+    await registerMonitor(); // storage.onChanged dinleyicisi de çağırır; zincir sıraya koyar
+    return { enabled };
+  }
+  if (command.islem === "shortcut_set") {
+    const ad = String(veri.ad || "").trim().replace(/^\//, "");
+    const metin = String(veri.metin || "").trim();
+    if (!SHORTCUT_NAME.test(ad)) throw new Error("Kısayol adı boşluksuz, en çok 40 karakter olmalı (ör. ozet).");
+    if (!metin) throw new Error("Kısayolun görev metnini yaz.");
+    const others = (await savedShortcuts()).filter((item) => String(item.ad).toLocaleLowerCase("tr") !== ad.toLocaleLowerCase("tr"));
+    const shortcuts = [...others, { ad, metin: metin.slice(0, 2000) }];
+    await chrome.storage.local.set({ [SHORTCUTS_KEY]: shortcuts });
+    return { shortcuts };
+  }
+  if (command.islem === "shortcut_delete") {
+    const wanted = String(veri.ad || "").trim().toLocaleLowerCase("tr");
+    const shortcuts = (await savedShortcuts()).filter((item) => String(item.ad).toLocaleLowerCase("tr") !== wanted);
+    await chrome.storage.local.set({ [SHORTCUTS_KEY]: shortcuts });
+    return { shortcuts };
+  }
+  if (command.islem === "window_new") {
+    // Yeni pencere (isteğe bağlı adresle); açılan sekme bağlanır.
+    const url = veri.url ? new URL(veri.url) : null;
+    if (url && !/^https?:$/.test(url.protocol)) throw new Error("Yeni pencerede yalnız http(s) adresi açılabilir.");
+    if (url && !await permitted(url.origin)) await ensurePermission(url.origin, "Bu siteyi açmak için izin yok.", permissionContext);
+    const created = await chrome.windows.create({ url: url ? url.href : undefined, focused: true, state: "normal" });
+    const tab = created.tabs?.[0];
+    await addToSessionGroup(tab).catch(() => null);
+    if (tab?.id && url) {
+      await waitForLoad(tab.id);
+      await setSelected(await chrome.tabs.get(tab.id));
+    }
+    return { window: created.id, opened: tab?.id ?? null, url: url ? url.href : null };
+  }
+  if (command.islem === "group_close") {
+    return { closed: await closeSessionGroups(veri.mode !== "all") };
+  }
+  if (command.islem === "tab_group") {
+    const ids = (Array.isArray(veri.ids) ? veri.ids : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (!ids.length) throw new Error("Gruplanacak sekme kimlikleri verilmedi ('tabs' çıktısındaki id'ler).");
+    // 'tabs' yalnız http(s) sekmelerini listeler; gruplama da o kümenin dışına çıkmaz (chrome://, kapanmış id).
+    const members = await Promise.all(ids.map((id) => chrome.tabs.get(id).catch(() => null)));
+    if (members.some((member) => !member || !/^https?:/.test(member.url || ""))) {
+      throw new Error("Yalnız 'tabs' çıktısındaki http(s) sekmeleri gruplanabilir.");
+    }
+    const groupId = await chrome.tabs.group({ tabIds: ids });
+    const title = String(veri.title || "").slice(0, 60);
+    if (title && chrome.tabGroups?.update) await chrome.tabGroups.update(groupId, { title });
+    return { group: groupId, title, tabs: ids.length };
+  }
+  if (command.islem === "record_check") {
+    // GIF kaydı (P-044): her kareden önce kaydedilen sekme hâlâ kendi penceresinde etkin ve
+    // izinli mi? Ölçüldü (31 Ekim, bağımsız inceleme): captureVisibleTab pencerenin O ANKİ
+    // etkin sekmesini verir; kullanıcı başka sekmeye geçince izinsiz sayfa GIF'e giriyordu.
+    // Kayıt "tüm siteler" iznini gerektirdiği için `permitted` burada yalnız http(s) dışına
+    // (chrome://, dosya) geçişi yakalar; asıl koruma sekme kimliği + etkinlik denetimidir.
+    const recorded = await chrome.tabs.get(Number(veri.tabId)).catch(() => null);
+    if (!recorded) return { ok: false, reason: "kaydedilen sekme kapandı" };
+    if (!recorded.active || recorded.windowId !== Number(veri.windowId)) {
+      return { ok: false, reason: "pencerede başka sekme etkin" };
+    }
+    const url = recorded.url || "";
+    if (!/^https?:/.test(url) || !await permitted(new URL(url).origin)) {
+      return { ok: false, reason: "sekme izinsiz bir adrese geçti" };
+    }
+    return { ok: true, url };
+  }
+  if (command.islem === "tab_open" && veri.blank === true) {
+    // Claude `tabs_create_mcp` (#431): oturum grubuna boş sekme; adres sonra navigate ile.
+    const tab = await chrome.tabs.create({ active: true });
+    await addToSessionGroup(tab).catch(() => null);
+    return { opened: tab.id, url: "" };
+  }
+  if (command.islem === "navigate" && Number.isSafeInteger(veri.tabId) && veri.tabId > 0) {
+    // Claude `navigate` tabId'si: o sekmede git (boş sekme dahil); sekme sonra bağlı olur.
+    const target = await chrome.tabs.get(veri.tabId);
+    const destination = new URL(veri.url);
+    if (!await permitted(destination.origin)) {
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.", permissionContext);
+    }
+    if (command.taskScope) await taskScopedTab(command);
+    await chrome.tabs.update(target.id, { url: destination.href });
+    await waitForLoad(target.id);
+    if (command.taskScope) await taskScopedTab(command);
+    await setSelected(await chrome.tabs.get(target.id));
+    return { url: destination.href };
   }
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {
-      await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.", permissionContext);
     }
     const tab = await chrome.tabs.create({ url: destination.href, active: true });
+    // Oturum grubuna koy (#436); gruplama başarısızsa sekme yine açılır.
+    await addToSessionGroup(tab).catch(() => null);
     await waitForLoad(tab.id);
     const bound = await setSelected(await chrome.tabs.get(tab.id));
     return { opened: bound.id, url: destination.href };
@@ -1054,9 +1568,12 @@ export async function execute(command) {
     return { focused: tab.id, windowId: tab.windowId };
   }
   if (command.islem === "tab_select") {
+    if (scopedTab) return { selected: scopedTab.id, url: scopedTab.url };
     const tab = await chrome.tabs.get(Number(veri.id));
+    // chrome:// ya da url'si okunamayan sekmede `new URL(undefined)` anlamsız "Invalid URL" atardı.
+    if (!/^https?:/.test(tab.url || "")) throw new Error("Yalnız http(s) sekmeleri seçilebilir.");
     const origin = new URL(tab.url).origin;
-    await ensurePermission(origin, "Bu sekmenin sitesi için izin yok.");
+    await ensurePermission(origin, "Bu sekmenin sitesi için izin yok.", permissionContext);
     await setSelected(tab);
     return { selected: tab.id, url: tab.url };
   }
@@ -1068,19 +1585,21 @@ export async function execute(command) {
   }
   let tab;
   try {
-    tab = await checkedTab();
+    tab = scopedTab || await checkedTab(permissionContext);
   } catch (error) {
     // Adres açmak için bağlı sekme şart değildir: yeni sekmede açılır. Ölçüldü (4 Ekim
     // 2026): her kabul koşusunun ilk chrome_navigate çağrısı "Bağlı sekme yok" ile düştü.
-    if (command.islem !== "navigate" || !veri.url) throw error;
-    return execute({ ...command, islem: "tab_open" });
+    if (!(error instanceof TabBindingError) || command.islem !== "navigate" || !veri.url) throw error;
+    return execute({ ...command, islem: "tab_open" }, { onPermissionProgress });
   }
   if (command.islem === "history") {
+    if (command.taskScope) await taskScopedTab(command);
     if (veri.dir === "back") await chrome.tabs.goBack(tab.id);
     else if (veri.dir === "forward") await chrome.tabs.goForward(tab.id);
     else await chrome.tabs.reload(tab.id);
     await new Promise((resolve) => setTimeout(resolve, 300));
     await waitForLoad(tab.id);
+    if (command.taskScope) await taskScopedTab(command);
     const now = await chrome.tabs.get(tab.id);
     if (now.url && /^https?:/.test(now.url)) await setSelected(now);
     return { url: now.url };
@@ -1098,10 +1617,12 @@ export async function execute(command) {
   if (command.islem === "navigate") {
     const destination = new URL(veri.url);
     if (destination.origin !== new URL(tab.url).origin && !await permitted(destination.origin)) {
-      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.", permissionContext);
     }
+    if (command.taskScope) await taskScopedTab(command);
     await chrome.tabs.update(tab.id, { url: destination.href });
     await waitForLoad(tab.id);
+    if (command.taskScope) await taskScopedTab(command);
     await setSelected(await chrome.tabs.get(tab.id));
     return { url: destination.href };
   }
@@ -1112,14 +1633,33 @@ export async function execute(command) {
     await chrome.windows.update(tab.windowId, { width, height, state: "normal" });
     return { width, height };
   }
+  if (command.islem === "console" || command.islem === "network") {
+    return readMonitored(tab, command.islem, veri);
+  }
+  if (command.islem === "record_target") {
+    // GIF kaydı (P-044): kareleri uzun yaşayan belge (offscreen/panel) alır; burada
+    // yalnız hangi pencerenin kaydedileceği ve iznin olup olmadığı belirlenir.
+    if (!await chrome.permissions.contains({ origins: ["<all_urls>"] })) {
+      throw new Error("Ekran kaydı için paneldeki Chrome iznini verin.");
+    }
+    if (!tab.active) await chrome.tabs.update(tab.id, { active: true });
+    return { tabId: tab.id, windowId: tab.windowId, width: tab.width, height: tab.height, url: tab.url };
+  }
   if (command.islem === "wait") {
     const limit = Math.min(Number(veri.timeout_ms) || 10000, 25000);
+    if (veri.network_idle) return waitNetworkIdle(tab, limit);
     const started = Date.now();
     while (Date.now() - started < limit) {
       if ((await runInTab(tab, "text", veri))?.found) return { found: true, waited_ms: Date.now() - started };
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     return { found: false, waited_ms: limit };
+  }
+  if (command.islem === "javascript") {
+    const code = String(veri.code || "");
+    if (!code.trim()) throw new Error("Çalıştırılacak betik boş.");
+    if (code.length > SCRIPT_LIMIT) throw new Error(`Betik en çok ${SCRIPT_LIMIT} karakter olabilir.`);
+    return runInMain(tab, evaluateInPage, [code, SCRIPT_LIMIT]);
   }
   const acts = ["click", "click_at", "key", "drag"].includes(command.islem);
   // Eylemden ÖNCE ve SONRA imza: eylem sayfada iz bırakmadıysa model bunu bilmeli.

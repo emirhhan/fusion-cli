@@ -1,4 +1,5 @@
 import type { VoiceRuntimeState } from "./bridge";
+import { voicePronunciation } from "./localVoice";
 import { splitIntoSpeechChunks } from "./sentenceStream";
 import { speakVoiceAnswerStreamed, type VoiceTurnHandle } from "./voiceTurn";
 
@@ -6,10 +7,33 @@ interface VoiceClient {
   request(name: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
+/**
+ * Konuşma NESLİ: her `createVoicePlayback` artan bir kimlik alır ve çekirdeğe bildirir.
+ * Daha yeni nesil başlayınca çekirdek eski neslin hazırlama/oynatma isteğini `eski_nesil`
+ * ile reddeder; bu tur sessizce biter. Böylece iptal ACK'i gecikse bile eski ses yeni
+ * konuşmanın oynatıcısını ezmez. (Ölçüldü, 29 Ekim: nesil kimliği hiç yoktu.)
+ */
+let lastGeneration = 0;
+
+/** Çekirdek bir sentez/çalma isteğine bu sürede yanıt vermezse Talk "Konuşuyorum"da sonsuza kadar kalmaz (U2-26). */
+const SES_ISTEGI_ZAMAN_ASIMI_MS = 60_000;
+/** Bitişi bekleme: sabit pay + metin uzunluğuna göre (cömert) konuşma süresi. */
+const SES_BEKLE_TABAN_MS = 60_000;
+const SES_BEKLE_KARAKTER_MS = 150;
+
+function sureAsimiyla<T>(promise: Promise<T>, ms: number, mesaj: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(mesaj)), ms); });
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
+
+class SupersededError extends Error {}
+
 /** Oynayan cümlenin ardından gelen tek cümle hazırlanır; iptal tüm sahipliği kapatır. */
 export function createVoicePlayback(
   client: VoiceClient, text: string, publish: (state: VoiceRuntimeState) => Promise<void>,
 ): VoiceTurnHandle {
+  const generation = ++lastGeneration;
   let cancelled = false;
   let settled = false;
   let cancellation: Promise<void> | null = null;
@@ -31,10 +55,13 @@ export function createVoicePlayback(
   let starting: Promise<Record<string, unknown>> | null = null;
   let fallback: VoiceTurnHandle | null = null;
   const prepared = new Set<string>();
-  const sentences = splitIntoSpeechChunks(text);
-  const queue = sentences.length ? sentences : [text];
+  const spoken = voicePronunciation(text) || "Sesli aktarabileceğim bir cevap gelmedi.";
+  const sentences = splitIntoSpeechChunks(spoken);
+  const queue = sentences.length ? sentences : [spoken];
   const prepare = async (sentence: string) => {
-    const result = await client.request("ses.hazirla", { metin: sentence });
+    const result = await sureAsimiyla(client.request("ses.hazirla", { metin: sentence, nesil: generation }),
+      SES_ISTEGI_ZAMAN_ASIMI_MS, "Ses hizmeti yanıt vermedi.");
+    if (result.eski_nesil === true) throw new SupersededError();
     if (result.desteklenmiyor === true) return null;
     if (result.ok !== true || typeof result.hazir_id !== "string") {
       throw new Error(String(result.metin ?? "Ses hazırlanamadı."));
@@ -42,11 +69,17 @@ export function createVoicePlayback(
     prepared.add(result.hazir_id);
     return result.hazir_id;
   };
+  // Her hazır ses ayrı silinir: biri başarısız olunca kalanlar çekirdekte sızmaz, iptal "error" yerine
+  // "interrupted" olarak biter (U2-25). Silinemeyen kimlik günlüğe yazılır.
   const cleanup = async () => {
-    for (const id of prepared) {
-      const result = await client.request("ses.haziri_sil", { hazir_id: id });
-      if (result.ok !== true) throw new Error("Hazır ses temizlenemedi.");
-      prepared.delete(id);
+    for (const id of [...prepared]) {
+      try {
+        const result = await client.request("ses.haziri_sil", { hazir_id: id });
+        if (result.ok !== true) throw new Error("Hazır ses temizlenemedi.");
+        prepared.delete(id);
+      } catch (error) {
+        console.warn("Hazır ses temizlenemedi", id, error);
+      }
     }
   };
   let next: Promise<string | null> | null = prepare(queue[0]);
@@ -61,15 +94,18 @@ export function createVoicePlayback(
         if (cancelled) break;
         if (id === null) {
           if (index !== 0) throw new Error("Ses hazırlama desteği konuşma sırasında değişti.");
-          fallback = await speakVoiceAnswerStreamed(client, text, publish);
+          fallback = await speakVoiceAnswerStreamed(client, spoken, state =>
+            publish(state.durum === "talking" ? { ...state, metin: text } : state));
           if (cancelled) await fallback.cancel();
           await fallback.finished;
           return;
         }
         if (cancelled) break;
-        starting = client.request("ses.haziri_cal", { hazir_id: id });
+        starting = sureAsimiyla(client.request("ses.haziri_cal", { hazir_id: id, nesil: generation }),
+          SES_ISTEGI_ZAMAN_ASIMI_MS, "Ses hizmeti yanıt vermedi.");
         const started = await starting;
         starting = null;
+        if (started.eski_nesil === true) throw new SupersededError();
         if (started.ok !== true || typeof started.tur_id !== "string") {
           throw new Error(String(started.metin ?? "Hazır ses çalınamadı."));
         }
@@ -80,8 +116,12 @@ export function createVoicePlayback(
           break;
         }
         await publish({ durum: "talking", metin: text });
+        // Yayın sürerken iptal ACK'i gelmiş olabilir: kimliksiz bekleme ve gereksiz hazırlık yok.
+        const playingId = activeId;
+        if (cancelled || !playingId) break;
         if (index + 1 < queue.length) next = observed(prepare(queue[index + 1]));
-        const completed = await client.request("ses.bekle", { tur_id: activeId });
+        const completed = await sureAsimiyla(client.request("ses.bekle", { tur_id: playingId }),
+          SES_BEKLE_TABAN_MS + text.length * SES_BEKLE_KARAKTER_MS, "Sesli yanıt zamanında bitmedi.");
         activeId = null;
         if (cancelled) break;
         if (completed.ok !== true || completed.tamamlandi !== true) {
@@ -90,7 +130,10 @@ export function createVoicePlayback(
       }
       if (!cancelled) await publish({ durum: "listening" });
     } catch (error) {
-      if (!cancelled) {
+      if (error instanceof SupersededError) {
+        // Yeni konuşma sahipliği aldı: durum yayını da ona aittir.
+        cancelled = true;
+      } else if (!cancelled) {
         await publish({ durum: "error", metin: error instanceof Error ? error.message : String(error) });
         throw error;
       }

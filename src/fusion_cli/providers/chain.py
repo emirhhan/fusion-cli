@@ -44,7 +44,9 @@ from ..core.types import (
     is_permanent_error,
     is_unavailable_error,
 )
-from .stream_opening import first_meaningful
+from .circuit import CIRCUIT_OPEN_ERROR
+from .stream_cleanup import closing_stream
+from .stream_opening import is_liveness_chunk, is_provisional
 
 T = TypeVar("T")
 
@@ -70,6 +72,10 @@ class FallbackProvider:
         #: Kullanıcı modeli açıkça seçtiyse (strict) zincir YALNIZCA model hiç
         #: cevap veremediğinde ilerler; kötü cevap yedeğe geçiş sebebi değildir.
         self._only_when_unavailable = only_when_unavailable
+        #: Yedeğe geçişi duyurulan (model, yedek) çiftleri: aynı geçişin "devre açık"
+        #: tekrarı bu zincirde bir kez duyurulur. Ölçüldü (30 Ekim): açık devre her model
+        #: çağrısında aynı satırı basıyor, ekranı ve asıl iş çıktısını boğuyordu.
+        self._announced_open: set[tuple[str, str]] = set()
 
     @property
     def label(self) -> str:
@@ -106,29 +112,36 @@ class FallbackProvider:
         for index, provider in enumerate(self._providers):
             if index and failures:
                 self._publish_fallback(provider.label, failures[-1])
-            stream = provider.stream(request)
-            try:
-                first = await self._bounded(index, first_meaningful(stream), request)
-            except TimeoutError:
-                # Takılan model yedeğin süresini yemesin: sıradakine geç.
-                failures.append(self._timed_out(provider, request))
-                await _close(stream)
-                continue
-            if first is None:
-                continue
-            if isinstance(first, StreamDone) and not first.result.is_usable:
-                # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
-                failures.append(first.result)
-                await _close(stream)
-                if self._only_when_unavailable and not _no_answer_available(first.result):
-                    break
-                continue
-            yield first
-            if isinstance(first, StreamDone):
+            async with closing_stream(provider.stream(request)) as stream:
+                first: StreamItem | None = None
+                try:
+                    async with self._opening_deadline(index, request):
+                        first = await anext(stream, None)
+                        while is_provisional(first):
+                            # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını
+                            # görmeli (P1-05). Süre sınırı bu parçalarla UZAMAZ.
+                            if is_liveness_chunk(first):
+                                assert first is not None
+                                yield first
+                            first = await anext(stream, None)
+                except TimeoutError:
+                    # Takılan model yedeğin süresini yemesin: sıradakine geç.
+                    failures.append(self._timed_out(provider, request))
+                    continue
+                if first is None:
+                    continue
+                if isinstance(first, StreamDone) and not first.result.is_usable:
+                    # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
+                    failures.append(first.result)
+                    if self._only_when_unavailable and not _no_answer_available(first.result):
+                        break
+                    continue
+                yield first
+                if isinstance(first, StreamDone):
+                    return
+                async for item in stream:
+                    yield item
                 return
-            async for item in stream:
-                yield item
-            return
         yield StreamDone(self._all_failed(failures))
 
     async def _bounded(self, index: int, work: Awaitable[T], request: CompletionRequest) -> T:
@@ -141,6 +154,11 @@ class FallbackProvider:
         if index >= len(self._providers) - 1:
             return await work
         return await asyncio.wait_for(work, request.timeout_s)
+
+    def _opening_deadline(self, index: int, request: CompletionRequest) -> asyncio.Timeout:
+        """Akışın ilk anlamlı çıktısı için `_bounded` ile AYNI süre kuralı (son model sınırsız)."""
+        last = index >= len(self._providers) - 1
+        return asyncio.timeout(None if last else request.timeout_s)
 
     def _timed_out(self, provider: LlmProvider, request: CompletionRequest) -> ModelResult:
         return ModelResult(
@@ -157,6 +175,10 @@ class FallbackProvider:
     def _publish_fallback(self, fallback_model: str, failure: ModelResult) -> None:
         if self._publisher is None:
             return
+        key = (failure.model, fallback_model)
+        if failure.error == CIRCUIT_OPEN_ERROR and key in self._announced_open:
+            return
+        self._announced_open.add(key)
         self._publisher.publish(
             ModelFallbackActivated(
                 role=self._role,
@@ -187,18 +209,6 @@ class FallbackProvider:
             # devre kesici modeli "sağlıksız" sayıp tur takıldı.
             truncated=any(failure.truncated for failure in failures),
         )
-
-
-async def _close(stream: AsyncIterator[StreamItem]) -> None:
-    """Vazgeçilen akışı kapat; arkada açık bağlantı bırakma."""
-    closer = getattr(stream, "aclose", None)
-    if closer is None:
-        return
-    # Kapanış hatası turu etkilemez; bilinçli olarak yutulur.
-    try:
-        await closer()
-    except Exception:
-        return
 
 
 def _no_answer_available(result: ModelResult) -> bool:

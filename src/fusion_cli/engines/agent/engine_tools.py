@@ -10,12 +10,16 @@ kayıt defterine bir kayıt eklemektir; ister dosya okusun, ister başka bir aja
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from time import monotonic as _monotonic
 from typing import TYPE_CHECKING, Protocol
 
 from ...config.models import Config
+from ...core.desktop_frame import image_payload_digest
+from ...core.errors import FusionError
 from ...core.events import (
     CouncilConsulted,
     EventPublisher,
@@ -23,9 +27,10 @@ from ...core.events import (
     StatusChanged,
     TeacherConsulted,
 )
+from ...core.redaction import strip_driver_log
 from ...core.refusal import looks_like_refusal
-from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...core.types import CompletionRequest, ModelResult, ModelSpec
+from ...core.tools import Tool, ToolArgs, ToolContext, ToolFamily, ToolResult, tool_family
+from ...core.types import CompletionRequest, ModelResult, ModelSpec, is_web_session_error
 from ...memory.code_index import format_matches
 from ...memory.lessons import as_prompt_block
 from ...tools.capabilities import (
@@ -37,18 +42,28 @@ from ...tools.capabilities import (
 )
 from ...tools.files import display_path, resolve_path
 from ...tools.forge import forge_tool, load_forged_tools
+from ...tools.plugin_capabilities import with_plugin_root
 from ...tools.registry import ToolRegistry
 from ...tools.skill_pages import read_skill_page
 from ...ui import messages
 from . import learning_steps
+from .agent_task_tools import agent_task_tools
+from .arg_coerce import coerce_bool, coerce_int, coerce_list
 from .clone_tools import clone_tools
+from .desktop_grounding import capture_file_matches
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
-from .image_view import DEFAULT_QUESTION, describe_image
+from .image_view import DEFAULT_QUESTION, describe_image_data, load_image_data_uri
+from .memory_tools import memory_read_tool, remember_tool
+from .orchestration_tools import register_orchestration_tools
+from .preview_log_tools import preview_log_tools
 from .preview_tools import preview_tool
+from .secret_paths import is_secret_path
+from .teacher_lessons import AdviceBinding
 from .team import (
-    MAX_AGENT_DEPTH,
+    DEPTH_LIMIT_MESSAGE,
     SubTask,
+    depth_limit_reached,
     run_subagent,
     spawn_agent_tool,
     spawn_agents_tool,
@@ -58,6 +73,10 @@ from .web_tools import web_work_tools
 #: Asıl öğretmen cevap vermezse denenecek en fazla yedek öğretmen. Her deneme bir web
 #: oturumunda 30-120 sn sürebilir (ölçüldü, 29 Eylül); birden fazlası turu boğar.
 TEACHER_FALLBACKS = 1
+#: Bir turda en fazla kaç `council` çağrısı (pahalı: çok model + hakem + sentez).
+COUNCIL_TURN_LIMIT = 3
+#: Öğretmen zincirinin toplam süre payı: `request_timeout_s` çarpanı (A1-20).
+TEACHER_TOTAL_BUDGET_FACTOR = 2.0
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from .loop import AgentDeps, AgentOutcome
@@ -101,12 +120,28 @@ def build_agent_registry(
 ) -> ToolRegistry:
     """Temel araçlara motora bağlı olanları ekleyerek çalışma-anı defteri üret."""
     registry = deps.base_registry
+    assert registry is not None
     # Chrome eklentisine giden yol yoksa (`fusion agent`, terminal) chrome_* araçları
     # sunulmaz. Ölçüldü (2 Ekim, kabul koşusu): model bunları dört kez çağırdı ve her
     # seferinde "yalnız masaüstü uygulamasında" cevabı aldı.
     extended = _clone(registry, chrome=getattr(deps.tool_context, "chrome", None) is not None)
-    extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
-    extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
+    from .agent_runtime_tools import runtime_tools
+
+    extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent, canonical=True))
+    for runtime_tool in runtime_tools(deps, depth=depth, run_agent=run_agent):
+        extended.register(runtime_tool)
+    # Claude Code modele tek alt ajan aracı (`Agent`) sunar; `Task` onun eski adıdır (#8).
+    # Eski Fusion adları adıyla çağrılırsa çalışır ama şema olarak sunulmaz.
+    for legacy in (
+        spawn_agent_tool(
+            deps, depth=depth, run_agent=run_agent, canonical=True, legacy_name="Task"
+        ),
+        spawn_agent_tool(deps, depth=depth, run_agent=run_agent),
+        spawn_agents_tool(deps, depth=depth, run_agent=run_agent),
+    ):
+        extended.register(replace(legacy, advertised=False))
+    for agent_tool in agent_task_tools(deps, depth=depth, run_agent=run_agent):
+        extended.register(agent_tool)
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))
@@ -122,6 +157,10 @@ def build_agent_registry(
         extended.register(_search_codebase_tool(deps))
     if deps.lessons is not None and deps.config.runtime.lessons:
         extended.register(_recall_lessons_tool(deps))
+    plain_memory = getattr(deps, "plain_memory", None)
+    if plain_memory is not None:
+        extended.register(remember_tool(plain_memory))
+        extended.register(memory_read_tool(plain_memory))
     if deps.asker is not None:
         extended.register(_ask_user_tool(deps.asker, deps))
     if deps.home is not None:
@@ -132,14 +171,69 @@ def build_agent_registry(
     for web_tool in (*web_work_tools(), *clone_tools()):
         extended.register(web_tool)
     extended.register(preview_tool(deps))
+    for log_tool in preview_log_tools(deps):
+        extended.register(log_tool)
     conversation = getattr(deps, "conversation_id", "")
     memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
     if conversation and memory_dir is not None:
         extended.register(recent_actions_tool(memory_dir, conversation))
+    if getattr(deps.tool_context, "cron", None) is not None and not _cron_disabled():
+        from ...core.clock import SystemClock
+        from ...tools.cron_tools import cron_tools
+
+        for cron_tool in cron_tools(SystemClock()):
+            extended.register(cron_tool)
     _register_forged_tools(extended, deps)
+    # Ekip (P-061) ve dinamik iş akışı (P-062) araçları kendi modülünde kaydolur.
+    register_orchestration_tools(extended, deps, depth=depth, run_agent=run_agent)
     runtime = getattr(deps.config, "runtime", None)
-    kapali = frozenset(getattr(runtime, "disabled_tools", ()))
+    kapali = (
+        frozenset(getattr(runtime, "disabled_tools", ()))
+        | _disabled_desktop_tools(deps, extended)
+        | _disabled_browser_tools(deps, extended)
+        | _subagent_removed_tools(deps, depth)
+    )
     return _without(extended, kapali) if kapali else extended
+
+
+#: Claude Code'un her alt ajandan aldığı araçların Fusion karşılıkları (#28):
+#: AskUserQuestion, ScheduleWakeup, Workflow. Plan kipi araçları Fusion'da araç değildir.
+SUBAGENT_REMOVED_TOOLS = frozenset({"ask_user", "schedule_wakeup", "workflow_run"})
+#: Derinlik sınırındaki ajandan alınan Agent aracı ve eski adları.
+_AGENT_TOOL_NAMES = frozenset({"Agent", "Task", "spawn_agent", "spawn_agents", "invoke_subagent"})
+
+
+def _subagent_removed_tools(deps: AgentDeps, depth: int) -> frozenset[str]:
+    if depth <= 0:
+        return frozenset()
+    from .team import depth_limit_reached
+
+    if depth_limit_reached(deps, depth):
+        return SUBAGENT_REMOVED_TOOLS | _AGENT_TOOL_NAMES
+    return SUBAGENT_REMOVED_TOOLS
+
+
+def _disabled_desktop_tools(deps: AgentDeps, registry: ToolRegistry) -> frozenset[str]:
+    """Bilgisayar kullanımı kapalıysa (`desktop.enabled: false`, P-006) masaüstü ailesi.
+
+    Ölçüldü (31 Ekim): kullanıcının computer use'u kapatacağı bir ayar yoktu; `desktop_*`
+    araçları her turda kayıtlıydı.
+    """
+    desktop = getattr(deps.config, "desktop", None)
+    if desktop is None or desktop.enabled:
+        return frozenset()
+    return frozenset(tool.name for tool in registry if tool_family(tool.name) is ToolFamily.DESKTOP)
+
+
+def _disabled_browser_tools(deps: AgentDeps, registry: ToolRegistry) -> frozenset[str]:
+    """Ayarlar › Browser tools kapalıysa (`browser.tools: false`, #439) yerleşik tarayıcı araçları.
+
+    Chrome eklentisinin araçları (`chrome_*`, `claude-in-chrome__*`) ayrı bir yüzeydir, etkilenmez.
+    """
+    browser = getattr(deps.config, "browser", None)
+    if browser is None or getattr(browser, "tools", True):
+        return frozenset()
+    return frozenset(tool.name for tool in registry if tool.name.startswith("browser_"))
 
 
 def _register_forged_tools(registry: ToolRegistry, deps: AgentDeps) -> None:
@@ -174,6 +268,11 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
     """Asıl öğretmen ve ardından girişi doğrulanmış diğer tarayıcı oturumları."""
     adaylar = [teacher]
     for session in config.web_sessions:
+        # Ölçüldü (30 Ekim, A1-20): sabit adı "en fazla 1 yedek" der ama sınır
+        # `TEACHER_FALLBACKS + 2` idi; üç web oturumu varsa Codex payı kesilirdi.
+        # Web yedekleri sabitle sınırlanır; Codex (kullanıcı açtıysa) ayrı pay.
+        if len(adaylar) > TEACHER_FALLBACKS:
+            break
         if (
             session.model != teacher.model
             and session.transport == "browser"
@@ -190,7 +289,7 @@ def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
         and codex_ready()
     ):
         adaylar.append(ModelSpec(name="ogretmen-codex", model=f"{PREFIX}default"))
-    return adaylar[: TEACHER_FALLBACKS + 2]
+    return adaylar
 
 
 def _without(registry: ToolRegistry, names: frozenset[str]) -> ToolRegistry:
@@ -199,7 +298,10 @@ def _without(registry: ToolRegistry, names: frozenset[str]) -> ToolRegistry:
     kalan = ToolRegistry()
     for tool in registry:
         if tool.name not in names and tool.run not in kapali_calistiricilar:
-            kalan.register(tool)
+            if registry.is_remote(tool.name):
+                kalan.register_or_replace(tool)
+            else:
+                kalan.register(tool)
     return kalan
 
 
@@ -207,9 +309,13 @@ def _clone(registry: ToolRegistry, *, chrome: bool = True) -> ToolRegistry:
     """Temel defteri kopyala; çalışma-anı eklemeleri paylaşılan defteri kirletmesin."""
     clone = ToolRegistry()
     for tool in registry:
-        if not chrome and tool.name.startswith("chrome_"):
+        if not chrome and tool.name.startswith(("chrome_", "claude-in-chrome__")):
             continue
-        clone.register(tool)
+        if registry.is_remote(tool.name):
+            # Uzak araç işareti kopyada da kalmalı: sıkı araç yüzeyi (T1-63/M1-12) sayar.
+            clone.register_or_replace(tool)
+        else:
+            clone.register(tool)
     return clone
 
 
@@ -224,6 +330,15 @@ def _council_tool(deps: AgentDeps) -> Tool:
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
 
+        # Ölçüldü (30 Ekim, A1-25): `ask_teacher` tur ve saat bütçesine bağlıydı,
+        # çok modelli + hakemli `council` hiçbir sınıra değil; zayıf model her adımda
+        # çağırıp ücretsiz kotayı ve süreyi yakabilirdi.
+        if deps.council_calls_used >= COUNCIL_TURN_LIMIT:
+            return ToolResult.failure(
+                f"Bu turda council çağrı sınırına ulaşıldı ({COUNCIL_TURN_LIMIT}). "
+                "Elindeki bilgi ve araçlarla devam et."
+            )
+        deps.council_calls_used += 1
         deps.publisher.publish(CouncilConsulted(question=question))
         result = await run_fusion(
             question,
@@ -253,7 +368,13 @@ def _council_tool(deps: AgentDeps) -> Tool:
 
 
 def _sync_and_log_teacher_answer(
-    deps: AgentDeps, context: ToolContext, *, question: str, durum: str, answer: str
+    deps: AgentDeps,
+    context: ToolContext,
+    *,
+    question: str,
+    durum: str,
+    answer: str,
+    binding: AdviceBinding | None = None,
 ) -> tuple[bool, str]:
     """`.fusion/ogretmen.md`'ye HER ZAMAN yaz; ders belleğine yalnız açıksa dene.
 
@@ -263,21 +384,17 @@ def _sync_and_log_teacher_answer(
     from datetime import UTC, datetime
 
     from . import teacher_notebook
-    from .teacher_lessons import sync_teacher_lesson
+    from .teacher_lessons import pending_advice
 
     lesson_written = False
-    skip_reason = ""
-    # Otomatik plan/denetim cevapları burada yazılmaz: plan tur sonunda, yalnız
-    # başarılı sonuçla `teacher_memory.record_plan_outcome` üzerinden yazılır.
-    if (
-        deps.lessons is not None
-        and deps.config.runtime.teacher_lesson_sync
-        and not deps.teacher_lesson_sync_deferred
-    ):
-        lesson_written, skip_reason = sync_teacher_lesson(
-            deps.lessons, question=question, answer=answer
-        )
-    timestamp = datetime.now(UTC).isoformat(timespec="seconds")
+    skip_reason = "Tavsiye henüz doğrulanmadı; ilgili değişiklik ve son kontrol bekleniyor."
+    advice = pending_advice(deps, question, answer, binding)
+    from ...core.events import TeacherAdviceOffered
+
+    deps.publisher.publish(TeacherAdviceOffered(advice.advice_id))
+    if deps.lessons is not None and deps.config.runtime.teacher_lesson_sync:
+        deps.pending_advice.append(advice)
+    timestamp = datetime.fromtimestamp(deps.clock.now(), UTC).isoformat(timespec="seconds")
     teacher_notebook.append_entry(
         context.root,
         timestamp=timestamp,
@@ -286,6 +403,7 @@ def _sync_and_log_teacher_answer(
         answer=answer,
         lesson_written=lesson_written,
         lesson_skip_reason=skip_reason,
+        advice_id=advice.advice_id,
     )
     return lesson_written, skip_reason
 
@@ -358,15 +476,48 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         touched_paths = sorted(
             display_path(context, yol) for yol in (context.touched | context.fully_read)
         )
+        kesitler = _teacher_excerpts(context)
+        if kesitler:
+            # Dosya içeriği makineyi terk ediyor: kullanıcı HANGİ dosyaların gittiğini görmeli.
+            deps.publisher.publish(
+                StatusChanged(
+                    "Öğretmene şu dosyaların içeriği gönderiliyor: "
+                    + ", ".join(yol for yol, _ in kesitler)
+                )
+            )
+        from .evidence_handoff import current_diff, evidence_text
+        from .teacher_lessons import bind_advice
+
+        selector = args.get("criterion_id")
+        binding = await asyncio.to_thread(
+            bind_advice, deps, selector if isinstance(selector, str) else ""
+        )
+        binding_text = evidence_text((binding.criterion,)) if binding else ""
+        verification = deps.lesson_state.verification if deps.lesson_state else None
+        failures = verification.failure_evidence if verification else ()
         brief = compile_brief(
-            durum=durum,
-            denenenler=denenenler,
+            durum=durum
+            + (
+                "\nDanışma yalnız bu ölçülmüş kriterin düzeltmesine bağlıdır:\n" + binding_text
+                if binding
+                else ""
+            ),
+            denenenler=(
+                denenenler
+                + "\n"
+                + await asyncio.to_thread(current_diff, deps)
+                + "\nBaşarısızlık kanıtları:\n"
+                + evidence_text(failures)
+            ),
             question=question,
+            char_budget=deps.config.runtime.teacher_max_brief_chars,
             touched_paths=touched_paths,
-            code_excerpts=_teacher_excerpts(context),
+            code_excerpts=kesitler,
             # İç akışın (`teacher_flow`) plan isteği; şemada yoktur, model veremez.
             frame=PLAN_FRAME if args.get("bicim") == "plan" else TEACHER_FRAME,
         )
+        if binding_text and binding_text not in brief.text:
+            binding = None  # Bütçe içinde sunulmayan kriter tavsiyeye atfedilemez.
         deps.publisher.publish(TeacherConsulted(question=question, brief_truncated=brief.truncated))
 
         runtime = deps.config.runtime
@@ -384,21 +535,39 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         if result is None or not result.ok or not result.text:
             if refused:
                 return _teacher_refused()
-            hata = result.error if result is not None else None
+            # Ham sürücü günlüğü (Playwright "Call log") ne ekrana ne modele gider (30 Ekim).
+            hata = strip_driver_log(result.error) if result is not None and result.error else None
             # Ulaşılamayan öğretmen turu bozmamalı: bu turda bir daha sorulmaz ve
             # model kendi bilgisi ve araçlarıyla işi sürdürür.
             deps.teacher_calls_used = TURN_LIMIT
+            # Modele "kullanıcıya söyleme" denir ama kullanıcı çırak-only'ye düşüldüğünü
+            # bilmeli (A1-21): captcha/oturum süresi dolması sessiz kalite kaybıdır.
+            deps.publisher.publish(
+                StatusChanged(
+                    f"Öğretmen devre dışı: {hata or 'bilinmeyen hata'}. "
+                    "Bu tur kendi bilgisiyle sürecek; oturumu Ayarlar'dan kontrol et."
+                )
+            )
             return ToolResult.failure(
                 f"Öğretmene ulaşılamadı: {hata or 'bilinmeyen hata'}\n\n"
                 "ÖĞRETMEN OLMADAN DEVAM ET: Bu turda öğretmene tekrar sorma. İşi kendi "
                 "bilginle ve araçlarınla (dosya okuma/arama, web araştırması, komutlar) "
-                "sürdür; durma, kullanıcıya öğretmeni açmasını da söyleme."
+                "sürdür; durma, kullanıcıya öğretmeni açmasını da söyleme.",
+                # Oturum/arayüz arızası aynı turda tekrar sorulunca düzelmez; çağıran
+                # (`teacher_flow._ask`) ikinci deneme yapmaz.
+                structured={"teacher": "session_error"} if is_web_session_error(hata) else None,
             )
         if looks_like_refusal(result.text):
             return _teacher_refused()
 
-        _lesson_written, skip_reason = _sync_and_log_teacher_answer(
-            deps, context, question=question, durum=durum, answer=result.text
+        _lesson_written, skip_reason = await asyncio.to_thread(
+            _sync_and_log_teacher_answer,
+            deps,
+            context,
+            question=question,
+            durum=durum,
+            answer=result.text,
+            binding=binding,
         )
         cevap = f"[öğretmen · {result.model}]\n{result.text}"
         if skip_reason and "çelişebilir" in skip_reason:
@@ -421,6 +590,11 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             "type": "object",
             "properties": {
                 "question": {**_STRING, "description": "öğretmene sorulacak TEK, net soru"},
+                "criterion_id": {
+                    **_STRING,
+                    "description": "Varsa mevcut doğrulamada başarısız ölçülen tek kriter kimliği; "
+                    "tavsiye yalnız bu hedef/beklentiye bağlanır.",
+                },
                 "durum": {
                     **_STRING,
                     "description": "kısa durum özeti: ne yapmaya çalışıyorsun, nerede takıldın",
@@ -474,7 +648,18 @@ def _teacher_images(raw: object, context: ToolContext) -> tuple[str, ...] | Tool
     for oge in raw:
         if not isinstance(oge, str):
             return ToolResult.failure("'gorseller' yalnız dosya yolu içermeli.")
-        yol = resolve_path(context, oge)
+        try:
+            yol = resolve_path(context, oge)
+        except FusionError as err:
+            return ToolResult.failure(str(err))
+        # `resolve_path` kısıtsız kipte kök dışına izin verir; üçüncü tarafa giden
+        # görsel için bu yetmez. Ölçüldü (29 Ekim, A1-18): model diskteki herhangi
+        # bir png/jpg'yi (ör. `~/Pictures/...`) öğretmene gönderebiliyordu.
+        if not _inside_allowed_roots(context, yol) or is_secret_path(yol):
+            return ToolResult.failure(
+                f"Görsel proje dışında ya da gizli bilgi taşıyabilecek bir yerde: {oge}. "
+                "Öğretmene yalnız proje içindeki görseller gönderilir."
+            )
         tur = _IMAGE_TYPES.get(yol.suffix.lower())
         if tur is None or not yol.is_file():
             return ToolResult.failure(f"Görsel bulunamadı ya da türü desteklenmiyor: {oge}")
@@ -509,6 +694,7 @@ async def _consult_candidates(
     Kalıp ret veren ilk adaya bu yüzden BİR kez daha sorulur.
     """
     # Sağlayıcı katmanı yalnız gerektiğinde yüklenir; testler de bu adı yamalar.
+    from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
     from ...providers.web_registry import web_registry_for
 
@@ -520,12 +706,19 @@ async def _consult_candidates(
             publisher=deps.publisher,
             retry_delays_s=runtime.retry_delays_s,
             web_sessions=web_registry_for(deps.config),
+            model_specs=configured_model_specs(deps.config),
         )
         return await provider.complete(request)
 
     result: ModelResult | None = None
     reddeden: ModelSpec | None = None
+    # Toplam süre sınırı (A1-20): her aday bir web turu (30-120 sn); zincir ve kalıp
+    # ret yeniden sorusu birlikte turu dakikalarca bloklamasın. Süre dolunca yeni
+    # aday BAŞLATILMAZ (süren çağrı kesilmez).
+    bitis = _monotonic() + TEACHER_TOTAL_BUDGET_FACTOR * max(runtime.request_timeout_s, 1.0)
     for aday in teacher_candidates(deps.config, teacher):
+        if result is not None and _monotonic() >= bitis:
+            break
         if result is not None:
             deps.publisher.publish(
                 StatusChanged(f"Öğretmen cevap vermedi; yedek öğretmen deneniyor ({aday.model})")
@@ -537,6 +730,8 @@ async def _consult_candidates(
             reddeden = aday
     if reddeden is None:
         return result, False
+    if _monotonic() >= bitis:
+        return result, True
     deps.publisher.publish(StatusChanged("Öğretmen soruyu geri çevirdi; bir kez daha soruluyor"))
     return await _sor(reddeden), True
 
@@ -551,10 +746,33 @@ def _view_image_tool(deps: AgentDeps) -> Tool:
         soru = args.get("question")
         question = soru.strip() if isinstance(soru, str) and soru.strip() else DEFAULT_QUESTION
         path = resolve_path(context, raw_path)
-        aciklama, sorun = await describe_image(deps.config, path, question)
+        data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
         if sorun is not None:
             return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
-        return ToolResult(f"{display_path(context, path)} — {aciklama}")
+        capture = context.desktop.current_capture
+        observation = (
+            capture
+            if capture is not None
+            and capture.path == path
+            and capture.payload_digest == image_payload_digest(data_uri)
+            and capture.focus == context.desktop.focus_identity()
+            else None
+        )
+        aciklama, sorun = await describe_image_data(deps.config, data_uri, question)
+        if sorun is not None:
+            return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
+        if not aciklama.strip():
+            return ToolResult.failure("Görsel modeli boş gözlem döndürdü.")
+        if observation is not None and not await asyncio.to_thread(
+            capture_file_matches, observation, context
+        ):
+            observation = None
+        return ToolResult(
+            f"{display_path(context, path)} — {aciklama}",
+            visual_observation=observation
+            if context.desktop.current_capture is observation and not context.cancelled.is_set()
+            else None,
+        )
 
     return Tool(
         name="view_image",
@@ -611,6 +829,10 @@ def _recall_lessons_tool(deps: AgentDeps) -> Tool:
         if not query:
             return ToolResult.failure(messages.RECALL_LESSONS_EMPTY_QUERY)
         recalled = learning_steps.recall_lessons(query, deps)
+        from ...core.lesson_runtime import LessonDelivery
+        from .lesson_attribution import offer
+
+        offer(recalled, deps, LessonDelivery.TOOL)
         return ToolResult(as_prompt_block(recalled) or messages.RECALL_LESSONS_NONE)
 
     return Tool(
@@ -638,7 +860,7 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
         recommended = args.get("recommended")
         if not isinstance(recommended, str) or recommended not in {item.label for item in options}:
             recommended = None
-        required = args.get("required", True)
+        required = coerce_bool(args.get("required", True))
         if not isinstance(required, bool):
             return ToolResult.failure("'required' alanı doğru/yanlış olmalı.")
         answer = asker.ask(question, options, recommended) if options else asker.ask(question)
@@ -696,10 +918,15 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
 
 def _question_options(raw: object) -> tuple[QuestionOption, ...]:
     """Model payload'ını daralt; bozuk seçenek soru aracının tamamını düşürmesin."""
+    raw = coerce_list(raw)
     if not isinstance(raw, list):
         return ()
     options: list[QuestionOption] = []
     for item in raw[:5]:
+        # Zayıf modeller seçenekleri düz metin listesi verir (`["Flask", "Django"]`);
+        # sessizce atmak soruyu seçeneksiz gönderirdi (A1-22).
+        if isinstance(item, str):
+            item = {"label": item}
         if not isinstance(item, dict):
             continue
         label = item.get("label")
@@ -738,6 +965,11 @@ def _register_capability_tools(
     if library.skills():
         registry.register(_find_skill_tool(library))
         registry.register(_read_skill_tool(library, publisher=deps.publisher))
+        if any(skill.model_invocable for skill in library.skills()):
+            # Claude Code `Skill` aracı (#139): işlenmiş gövde konuşmaya girer.
+            from .skill_tool import build_skill_tool
+
+            registry.register(build_skill_tool(library, deps, depth=depth, run_agent=run_agent))
     if library.agents():
         registry.register(_find_agent_tool(library))
         registry.register(_invoke_agent_tool(deps, depth=depth, run_agent=run_agent))
@@ -746,7 +978,8 @@ def _register_capability_tools(
 def _find_skill_tool(library: CapabilityRegistry) -> Tool:
     def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         query = str(args.get("query", ""))
-        hits = search(library.skills(), query)
+        # `disable-model-invocation` beceriler modele görünmez; yalnız kullanıcı `/ad` ile çağırır.
+        hits = search(tuple(s for s in library.skills() if s.model_invocable), query)
         return ToolResult(_format(hits) or "(eşleşen skill yok)")
 
     return Tool(
@@ -769,13 +1002,21 @@ def _skill_page_result(path: Path, args: ToolArgs, offset: int) -> ToolResult:
     )
     if page.error:
         return ToolResult.failure(page.error)
-    text = f"[revision={page.revision}]\n{page.text}"
+    # Eklenti becerisinde `${CLAUDE_PLUGIN_ROOT}` kurulu klasöre çözülür (sayfa ham metne göre).
+    text = f"[revision={page.revision}]\n{with_plugin_root(page.text, path)}"
     if page.next_offset is not None:
         text += (
             f"\n\n[KIRPILDI: Devamı için read_skill(offset={page.next_offset}). "
             f"Aynı revision={page.revision} değerini de gönder.]"
         )
     return ToolResult(text, structured={"revision": page.revision, "next_offset": page.next_offset})
+
+
+#: Modelin yükleyemeyeceği (yalnız kullanıcının çağırdığı) beceri.
+SKILL_USER_ONLY = (
+    "'{name}' yalnız kullanıcı /{name} ile çağırır; model yükleyemez. Gerekiyorsa kullanıcıya "
+    "/{name} yazmasını öner."
+)
 
 
 def _skill_receipt(
@@ -810,12 +1051,26 @@ def _read_skill_tool(
         name = str(args.get("name", ""))
         skill = library.get_skill(name)
         if skill is None:
+            adaylar = library.candidates(name)
+            if adaylar:
+                # Aynı ad farklı içerikli birden çok kaynakta: "yok" demek modeli yanıltır.
+                return ToolResult.failure(
+                    f"'{name}' birden çok kaynakta var; birini nitelikli adıyla çağır: "
+                    + ", ".join(adaylar)
+                )
             return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
-        offset = args.get("offset", 0)
+        extra = args.get("file")
+        has_file = isinstance(extra, str) and bool(extra.strip())
+        if not skill.model_invocable and not has_file:
+            # `disable-model-invocation` / `user-invocable-only` (P-051): gövde yalnız kullanıcı
+            # `/ad` ile çağırınca bağlama girer. Ölçüldü (31 Ekim): beceri yalnız dizinden
+            # gizleniyordu; adını bilen model `read_skill` ile yükleyebiliyordu. Ek dosya
+            # okuması açık kalır: kullanıcının çağırdığı becerinin gövdesi onlara başvurur.
+            return ToolResult.failure(SKILL_USER_ONLY.format(name=skill.name))
+        offset = coerce_int(args.get("offset", 0))
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             return ToolResult.failure("offset sıfır ya da pozitif bir tam sayı olmalı.")
-        extra = args.get("file")
-        if isinstance(extra, str) and extra.strip():
+        if has_file and isinstance(extra, str):
             target = skill_file(skill.path, extra.strip())
             if target is None:
                 return ToolResult.failure(
@@ -893,8 +1148,8 @@ def _invoke_agent_tool(
             return ToolResult.failure("'name' ve 'task' alanları dolu olmalı.")
         if library.get_agent(name) is None:
             return ToolResult.failure(f"'{name}' adlı agent yok. find_agent ile ara.")
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; görevi kendin yap.")
+        if depth_limit_reached(deps, depth):
+            return ToolResult.failure(DEPTH_LIMIT_MESSAGE)
         # Uzmanın kendi talimatı sistem promptuna eklenir; kısıtladığı araç seti
         # varsa yalnızca onlar sunulur (bkz. `team.resolve_persona`).
         run = await run_subagent(
@@ -961,16 +1216,19 @@ def build_history_tool(home: Path) -> Tool:
             maximum=_READ_SESSION_MAX_LIMIT,
         )
         text_cursor = _bounded_int(args.get("text_cursor"), default=0, minimum=0)
-        turns = sanitize_turns(
-            source.read(
-                session_id,
-                cursor=cursor,
-                limit=limit + 1,
-            )
+        # Kaynak okuması disk G/Ç'dir (medyan oturum 1,3 MB): olay döngüsünü bloklamamak
+        # için iş parçacığında yapılır (A1-23). `sanitize_turns` tur sayısını DEĞİŞTİRMEZ
+        # (1:1 maskeleme), bu yüzden `cursor` kaynak konumuyla tutarlı kalır; ikinci
+        # gereksiz geçiş kaldırıldı.
+        raw_turns = await asyncio.to_thread(
+            source.read,
+            session_id,
+            cursor=cursor,
+            limit=limit + 1,
         )
+        turns = sanitize_turns(raw_turns)
         if not turns:
             return ToolResult.failure(messages.READ_SESSION_EMPTY.format(session_id=session_id))
-        turns = sanitize_turns(turns)
         if text_cursor > len(turns[0].text):
             return ToolResult.failure(
                 messages.READ_SESSION_INVALID_TEXT_CURSOR.format(cursor=text_cursor)
@@ -1003,11 +1261,16 @@ def _bounded_int(
     minimum: int,
     maximum: int | None = None,
 ) -> int:
-    """Modelden gelen tamsayıyı güvenli aralığa daralt; bozuksa varsayılanı kullan."""
-    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+    """Modelden gelen tamsayıyı güvenli aralığa KISTIR; sayı değilse varsayılanı kullan.
+
+    Aralık dışı değer varsayılana çevrilmez: `limit=500` sessizce 20 olurdu (A1-23).
+    """
+    if not isinstance(value, int) or isinstance(value, bool):
         return default
+    if value < minimum:
+        return minimum
     if maximum is not None and value > maximum:
-        return default
+        return maximum
     return value
 
 
@@ -1053,14 +1316,33 @@ def _history_page_output(page: _HistoryPage) -> str:
 
 #: Öğretmene kesit olarak gönderilen en fazla dosya sayısı; düzenlenenler önce gelir.
 _TEACHER_EXCERPT_FILES = 4
+#: Bir kesit için dosyadan okunan en fazla karakter (dosyanın tamamı belleğe alınmaz).
+_TEACHER_EXCERPT_CHARS = 60_000
+
+
+def _inside_allowed_roots(context: ToolContext, path: Path) -> bool:
+    """Yol proje kökünde ya da `--add-dir` ile AÇIKÇA verilen dizinlerde mi?"""
+    try:
+        concrete = path.resolve()
+        izinli = (context.root.resolve(), *(extra.resolve() for extra in context.extra_roots))
+    except OSError:
+        return False
+    return any(concrete == izin or izin in concrete.parents for izin in izinli)
 
 
 def _teacher_excerpts(context: ToolContext) -> list[tuple[str, str]]:
     """Öğretmene gidecek kod kesitleri: önce düzenlenen, sonra tam okunan dosyalar.
 
     Web öğretmeni dosyalara erişemez; yalnız yol listesi göndermek onu kodu
-    görmeden tahmin yürütmeye zorluyordu. Gizli bilgi taşıyabilecek dosyalar
-    (`.env*`) hiç okunmaz, diğerlerindeki anahtar biçimli değerler maskelenir.
+    görmeden tahmin yürütmeye zorluyordu. Üçüncü tarafa giden içerik şu kurallarla
+    sınırlanır (A1-18, ölçüldü 29 Ekim: eskiden yalnız `.env*` adı atlanıyordu, boyut
+    ve konum denetimi yoktu):
+
+    - sır dosyası adı/konumu (`id_rsa`, `*.pem`, `credentials.json`, `secrets.enc`,
+      `.npmrc`, `terraform.tfstate`, `.ssh/` altı…) hiç okunmaz — bkz. `secret_paths`;
+    - proje kökü (ve `--add-dir`) DIŞINDaki dosya gönderilmez;
+    - dosyadan en çok `_TEACHER_EXCERPT_CHARS` karakter okunur;
+    - kalan anahtar biçimli değerler `redact()` ile maskelenir.
     """
     from ...core.redaction import redact
 
@@ -1069,11 +1351,19 @@ def _teacher_excerpts(context: ToolContext) -> list[tuple[str, str]]:
     for yol in sirali:
         if len(kesitler) >= _TEACHER_EXCERPT_FILES:
             break
-        if yol.name.startswith(".env") or not yol.is_file():
+        if is_secret_path(yol) or not yol.is_file() or not _inside_allowed_roots(context, yol):
             continue
         try:
-            icerik = yol.read_text(encoding="utf-8")
+            with yol.open(encoding="utf-8") as dosya:
+                icerik = dosya.read(_TEACHER_EXCERPT_CHARS)
         except (OSError, UnicodeDecodeError):
             continue
         kesitler.append((display_path(context, yol), redact(icerik)))
     return kesitler
+
+
+def _cron_disabled() -> bool:
+    """Claude `CLAUDE_CODE_DISABLE_CRON=1`: zamanlayıcı araçları sunulmaz (#366)."""
+    import os
+
+    return os.environ.get("CLAUDE_CODE_DISABLE_CRON", "").strip().lower() in {"1", "true", "yes"}

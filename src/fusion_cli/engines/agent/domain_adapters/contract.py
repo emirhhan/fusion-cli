@@ -14,6 +14,7 @@ bozulur.
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,8 @@ from ..plan_coverage import Deliverable
 
 #: Kökten engelleyici bulgu üreten denetim; boş demet "sorun yok" demektir.
 ArtifactCheck = Callable[[Path], tuple[str, ...]]
+#: Aracın gerçek çalıştırılabilir yolunu bulan kanca (PATH'te olmayabilir); bulunamazsa None.
+ExecutableResolver = Callable[[], str | None]
 #: Kök hakkında evet/hayır cevabı veren ölçüt (ör. "proje çalıştırılabilir mi").
 RootPredicate = Callable[[Path], bool]
 #: Kapıdan ÖNCE çalışması gereken hazırlık komutlarını üreten kanca.
@@ -57,6 +60,10 @@ class DomainAdapter:
     preparation: PreparationCommands | None = None
     #: Kapının çalıştırdığı aracın komut satırındaki adı (işaret taraması anahtarı).
     executable: str = ""
+    #: `executable` PATH'te yoksa gerçek yolunu bulan kanca (E1-10). None ise komutlar
+    #: olduğu gibi kalır. Yol bulunursa ve adın kendisinden farklıysa kapı komutlarının
+    #: baş sözcüğü bu yolla (kabuk alıntılı) değiştirilir.
+    executable_resolver: ExecutableResolver | None = None
     #: Çıkış kodu sıfır olsa bile hatayı ele veren küçük harfli çıktı parçaları.
     output_failure_markers: tuple[str, ...] = ()
     #: Planlayıcıya verilecek, alana özgü kabul koşulları.
@@ -85,8 +92,23 @@ class DomainAdapter:
         """
         preparation = self.preparation(root) if self.preparation is not None else ()
         if self.is_runnable is None or not self.setup_gates or self.is_runnable(root):
-            return preparation + self.gates
-        return self.setup_gates
+            return self._resolved(preparation + self.gates)
+        return self._resolved(self.setup_gates)
+
+    def _resolved(self, commands: tuple[str, ...]) -> tuple[str, ...]:
+        """Komutların baş sözcüğü `executable` ise bulunan gerçek yolla değiştir."""
+        if not self.executable or self.executable_resolver is None:
+            return commands
+        found = self.executable_resolver()
+        if found is None or found == self.executable:
+            return commands
+        prefix = f"{self.executable} "
+        return tuple(
+            f"{shlex.quote(found)} {command[len(prefix) :]}"
+            if command.startswith(prefix)
+            else command
+            for command in commands
+        )
 
     def zero_exit_failure_markers(self) -> tuple[str, ...]:
         """Çıkış kodu sıfır olsa bile hatayı ele veren çıktı işaretleri."""

@@ -9,6 +9,7 @@ import pytest
 
 from fusion_cli.appserver.bridges import PendingQuestions
 from fusion_cli.appserver.session import AppSession
+from fusion_cli.memory.run_store import SqliteRunStore
 from fusion_cli.remote.approval_confirmation import ApprovalConfirmations
 from fusion_cli.remote.backend import AppSessionBackend
 from fusion_cli.remote.devices import DeviceRegistry
@@ -61,21 +62,47 @@ def make_service(tmp_path: Path) -> tuple[RemoteService, DeviceRegistry, FakeBac
     clock = FakeClock()
     registry = DeviceRegistry(tmp_path / "devices.json", clock)
     backend = FakeBackend()
-    service = RemoteService(clock=clock, registry=registry, backend=backend, store=TaskStore(clock))
+    service = RemoteService(
+        clock=clock,
+        registry=registry,
+        backend=backend,
+        store=TaskStore(SqliteRunStore(tmp_path / "runs.sqlite3", clock=clock)),
+    )
     return service, registry, backend, clock
 
 
+_YAZMA_SORUSU = {
+    "tur": "onay",
+    "tehlike": "Yıkıcı işlem",
+    "secenekler": [{"deger": "once"}, {"deger": "deny"}],
+}
+
+
 @pytest.mark.parametrize("tool", ["desktop_click", "mcp__write", "unknown_tool", "run_shell"])
-async def test_telefon_yuksek_etkili_onayi_ikinci_teyitle_verir(tmp_path: Path, tool: str) -> None:
+async def test_kapsamsiz_telefon_ikinci_teyitle_bile_onay_veremez(
+    tmp_path: Path, tool: str
+) -> None:
+    """R1-01: ikinci teyit, işlemin gerektirdiği kapsamın eksikliğini kapatmaz."""
     service, registry, backend, _clock = make_service(tmp_path)
     phone = registry.add("Tel", "signed", frozenset({"agent.run"}))
-    question = {
-        "tur": "onay",
-        "arac": tool,
-        "tehlike": "Yıkıcı işlem",
-        "secenekler": [{"deger": "once"}, {"deger": "deny"}],
-    }
-    service._questions["q"] = ("run", question)
+    service._questions["q"] = ("run", {**_YAZMA_SORUSU, "arac": tool})
+
+    cevap = await service.call(phone, "approvals.respond", {"questionId": "q", "choice": "once"})
+    teyit = await service.call(phone, "approvals.challenge", {"questionId": "q", "choice": "once"})
+    red = await service.call(phone, "approvals.respond", {"questionId": "q", "choice": "deny"})
+
+    assert (cevap.error, teyit.error) == ("yetki_yok", "yetki_yok")
+    assert red.ok  # Reddetmek her zaman serbest.
+    assert backend.answers == [("q", {"secim": "deny"})]
+
+
+@pytest.mark.parametrize("tool", ["desktop_click", "mcp__write", "unknown_tool", "run_shell"])
+async def test_kapsamli_telefon_yuksek_etkili_onayi_ikinci_teyitle_verir(
+    tmp_path: Path, tool: str
+) -> None:
+    service, registry, backend, _clock = make_service(tmp_path)
+    phone = registry.add("Tel", "signed", frozenset({"agent.run", "project.write"}))
+    service._questions["q"] = ("run", {**_YAZMA_SORUSU, "arac": tool})
     initial = await service.call(phone, "approvals.respond", {"questionId": "q", "choice": "once"})
     assert initial.error == "step_up" and backend.answers == []
     challenge = await service.call(
@@ -91,7 +118,7 @@ async def test_telefon_yuksek_etkili_onayi_ikinci_teyitle_verir(tmp_path: Path, 
         },
     )
     assert accepted.ok and accepted.data["accepted"]
-    assert phone.scopes == frozenset({"agent.run"})
+    assert phone.scopes == frozenset({"agent.run", "project.write"})
 
 
 async def test_sunulmayan_oturum_karari_ve_imzasiz_teyit_reddedilir(tmp_path: Path) -> None:
@@ -122,30 +149,13 @@ async def test_sunulmayan_oturum_karari_ve_imzasiz_teyit_reddedilir(tmp_path: Pa
     ).ok
 
 
-async def test_ekran_telefon_teyidiyle_hatirlanir_sure_dolunca_kendiliginden_acilmaz(
-    tmp_path: Path,
-) -> None:
-    service, registry, _backend, clock = make_service(tmp_path)
-    phone = registry.add("Tel", "signed", frozenset({"desktop.observe"}))
-    assert (await service.call(phone, "screen.request", {})).data["state"] == "pending"
-    result = await service.call(phone, "screen.request", {"remember": True, "confirmed": True})
-    assert result.data == {"state": "active", "remembered": True}
-    reloaded = DeviceRegistry(tmp_path / "devices.json", clock)
-    assert reloaded.active(phone.device_id).screen_trusted  # type: ignore[union-attr]
-    clock.value += 7201
-    assert (await service.call(phone, "screen.status", {})).data["state"] == "none"
-    assert (await service.call(phone, "screen.request", {})).data["state"] == "active"
-    await service.call(phone, "screen.stop", {})
-    assert not registry.active(phone.device_id).screen_trusted  # type: ignore[union-attr]
-    assert (await service.call(phone, "screen.request", {})).data["state"] == "pending"
-
-
 async def test_ekran_guveni_baska_cihaza_ve_telegrama_tasinmaz(tmp_path: Path) -> None:
     service, registry, _backend, _clock = make_service(tmp_path)
     phone = registry.add("Tel", "signed", frozenset({"desktop.observe"}))
     telegram = registry.add("Bot", "telegram", frozenset({"desktop.observe"}))
     other = registry.add("Başka", "signed", frozenset({"desktop.observe"}))
-    await service.call(phone, "screen.request", {"remember": True, "confirmed": True})
+    await service.call(phone, "screen.request", {"remember": True})
+    service.approve_screen(phone.device_id)
     assert not (
         await service.call(telegram, "screen.request", {"remember": True, "confirmed": True})
     ).ok
@@ -157,7 +167,7 @@ async def test_ekran_guveni_baska_cihaza_ve_telegrama_tasinmaz(tmp_path: Path) -
 
 async def test_oturum_karari_yalniz_sunuldugunda_ve_ikinci_teyitle_verilir(tmp_path: Path) -> None:
     service, registry, backend, _clock = make_service(tmp_path)
-    phone = registry.add("Tel", "signed", frozenset({"agent.run"}))
+    phone = registry.add("Tel", "signed", frozenset({"agent.run", "project.write"}))
     service._questions["q"] = (
         "run",
         {
@@ -192,7 +202,7 @@ async def test_host_kabul_etmediginde_rpc_basari_bildirmez(tmp_path: Path) -> No
         return session
 
     service._backend = AppSessionBackend(factory, tmp_path)
-    phone = registry.add("Tel", "signed", frozenset({"agent.run"}))
+    phone = registry.add("Tel", "signed", frozenset({"agent.run", "project.write"}))
     service._questions["q"] = (
         "run",
         {

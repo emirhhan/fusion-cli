@@ -14,15 +14,18 @@ için `run_agent` çağrı sırasında parametre olarak geçirilir; bu modül on
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.constants import SHELL_TIMEOUT_S
+from ...core.events import StatusChanged
 from ...core.types import Message
 from ...tools.safety import danger_reason
 from ..playbook import Playbook, run_playbook
 from ..playbook.library import ShellStepRunner, build_playbooks
 from ..playbook.matching import find_match
 from ..workflow import Budget, Stage, StageOutcome, run_workflow
+from .approval import Decision, resolve_request
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -44,9 +47,10 @@ class RunAgent(Protocol):
 async def maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
     """İstek bir playbook'u tetikliyorsa deterministik akışı çalıştır.
 
-    Opt-in (varsayılan kapalı). Yalnızca tüm komutları güvenli olan bir playbook
-    çalıştırılır; akış başarısız olur (checks kırılır → geri alınır) ise None dönülür
-    ve normal agent akışına düşülür — model devralır.
+    Opt-in (varsayılan kapalı). Yalnızca tüm komutları güvenli olan ve kullanıcının
+    onay kipinden geçen bir playbook çalıştırılır; akış başarısız olur (checks
+    kırılır → geri alınır) ise kullanıcıya bildirilir, None dönülür ve normal agent
+    akışına düşülür — model devralır.
     """
     from .loop import AgentOutcome  # runtime import: tip değil, gerçek sınıf gerekli.
 
@@ -57,16 +61,68 @@ async def maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
     playbook = find_match(build_playbooks(deps.tool_context.root), task)
     if playbook is None or not all_commands_safe(playbook):
         return None
+    if not await _commands_approved(playbook, deps):
+        deps.publisher.publish(
+            StatusChanged(
+                f"Playbook '{playbook.id}' atlandı: komutları bu onay kipinde otomatik "
+                "çalışamaz; normal akışa geçiliyor"
+            )
+        )
+        return None
 
     runner = ShellStepRunner(cwd=str(deps.tool_context.root), timeout_s=SHELL_TIMEOUT_S)
     result = await run_playbook(playbook, runner)
     if not result.ok:
+        # Sessiz geri düşme yok (A3-27): akış yarıda kesildiyse ve yan etkisi
+        # geri alındıysa kullanıcı bunu görmeli; model normal akışta devralır.
+        geri_alma = (
+            "yapılan değişiklikler geri alındı"
+            if result.rolled_back
+            else "geri alınacak adım yoktu"
+        )
+        deps.publisher.publish(
+            StatusChanged(
+                f"Playbook '{playbook.id}' başarısız ({result.summary}); {geri_alma}. "
+                "Normal akışa geçiliyor"
+            )
+        )
         return None
     return AgentOutcome(
         final_text=result.summary,
         messages=[Message("assistant", result.summary)],
         tool_calls_made=len(result.ran_steps),
     )
+
+
+async def _commands_approved(playbook: Playbook, deps: AgentDeps) -> bool:
+    """Playbook'un HER komutu, kullanıcının onay kipinden normal `run_shell` gibi geçmeli.
+
+    Ölçüldü (30 Ekim, A3-27): playbook komutları `ShellStepRunner` ile doğrudan
+    koşuyor, kip ve onay kapısına hiç uğramıyordu (manuel/plan kipinde bile). Aynı
+    karar yolu (`resolve_request` + politika) kullanılır; komutlardan biri onaylanmaz
+    ya da reddedilirse playbook hiç başlamaz.
+    """
+    if deps.base_registry is None:
+        return False
+    tool = deps.base_registry.get("run_shell")
+    if tool is None:
+        return False
+    policy = deps.policy_factory() if deps.policy_factory else deps.policy
+    commands = [step.command for step in playbook.steps]
+    commands += [step.rollback for step in playbook.steps if step.rollback]
+    commands += list(playbook.checks)
+    for command in dict.fromkeys(commands):
+        request = await resolve_request(
+            tool,
+            {"command": command},
+            deps.allowed_commands,
+            root=deps.tool_context.root,
+            context=deps.tool_context,
+            rules=getattr(deps, "permission_rules", None),
+        )
+        if await policy.decide(request) is not Decision.ALLOW:
+            return False
+    return True
 
 
 #: Her aşamaya modele verilecek odaklı Türkçe yönerge. `{task}` görev, `{notes}`
@@ -95,6 +151,11 @@ _STAGE_PROMPTS: dict[Stage, str] = {
 }
 
 
+#: Aşama notunun sonraki aşamaya taşınan en çok uzunluğu. 500 karakter uzun planı PATCH
+#: aşamasına kesik taşıyordu (A3-28).
+_STAGE_NOTE_CHARS = 2_000
+
+
 class _AgentStageExecutor:
     """Her workflow aşamasını, odaklı bir alt-turla (run_agent) çalıştıran köprü."""
 
@@ -105,12 +166,19 @@ class _AgentStageExecutor:
 
     async def run(self, stage: Stage, notes: dict[Stage, str]) -> StageOutcome:
         prompt = _STAGE_PROMPTS[stage].format(task=self._task, notes=_format_notes(notes))
+        stage_deps = self._deps
+        if hasattr(self._deps, "tool_context"):
+            stage_deps = replace(
+                self._deps, tool_context=replace(self._deps.tool_context, tool_phase=stage.value)
+            )
         # depth=1: üstteki workflow/playbook/öz-denetim dalları yeniden tetiklenmesin.
-        outcome = await self._run_agent(prompt, self._deps, depth=1, self_review=False)
+        outcome = await self._run_agent(prompt, stage_deps, depth=1, self_review=False)
         ok = outcome.ok and not outcome.hit_step_limit
-        # Model çağrısı ~ araç turu + son cevap turu. Bütçe kapısını besleyen tahmin.
+        # Bütçe kapısı GERÇEK model çağrısıyla beslenir; sayaç yoksa (0) araç turu + son
+        # cevap turu tahmini kullanılır (A3-28: tahmin bütçeyi yanlış ölçüyordu).
+        calls = outcome.model_calls_made or outcome.tool_calls_made + 1
         return StageOutcome(
-            ok=ok, model_calls=outcome.tool_calls_made + 1, note=outcome.final_text.strip()[:500]
+            ok=ok, model_calls=calls, note=outcome.final_text.strip()[:_STAGE_NOTE_CHARS]
         )
 
 

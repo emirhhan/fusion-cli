@@ -134,13 +134,27 @@ class BudgetLedger:
         """Bir zarfta (gerekirse belirtilen adım kapsamında) işlenmiş çağrı sayısı."""
         return self._used.get(self._key(envelope, scope), 0)
 
+    def reset_scope(self, envelope: BudgetEnvelope, scope: str) -> None:
+        """Adım kapsamlı bir zarfın harcamasını sıfırla ("ek bütçe", A3-13).
+
+        Yalnız adım kapsamlı zarflar (`PER_STEP`, `RECOVERY`) için anlamlıdır; plan
+        geneli zarflar (planlama, final) tek haktır ve burada dokunulmaz.
+        """
+        if envelope in _SCOPED_ENVELOPES:
+            self._used.pop(self._key(envelope, scope), None)
+
     def restore(self, usage: tuple[WorkflowBudgetUsage, ...]) -> None:
         """Önceki zarf harcamalarını sınırları yenilemeden geri yükle."""
         for item in usage:
             if item.calls < 0:
                 raise ValueError("Workflow çağrı harcaması negatif olamaz.")
-            key = self._key(BudgetEnvelope(item.envelope), item.scope)
-            self._used[key] = item.calls
+            try:
+                envelope = BudgetEnvelope(item.envelope)
+            except ValueError:
+                # Tanınmayan zarf (başka sürümün checkpoint'i): bütün geri yüklemeyi
+                # çökertmek yerine o kayıt atlanır, kalanı yüklenir (E1-29).
+                continue
+            self._used[self._key(envelope, item.scope)] = item.calls
 
 
 @dataclass(frozen=True, slots=True)

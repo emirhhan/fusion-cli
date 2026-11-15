@@ -27,8 +27,9 @@ export async function minimizeVoiceWindow(): Promise<void> {
   await invoke("ses_penceresi_simge_durumu");
 }
 
-export async function startSpeechRecognition(): Promise<number> {
-  return invoke<number>("tanima_baslat");
+/** `dil` yerel ayar kimliğidir (ör. "en-US"); verilmezse Rust Türkçe (tr-TR) kullanır (R2-16). */
+export async function startSpeechRecognition(dil?: string): Promise<number> {
+  return dil ? invoke<number>("tanima_baslat", { dil }) : invoke<number>("tanima_baslat");
 }
 
 export async function stopSpeechRecognition(): Promise<void> {

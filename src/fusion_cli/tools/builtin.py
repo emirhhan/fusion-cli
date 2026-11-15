@@ -9,17 +9,28 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 
 from __future__ import annotations
 
-from ..core.tools import Tool, ToolEffect
+from dataclasses import replace
+
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolEvidenceRole
 from . import (
     archive,
     browser,
     chrome,
+    chrome_script,
+    claude_chrome,
     desktop,
+    desktop_access,
     desktop_background,
     desktop_inspect,
+    desktop_mouse,
+    desktop_policy,
+    desktop_screen,
     download,
     files,
+    github_cli,
     jobs,
+    kits,
+    plan_tools,
     planning,
     remotion_render,
     remotion_revision,
@@ -28,29 +39,88 @@ from . import (
     search,
     shell,
     web,
+    worktree_tools,
 )
+from .monitor_tool import MONITOR_TOOL
 from .registry import ToolRegistry
+from .symbol_query import SymbolQuery, SymbolQuerySettings
+from .task_stop import TASK_STOP_TOOL
+from .task_tools import TASK_TOOLS
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
 #: modele olduğu gibi gönderilen bir sözlüktür, iş mantığı taşımaz.
 SchemaFragment = dict[str, object]
 
 
+async def _gate_only(_args: ToolArgs, _context: ToolContext | None = None) -> None:
+    """Etkiyi değiştirmeden aracı onay kapısına sokan çözücü (web araçları, #55)."""
+    return None
+
+
 def _schema(properties: dict[str, SchemaFragment], required: list[str]) -> SchemaFragment:
     return {"type": "object", "properties": properties, "required": required}
 
 
+#: `chrome_action` eylem adları (şemadaki `enum`).
+_CHROME_ACTIONS = (
+    "scroll", "wait", "key", "select", "tabs", "open", "new_tab", "tab", "close", "screenshot",
+    "click_at", "double_click", "right_click", "triple_click", "drag", "wheel",
+    "type_focused", "check", "resize", "zoom", "hover", "text", "back", "forward", "reload",
+    "upload", "assets", "console", "network", "record", "shortcuts", "shortcut", "window", "group",
+    "upload_image",
+)  # fmt: skip
+
+#: Claude adlı araçların (#431) arkasındaki iç araçlar: modele sunulmaz, çağrılırsa çalışır.
+_LEGACY_CHROME = frozenset(
+    {
+        "chrome_page", "chrome_action", "chrome_javascript", "chrome_batch",
+        "chrome_click", "chrome_type", "chrome_navigate",
+    }
+)  # fmt: skip
+
 _STRING: SchemaFragment = {"type": "string"}
 _INTEGER: SchemaFragment = {"type": "integer"}
+_NUMBER: SchemaFragment = {"type": "number"}
 
 
-def build_registry() -> ToolRegistry:
+def build_registry(
+    *, symbol_query_enabled: bool = False, symbol_query_settings: SymbolQuerySettings | None = None
+) -> ToolRegistry:
     """Yerleşik araçların tamamını içeren yeni bir kayıt defteri üret."""
     registry = ToolRegistry()
     for tool in _TOOLS:
+        # Eski `chrome_*` adları gizli kalır ve çalışır; model Claude adlarını görür (#431).
+        registry.register(replace(tool, advertised=False) if tool.name in _LEGACY_CHROME else tool)
+    for tool in claude_chrome.claude_chrome_tools():
         registry.register(tool)
     for alias, target in _ALIASES.items():
         registry.register_alias(alias, target)
+    if symbol_query_enabled:
+        registry.register(
+            Tool(
+                name="symbol_query",
+                description="Sembol tanımı, referansları veya LSP tanılarını sorgula; "
+                "sunucusuz yol lexical fallback verir.",
+                parameters={
+                    **_schema(
+                        {
+                            "action": {
+                                **_STRING,
+                                "enum": ["definition", "references", "diagnostics"],
+                            },
+                            "path": _STRING,
+                            "line": {**_INTEGER, "minimum": 0},
+                            "character": {**_INTEGER, "minimum": 0},
+                            "symbol": _STRING,
+                        },
+                        ["action", "path"],
+                    ),
+                    "additionalProperties": False,
+                },
+                run=SymbolQuery(symbol_query_settings or SymbolQuerySettings()),
+                evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+            )
+        )
     return registry
 
 
@@ -58,22 +128,36 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_background_windows",
         description=(
-            "Pencereleri (window_id, pid) listele. Ekranı bozmaz; desktop_open yerine tercih et."
+            "Pencereleri (window_id, pid) listele; is_main/is_focused/subrole varsa "
+            "gözlenen AX ipucudur. "
+            "Eksik alan bilinmiyor demektir. Kullanıcının istediği ana/standard pencereyi seç; "
+            "aynı PID'deki geçici paylaşım/yardımcı pencereyi ana pencere sayma."
         ),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_windows"],
         run=desktop_background.desktop_background_windows,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="desktop_background_inspect",
-        description=("Pencereyi öne getirmeden AX öğelerini incele; eylem için güncel ref kullan."),
+        description=(
+            "window_id/pid kaynağı: desktop_window_focus veya desktop_background_windows. "
+            "AX öğelerini ve güvenli, düzenlenemez AXStaticText display.value oku "
+            "(en çok 1000 karakter). "
+            "desktop_windows kimlik vermez; "
+            "value_truncated varsa tam değer değildir. Eylem için güncel ref kullan."
+        ),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_inspect"],
         run=desktop_background.desktop_background_inspect,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+        effect_resolver=desktop_policy.observe_effect,
     ),
     Tool(
         name="desktop_background_screenshot",
         description=("Arka plandaki pencereyi ScreenCaptureKit ile yakala; odağı değiştirmez."),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_screenshot"],
         run=desktop_background.desktop_background_screenshot,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+        effect_resolver=desktop_policy.observe_effect,
     ),
     Tool(
         name="desktop_background_action",
@@ -88,37 +172,101 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_windows",
-        description="macOS pencerelerini uygulama ve adla listele.",
+        description=(
+            "macOS pencere uygulama adını ve başlığını listele; window_id/pid vermez. "
+            "Kimlik gerektiren araçlar için desktop_background_windows kullan."
+        ),
         parameters=_schema({}, []),
         run=desktop_inspect.desktop_windows,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="desktop_window_focus",
-        description="macOS penceresini adına göre öne getir.",
+        description=(
+            "macOS penceresini öne getir ve gözlenen window_id/pid kimliğini doğrula. "
+            "Sonuçtaki kimliği arka plan incelemesine taşı; koordinat için yeni screenshot al."
+        ),
         parameters=_schema({"app": _STRING, "window": _STRING}, ["app"]),
         run=desktop_inspect.desktop_window_focus,
         mutating=True,
     ),
     Tool(
         name="desktop_accessibility",
-        description="Öndeki macOS penceresinin erişilebilir öğelerini oku.",
+        description=(
+            "Öndeki macOS penceresinde yalnız rol, ad ve geometri oku; AXValue doğrulamaz. "
+            "Literal display.value için desktop_background_inspect kullan."
+        ),
         parameters=_schema({}, []),
         run=desktop_inspect.desktop_accessibility,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="chrome_page",
-        description="Chrome sekmesini oku; query ile öğe bul.",
-        parameters=_schema({"query": _STRING}, []),
+        description=(
+            "Chrome sekmesini oku; query ile öğe bul ('kaydet düğmesi'). tree=all|interactive "
+            "erişilebilirlik ağacı (depth, ref alt ağaç)."
+        ),
+        parameters=_schema(
+            {
+                "query": _STRING,
+                "tree": {**_STRING, "enum": ["all", "interactive"]},
+                "ref": _STRING,
+                "depth": _INTEGER,
+            },
+            [],
+        ),
         run=chrome.chrome_page,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="chrome_action",
-        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|double_click|right_click|triple_click|drag|wheel|type_focused|check|resize|zoom|hover|text|back|forward|reload|upload|assets",
-        parameters=_schema({"action": _STRING, "ref": _STRING, "value": _STRING}, ["action"]),
+        description=(
+            "Chrome eylemi. value: scroll=down:600 · wait=metin|network_idle · key=Enter · "
+            "open=URL · tab/close=sekme id · click_at/double_click/right_click/triple_click=ref "
+            "ya da x,y (ekran görüntüsü pikseli) · drag=ref+hedef(ref|x,y) · wheel=dx,dy · "
+            "resize=1280,800 · zoom=x1,y1,x2,y2 (kırpık görüntü; tıklama TAM ekran x,y ile) · "
+            "upload=yol,yol · type_focused=metin · check=ref+true|false · select=ref+metin · "
+            "hover=ref · console=errors|errors:desen|desen · network=url deseni|id:N (gövde) · "
+            "record=start|stop (GIF) · shortcut=ad · window=URL · group=id,id:başlık. "
+            "Değersiz: tabs screenshot back forward reload text assets shortcuts."
+        ),
+        parameters=_schema(
+            {
+                "action": {**_STRING, "enum": list(_CHROME_ACTIONS)},
+                "ref": _STRING,
+                "value": _STRING,
+            },
+            ["action"],
+        ),
         run=chrome.chrome_action,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
         effect_resolver=chrome.chrome_action_effect,
+        evidence_role_resolver=chrome.action_evidence_role,
+    ),
+    Tool(
+        name="chrome_javascript",
+        description=(
+            "Bağlı Chrome sekmesinde JavaScript çalıştır; son ifadenin değeri döner "
+            "(her seferinde sorulur)."
+        ),
+        parameters=_schema({"text": _STRING}, ["text"]),
+        run=chrome_script.chrome_javascript,
+        mutating=True,
+        effect=ToolEffect.REMOTE_DESTRUCTIVE,
+    ),
+    Tool(
+        name="chrome_batch",
+        description=(
+            "Chrome araçlarını tek çağrıda sırayla çalıştır; ilk hatada durur. "
+            "actions=[{name, input}]."
+        ),
+        parameters=_schema(
+            {"actions": {"type": "array", "items": {"type": "object"}}}, ["actions"]
+        ),
+        run=chrome_script.chrome_batch,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
     ),
     Tool(
         name="chrome_click",
@@ -152,6 +300,20 @@ _TOOLS: tuple[Tool, ...] = (
         description="Çalışan macOS uygulamalarını listele.",
         parameters=_schema({}, []),
         run=desktop.desktop_apps,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+    ),
+    Tool(
+        name="desktop_request_access",
+        description=(
+            "Kullanacağın macOS uygulamalarını tek istemde iste (apps listesi); onaylananlar "
+            "oturum boyu izinli olur."
+        ),
+        parameters=_schema(
+            {"apps": {"type": "array", "items": _STRING}, "reason": _STRING}, ["apps"]
+        ),
+        run=desktop_access.desktop_request_access,
+        mutating=True,
+        effect=ToolEffect.REMOTE_INTERACT,
     ),
     Tool(
         name="desktop_open",
@@ -161,17 +323,63 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
+        name="desktop_displays",
+        description="Bağlı macOS ekranlarını sırası ve boyutuyla listele (çoklu ekran).",
+        parameters=_schema({}, []),
+        run=desktop_screen.desktop_displays,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+    ),
+    Tool(
         name="desktop_screenshot",
-        description="macOS ekranını görsel olarak oku.",
-        parameters=_schema({"path": _STRING}, []),
-        run=desktop.desktop_screenshot,
+        description=(
+            "macOS ekranını görsel olarak oku; sonuç küçültülür ve 'görüntü pikseli = N nokta' "
+            "çerçevesi bildirilir. region='x,y,w,h' ile bölgeyi büyüt (kırpık; tıklama tam "
+            "görüntü koordinatıyla), display=N ile ekran seç."
+        ),
+        parameters=_schema(
+            {
+                "path": _STRING,
+                "display": {**_INTEGER, "description": "Ekran sırası (1 = ana)."},
+                "region": {**_STRING, "description": "Son görüntünün pikseliyle 'x,y,w,h'."},
+            },
+            [],
+        ),
+        run=desktop_screen.desktop_screenshot,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         mutating=True,
     ),
     Tool(
+        name="desktop_mouse",
+        description=(
+            "Fare eylemi; x,y BU TURDA alınan son desktop_screenshot görüntüsünün "
+            "pikselidir (görüntü yoksa önce al). action: "
+            "click|right_click|double_click|triple_click|middle_click|hover|down|up|drag "
+            "(drag için to_x,to_y). button left|right|middle, modifiers 'cmd+shift'."
+        ),
+        parameters=_schema(
+            {
+                "action": {**_STRING, "enum": list(desktop_mouse.MOUSE_ACTIONS)},
+                "x": _NUMBER,
+                "y": _NUMBER,
+                "to_x": _NUMBER,
+                "to_y": _NUMBER,
+                "button": {**_STRING, "enum": list(desktop_mouse.BUTTONS)},
+                "modifiers": _STRING,
+            },
+            ["action", "x", "y"],
+        ),
+        run=desktop_mouse.desktop_mouse,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
         name="desktop_click",
-        description="macOS ekranında x/y noktasına tıkla.",
-        parameters=_schema({"x": _INTEGER, "y": _INTEGER}, ["x", "y"]),
-        run=desktop.desktop_click,
+        description=(
+            "macOS ekranında x/y noktasına sol tıkla (x,y bu turdaki son ekran görüntüsünün "
+            "pikseli; görüntü yoksa önce desktop_screenshot)."
+        ),
+        parameters=_schema({"x": _NUMBER, "y": _NUMBER}, ["x", "y"]),
+        run=desktop_mouse.desktop_click,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
     ),
@@ -185,9 +393,25 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_key",
-        description="macOS'a özel tuş veya Command kısayolu gönder.",
+        description=(
+            "macOS'a tuş ya da kısayol dizgisi gönder: 'cmd+shift+4', 'cmd+l enter' (boşlukla "
+            "sıra), repeat=tekrar, hold_ms=basılı tutma. Chrome key ile aynı sözdizimi."
+        ),
         parameters=_schema(
-            {"key": _STRING, "command": {"type": "boolean"}, "shift": {"type": "boolean"}},
+            {
+                "key": {
+                    **_STRING,
+                    "description": "Akor dizisi: enter, esc, tab, space, ok tuşları, home/end/"
+                    "pageup/pagedown, f1-f20, a-z, 0-9, noktalama; değiştiriciler cmd/ctrl/alt/"
+                    "shift ('+' ile), akorlar boşlukla ayrılır.",
+                },
+                "repeat": {**_INTEGER, "description": "Dizinin tekrar sayısı (1-50)."},
+                "hold_ms": {**_INTEGER, "description": "Her tuşu basılı tutma süresi (0-5000 ms)."},
+                "command": {"type": "boolean"},
+                "shift": {"type": "boolean"},
+                "option": {"type": "boolean"},
+                "control": {"type": "boolean"},
+            },
             ["key"],
         ),
         run=desktop.desktop_key,
@@ -196,9 +420,14 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_scroll",
-        description="macOS penceresini kaydır; pozitif yukarıdır.",
-        parameters=_schema({"lines": _INTEGER}, ["lines"]),
-        run=desktop.desktop_scroll,
+        description=(
+            "macOS'ta kaydır: lines dikey (pozitif yukarı), delta_x yatay (pozitif sola); "
+            "x,y verilirse imleç önce oraya gider (son ekran görüntüsünün pikseli)."
+        ),
+        parameters=_schema(
+            {"lines": _INTEGER, "delta_x": _INTEGER, "x": _NUMBER, "y": _NUMBER}, []
+        ),
+        run=desktop_mouse.desktop_scroll,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
     ),
@@ -219,6 +448,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["path"],
         ),
         run=files.read_file,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="write_file",
@@ -371,6 +601,7 @@ _TOOLS: tuple[Tool, ...] = (
         "önce bunu kullan, körlemesine dosya okuma.",
         parameters=_schema({"path": {**_STRING, "description": "Dizin yolu (varsayılan: .)"}}, []),
         run=files.list_dir,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="search_code",
@@ -384,6 +615,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["pattern"],
         ),
         run=search.search_code,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="glob",
@@ -397,6 +629,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["pattern"],
         ),
         run=search.glob_files,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="git",
@@ -412,15 +645,32 @@ _TOOLS: tuple[Tool, ...] = (
             ["subcommand"],
         ),
         run=shell.git,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+    ),
+    Tool(
+        name="gh",
+        # Kısa tutulur: emüle araç istemi bütçeye tabidir (`test_tool_emulation_diet`).
+        description="Salt-okunur gh: pr view/diff/checks, issue, run view, api GET; onaysız. "
+        "Yazan gh komutları run_shell ile (onay istenir).",
+        parameters=_schema(
+            {"args": {**_STRING, "description": "gh argümanları, ör: pr view 12 --comments"}},
+            ["args"],
+        ),
+        run=github_cli.gh,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+        effect=ToolEffect.REMOTE_READ,
     ),
     Tool(
         name="run_shell",
-        description="Proje kökünde kabuk komutu (onaylı); test/lint/build ile doğrula. "
-        "120 sn'den uzun işi background=true ile başlat.",
+        description="Kökte kabuk komutu (onaylı); test/lint/build ile doğrula.",
         parameters=_schema(
             {
                 "command": _STRING,
-                "background": {"type": "boolean"},
+                # Claude Code Bash parametreleri (#332, #351, #356); eski `background` /
+                # `unsandboxed` adları çalıştırıcıda takma ad olarak okunur.
+                "timeout": {**_INTEGER, "description": "ms (varsayılan 120000, en çok 600000)"},
+                "run_in_background": {"type": "boolean"},
+                "dangerouslyDisableSandbox": {"type": "boolean", "description": "sandbox dışı"},
                 "expected_outputs": {
                     "type": "array",
                     "items": _STRING,
@@ -440,6 +690,7 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=shell.run_shell,
         mutating=True,
+        evidence_role_resolver=shell.process_evidence_role,
     ),
     Tool(
         name="job_status",
@@ -449,11 +700,17 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=jobs.job_status,
         mutating=True,
+        # Claude'da karşılığı yok (TaskOutput kaldırıldı): kullanımdan kalkan takma ad;
+        # şemada sunulmaz, çağrılırsa çalışır. Durdurma `task_stop`, okuma `read_file` (#334).
+        advertised=False,
     ),
+    TASK_STOP_TOOL,
+    MONITOR_TOOL,
+    *TASK_TOOLS,
     Tool(
         name="todo_write",
-        description="Görev listesini TAMAMEN güncelle; çok adımlı işte plan çıkar, "
-        "ilerledikçe durumları güncelle. Tek adımlı işte kullanma.",
+        description="Çok adımlı işte görev listesini TAMAMEN yaz, ilerledikçe güncelle. "
+        "Tek adımlı işte kullanma.",
         parameters=_schema(
             {
                 "todos": {
@@ -465,6 +722,7 @@ _TOOLS: tuple[Tool, ...] = (
                                 **_STRING,
                                 "enum": ["pending", "in_progress", "completed"],
                             },
+                            "activeForm": _STRING,
                         },
                         ["content", "status"],
                     ),
@@ -478,8 +736,26 @@ _TOOLS: tuple[Tool, ...] = (
         name="web_search",
         description="Web'de ara (ücretsiz). Güncel bilgi, sürüm ya da hata çözümü "
         "gerektiğinde kullan; ezberden emin konuşma.",
-        parameters=_schema({"query": {**_STRING, "description": "arama sorgusu"}}, ["query"]),
+        parameters=_schema(
+            {
+                "query": {**_STRING, "description": "arama sorgusu"},
+                "recency_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Son kaç gün; tarih aralığıyla birlikte verilmez",
+                },
+                "date_from": {
+                    **_STRING,
+                    "description": "Başlangıç YYYY-MM-DD; date_to ile birlikte",
+                },
+                "date_to": {**_STRING, "description": "Bitiş YYYY-MM-DD; date_from ile birlikte"},
+            },
+            ["query"],
+        ),
         run=web.web_search,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+        # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
+        effect_resolver=_gate_only,
     ),
     Tool(
         name="download_file",
@@ -507,25 +783,86 @@ _TOOLS: tuple[Tool, ...] = (
         description="URL içeriğini metin olarak oku. Girişli/formlu sayfada browser_open kullan.",
         parameters=_schema({"url": _STRING}, ["url"]),
         run=web.web_fetch,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+        # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
+        effect_resolver=_gate_only,
+    ),
+    Tool(
+        name="kits_list",
+        description="Fusion Kits'teki Kit'leri (karakterli uzman ajanlar) listele: kimlik, ad, "
+        "Fusion izni, gelen kutusu. Bir Kit'e iş bırakmadan önce adını doğrulamak için.",
+        parameters=_schema({}, []),
+        run=kits.kits_list,
+        effect=ToolEffect.REMOTE_READ,
+    ),
+    Tool(
+        name="kit_send",
+        description="Bir Kit'e mesaj ya da görev bırak (Fusion gelen kutusu). Kullanıcı 'şunu "
+        "X Kit'ine ver/ilet' dediğinde kullan; Kit işi kendi sohbetinde, sırası gelince yapar. "
+        "Dönen makbuz yalnız kuyruğa alındığını söyler; sonucu kit_task_status ile oku.",
+        parameters=_schema(
+            {
+                "kit": {**_STRING, "description": "Kit adı ya da kimliği"},
+                "text": {**_STRING, "description": "Kit'e bırakılacak metin (3-4000 karakter)"},
+                "title": {**_STRING, "description": "Kısa başlık (isteğe bağlı)"},
+                "kind": {**_STRING, "enum": ["gorev", "mesaj"]},
+            },
+            ["kit", "text"],
+        ),
+        run=kits.kit_send,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="kit_task_status",
+        description="Bir Kit'in Fusion gelen kutusunu ya da tek görevin durumunu/sonucunu oku. "
+        "kit_send makbuzundaki gorev_id'yi task_id olarak ver; vermezsen son kayıtlar döner.",
+        parameters=_schema(
+            {
+                "kit": {**_STRING, "description": "Kit adı ya da kimliği"},
+                "task_id": {**_STRING, "description": "kit_send makbuzundaki görev kimliği"},
+            },
+            ["kit"],
+        ),
+        run=kits.kit_task_status,
+        effect=ToolEffect.REMOTE_READ,
     ),
     Tool(
         name="browser_open",
-        description="Dış URL'yi tarayıcıda aç ve oku; girişli/JS sayfası için. "
-        "Oturum tur boyunca açık kalır; localhost engellenir.",
-        parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
+        # Metin kısa tutulur: web öykünme promptu bütçesi (tests/test_tool_emulation_diet.py).
+        description="URL'yi tarayıcıda aç ve oku; oturum tur boyunca açık kalır. Yerel adres "
+        "yalnız kullanıcının yazdığı ya da önizlemenin localhost:PORT'uysa açılır; diğer özel "
+        "ağ engellenir.",
+        parameters=_schema(
+            {
+                "url": {**_STRING, "description": "Açılacak adres"},
+                "profile": {
+                    **_STRING,
+                    "description": "Kullanıcının kurduğu tarayıcı profili adı (girişli oturum); "
+                    "yalnız kullanıcı isterse. Boş: çerezsiz.",
+                },
+            },
+            ["url"],
+        ),
         run=browser.browser_open,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
+        # Çerezsiz açılış yalnız okur; profil yüklenecekse onay (REMOTE_SESSION, P-023).
+        effect=ToolEffect.REMOTE_READ,
+        effect_resolver=browser.browser_open_effect,
     ),
     Tool(
         name="browser_read",
         description="Açık sayfanın güncel adresini, başlığını ve metnini oku.",
         parameters=_schema({}, []),
         run=browser.browser_read,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="browser_tabs_list",
         description="Bu turdaki açık tarayıcı sekmelerini listele; yıldız etkin sekmeyi gösterir.",
         parameters=_schema({}, []),
         run=browser.browser_tabs_list,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="browser_tab_select",
@@ -559,6 +896,7 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=browser.browser_type,
         mutating=True,
+        effect_resolver=browser.browser_type_effect,
     ),
     Tool(
         name="browser_click",
@@ -574,6 +912,7 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=browser.browser_click,
         mutating=True,
+        effect_resolver=browser.browser_click_effect,
     ),
     Tool(
         name="browser_screenshot",
@@ -589,6 +928,7 @@ _TOOLS: tuple[Tool, ...] = (
             [],
         ),
         run=browser.browser_screenshot,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         mutating=True,
     ),
     Tool(
@@ -613,6 +953,34 @@ _TOOLS: tuple[Tool, ...] = (
         parameters=_schema({}, []),
         run=browser.browser_close,
     ),
+    Tool(
+        name="enter_worktree",
+        description="İzole git çalışma ağacı aç (.claude/worktrees/<ad>, dal worktree-<ad>); "
+        "tur bitince oturum kökü oraya geçer. Ana proje değişmez.",
+        parameters=worktree_tools.ENTER_WORKTREE_SCHEMA,
+        run=worktree_tools.enter_worktree_tool,
+        mutating=True,
+    ),
+    Tool(
+        name="exit_worktree",
+        description="Çalışma ağacından ana depoya dön (tur bitince); temiz ağaç kaldırılır, "
+        "iş varsa korunur.",
+        parameters=worktree_tools.EXIT_WORKTREE_SCHEMA,
+        run=worktree_tools.exit_worktree_tool,
+        mutating=True,
+    ),
+    Tool(
+        name="enter_plan_mode",
+        description="Kodlamadan önce plan kipine geç.",
+        parameters=plan_tools.ENTER_PLAN_MODE_SCHEMA,
+        run=plan_tools.enter_plan_mode_tool,
+    ),
+    Tool(
+        name="exit_plan_mode",
+        description="Plan hazırken planı kullanıcının onayına sun ve turu bitir.",
+        parameters=plan_tools.EXIT_PLAN_MODE_SCHEMA,
+        run=plan_tools.exit_plan_mode_tool,
+    ),
 )
 
 #: Bazı modeller bu adları tercih eder; farklı isimlendirme alışkanlığı hataya dönüşmesin.
@@ -630,4 +998,18 @@ _ALIASES = {
     "execute_command": "run_shell",
     "list_files": "list_dir",
     "create_file": "write_file",
+    # Claude Code / Cursor / Windsurf alışkanlıkları (büyük harf `Read` registry'de
+    # `read`'e normalleştirilir; argüman anahtarları `arg_aliases` ile eşlenir).
+    "read": "read_file",
+    "view": "read_file",
+    "write": "write_file",
+    "edit": "edit_file",
+    "str_replace": "edit_file",
+    "ls": "list_dir",
+    "grep": "search_code",
+    "search": "search_code",
+    "fetch": "web_fetch",
+    "run_command": "run_shell",
+    "run_terminal_cmd": "run_shell",
+    "terminal": "run_shell",
 }

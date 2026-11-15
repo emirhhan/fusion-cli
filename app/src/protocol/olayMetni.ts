@@ -10,15 +10,25 @@
  * olduğunu gizliyordu.
  */
 
+import { sirlariMaskele } from "./sirMaskesi";
+
 export type OlaySonucu = "completed" | "partial" | "failed" | "unknown";
 
 export interface OlayAdimi {
   /** Kısa başlık: "düşünüyor", "dosya yazdı"… */
   metin: string;
-  /** Adım bir araç çağrısıysa aracın adı; başlayan ve biten olay bununla eşleşir. */
+  /** Adım bir araç çağrısıysa aracın kısa adı. */
   arac?: string;
+  /** Araç çağrısının ve onu kabul eden turun tel kimliği. */
+  callId?: string;
+  sessionId?: string;
+  turnId?: string;
+  attemptId?: string;
+  eventId?: string;
   /** Araç başladı ama henüz bitmedi (`ToolStarted`). */
   basladi?: boolean;
+  /** Tur sona erdi ama araç makbuzu gelmedi; geç gerçek sonuç bunun yerini alabilir. */
+  sonucAlinamadi?: boolean;
   /** Araç bittiyse sonucu: ok | failed | denied | blocked. */
   durum?: string;
   /** Başlığı açan tek satır: rol, model, dosya yolu. */
@@ -57,7 +67,10 @@ export interface OlayAdimi {
 const CIKTI_SINIRI = 4000;
 
 function sinirla(metin: string): string {
-  return metin.length <= CIKTI_SINIRI ? metin : `${metin.slice(0, CIKTI_SINIRI)}\n…`;
+  if (metin.length <= CIKTI_SINIRI) return metin;
+  const cut = metin.slice(0, CIKTI_SINIRI);
+  const last = cut.charCodeAt(cut.length - 1);
+  return `${last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut}\n…`;
 }
 
 /**
@@ -83,7 +96,8 @@ function aracAyrintisi(args: unknown): { ayrinti?: string; kaynak?: string } {
   const path = typeof row.path === "string" ? row.path : undefined;
   const command = typeof row.command === "string" ? row.command : undefined;
   const query = typeof row.query === "string" ? row.query : undefined;
-  return { ayrinti: url ?? (path ? kisaYol(path) : undefined) ?? command ?? query, kaynak: url };
+  // Komut satırı sır taşıyabilir (`curl -H "Authorization: …"`): ekrana maskelenmiş çıkar (U5-16).
+  return { ayrinti: url ?? (path ? kisaYol(path) : undefined) ?? (command ? sirlariMaskele(command) : undefined) ?? query, kaynak: url };
 }
 
 /** Alıntılanan metnin üst sınırı; durum satırı tek satırda kalmalı. */
@@ -121,6 +135,18 @@ function tarayiciGenel(fiil: string): (args: Record<string, unknown>) => string 
   return () => `tarayıcı ile ${fiil}`;
 }
 
+const MASAUSTU_FARE: Record<string, string> = {
+  click: "bir öğeye tıklanıyor",
+  right_click: "sağ tıklanıyor",
+  double_click: "çift tıklanıyor",
+  triple_click: "üç kez tıklanıyor",
+  middle_click: "orta tuşla tıklanıyor",
+  drag: "sürükleniyor",
+  hover: "imleç bir öğenin üstüne götürülüyor",
+  down: "fare basılı tutuluyor",
+  up: "fare bırakılıyor",
+};
+
 function masaustuGenel(fiil: string): (args: Record<string, unknown>) => string {
   return () => `masaüstünde ${fiil}`;
 }
@@ -148,7 +174,7 @@ const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => s
   },
   run_shell: (args) => {
     const komut = metinAl(args, "command", "komut");
-    return komut ? `kabuk komutu ${tirnakla(komut)} çalıştırılıyor` : "kabuk komutu çalıştırılıyor";
+    return komut ? `kabuk komutu ${tirnakla(sirlariMaskele(komut))} çalıştırılıyor` : "kabuk komutu çalıştırılıyor";
   },
   todo_write: () => "görev listesi güncelleniyor",
   web_search: (args) => {
@@ -174,6 +200,23 @@ const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => s
     if (eylem === "screenshot") return "chrome ile ekran görüntüsü alınıyor";
     return "chrome ile sayfa etkileşimi yapılıyor";
   },
+  // Claude in Chrome adları (#431).
+  "claude-in-chrome__navigate": (args) => `chrome ile ${sunucuAdi(metinAl(args, "url"))} açılıyor`,
+  "claude-in-chrome__read_page": () => "chrome ile sayfa okunuyor",
+  "claude-in-chrome__find": () => "chrome ile sayfada öğe aranıyor",
+  "claude-in-chrome__get_page_text": () => "chrome ile sayfa metni okunuyor",
+  "claude-in-chrome__form_input": () => "chrome ile forma değer giriliyor",
+  "claude-in-chrome__tabs_context_mcp": () => "chrome sekmeleri listeleniyor",
+  "claude-in-chrome__computer": (args) => {
+    const eylem = args.action;
+    if (eylem === "scroll") return "chrome ile sayfa kaydırılıyor";
+    if (eylem === "wait") return "chrome ile bekleniyor";
+    if (eylem === "key") return "chrome ile tuşa basılıyor";
+    if (eylem === "type") return "chrome ile yazı yazılıyor";
+    if (eylem === "screenshot" || eylem === "zoom") return "chrome ile ekran görüntüsü alınıyor";
+    if (typeof eylem === "string" && eylem.includes("click")) return "chrome ile bir öğeye tıklanıyor";
+    return "chrome ile sayfa etkileşimi yapılıyor";
+  },
   browser_open: (args) => {
     const url = metinAl(args, "url");
     return url ? `tarayıcı ile ${sunucuAdi(url)} açılıyor` : "tarayıcı açılıyor";
@@ -196,7 +239,12 @@ const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => s
     return hedef ? `masaüstünde ${hedef} açılıyor` : "masaüstünde uygulama açılıyor";
   },
   desktop_screenshot: masaustuGenel("ekran görüntüsü alınıyor"),
+  desktop_displays: masaustuGenel("ekranlar listeleniyor"),
   desktop_click: masaustuGenel("bir öğeye tıklanıyor"),
+  desktop_mouse: (args) => {
+    const fiil = MASAUSTU_FARE[String(args.action ?? "click")] ?? "fare kullanılıyor";
+    return `masaüstünde ${fiil}`;
+  },
   desktop_type: masaustuGenel("yazı yazılıyor"),
   desktop_key: masaustuGenel("tuşa basılıyor"),
   desktop_scroll: masaustuGenel("sayfa kaydırılıyor"),
@@ -234,12 +282,80 @@ const ARAC_SONUCU: Record<string, string> = {
   failed: "araç başarısız",
   denied: "araç reddedildi",
   blocked: "araç engellendi",
+  timeout: "araç zaman aşımına uğradı",
+  cancelled: "araç iptal edildi",
+  unknown: "araç sonucu doğrulanamadı",
 };
+
+/**
+ * `outcome` alanını normalleştirir. Alan HİÇ yoksa eski çekirdek demektir ve
+ * "ok" sayılır (geriye uyum); var ama tanınmıyorsa ("error", "skipped", boş…)
+ * başarı varsayılmaz: "unknown". Ölçüldü (29 Ekim): yedek yol `ARAC_SONUCU.ok`
+ * olduğundan zaman aşımı/iptal "araç çalıştı" görünüyordu.
+ */
+function aracSonucu(outcome: unknown): string {
+  if (outcome === undefined || outcome === null) return "ok";
+  const ad = String(outcome).trim();
+  return ad === "ok" || Object.prototype.hasOwnProperty.call(ARAC_SONUCU, ad) ? ad : "unknown";
+}
+
+/** Kanıt olayları da dış veri: bilinmeyen yükten başarı ya da diff üretmeyelim. */
+function kanitSatirlari(value: unknown, cap = 10): string[] | null {
+  if (!Array.isArray(value) || !value.every(item => typeof item === "string")) return null;
+  return value.slice(0, cap).map(item => Array.from(sirlariMaskele(item)).slice(0, 500).join(""));
+}
+
+function aracKimligi(veri: Record<string, unknown>): Partial<OlayAdimi> {
+  const result: Partial<OlayAdimi> = {};
+  for (const [wire, field] of [["call_id", "callId"], ["session_id", "sessionId"], ["turn_id", "turnId"],
+    ["attempt_id", "attemptId"], ["event_id", "eventId"]] as const) {
+    if (typeof veri[wire] === "string" && veri[wire]) result[field] = veri[wire];
+  }
+  return result;
+}
 
 export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
   switch (olay) {
+    case "StatusChanged": {
+      if (typeof veri.message !== "string") return null;
+      const message = sirlariMaskele(veri.message).replace(/[\p{Cc}\s]+/gu, " ").trim();
+      if (!message) return null;
+      const characters = Array.from(message);
+      // Public progress is transient; the next step replaces it, without a tool receipt.
+      return { metin: characters.length > 240 ? `${characters.slice(0, 239).join("")}…` : message };
+    }
+    case "SelfReviewFinished": {
+      if (veri.completed === false) return {
+        metin: "özdenetim tamamlanamadı", durum: "unknown", kalici: true,
+        cikti: "Özdenetim tamamlanamadı; model değerlendirmesi doğrulanmadı.",
+      };
+      if (veri.completed !== true || typeof veri.issue_found !== "boolean") return {
+        metin: "özdenetim sonucu bilinmiyor", durum: "unknown", kalici: true,
+        cikti: "Bu olay özdenetimin sonucunu doğrulamıyor.",
+      };
+      return veri.issue_found ? {
+        metin: "özdenetim tamamlandı: bulgu bildirildi", kalici: true,
+        cikti: "Model özdenetimi tamamlandı ve bulgu bildirdi. Bulgunun giderildiği bu olayla doğrulanmaz.",
+      } : {
+        metin: "özdenetim tamamlandı", kalici: true,
+        cikti: "Model özdenetimi tamamlandı; bulgu bildirilmedi. Bu, bağımsız doğrulama kanıtı değildir.",
+      };
+    }
+    case "VerificationPassed": {
+      const checks = kanitSatirlari(veri.checks);
+      const unmeasured = kanitSatirlari(veri.unmeasured);
+      const complete = checks !== null && unmeasured !== null && !unmeasured.length && checks.some(item => item.trim());
+      const lines = [...(unmeasured ?? []).map(item => `Ölçülmedi: ${item}`), ...(checks ?? [])];
+      return {metin: complete ? "kontroller doğrulandı" : "doğrulama sonucu", kalici: true, durum: complete ? "ok" : "unknown",
+        cikti: lines.length ? sinirla(lines.join("\n")) : "Bu olay için okunabilir kontrol ayrıntısı yok."};
+    }
+    case "ChangesDigested": {
+      const lines = kanitSatirlari(veri.lines, 50);
+      if (!lines?.length) return null;
+      return {metin: "değişiklik özeti", kalici: true, cikti: sinirla(lines.join("\n"))};
+    }
     case "ToolStarted": {
       // Araç henüz BİTMEDİ; yalnız çalışmaya başladı (onay gerekiyorsa
       // ondan SONRA — bkz. `engines/agent/loop.py::_execute`). Cümle
@@ -249,15 +365,15 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       // satırın yerini alır — "Düşünüyor…" göstergesinin yaptığı gibi.
       const metin = typeof veri.metin === "string" && veri.metin ? veri.metin : `${ad} çalıştırılıyor`;
       const { kaynak } = aracAyrintisi(veri.args);
-      return { metin, kaynak, arac: ad, basladi: true };
+      return { metin, kaynak, arac: ad, basladi: true, ...aracKimligi(veri) };
     }
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
-      const durumAdi = String(veri.outcome ?? "ok");
+      const durumAdi = aracSonucu(veri.outcome);
       // Diff YALNIZ başarılı çağrıda taşınır. Engellenen ya da düşen bir
       // yazmanın diff'ini göstermek, yapılmamış bir değişikliği yapılmış gibi
       // sunardı — bu, `ARAC_SONUCU` ayrımının zaten kapattığı tuzağın aynısı.
-      const diff = veri.outcome === "ok" && typeof veri.diff === "string" && veri.diff
+      const diff = durumAdi === "ok" && typeof veri.diff === "string" && veri.diff
         ? veri.diff
         : undefined;
       // Dosya açma (`onOpenFile`) TAM yola muhtaçtır; `ayrinti` satırda
@@ -270,12 +386,15 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       // insan-okunur varsayılan metin üretilir (bkz. `aracVarsayilanMetni`).
       const metin = durumAdi === "ok"
         ? aracVarsayilanMetni(ad, veri.args)
-        : `${ARAC_SONUCU[durumAdi] ?? ARAC_SONUCU.ok}: ${ad}`;
-      const hamCikti = typeof veri.output === "string" ? veri.output.trim() : "";
-      const komut = metinAl(rawArgs, "command", "komut");
+        : `${ARAC_SONUCU[durumAdi]}: ${ad}`;
+      // Araç çıktısı (`env`, `cat .env`…) ve komut satırı sır taşıyabilir; ham haliyle ne ekrana
+      // ne sohbet kaydına gider (U5-16).
+      const hamCikti = typeof veri.output === "string" ? sirlariMaskele(veri.output.trim()) : "";
+      const hamKomut = metinAl(rawArgs, "command", "komut");
+      const komut = hamKomut ? sirlariMaskele(hamKomut) : undefined;
       return {
         metin, ayrinti, kaynak, diff, yol: diff ? (hamYol ?? ayrinti) : undefined,
-        arac: ad, durum: durumAdi,
+        arac: ad, durum: durumAdi, ...aracKimligi(veri),
         // Diff varsa çıktı tekrar gösterilmez: yazma aracının çıktısı zaten özetidir.
         cikti: !diff && hamCikti ? sinirla(hamCikti) : undefined,
         komut,
@@ -332,8 +451,27 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         altAjan: true,
       };
     }
+    case "AutoReviewDecided": {
+      // Otomatik kip denetçisi (P-011): kararı ve gerekçesi adım olarak kalır.
+      // Kurallı yedekte (`kural`) model bakmamıştır; başlık bunu söyler.
+      const guvenli = veri.verdict === "guvenli";
+      const kural = veri.source === "kural";
+      const kaynak = kural ? "kural" : veri.source === "onbellek" ? "önbellek" : "model";
+      const baslik = guvenli ? "denetçi onayladı" : "denetçi riskli buldu";
+      return {
+        metin: kural ? (guvenli ? "kurallar geçerli, sorulmadı" : "kurallar geçerli, soruluyor") : baslik,
+        ayrinti: sirlariMaskele(`${String(veri.summary ?? "")} · ${String(veri.reason ?? "")} (${kaynak})`),
+        kalici: true,
+      };
+    }
+    case "AutoModeFellBack":
+      return {
+        metin: "Otomatik kip Manuel'e düştü",
+        ayrinti: `${String(veri.reason ?? "engel eşiği aşıldı")} · okuma dışındaki her işlem sorulacak`,
+        kalici: true,
+      };
     case "ModelFallbackActivated": {
-      const gecis = `${String(veri.requested_model ?? "")} → ${String(veri.fallback_model ?? "")}`;
+      const gecis = `${String(veri.requested_model || "istenen model")} → ${String(veri.fallback_model || "yedek model")}`;
       const neden = String(veri.reason ?? "");
       // Seçilen web oturumu insan doğrulaması istediği için yedeğe geçildiyse
       // sebep saklanmaz: arayüz bunu görüp "Giriş penceresini aç" kartını açar.
@@ -398,7 +536,10 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     case "TeacherLimitationFound":
       return {
         metin: `${String(veri.topic ?? "İş")} yapılamıyor`,
-        ayrinti: `${String(veri.reason ?? "")}. Alternatif: ${String(veri.alternative ?? "")}`,
+        ayrinti: [
+          veri.reason ? `${String(veri.reason)}.` : "",
+          veri.alternative ? `Alternatif: ${String(veri.alternative)}` : "",
+        ].filter(Boolean).join(" ") || undefined,
         kalici: true,
       };
     case "ExecutionPromoted":
@@ -411,17 +552,25 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         metin: `plan hazır: ${Number(veri.total_steps ?? 0)} adım`,
         ayrinti: typeof veri.plan_id === "string" ? veri.plan_id : undefined,
       };
-    case "ExecutionStepStarted":
+    case "ExecutionStepStarted": {
+      const sira = Number(veri.index);
+      const toplam = Number(veri.total_steps);
+      // Adım zarfı tur/politika sınırının ÜSTÜNE çıkabilir (A3-40): maliyet sürprizi olmasın diye
+      // çekirdek `model_call_limit` gönderiyorsa görünür kılınır. Eski çekirdekte alan yoktur (0/eksik).
+      const zarf = Number(veri.model_call_limit);
+      const zarfMetni = Number.isInteger(zarf) && zarf > 0 ? `en çok ${zarf} model çağrısı` : "";
       return {
-        metin: `adım ${Number(veri.index ?? 0)}/${Number(veri.total_steps ?? 0)} başladı`,
-        ayrinti: typeof veri.goal === "string" ? veri.goal : undefined,
+        metin: Number.isFinite(sira) && Number.isFinite(toplam) && toplam > 0 ? `adım ${sira}/${toplam} başladı` : "adım başladı",
+        ayrinti: [typeof veri.goal === "string" ? veri.goal : "", zarfMetni].filter(Boolean).join(" · ") || undefined,
       };
+    }
     case "ExecutionStepVerified": {
       const ok = veri.ok === true;
       const details = ok ? veri.evidence : veri.findings;
       return {
         metin: `${String(veri.step_id ?? "adım")} ${ok ? "doğrulandı" : "doğrulanamadı"}`,
-        ayrinti: Array.isArray(details) ? details.join(" · ") : undefined,
+        // Nesne öğeler "[object Object]" yazmasın: yalnız metin öğeler birleştirilir.
+        ayrinti: Array.isArray(details) ? details.filter((item) => typeof item === "string").join(" · ") || undefined : undefined,
       };
     }
     case "ExecutionRetryScheduled":

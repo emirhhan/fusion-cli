@@ -6,24 +6,73 @@ değişken yoktur. Oturum boyunca değişen her şey buradadır.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import asyncio
+import functools
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from ...config.live import ConfigRevision, reload_if_changed, revision
+from ...config.live import ConfigRevision, reload_checked, revision
 from ...config.models import Config
+from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
+from ...core.background_events import BackgroundEvents
 from ...core.changeset import ChangeSet
+from ...core.errors import ConfigError
 from ...core.health import HealthRegistry
+from ...core.pull_request import PullRequestLink
 from ...core.remotion_browser import RemotionBrowser
+from ...core.session_cron import SessionCron
+from ...core.session_goal import SessionGoal
+from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
-from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...core.worktree import Worktree, WorktreeSwitch
+from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode, parse_mode
+from ...engines.agent.auto_switch import AutoSwitch
+from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
+from ...engines.agent.skill_context import InvokedSkills
+from ...engines.agent.skill_turn import TurnModelChoice
+from ...engines.agent.team import Persona
+from ...engines.hooks.session import HookSession, open_hook_session
 from ...memory.factory import Memory
+from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
-from ...tools.capabilities import CapabilityRegistry
+from ...observability.usage_log import UsageLog
+from ...tools.capabilities import Capability, CapabilityRegistry
+from ...tools.capability_overrides import registry_from_config
+from ..rule_notices import attach_rule_writer
 from .macros import Mode
+from .shell_live import ShellJobs
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
+    from ...remote.host import RemoteControlHost
+    from ...tools.browser_shared import SharedBrowser
+    from .agent_link import AgentLink
+    from .chrome_cli import ChromeSession
+    from .inline_keys import InlineKeys
+
+
+def rebase_session_changes(baseline: Config, session: Config, loaded: Config) -> Config:
+    """Dosyadan yeniden yüklenen yapılandırmanın üstüne OTURUM değişikliklerini bindir.
+
+    Üç yönlü birleşim, `Config` alan düzeyinde: oturumun `baseline`'a göre değiştirdiği
+    alan (`/effort`, `/model agent x`, `/profiles edit`…) korunur; oturumun dokunmadığı
+    alan dosyadan (`loaded`) gelir. Böylece kontrol paneli değişikliği alınırken
+    kullanıcının oturumluk seçimleri sessizce silinmez (L2-08).
+    """
+    merged = {
+        item.name: getattr(session, item.name)
+        if getattr(session, item.name) != getattr(baseline, item.name)
+        else getattr(loaded, item.name)
+        for item in fields(Config)
+        if item.name != "source"
+    }
+    return replace(loaded, **merged)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +94,60 @@ class Engine(Enum):
 TASK_TYPES = ("general", "code", "reasoning", "agent")
 
 
+#: `run_agent`/`run_forked_turn` imzalı tur çalıştırıcısı (bkz. `PendingExtras.fork_runner`).
+# Any: tur çalıştırıcılarının imzası geniş anahtar sözcüklüdür; yalnız sarmalanır.
+TurnRunner = Callable[..., Any]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingExtras:
+    """`/beceri` komutunun sıradaki tura taşıdığı ekler (bkz. `ReplState.take_pending_extras`)."""
+
+    context: str = ""
+    tools: frozenset[str] | None = None
+    #: Becerinin `model`/`effort` alanı: yalnız bu turun yapılandırmasını değiştirir (P-020).
+    model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
+    #: Becerinin `disallowed-tools` alanı (Fusion adları).
+    denied: frozenset[str] = frozenset()
+    #: `context: fork` + `agent:` → fork turunu bu alt ajan tanımı koşar.
+    fork_agent: str = ""
+    #: Becerinin tur izin kuralları `("allow"|"deny", desen)` (#142, #180).
+    grants: tuple[tuple[str, str], ...] = ()
+    #: Becerinin `context: fork`u: alt ajan geçmişsiz başlar (Claude Code #141).
+    fresh_fork: bool = False
+    #: Becerinin `background` alanı (yalnız fork): etkileşimli oturumda arka planda koşar.
+    fork_background: bool = False
+    #: Fork becerisinin adı: aynı becerinin önceki arka plan çağrısı sürerken beklenir (#141).
+    fork_skill: str = ""
+
+    def merged_tools(self, base: set[str] | None) -> set[str] | None:
+        """Yüzeyin kendi kısıtıyla kesişim; ikisi de yoksa None (kısıt yok)."""
+        if self.tools is None:
+            return base
+        return set(self.tools) if base is None else set(self.tools) & base
+
+    def merged_denied(self, base: frozenset[str]) -> frozenset[str]:
+        """Kişiliğin yasaklarıyla birleşim: beceri yasak ekler, kaldıramaz."""
+        return frozenset(base) | self.denied
+
+    def turn_config(self, config: Config) -> Config:
+        """Bu turun yapılandırması (becerinin modeli/eforu); seçim yoksa aynı nesne."""
+        return self.model_choice.apply(config)
+
+    def fork_runner(self, runner: TurnRunner) -> TurnRunner:
+        """Fork turu çalıştırıcısı; `agent:` varsa o tanımla, beceri fork'u geçmişsiz koşar."""
+        options: dict[str, object] = {}
+        if self.fork_agent:
+            options["persona"] = self.fork_agent
+        if self.fresh_fork:
+            options["inherit_context"] = False
+        if self.fork_background:
+            options["background"] = True
+            if self.fork_skill:
+                options["skill_key"] = self.fork_skill
+        return functools.partial(runner, **options) if options else runner
+
+
 @dataclass(slots=True)
 class ReplState:
     """Oturumun tüm değişken durumu."""
@@ -56,6 +159,24 @@ class ReplState:
     home: Path
     #: Transcript ve checkpoint aynı sohbet sahibini kullanır; yeni REPL ayrı kapsamdır.
     conversation_id: str = field(default_factory=lambda: f"session-{uuid4().hex}", kw_only=True)
+    #: Bu süreçte açılıp bırakılan sohbetler (`/clear`, `/resume`); `/resume` ile bunlara
+    #: dönülürse kayıtlı izin kipi geri yüklenmez (Claude Code, #189).
+    opened_conversations: frozenset[str] = field(default_factory=frozenset, kw_only=True)
+    #: Kanca oturumu (P-009); ilk `hooks()` çağrısında kurulur.
+    hook_session: HookSession | None = field(default=None, kw_only=True)
+    #: Bir sonraki SessionStart'ın zorunlu kaynağı (`/branch`, `--fork-session` → `fork`).
+    hook_start_source: str = field(default="", kw_only=True)
+    #: Kullanıcının sohbete verdiği ad (`--name`, `/rename`); yoksa boş.
+    conversation_name: str = field(default="", kw_only=True)
+    #: Son `/clear`: (bırakılan sohbet, yeni sohbet). `/rewind` menüsü bununla önceki oturumu
+    #: önerir (#200); başka sohbete geçilince yeni kimlik eşleşmez ve öneri kaybolur.
+    cleared_session: tuple[str, str] | None = field(default=None, kw_only=True)
+    #: Oturumun başladığı an (`time.monotonic`); durum satırı `cost.total_duration_ms` (#191).
+    started_at: float = field(default_factory=time.monotonic, kw_only=True)
+    #: Oturum bir git çalışma ağacındaysa künyesi (`--worktree`, `/worktree`); `root` o ağaçtır.
+    worktree: Worktree | None = field(default=None, kw_only=True)
+    #: Oturum boyu yaşayan görev listesi (#331; `task_list.session_todos` kurar).
+    todos: object | None = field(default=None, kw_only=True)
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
@@ -75,6 +196,9 @@ class ReplState:
     #: `/thinking` açık mı? Açıkken model düşünmesi (`<think>…`) gizlenmez, Claude Code
     #: gibi sönük bir blok olarak akıtılır. Varsayılan kapalı — sade akış korunur.
     show_thinking: bool = False
+    #: `/zil` açık mı? Açıkken tur bitince terminal zili çalar (başka pencerede çalışan
+    #: kullanıcıya haber). Varsayılan kapalı — boruda ve CI'da zaten yazılmaz.
+    bell: bool = False
     #: Açılış dolgusu hâlâ ekranda mı? İlk mesajda ekran dolgusuz yeniden çizilir.
     welcome_padded: bool = True
     synthesis: bool | None = None
@@ -84,22 +208,153 @@ class ReplState:
     last_fusion: FusionResult | None = None
     #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
     cost: CostTracker = field(default_factory=CostTracker)
+    #: Kalıcı kullanım günlüğü (`/usage` pencereleri; P-056). Ayar kapalıysa None.
+    usage_log: UsageLog | None = None
     #: Son agent turunun dosya değişiklikleri — `/undo` bunu geri alır.
     #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
     #: elle değişiklikleri sessizce ezme riski taşır.
     last_changes: ChangeSet | None = None
+    #: Tur başına kod + konuşma checkpoint'leri (`/rewind`). Her agent turu `begin` ile
+    #: açılır; turun `ChangeSet`'i buradan gelir ve `last_changes` ile aynı nesnedir.
+    checkpoints: TurnCheckpointLedger = field(default_factory=TurnCheckpointLedger)
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
+    #: --agents tanımları yalnız bu oturumun katalog bileşimindedir.
+    session_agents: tuple[Capability, ...] = field(default=(), kw_only=True)
+    #: Aynı asenkron sohbetin turlarından uzun yaşayan, kapanışta beklenen görev sahibi.
+    child_runs: ChildRuns = field(
+        default_factory=lambda: ChildRuns(persistent=True), kw_only=True, repr=False
+    )
+    #: `!` komutları (#218): Ctrl+B ile arka plana alınanlar `/tasks`'ta, kapanışta öldürülür.
+    shell_jobs: ShellJobs = field(default_factory=ShellJobs, kw_only=True, repr=False)
+    #: Son agent turunun araç bağlamı (Ctrl+T görev listesi, #216).
+    last_tool_context: object | None = field(default=None, kw_only=True, repr=False)
+    #: Bulgu listesi isteyen ana uygulama (masaüstü, #214 ReportFindings); terminalde False.
+    findings_host: bool = field(default=False, kw_only=True, repr=False)
+    #: Satır içi REPL'in #216 kısayolları (`inline_shortcuts.InlineShortcuts`); TUI'de None.
+    inline_shortcuts: Any = field(default=None, kw_only=True, repr=False)
+    #: Satır içi REPL: tur sürerken anlık komut çalıştırıcı (#209) ve süren işleri.
+    inline_immediate: Callable[[str], bool] | None = field(default=None, kw_only=True, repr=False)
+    immediate_tasks: set[asyncio.Future[None]] = field(
+        default_factory=set, kw_only=True, repr=False
+    )
+
+    #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
+    plain_memory: PlainMemory | None = None
+    #: Oturum kişiliği (P-053; `--agent <ad>` / `/persona`): tanımın gövdesi her turun
+    #: sistem istemine girer, araç kümesi daralır. None = varsayılan Fusion.
+    persona: Persona | None = field(default=None, kw_only=True)
+    #: initialPrompt yalnız ana oturumun ilk kullanıcı turunda tüketilir.
+    persona_initial_prompt_applied: bool = field(default=False, kw_only=True)
+    #: `/persona` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#34).
+    persona_command_warned: bool = field(default=False, kw_only=True)
+    #: Bu oturumda kullanımdan kalkma uyarısı basılmış Fusion'a özgü komutlar (#360, #365).
+    deprecation_warned: set[str] = field(default_factory=set, kw_only=True)
+    #: `/doctor prompt` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#212).
+    doctor_prompt_warned: bool = field(default=False, kw_only=True)
+    #: `/vim` kullanımdan kalkma uyarısı bu oturumda basıldı mı (#217).
+    vim_command_warned: bool = field(default=False, kw_only=True)
+    #: `/resume<kaynak>` kullanımdan kalkmış takma ad uyarısı verildi mi (#223)?
+    legacy_resume_warned: bool = field(default=False, kw_only=True)
+    #: Tam ekran TUI'nin vim kipi (`INSERT`/`NORMAL`/`VISUAL`); durum satırı JSON'u (#217).
+    vim_state: str = field(default="", kw_only=True)
+    #: Etkin yüzey (`inline`/`fullscreen`); boşsa görünüm oturum içinde değişemez (borulu, #232).
+    surface: str = field(default="", kw_only=True)
+    #: `/tui <kip>` isteği (#232): yüzey kapanınca konuşma korunarak bu kipte yeniden açılır.
+    surface_switch: str = field(default="", kw_only=True)
+    #: Görünüm değişiminden sonra tam ekranın açılışta basacağı not (#232).
+    surface_notice: str = field(default="", kw_only=True)
+    #: Eski `/add-dir` listeleme/kaldırma biçimi uyarısı bir kez gösterildi mi (#213).
+    add_dir_legacy_warned: bool = field(default=False, kw_only=True)
+    #: `/model agent|judge|…` eski alt komut uyarısı bir kez gösterildi mi (#211).
+    model_subcommand_warned: bool = field(default=False, kw_only=True)
+    #: Satır içi REPL durum satırı gözcüsü (#192); tam ekranda ve masaüstünde None.
+    status_watcher: object | None = field(default=None, kw_only=True)
+    #: `/btw` yan soruları (#221): (soru, cevap), en çok 20; konuşma geçmişine girmez.
+    side_questions: list[tuple[str, str]] = field(default_factory=list, kw_only=True)
+    main_config_applied: bool = field(default=False, kw_only=True)
+    _configured_persona: Persona | None = field(default=None, init=False, repr=False)
+    _persona_base_config: Config | None = field(default=None, init=False, repr=False)
+    _persona_applied_config: Config | None = field(default=None, init=False, repr=False)
+
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
     health: HealthRegistry | None = None
     #: Etkin yapılandırma dosyasının sürümü; turlar arasında kontrol paneli
     #: değişikliklerini yakalamak için kullanılır.
     config_revision: ConfigRevision = field(init=False)
+    #: Dosyadan en son yüklenen yapılandırma: oturum değişikliklerinin kıyas tabanı.
+    config_baseline: Config = field(init=False)
     #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.
     pending_task: str = ""
+    #: `fusion "istem"` (Claude `claude "query"`, #276): yüzey açılınca ilk tur olarak gönderilir.
+    initial_prompt: str = ""
+    #: Açılış sistem istemi bayrakları (`--system-prompt*`, #295); `launch_prompts.LaunchPrompts`.
+    launch_prompts: object = None
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
     pending_mode: Mode = Mode.NONE
+    #: Plan kipinde biten turun plan dosyası; kabul kartı gösterilince temizlenir.
+    pending_plan: Path | None = None
+    #: Sıradaki satır ajanın zamanladığı görevdir: slash ile başlasa da KOMUT değil, tur
+    #: olarak çalışır (bkz. `core.session_cron.Source`). Satır işlenince sıfırlanır.
+    scheduled_turn_only: bool = False
+    #: Sıradaki satır oturumun zamanlanmış görevinden (`/loop`, `cron_*`) geliyor. Satır
+    #: işlenmeye başlarken `line_scheduled`'a geçer: zamanlanmış `/beceri` satırının
+    #: `context: fork`u arka plana alınmaz, sonucu beklenir (Claude Code #141).
+    scheduled_fire: bool = False
+    line_scheduled: bool = False
+    #: `/rc` ile bu süreçte açılan uzaktan kontrol sunucusu; kapalıyken `None` (P-039).
+    remote_control: RemoteControlHost | None = field(default=None, kw_only=True)
+    #: `/voice` dikte metni: bir sonraki istem bununla dolu açılır (P-072); alınınca temizlenir.
+    pending_input: str = ""
+    #: Satır içi REPL'in tur boyu tuş gözcüsü (Ctrl+B + tur sürerken yazılanlar, #12).
+    inline_keys: InlineKeys | None = field(default=None, kw_only=True)
+    #: Arka plan görevleri + oturumlar arası mesaj bağlantısı (P-048/P-060); `agent_link.start`.
+    agent_link: AgentLink | None = field(default=None, kw_only=True)
+    #: `/tarayici ac` ile açılan, ajanla paylaşılan görünür tarayıcı (P-045); kapalıyken None.
+    shared_browser: SharedBrowser | None = field(default=None, kw_only=True)
+    #: `--chrome`/Enabled by default ile açılan Chrome köprüsü (#421); kapalıyken None.
+    chrome: ChromeSession | None = field(default=None, kw_only=True)
+    #: `/tarayici kapat` sonrası kapanışı süren paylaşımlar; REPL çıkışında beklenir.
+    closing_browsers: list[SharedBrowser] = field(default_factory=list, kw_only=True)
+    #: `/beceri` ile hazırlanan ve sıradaki turun sistem bağlamına eklenecek beceri gövdesi.
+    pending_context: str = ""
+    #: `allowed-tools` kısıtı: sıradaki turda sunulacak Fusion araç adları; None = kısıt yok.
+    pending_tools: frozenset[str] | None = None
+    #: Becerinin `model`/`effort`, `disallowed-tools` ve fork `agent` alanları (P-020).
+    pending_model_choice: TurnModelChoice = field(default_factory=TurnModelChoice)
+    pending_denied_tools: frozenset[str] = frozenset()
+    pending_fork_agent: str = ""
+    #: `allowed-tools` ön onayı ve `disallowed-tools` deseni: sıradaki turun izin kuralları.
+    pending_grants: tuple[tuple[str, str], ...] = ()
+    #: Becerinin `context: fork`u: sıradaki fork turu geçmişsiz alt ajanda koşar (#141).
+    pending_fresh_fork: bool = False
+    #: Becerinin `background` alanı (fork; varsayılan True): fork arka planda koşar (#141).
+    pending_fork_background: bool = False
+    pending_fork_skill: str = ""
+    #: Yalnız sıradaki tur için motor (#184): beceri Fusion motorunda agent turu olarak koşar,
+    #: oturumun motoru değişmez.
+    pending_engine: Engine | None = None
+    #: Yığılmış becerilerin `(ad, gövde)` çiftleri (#174): her biri sonraki turlarda kalır.
+    pending_stacked_skills: tuple[tuple[str, str], ...] = ()
+    #: Sıradaki turda çağrılan becerinin adı (komut dosyasında boş: gövde görevdir).
+    pending_skill_name: str = ""
+    #: Sohbette çağrılan becerilerin son gövdeleri: sonraki turlarda bağlamda kalır (#140).
+    invoked_skills: InvokedSkills = field(default_factory=InvokedSkills)
+    #: Oturumun bağlı olduğu PR (P-057): son turda açılan/okunan PR; durum satırında görünür.
+    linked_pr: PullRequestLink | None = None
+    #: Bypass Shift+Tab döngüsünde mi (#73): oturum bypass etkin başladıysa.
+    bypass_available: bool = False
+    #: Auto kipi kullanılabilir mi (#85): hiçbir ayar `disableAutoMode: "disable"` demiyorsa.
+    auto_available: bool = True
+    #: Çekirdek kipi kendisi değiştirince (karttan auto'ya geçiş, #82) haber verilen taraf;
+    #: masaüstü bunu `IzinKipiDegisti` olayına bağlar ki kip rozeti bayat kalmasın.
+    on_mode_change: Callable[[ApprovalMode], None] | None = None
+
+    def bind_pull_request(self, link: PullRequestLink | None) -> None:
+        """Turun kanıtından gelen PR künyesini bağla; yoksa öncekini koru."""
+        if link is not None:
+            self.linked_pr = link
 
     @classmethod
     def from_runtime_config(cls, config: Config, **kwargs: object) -> ReplState:
@@ -112,19 +367,157 @@ class ReplState:
             engine = Engine(config.runtime.engine)
         except ValueError:
             engine = Engine.AGENT
+        approval = _initial_approval(config, kwargs.get("root"))
+        state = cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+        _apply_mode_availability(state, approval)
+        _apply_additional_directories(state)
+        return state
+
+    async def reset_child_runs(self) -> None:
+        """Sohbet/kök değişiminde önce eski görevleri kapat, sonra yeni sahibi kur."""
+        await self.child_runs.close()
+        self.child_runs = ChildRuns(persistent=True)
+        self.persona_initial_prompt_applied = bool(self.history)
+
+    def apply_plan_mode_switch(self, switch: object) -> bool:
+        """`enter_plan_mode` (Claude EnterPlanMode) tur bitince kipi PLAN yapar (#324)."""
+        take = getattr(switch, "take_enter", None)
+        if take is None or not take():
+            return False
+        self.approval = ApprovalMode.PLAN
+        return True
+
+    async def apply_worktree_switch(self, switch: WorktreeSwitch | None) -> str:
+        """Kök değişmeden eski görevleri bekle; aynı kökte sürekliliği koru."""
+        from .worktrees import apply_switch_request
+
+        if switch is None:
+            return ""
+        target = switch.requested.path if switch.requested is not None else self.root
+        if switch.exit_requested and self.worktree is not None:
+            target = self.worktree.origin
+        if target != self.root:
+            await self.reset_child_runs()
+        return apply_switch_request(self, switch)
+
+    def select_persona(self, persona: Persona | None) -> None:
+        """Ayarları seçim anında uygula; ardından kullanıcı tercihi ilk turda da korunur."""
+        previous = self.persona
+        self.persona = persona
         try:
-            approval = ApprovalMode(config.runtime.approval_mode)
-        except ValueError:
-            approval = ApprovalMode.AUTO
-        if approval is ApprovalMode.BYPASS:
-            approval = ApprovalMode.AUTO
-        return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+            self.prepare_persona_config()
+        except ConfigError:
+            self.persona = previous
+            raise
+        from . import session_agent
+
+        session_agent.save(
+            self.config.memory_dir, self.conversation_id, persona.name if persona else ""
+        )
+
+    def prepare_persona_config(self) -> None:
+        """Kişilik ayarlarını seçimde uygula; sonraki model/efor/MCP tercihini koru."""
+        if self.persona is self._configured_persona:
+            return
+        from ...engines.agent.team_settings import main_agent_config, main_approval_mode
+
+        base = self.config
+        if self._persona_base_config is not None and self._persona_applied_config is not None:
+            base = rebase_session_changes(
+                self._persona_applied_config, base, self._persona_base_config
+            )
+        updated = (
+            main_agent_config(base, self.persona, root=self.root, home=self.home)
+            if self.persona is not None
+            else base
+        )
+        if self.persona is not None:
+            self.approval = main_approval_mode(
+                updated, self.persona, self.approval, root=self.root, home=self.home
+            )
+        self._persona_base_config, self._persona_applied_config = base, updated
+        self.config = updated
+        self._configured_persona = self.persona
+        self.main_config_applied = self.persona is not None
+
+    def take_persona_initial(self, task: str) -> str:
+        """Devam/resume turunda başlangıç görevini yeniden ekleme."""
+        from .persona_commands import initial_persona_task
+
+        if self.persona_initial_prompt_applied or self.persona is None:
+            return task
+        self.persona_initial_prompt_applied = True
+        return task if self.history else initial_persona_task(self.persona, task)
+
+    def take_initial_prompt(self) -> str:
+        """`fusion "query"` istemini bir kez döndür ve temizle (#204)."""
+        text, self.initial_prompt = self.initial_prompt, ""
+        return text
+
+    def take_surface_switch(self) -> str:
+        """`/tui` ile istenen yeni yüzeyi bir kez döndür ve temizle (#232)."""
+        wanted, self.surface_switch = self.surface_switch, ""
+        return wanted
 
     def take_pending(self) -> tuple[str, Mode]:
         """Bekleyen görevi al ve temizle."""
         task, mode = self.pending_task, self.pending_mode
         self.pending_task, self.pending_mode = "", Mode.NONE
         return task, mode
+
+    def take_pending_input(self) -> str:
+        """`/voice` ön dolgusunu bir kez al ve temizle."""
+        text, self.pending_input = self.pending_input, ""
+        return text
+
+    def take_scheduled_turn_only(self) -> bool:
+        """Zamanlanmış satır 'yalnız tur' işaretini bir kez al ve temizle."""
+        value, self.scheduled_turn_only = self.scheduled_turn_only, False
+        self.line_scheduled, self.scheduled_fire = self.scheduled_fire, False
+        return value
+
+    def refresh_capability_roots(self) -> None:
+        """`/add-dir` sonrası beceri kataloğunu ek köklerle yeniden kur (P-052)."""
+        if self.capabilities is not None:
+            self.capabilities = self.capabilities.with_extra_roots(self.extra_roots)
+
+    def take_turn_engine(self) -> Engine:
+        """Bu turun motoru: bekleyen tek turluk seçim ya da oturumun motoru (bir kez)."""
+        engine = self.pending_engine or self.engine
+        self.pending_engine = None
+        return engine
+
+    def take_pending_extras(self) -> PendingExtras:
+        """Beceri bağlamı ve araç kısıtını BİR KEZ al; sonraki turlara sızmasın."""
+        # Modelin `Skill` sonuçları ve sıkıştırma geçmişten okunur (#140).
+        record = self.invoked_skills.for_conversation(self.conversation_id).observe(self.history)
+        stacked = self.pending_stacked_skills
+        names = (self.pending_skill_name, *(name for name, _ in stacked))
+        carried = "" if self.pending_fresh_fork else record.carried_block(names)
+        if self.pending_skill_name and not self.pending_fresh_fork:
+            record = record.remember(self.pending_skill_name, self.pending_context)
+        for name, body in stacked:
+            record = record.remember(name, body)
+        self.invoked_skills = record
+        self.pending_stacked_skills = ()
+        extras = PendingExtras(
+            "\n\n".join(part for part in (carried, self.pending_context) if part),
+            self.pending_tools,
+            self.pending_model_choice,
+            self.pending_denied_tools,
+            self.pending_fork_agent,
+            self.pending_grants,
+            self.pending_fresh_fork,
+            self.pending_fork_background,
+            self.pending_fork_skill if self.pending_fork_background else "",
+        )
+        self.pending_fork_background, self.pending_fork_skill = False, ""
+        self.pending_context, self.pending_tools = "", None
+        self.pending_grants, self.pending_fresh_fork = (), False
+        self.pending_skill_name = ""
+        self.pending_model_choice = TurnModelChoice()
+        self.pending_denied_tools, self.pending_fork_agent = frozenset(), ""
+        return extras
 
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
     allowed_commands: frozenset[str] = frozenset()
@@ -133,21 +526,158 @@ class ReplState:
     approval_memory: ApprovalMemory = field(default_factory=ApprovalMemory)
     #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
     reminders: list[Reminder] = field(default_factory=list)
+    #: Oturum zamanlayıcısı: `/loop` ve `cron_*` araçlarının görevleri (P-038).
+    cron: SessionCron = field(default_factory=SessionCron)
+    #: Arka plan olayları: biten iş ve `monitor` satırı tura girer (#334, #336).
+    background_events: BackgroundEvents = field(default_factory=BackgroundEvents)
+    #: `/goal <koşul>` ile kurulan turlar arası hedef (P-058); yoksa None.
+    goal: SessionGoal | None = None
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
     pending_digest: str | None = None
 
+    #: `!` kabuk çıktısı ve `@dosya` içerikleri (P-022): bir sonraki turun sistem
+    #: bağlamına girer, sonra temizlenir. Devralma künyesiyle aynı yoldan taşınır.
+    pending_blocks: list[str] = field(default_factory=list)
+
     def take_pending_digest(self) -> str:
-        """Devralma künyesini bir kez al ve sonraki turlardan temizle."""
-        digest = self.pending_digest or ""
+        """Devralma künyesi + bekleyen bağlam bloklarını bir kez al; sonraki turlardan temizle."""
+        parts = [self.pending_digest or "", *self.pending_blocks]
         self.pending_digest = None
-        return digest
+        self.pending_blocks = []
+        return "\n\n".join(part for part in parts if part)
+
+    def restore_pending_digest(self, digest: str) -> None:
+        """İptal/hata ile biten turun tükettiği bağlamı geri koy (L2-24; iki REPL yüzeyi).
+
+        Ölçüldü (31 Ekim): satır-içi REPL'de tur iptal olunca `@dosya` blokları ve `!`
+        çıktısı kayboluyordu (yalnız tam ekran geri koyuyordu). Arada yeni künye
+        geldiyse eskisi onun ÖNÜNE eklenir; ezilmez.
+        """
+        if not digest:
+            return
+        current = self.pending_digest or ""
+        self.pending_digest = f"{digest}\n\n{current}" if current else digest
 
     def __post_init__(self) -> None:
+        self._bind_root_services()
+        # Onay kartındaki "bir daha sorma" kalıcı kurala dönüşür (P-003); kök çağrı anında
+        # okunur, böylece proje değişince yeni projeye yazılır.
+        attach_rule_writer(self.approval_memory, lambda: self.root)
+        # Denetçi engel eşiğini aşınca (P-011) oturum Manuel kipe düşer; kalıcı ayar değişmez.
+        self.approval_memory.auto_review.on_fallback = self._fall_back_to_manual
+        # Onay kartında "Evet, ve auto kipine geç" (#82): Manuel/acceptEdits'te auto açıksa.
+        self.approval_memory.auto_switch = AutoSwitch(
+            available=self._auto_switch_available, switch=self._switch_to_auto
+        )
+        self.config_revision = revision(self.config)
+        self.config_baseline = self.config
+
+    def _bind_root_services(self) -> None:
+        """Köke bağlı yardımcılar (beceri kataloğu, düz bellek, onaysız komutlar); eksikse kur."""
         if self.capabilities is None:
-            self.capabilities = CapabilityRegistry(self.home, self.root)
+            # `capabilities.disabled` ve `overrides` her oturumda uygulanır (P-051).
+            self.capabilities = registry_from_config(
+                self.config,
+                self.home,
+                self.root,
+                extra_roots=self.extra_roots,
+                session_agents=self.session_agents,
+            )
+        if self.plain_memory is None:
+            self.plain_memory = build_plain_memory(self.config, self.root)
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
-        self.config_revision = revision(self.config)
+
+    def rebind_root(self, root: Path) -> None:
+        """Oturum kökünü değiştir ve köke bağlı her şeyi yeni köke kur (`/cd`, P-072).
+
+        Eski projenin ek klasörleri (`/add-dir`) ve "oturum boyunca izin ver" kararları
+        yeni köke TAŞINMAZ — masaüstü `_apply_root` ile aynı kural.
+        """
+        self.root = root
+        self.extra_roots = ()
+        self.approval_memory.revoke()
+        self.capabilities = None
+        self.plain_memory = None
+        self.allowed_commands = frozenset()
+        self._bind_root_services()
+
+    def hooks(self) -> HookSession:
+        """Oturumun kanca yürütücüsü (P-009); yaşam döngüsü `engines/hooks/session.py`.
+
+        Kök değişimi (worktree) aynı oturumu sürdürür; sohbet kimliği değişirse (`/resume`,
+        `/branch`, masaüstünde başka sohbet) eski oturum kapanır, yenisi `resume` ile açılır.
+        Ölçüldü (31 Ekim): kök değişince yeni oturum kuruluyor, SessionStart ikinci kez
+        tetikleniyor ve ilk oturumun SessionEnd'i hiç gelmiyordu.
+        """
+        session = self.hook_session
+        source = self.hook_start_source or ("resume" if self.history else "startup")
+        self.hook_start_source = ""
+        if session is None:
+            session = open_hook_session(
+                self.root,
+                lambda: self.config,
+                session_id=self.conversation_id,
+                permission_mode=lambda: self.approval.value,
+                source=source,
+            )
+            session.skills_reloader = self._reload_skills
+            session.title_sink = self._adopt_hook_title
+            session.context_chars = lambda: sum(len(m.content or "") for m in self.history)
+            self.hook_session = session
+        session.root = self.root
+        if session.conversation_id != self.conversation_id:
+            session.restart(
+                source,
+                # Claude: etkileşimli /resume ile oturum değişimi `resume` nedenidir.
+                reason="resume",
+                session_id=self.conversation_id,
+                conversation_id=self.conversation_id,
+            )
+        if self.conversation_name:
+            session.session_title = self.conversation_name
+        return session
+
+    def _auto_switch_available(self) -> bool:
+        return self.auto_available and self.approval in (
+            ApprovalMode.SECURITY,
+            ApprovalMode.ACCEPT_EDITS,
+        )
+
+    def _switch_to_auto(self) -> None:
+        if not self._auto_switch_available():
+            return
+        self.approval = ApprovalMode.AUTO
+        notify = getattr(self, "on_mode_change", None)
+        if notify is not None:
+            notify(self.approval)
+
+    def _adopt_hook_title(self, title: str) -> None:
+        """Kanca `sessionTitle` (#123): `/rename` gibi sohbete ad verir."""
+        from .session_resume import rename_command
+
+        rename_command(self, title)
+
+    def _reload_skills(self) -> None:
+        """SessionStart `reloadSkills` (#111): kanca kurduğu beceriler hemen görünsün."""
+        if self.capabilities is not None:
+            self.capabilities.invalidate()
+
+    def _fall_back_to_manual(self) -> None:
+        if self.approval is ApprovalMode.AUTO:
+            self.approval = ApprovalMode.SECURITY
+
+    def permission_rules(self) -> PermissionRuleSet:
+        """İzin kuralları her turda dosyadan taze okunur (P-001).
+
+        `/permissions add` ve onay kartındaki "bir daha sorma" sonraki turda etkili olur;
+        dosyalar küçük, okuma ucuzdur.
+        """
+        return load_permission_rules(
+            self.root,
+            block_reads_outside_root=self.config.runtime.block_reads_outside_root,
+            block_writes_outside_root=self.config.runtime.block_writes_outside_root,
+        )
 
     def refresh_config(self) -> bool:
         """Bir sonraki turdan önce kontrol paneli yapılandırma değişikliklerini uygula.
@@ -155,20 +685,121 @@ class ReplState:
         Etkin turlar başladıkları anlık görüntüyle devam eder; bu metot yalnızca
         giriş/HTTP istek sınırlarında çağrılır.
         """
-        updated, rev, changed = reload_if_changed(self.config, self.config_revision)
-        self.config = updated
+        outcome = reload_checked(self.config, self.config_revision)
+        loaded, rev, reloaded = outcome.config, outcome.revision, outcome.reloaded
         self.config_revision = rev
+        # Okunamayan dosya SESSİZ kalmaz: kullanıcı değişikliğinin uygulanmadığını
+        # `take_config_error()` ile görür (L2-20).
+        self.config_error = outcome.error
+        if not reloaded:
+            return False
+        updated = rebase_session_changes(self.config_baseline, self.config, loaded)
+        # Oturumun kendi yazması da dosya sürümünü değiştirir; içerik aynıysa "ayarlar
+        # yüklendi" demek ve efor gibi oturum seçimlerini sıfırlamak yanlıştır.
+        changed = updated != self.config
+        self.config_baseline = loaded
+        self.config = updated
+        if changed:
+            self.plain_memory = build_plain_memory(self.config, self.root)
         return changed
+
+    #: Son yeniden yüklemede dosya değişti ama okunamadıysa nedeni (bir kez gösterilir).
+    config_error: str = ""
+
+    def take_config_error(self) -> str:
+        """Bekleyen yapılandırma okuma hatasını döndür ve temizle (tekrar gösterilmesin)."""
+        error, self.config_error = self.config_error, ""
+        return error
 
     running: bool = True
 
     def cycle_approval(self) -> ApprovalMode:
         """Onay modunu sırayla döndür (shift-tab davranışı)."""
-        self.approval = next_mode(self.approval)
+        if self.approval is ApprovalMode.BYPASS:
+            self.bypass_available = True
+        self.approval = next_mode(
+            self.approval,
+            bypass_available=getattr(self, "bypass_available", False),
+            auto_available=getattr(self, "auto_available", True),
+        )
         return self.approval
 
-    def reset_history(self) -> int:
-        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür."""
+    def reset_history(self, *, session_id: str | None = None) -> int:
+        """Agent sohbet geçmişini temizle; silinen mesaj sayısını döndür.
+
+        `session_id` verilirse (`/clear` yeni sohbet kimliği, #185) yeni hook oturumu onu taşır.
+        """
+        from . import linked_pr
+
         removed = len(self.history)
         self.history = []
+        self.invoked_skills = InvokedSkills(self.conversation_id)
+        if self.hook_session is not None:
+            # Claude `/clear` gibi: SessionEnd(clear) + yeni kimlikle SessionStart(source: clear).
+            if session_id is None:
+                self.hook_session.restart("clear", reason="clear")
+            else:
+                self.hook_session.restart(
+                    "clear", reason="clear", session_id=session_id, conversation_id=session_id
+                )
+            # Beceri kancaları (#161) oturuma bağlıdır; yeni oturumda yeniden çağrılmalı.
+            from ...engines.agent import skill_hooks
+
+            skill_hooks.forget(self.hook_session)
+        # Temizlenen sohbetin PR künyesi de gider (Claude Code `/clear` ile aynı).
+        linked_pr.forget(self)
         return removed
+
+
+def _initial_approval(config: Config, root: object) -> ApprovalMode:
+    """Etkileşimli başlangıç kipi (#49, #50, #85): settings `permissions.defaultMode` önce,
+    sonra Fusion'ın kayıtlı `runtime.approval_mode`u (Claude adları da okunur).
+
+    Bypass yalnız kullanıcı ayarındaki `defaultMode: bypassPermissions` ile açılır; Fusion'ın
+    kendi kaydından bypass'a dönülmez (Claude: bypass'sız başlayan oturum bypass'a geçemez).
+    """
+    from ...config.permission_settings import default_mode_setting
+    from ..launch_permissions import launch_permissions
+    from ..permission_flags import enforce_mode_limits
+
+    launched = launch_permissions().mode
+    if launched is not None:
+        # Kök komut bayrağı (`fusion --permission-mode plan`) ayardan önce gelir (#49).
+        return launched
+    setting = default_mode_setting(root) if isinstance(root, Path) else None
+    try:
+        approval = parse_mode(setting or config.runtime.approval_mode)
+    except ValueError:
+        approval = ApprovalMode.SECURITY
+    if approval is ApprovalMode.BYPASS and setting is None:
+        approval = ApprovalMode.SECURITY
+    return enforce_mode_limits(approval, root) if isinstance(root, Path) else approval
+
+
+def _apply_additional_directories(state: ReplState) -> None:
+    """Ayarlardaki `permissions.additionalDirectories` oturumun ek dizinlerine eklenir (#57)."""
+    from ...config.permission_settings import working_directories
+
+    root = getattr(state, "root", None)
+    if isinstance(root, Path):
+        state.extra_roots = working_directories(root, tuple(state.extra_roots))
+
+
+def _apply_mode_availability(state: ReplState, approval: ApprovalMode) -> None:
+    """Döngüdeki isteğe bağlı kipler: bypass bypass'la başlayınca, auto kapatılmadıkça."""
+    from ...config.permission_settings import auto_mode_disabled, bypass_mode_disabled
+    from ..launch_permissions import launch_permissions
+
+    root = state.root if isinstance(getattr(state, "root", None), Path) else None
+    # `--allow-dangerously-skip-permissions` bypass'ı döngüye ekler, başlatmaz (#73).
+    offered = approval is ApprovalMode.BYPASS or launch_permissions().allow_bypass
+    state.bypass_available = offered and not (root is not None and bypass_mode_disabled(root))
+    state.auto_available = not (root is not None and auto_mode_disabled(root))
+    _apply_plan_policy(state)
+
+
+def _apply_plan_policy(state: ReplState) -> None:
+    """Bypass kullanılabilir oturumda plan kipi de sormaz (#52)."""
+    memory = getattr(state, "approval_memory", None)
+    if memory is not None:
+        memory.plan_bypass = bool(state.bypass_available)

@@ -18,7 +18,8 @@ import httpx
 
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.types import Message
-from .web_session import WebSessionCredential, WebTransport, WebTurn
+from ..core.web_provenance import WebResponseProvenance, safe_observed_identifier
+from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 
 
 def build_http_transport(
@@ -40,7 +41,10 @@ def build_http_transport(
     """
 
     async def _transport(
-        credential: WebSessionCredential, messages: tuple[Message, ...], model: str
+        credential: WebSessionCredential,
+        messages: tuple[Message, ...],
+        model: str,
+        context: WebTurnContext | None = None,
     ) -> WebTurn:
         headers = _headers(credential)
         payload = {
@@ -52,7 +56,7 @@ def build_http_transport(
         ) as client:
             response = await client.post(endpoint, json=payload, headers=headers)
         _raise_for_status(response)
-        return WebTurn(_extract_text(response))
+        return WebTurn(_extract_text(response), provenance=_http_provenance(response, context))
 
     return _transport
 
@@ -110,10 +114,38 @@ def _error_message(response: httpx.Response) -> str:
 
 
 def _extract_text(response: httpx.Response) -> str:
-    """OpenAI-uyumlu yanıttan cevap metnini al; biçim beklenmedikse ham metne düş."""
+    """OpenAI-uyumlu yanıttan cevap metnini al; biçim beklenmedikse HATA fırlat.
+
+    Ham gövdeyi model metni saymak, 200 ile dönen hata JSON'unu ya da HTML giriş
+    sayfasını `ok=True` cevap yapardı (ölçüldü 30 Ekim). Adaptör istisnayı `ok=False`
+    sonuca çevirir.
+    """
     try:
         body = response.json()
         content = body["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError):
-        return response.text
+        detail = _error_message(response)
+        raise ValueError(
+            f"Uç beklenen OpenAI-uyumlu biçimde yanıt vermedi (HTTP {response.status_code}): "
+            f"{detail}"
+        ) from None
     return str(content)
+
+
+def _http_provenance(
+    response: httpx.Response, context: WebTurnContext | None
+) -> WebResponseProvenance:
+    """Aynı HTTP yanıtının gözlemi browser/DOM kimliğine yükseltilmez."""
+    body = response.json()
+    message = body["choices"][0]["message"]
+    role = message.get("role") if isinstance(message, dict) else None
+    return WebResponseProvenance(
+        transport_kind="http",
+        extraction_kind="http_json_content",
+        observed_message_id=safe_observed_identifier(body.get("id")),
+        assistant_role_evidence="message.role=assistant" if role == "assistant" else None,
+        adapter_revision="fusion-http-origin-v1",
+        observed_model=safe_observed_identifier(body.get("model")),
+        origin_status="observed_http" if role == "assistant" else "unknown",
+        call_context=context.web_call_context if context else None,
+    )

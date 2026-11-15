@@ -59,4 +59,19 @@ def _project_dir(home: Path, path: Path) -> Path | None:
     if len(parts) < derinlik:
         return None
     aday = home.joinpath(*parts[:derinlik])
-    return aday if aday.is_dir() and aday != home else None
+    if not aday.is_dir() or aday == home:
+        return None
+    return aday if _stays_in_project_area(home, aday) else None
+
+
+def _stays_in_project_area(home: Path, candidate: Path) -> bool:
+    """Sembolik bağlar çözüldükten sonra da ev altında ve dışlanmayan bir yerde kalır.
+
+    Yol Codex kaydından gelir (güvenilmez girdi): `~/Desktop/x -> ~/.ssh` gibi bir bağ
+    nokta-klasör ve `Library` dışlamasını atlatıp köke-sınırlı erişimi genişletebilirdi.
+    """
+    try:
+        parts = candidate.resolve().relative_to(home.resolve()).parts
+    except (OSError, ValueError):
+        return False
+    return bool(parts) and not parts[0].startswith(".") and parts[0] not in _DISLANAN

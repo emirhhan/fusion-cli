@@ -19,8 +19,13 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
+
+from .resource_noise import is_favicon_load_error
+
+if TYPE_CHECKING:
+    from playwright.async_api import ConsoleMessage
 
 #: Sayfanın yüklenmesi için tanınan süre (ilk WordPress isteği önbelleği ısıtır).
 PROBE_TIMEOUT_S = 30.0
@@ -36,7 +41,11 @@ SCREENSHOT_HEIGHT = 800
 
 #: PHP ve WordPress'in sayfaya bastığı hata kalıpları.
 _PAGE_ERRORS = re.compile(
-    r"Fatal error|Parse error|Uncaught (?:Error|Exception)|<b>Warning</b>:|"
+    r"Fatal error|Parse error|Uncaught (?:Error|Exception)|"
+    # Aramadan ÖNCE etiketler silindiği için `<b>Warning</b>:` hiç eşleşemezdi (ölçüldü,
+    # 29 Ekim). Düz metin "Warning: bu ürün sıcak" yanlış alarm olmasın diye PHP'nin
+    # "... on line N" kuyruğu şart koşulur.
+    r"\b(?:Warning|Notice|Deprecated):\s[^\n]*?\bon line \d+|"
     r"There has been a critical error|Error establishing a database connection|"
     r"kritik bir hata|veritabanı bağlantısı kurulurken hata",
     re.IGNORECASE,
@@ -268,10 +277,7 @@ async def _browser_probe(
         try:
             page = await browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
             page.on("pageerror", lambda exc: errors.append(str(exc)[:160]))
-            page.on(
-                "console",
-                lambda msg: errors.append(msg.text[:160]) if msg.type == "error" else None,
-            )
+            page.on("console", lambda msg: _note_console(msg, errors))
             page.on("response", lambda response: _note_response(response.status, response.url))
             await page.goto(url, timeout=PROBE_TIMEOUT_S * 1000, wait_until="load")
             shot = await page.screenshot(type="jpeg", quality=70)
@@ -287,6 +293,15 @@ async def _browser_probe(
         tuple(dict.fromkeys(failed)),
         tuple(dict.fromkeys(external)),
     )
+
+
+def _note_console(message: ConsoleMessage, errors: list[str]) -> None:
+    """Konsol hatalarını topla; ikon (favicon) isteğinin 404 satırı sayfa hatası değildir."""
+    if message.type != "error":
+        return
+    if is_favicon_load_error(message.text, message.location.get("url", "")):
+        return
+    errors.append(message.text[:160])
 
 
 class _PageText(HTMLParser):

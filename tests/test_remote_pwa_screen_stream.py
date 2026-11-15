@@ -63,3 +63,12 @@ def test_yenilemeden_sonra_etkin_oturum_sorulmadan_surer(result: dict[str, Any])
     reload = result["reload"]
     assert reload["resumedAsked"] is False and reload["idleAsked"] is False
     assert reload["idleStates"][-1] == "idle"
+
+
+def test_kalici_kare_hatasi_sinirsiz_denenmez(result: dict[str, Any]) -> None:
+    # Ölçüldü (30 Ekim): kare hatasında BUSY_RETRY_MS ile sonsuza dek yeniden deneniyordu.
+    persistent = result["persistentError"]
+    assert persistent["frameCalls"] == persistent["max"]
+    assert persistent["stoppedGrowing"] is True
+    assert persistent["last"]["state"] == "error"
+    assert "durduruldu" in persistent["last"]["message"]

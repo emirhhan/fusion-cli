@@ -18,13 +18,18 @@ interface ProviderRow {
   bagli: boolean;
   eylem: "oturum" | "anahtar";
   hesap?: string;
+  /** SAĞLAYICI kimliği: her hesap kartında aynıdır; `saglayici` RPC bağımsız değişkeni budur. */
   id: string;
+  /** Kartı benzersiz kılan kimlik (hesap başına): ilk hesapta `id`, diğerlerinde `id:hesap`. Eski çekirdekte yoktur. */
+  kart_id?: string;
   ortam?: string;
   /** Tarayıcı profili var mı? Tek başına "bağlı" demek DEĞİLDİR. */
   profil_var?: boolean;
   tur: "web" | "anahtar";
   /** Taklit araç ölçümü geçildi mi — geçmediyse model DOSYA YAZAMAZ. */
   olcum_gecti?: boolean;
+  /** Geçmiş ölçüm 7 günden eskiyse "yeniden ölç" uyarısı (izin yine de düşmez). */
+  olcum_uyari?: string | null;
   /** Tur tarayıcısının pencere kipi (yalnız web sağlayıcıları). */
   pencere_kipi?: PencereKipi;
   /** Pencereyle ilgili son uyarı — ör. macOS gizleme izni verilmemiş. */
@@ -40,6 +45,13 @@ const PENCERE_KIPLERI: Record<PencereKipi, string> = {
   headless: "Görünmez",
   hidden: "Gizli",
 };
+
+/** Kartın benzersiz anahtarı; eski çekirdek `kart_id` göndermezse sağlayıcı kimliği. */
+const cardKey = (row: ProviderRow) => row.kart_id ?? row.id;
+
+/** Ana hesap dışındaki web hesabında kart adına hesap eklenir (P1-39). */
+const cardTitle = (row: ProviderRow) =>
+  row.tur === "web" && row.hesap && row.hesap !== "main" ? `${row.ad} · ${row.hesap}` : row.ad;
 
 const YOKLAMA_MS = 1500;
 const GIRIS_SURESI_MS = 15 * 60 * 1000;
@@ -68,14 +80,16 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   const run = async (operation: () => Promise<void>) => {
     try {
       await operation();
-    } catch {
+    } catch (reason) {
       setBusy(null);
-      setNotice("İşlem tamamlanamadı. Bağlantını kontrol edip tekrar dene.");
+      // Gerçek neden ("Çekirdek bağlantısı kapatıldı." gibi) kaybolmasın (U5-41).
+      const neden = reason instanceof Error && reason.message ? ` (${reason.message})` : "";
+      setNotice(`İşlem tamamlanamadı${neden}. Bağlantını kontrol edip tekrar dene.`);
     }
   };
 
   const verifyKey = async (row: ProviderRow) => {
-    setBusy(row.id);
+    setBusy(cardKey(row));
     setNotice("API anahtarı sınanıyor…");
     const result = await client.request("kontrol.anahtar_dogrula", { saglayici: row.id });
     setNotice(String(result.metin ?? (result.ok ? "API anahtarı doğrulandı." : "Anahtar sınaması geçmedi.")));
@@ -107,38 +121,54 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("tr");
     if (!q) return rows;
-    return rows.filter((row) => row.ad.toLocaleLowerCase("tr").includes(q));
+    return rows.filter((row) => cardTitle(row).toLocaleLowerCase("tr").includes(q));
   }, [query, rows]);
 
+  const openRow = rows.find((item) => cardKey(item) === open);
+  const keyedOpenId = openRow?.tur === "anahtar" ? openRow.id : null;
+  const keyedOpenBound = openRow?.tur === "anahtar" && openRow.bagli;
+  // Kart açılınca kasadaki değer webview'e İNDİRİLMEZ (U5-37); yalnız kullanıcı göz düğmesine
+  // basınca istenir. Liste her yenilendiğinde (kaydet, ölç…) de yeniden istenip kullanıcının
+  // yazmakta olduğu değerin üzerine yazılmaz (U5-38): efekt yalnız açılan kart değişince çalışır.
   useEffect(() => {
-    const row = rows.find((item) => item.id === open);
     setReveal(false);
-    if (!row || row.tur !== "anahtar" || !row.bagli) { setSecret(""); setStored(""); return; }
-    let alive = true;
-    void client.request("kontrol.anahtar_goster", { saglayici: row.id }).then((result) => {
-      if (!alive) return;
-      const value = result.ok && typeof result.deger === "string" ? result.deger : "";
-      setStored(value);
-      setSecret(value);
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [client, open, rows]);
+    setSecret("");
+    setStored("");
+  }, [keyedOpenId]);
 
+  const toggleReveal = () => {
+    if (reveal) { setReveal(false); return; }
+    setReveal(true);
+    if (!openRow || !keyedOpenBound || stored || secret) return;
+    const id = openRow.id;
+    void client.request("kontrol.anahtar_goster", { saglayici: id }).then((result) => {
+      const value = result.ok && typeof result.deger === "string" ? result.deger : "";
+      if (!value) return;
+      // Bu arada kullanıcı yazdıysa ya da kart değiştiyse üzerine yazılmaz.
+      setSecret((current) => (current === "" ? value : current));
+      setStored((current) => current || value);
+    }).catch(() => setNotice("Kayıtlı anahtar okunamadı."));
+  };
+
+  // Web model menüsü yalnız açılan kart ya da bağlantı durumu değişince okunur; liste yenilenmesi
+  // (model seçimi, ölçüm) menüyü yeniden okutup seçimi kilitlemesin (U5-38).
+  const webOpenId = openRow?.tur === "web" && openRow.bagli ? openRow.id : null;
+  const webOpenCard = openRow?.tur === "web" && openRow.bagli ? cardKey(openRow) : null;
+  const webOpenAccount = openRow?.hesap ?? "main";
   useEffect(() => {
-    const row = rows.find((item) => item.id === open);
-    if (!row?.bagli || row.tur !== "web") return;
+    if (!webOpenId || !webOpenCard) return;
     let alive = true;
-    setModelLoading(row.id);
+    setModelLoading(webOpenCard);
     setModelError(null);
     void client.request("web.model_secenekleri", {
-      saglayici: row.id,
-      hesap: row.hesap ?? "main",
+      saglayici: webOpenId,
+      hesap: webOpenAccount,
     }).then((result) => {
       if (!alive) return;
       if (result.ok && Array.isArray(result.secenekler)) {
         setModelChoices((current) => ({
           ...current,
-          [row.id]: (result.secenekler as unknown[]).filter(
+          [webOpenCard]: (result.secenekler as unknown[]).filter(
             (value): value is string => typeof value === "string",
           ),
         }));
@@ -151,18 +181,17 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       if (alive) setModelLoading(null);
     });
     return () => { alive = false; };
-  // Yalnız açılan kart veya bağlantı değişince canlı menü yeniden okunur.
-  }, [client, open, rows]);
+  }, [client, webOpenId, webOpenCard, webOpenAccount]);
 
   const selectWebModel = async (row: ProviderRow, choice: string) => {
-    setBusy(row.id);
+    setBusy(cardKey(row));
     const result = await client.request("web.model_sec", {
       saglayici: row.id,
       hesap: row.hesap ?? "main",
       secim: choice,
     });
     setBusy(null);
-    setNotice(String(result.metin ?? (result.ok ? `${row.ad}: ${choice} seçildi.` : "Model seçilemedi.")));
+    setNotice(String(result.metin ?? (result.ok ? `${cardTitle(row)}: ${choice} seçildi.` : "Model seçilemedi.")));
     if (result.ok) {
       await load();
       onChanged();
@@ -179,7 +208,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
    */
   const login = async (row: ProviderRow) => {
     const hesap = row.hesap ?? "main";
-    setBusy(row.id);
+    setBusy(cardKey(row));
     setNotice(null);
     let acilis: { ok?: boolean; metin?: string; pid?: number };
     try {
@@ -236,8 +265,8 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
         setBusy(null);
         setNotice(
           sinama?.ok
-            ? `${row.ad} bağlandı ve çalışıyor.`
-            : `${row.ad} kaydedildi ama sınama geçmedi: ${sinama?.metin ?? "sebep bilinmiyor"}`,
+            ? `${cardTitle(row)} bağlandı ve çalışıyor.`
+            : `${cardTitle(row)} kaydedildi ama sınama geçmedi: ${sinama?.metin ?? "sebep bilinmiyor"}`,
         );
         await load();
         onChanged();
@@ -251,7 +280,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
 
   /** Kayıtlı oturumu gerçek bir istekle sına. */
   const verify = async (row: ProviderRow) => {
-    setBusy(row.id);
+    setBusy(cardKey(row));
     setNotice("Oturum sınanıyor…");
     const sonuc = (await client.request("web.dogrula", {
       saglayici: row.id,
@@ -267,7 +296,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
 
   /** Oturumu kapat: kayıt kaldırılır, tarayıcı profili silinir. */
   const logout = async (row: ProviderRow) => {
-    setBusy(row.id);
+    setBusy(cardKey(row));
     const sonuc = (await client.request("web.cikis", {
       saglayici: row.id,
       hesap: row.hesap ?? "main",
@@ -280,8 +309,9 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
 
   const saveKey = async (row: ProviderRow) => {
     if (!secret.trim()) return;
-    const submitted = secret;
-    setBusy(row.id);
+    // Yapıştırmadan gelen baştaki/sondaki boşluk ve satırsonu anahtarı bozup 401'e yol açıyordu (U5-39).
+    const submitted = secret.trim();
+    setBusy(cardKey(row));
     const sonuc = (await client.request("kontrol.anahtar_kaydet", {
       saglayici: row.id,
       deger: submitted,
@@ -292,13 +322,14 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       return;
     }
     setStored(submitted);
-    setNotice(`${row.ad} anahtarı kaydedildi.`);
+    setSecret(submitted);
+    setNotice(`${cardTitle(row)} anahtarı kaydedildi.`);
     await load();
     onChanged();
   };
 
   const dropKey = async (row: ProviderRow) => {
-    setBusy(row.id);
+    setBusy(cardKey(row));
     const sonuc = (await client.request("kontrol.anahtar_sil", { saglayici: row.id })) as {
       ok?: boolean;
       metin?: string;
@@ -310,14 +341,22 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
     }
     setSecret("");
     setStored("");
-    setNotice(`${row.ad} anahtarı silindi.`);
+    setNotice(`${cardTitle(row)} anahtarı silindi.`);
     await load();
     onChanged();
   };
 
   const toggle = (row: ProviderRow) => {
     if (dirty) { setNotice("Kaydedilmemiş anahtar var. Önce Kaydet'e bas veya alanı temizle."); return; }
-    setOpen((current) => (current === row.id ? null : row.id));
+    // Bildirim kartlar arasında ortaktır: kart değişince önceki sağlayıcının mesajı yanlış yerde kalmasın (U5-41).
+    setNotice(null);
+    const kapaniyor = open === cardKey(row);
+    setOpen(kapaniyor ? null : cardKey(row));
+    // Ayrıntı paneli kartın yanında değil grubun sonunda: açılınca odak oraya, kapanınca karta döner (U5-42).
+    window.requestAnimationFrame(() => {
+      if (kapaniyor) document.getElementById(`pv-card-${cardKey(row)}`)?.focus();
+      else document.getElementById(`pv-detail-${cardKey(row)}`)?.focus();
+    });
   };
 
   const stateText = (row: ProviderRow) => row.tur === "anahtar"
@@ -325,13 +364,13 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
     : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil";
 
   const detail = (row: ProviderRow) => (
-    <div className="pv-detail" key={`detail-${row.id}`} role="region" aria-label={`${row.ad} ayrıntıları`}>
+    <div className="pv-detail" id={`pv-detail-${cardKey(row)}`} key={`detail-${cardKey(row)}`} role="region" aria-label={`${cardTitle(row)} ayrıntıları`} tabIndex={-1}>
       <div className="pv-detail__head">
         <span className="pv-mark pv-mark--lg">
           {row.tur === "web" ? <ProviderLogo id={row.id as ProviderId} size={22} /> : <span aria-hidden="true">{row.ad.slice(0, 1)}</span>}
         </span>
         <div>
-          <h4>{row.ad}</h4>
+          <h4>{cardTitle(row)}</h4>
           <p><span className="pv-dot" data-bagli={row.bagli} aria-hidden="true" /> {stateText(row)}</p>
         </div>
         <button aria-label="Ayrıntıyı kapat" className="pv-close" onClick={() => toggle(row)} type="button">×</button>
@@ -346,38 +385,39 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
             <label className="provider-list__model-choice">
               <span>Bu web oturumunda kullanılacak model</span>
               <select
-                aria-label={`${row.ad} web modeli`}
-                disabled={busy === row.id || modelLoading === row.id || !modelChoices[row.id]}
+                aria-label={`${cardTitle(row)} web modeli`}
+                disabled={busy === cardKey(row) || modelLoading === cardKey(row) || !modelChoices[cardKey(row)]}
                 onChange={(event) => void run(() => selectWebModel(row, event.target.value))}
                 value={row.secili_model ?? "Otomatik"}
               >
-                {row.secili_model && modelChoices[row.id] && !modelChoices[row.id].includes(row.secili_model) && (
+                {row.secili_model && modelChoices[cardKey(row)] && !modelChoices[cardKey(row)].includes(row.secili_model) && (
                   <option disabled value={row.secili_model}>{row.secili_model} (artık sunulmuyor)</option>
                 )}
-                {(modelChoices[row.id] ?? [row.secili_model ?? "Otomatik"]).map((choice) => (
+                {(modelChoices[cardKey(row)] ?? [row.secili_model ?? "Otomatik"]).map((choice) => (
                   <option key={choice} value={choice}>{choice}</option>
                 ))}
               </select>
-              <small>{modelError ?? (modelLoading === row.id
+              <small>{modelError ?? (modelLoading === cardKey(row)
                 ? "Hesabındaki seçenekler okunuyor…"
-                : row.secili_model && modelChoices[row.id] && !modelChoices[row.id].includes(row.secili_model)
+                : row.secili_model && modelChoices[cardKey(row)] && !modelChoices[cardKey(row)].includes(row.secili_model)
                   ? "Seçili model artık yok. Devam etmek için kullanılabilir bir model seç."
                   : "Yalnız bu hesabın canlı menüsünde bulunan modeller gösterilir.")}</small>
             </label>
           )}
           {row.pencere_uyarisi && <p className="provider-list__warn" role="status">{row.pencere_uyarisi}</p>}
+          {row.bagli && row.olcum_uyari && <p className="provider-list__warn" role="status">{row.olcum_uyari}</p>}
           {!row.bagli && row.profil_var && (
             <p className="provider-list__warn">Tarayıcı profili var ama oturum kayıtlı değil — giriş yarım kalmış olabilir. Yeniden bağlan.</p>
           )}
           <div className="provider-list__buttons">
-            <button className="provider-list__action provider-list__action--primary" disabled={busy === row.id} onClick={() => void login(row)} type="button">
-              {busy === row.id ? "Sürüyor…" : row.bagli ? "Yeniden bağlan" : "Oturum aç"}
+            <button className="provider-list__action provider-list__action--primary" disabled={busy === cardKey(row)} onClick={() => void login(row)} type="button">
+              {busy === cardKey(row) ? "Sürüyor…" : row.bagli ? "Yeniden bağlan" : "Oturum aç"}
             </button>
             {row.bagli && (
               <>
                 <button
                   className="provider-list__action"
-                  disabled={busy === row.id}
+                  disabled={busy === cardKey(row)}
                   onClick={() => void run(async () => {
                     const sonuc = await client.request("web.arac_olc", { saglayici: row.id, hesap: row.hesap ?? "main" });
                     setNotice(String(sonuc?.metin ?? "Ölçüm tamamlanamadı."));
@@ -387,22 +427,22 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
                 >
                   {row.olcum_gecti ? "Araç ölçümünü yenile" : "Araç desteğini ölç"}
                 </button>
-                <button className="provider-list__action" disabled={busy === row.id} onClick={() => void run(() => verify(row))} type="button">Bağlantıyı sına</button>
-                <button className="provider-list__action provider-list__action--danger" disabled={busy === row.id} onClick={() => void run(() => logout(row))} type="button">Çıkış yap</button>
+                <button className="provider-list__action" disabled={busy === cardKey(row)} onClick={() => void run(() => verify(row))} type="button">Bağlantıyı sına</button>
+                <button className="provider-list__action provider-list__action--danger" disabled={busy === cardKey(row)} onClick={() => void run(() => logout(row))} type="button">Çıkış yap</button>
               </>
             )}
           </div>
         </div>
       ) : (
         <div className="pv-detail__body">
-          <label htmlFor={`key-${row.id}`}>API anahtarı</label>
+          <label htmlFor={`key-${cardKey(row)}`}>API anahtarı</label>
           <div className="pv-field">
             <input
               autoComplete="off"
-              id={`key-${row.id}`}
+              id={`key-${cardKey(row)}`}
               disabled={busy !== null}
               onChange={(event) => setSecret(event.target.value)}
-              placeholder={row.ortam ?? ""}
+              placeholder={row.bagli ? "Kayıtlı anahtar · görmek için gözü kullan" : (row.ortam ?? "")}
               spellCheck={false}
               type={reveal ? "text" : "password"}
               value={secret}
@@ -411,7 +451,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
               aria-label={reveal ? "Anahtarı gizle" : "Anahtarı göster"}
               aria-pressed={reveal}
               className="pv-eye"
-              onClick={() => setReveal((value) => !value)}
+              onClick={toggleReveal}
               title={reveal ? "Gizle" : "Göster"}
               type="button"
             >
@@ -429,9 +469,9 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
             {row.ortam ? ` Ortam değişkeni: ${row.ortam}` : ""}
           </p>
           <div className="provider-list__buttons">
-            <button className="provider-list__action provider-list__action--primary" disabled={busy === row.id || !dirty} onClick={() => void run(() => saveKey(row))} type="button">Kaydet</button>
-            {row.bagli && <button className="provider-list__action" type="button" disabled={busy === row.id} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>}
-            {row.bagli && <button className="provider-list__action provider-list__action--danger" disabled={busy === row.id} onClick={() => void run(() => dropKey(row))} type="button">Kayıtlı anahtarı sil</button>}
+            <button className="provider-list__action provider-list__action--primary" disabled={busy === cardKey(row) || !dirty} onClick={() => void run(() => saveKey(row))} type="button">Kaydet</button>
+            {row.bagli && <button className="provider-list__action" type="button" disabled={busy === cardKey(row)} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>}
+            {row.bagli && <button className="provider-list__action provider-list__action--danger" disabled={busy === cardKey(row)} onClick={() => void run(() => dropKey(row))} type="button">Kayıtlı anahtarı sil</button>}
           </div>
         </div>
       )}
@@ -461,16 +501,18 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
       {([["web", "Abonelik oturumları", "Kendi ChatGPT, Gemini ya da Claude aboneliğinle; anahtar gerekmez."], ["anahtar", "API anahtarları", "Ücretsiz katmanı olan sağlayıcılar; anahtar şifreli kasada saklanır."]] as const).map(([tur, baslik, aciklama]) => {
         const grup = filtered.filter((row) => row.tur === tur);
         if (grup.length === 0) return null;
-        const acik = grup.find((row) => row.id === open);
+        const acik = grup.find((row) => cardKey(row) === open);
         return (
           <div className="pv-group" key={tur}>
             <div className="pv-group__title"><h4>{baslik}</h4><p>{aciklama}</p></div>
             <ul className="pv-grid">
               {grup.map((row) => (
-                <li key={row.id}>
+                <li key={cardKey(row)}>
                   <button
-                    aria-expanded={open === row.id}
+                    aria-controls={open === cardKey(row) ? `pv-detail-${cardKey(row)}` : undefined}
+                    aria-expanded={open === cardKey(row)}
                     className="pv-card"
+                    id={`pv-card-${cardKey(row)}`}
                     data-bagli={row.bagli}
                     disabled={busy !== null}
                     onClick={() => toggle(row)}
@@ -482,7 +524,7 @@ export function ProviderList({ client, initialProviderId, onChanged = () => unde
                       </span>
                       <span className="pv-dot" data-bagli={row.bagli} aria-hidden="true" />
                     </span>
-                    <span className="pv-card__name">{row.ad}</span>
+                    <span className="pv-card__name">{cardTitle(row)}</span>
                     <span className="pv-card__state" data-bagli={row.bagli}>{stateText(row)}</span>
                   </button>
                 </li>

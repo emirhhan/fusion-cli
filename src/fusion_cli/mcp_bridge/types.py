@@ -7,6 +7,16 @@ from dataclasses import dataclass, field
 from ..core.tools import ToolEffect
 
 
+class McpConfigError(ValueError):
+    """Bağlantı YAPILANDIRMASI eksik/hatalı (eksik sır, komut, adres).
+
+    `ValueError` kalır (eski çağıranlar yakalar) ama sınıflayıcı yalnız bunu
+    "yapılandırma" sayar: sunucunun bozuk JSON yanıtı (`JSONDecodeError`,
+    `ValidationError`) da `ValueError`dır ve kalıcı parklanmamalıdır. Mesaj değer
+    İÇERMEZ, yalnız değişken adı taşır.
+    """
+
+
 @dataclass(slots=True)
 class RemoteTool:
     """Uzak bir MCP aracının Fusion'a taşınan tanımı."""
@@ -16,6 +26,11 @@ class RemoteTool:
     description: str
     schema: dict[str, object] = field(default_factory=dict)
     effect: ToolEffect = ToolEffect.REMOTE_WRITE
+    #: Aracın `_meta["anthropic/alwaysLoad"]` işareti (#258); yoksa None.
+    always_load: bool | None = None
+    #: Sunucunun yazdığı `inputSchema` (açıklamaları temizlenmiş); Anthropic modellerine
+    #: sadeleştirilmiş `schema` yerine bu gider (#262). None = bilinmiyor.
+    raw_schema: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,3 +47,5 @@ class McpConnectionStatus:
     #: Monotonik gözlem anı; sıfır eski/bilinmeyen gözlem demektir.
     observed_at: float = field(default=0.0, compare=False)
     retry_after_s: float | None = field(default=None, compare=False)
+    #: Sunucudan en son keşfedilen araç tanımlarının özeti (`trust.tools_digest`); keşif yoksa boş.
+    tools_digest: str = field(default="", compare=False)

@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
-import { RemoteAccess } from "./RemoteAccess";
+import { RemoteAccess, approvalTrustLabel } from "./RemoteAccess";
 import { REMOTE_SCOPES_KEY } from "./remotePreferences";
 
 beforeEach(() => window.localStorage.clear());
@@ -123,7 +123,8 @@ it("seçilen kapsamları yeniden açılışta korur ve yalnız sonraki eşleşti
   await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.eslestir_baslat", {
     kanal: "pwa", kapsamlar: ["project.read", "agent.run", "agent.cancel", "desktop.control"],
   }));
-  expect(vi.mocked(client.request).mock.calls.every(([name]) => ["uzak.durum", "uzak.cihazlar", "uzak.bekleyen", "uzak.ekran_bekleyen", "uzak.eslestir_baslat"].includes(name))).toBe(true);
+  expect(vi.mocked(client.request).mock.calls.every(([name]) => ["uzak.durum", "uzak.cihazlar", "uzak.bekleyen", "uzak.ekran_bekleyen", "uzak.eslestir_baslat", "uzak.ayar"].includes(name))).toBe(true);
+  expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayIste: true });
 });
 
 it.each(["{", "null", '{"version":2,"scopes":["desktop.control"]}', '{"version":1,"scopes":"desktop.control"}'])("bozuk kayıtla ek kapsamları kapalı açar: %s", (stored) => {
@@ -163,9 +164,112 @@ it("yeni cihaz eşleşince masaüstünde 'bağlandı' bildirimi gösterir", asyn
     render(<RemoteAccess client={client} />);
     await screen.findByLabelText("Kodla eşleştirmede masaüstü onayı iste");
     status = { sonEslesen: { cihazId: "d1", ad: "Telefonum", zaman: 5 } };
-    await vi.advanceTimersByTimeAsync(4100);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4100); });
     expect(await screen.findByText("Telefonum bağlandı.")).toBeTruthy();
   } finally {
     vi.useRealTimers();
   }
+});
+
+import { parsePort } from "./RemoteAccess";
+import { serveCommand } from "./RemoteGuide";
+
+it("port 1-65535 tam sayı olmalı; geçersizse çekirdeğe gitmeden hata (U2-42)", async () => {
+  expect(parsePort("8791")).toBe(8791);
+  for (const bad of ["", " ", "abc", "0", "65536", "80; rm -rf /", "-1", "8791.5"]) expect(parsePort(bad)).toBeNull();
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  const port = await screen.findByLabelText("Port");
+  fireEvent.change(port, { target: { value: "abc" } });
+  fireEvent.click(screen.getByRole("button", { name: "Dinlemeyi başlat" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("1 ile 65535");
+  expect(vi.mocked(client.request).mock.calls.some(([name]) => name === "uzak.baslat")).toBe(false);
+});
+
+it("kabuk komutuna yalnız rakam portu gömülür (U2-42)", () => {
+  expect(serveCommand("8791")).toContain("http://127.0.0.1:8791");
+  expect(serveCommand("80; rm -rf /")).toContain("http://127.0.0.1:8791");
+  expect(serveCommand("")).toContain("http://127.0.0.1:8791");
+});
+
+it("yoklama hatası sonraki başarılı yoklamada kalkar ve yoklamalar üst üste binmez (U2-41)", async () => {
+  vi.useFakeTimers();
+  try {
+    let durumCagrisi = 0;
+    const client = {
+      request: vi.fn(async (name: string) => {
+        if (name === "uzak.durum") {
+          durumCagrisi += 1;
+          if (durumCagrisi === 1) throw new Error("çekirdek meşgul");
+        }
+        return { ok: true, dinliyor: false, adres: "", telegram: false, telegramHata: "", cihazSayisi: 0, port: 8791, agAdresleri: [], cihazlar: [], sorular: [] };
+      }),
+    } as unknown as ProtocolClient;
+    render(<RemoteAccess client={client} />);
+    await act(async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0); }); });
+    expect(screen.getByRole("alert").textContent).toContain("çekirdek meşgul");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally { vi.useRealTimers(); }
+});
+
+it("masaüstü kontrolü ya da üretime yayın seçiliyken onay anahtarı açık ve kilitlidir; seçim çekirdeğe yazılır (U2-43)", async () => {
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  const onay = (await screen.findByLabelText(/Kodla eşleştirmede masaüstü onayı iste/)) as HTMLInputElement;
+  expect(onay.checked).toBe(false);
+  fireEvent.click(await screen.findByLabelText(/Üretime yayın/));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayIste: true }));
+  expect(screen.getAllByText("Her eşleştirme masaüstünde elle onaylanır").length).toBe(2);
+  const kilitli = (await screen.findByLabelText(/Kodla eşleştirmede masaüstü onayı iste/)) as HTMLInputElement;
+  expect(kilitli.checked).toBe(true);
+  expect(kilitli.getAttribute("aria-disabled")).toBe("true");
+  vi.mocked(client.request).mockClear();
+  fireEvent.click(kilitli);
+  expect(client.request).not.toHaveBeenCalledWith("uzak.ayar", { onayIste: false });
+});
+
+it("yüksek yetkili kodda 'kendiliğinden bağlanır' denmez; çekirdeğin elle onay uyarısı gösterilir (U2-43)", async () => {
+  const client = fakeClient({ "uzak.eslestir_baslat": { yuksekYetki: ["project.write"] } });
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByLabelText(/Proje dosyalarını değiştirme/));
+  fireEvent.click(await screen.findByRole("button", { name: "Telefon için eşleştirme kodu oluştur" }));
+  expect(await screen.findByText("Cihaz kodu girdikten sonra onayla.")).toBeTruthy();
+  expect(screen.queryByText(/kendiliğinden bağlanır/)).toBeNull();
+});
+
+it("uzaktan onay için süreli yetki şartı açılır ve cihaza yetki verilir/kaldırılır (P-040)", async () => {
+  const simdi = Date.now() / 1000;
+  const client = fakeClient({
+    "uzak.cihazlar": {
+      cihazlar: [
+        { deviceId: "dev_1", name: "Telefon", channel: "signed", scopes: [], revoked: false, approvalTrustedUntil: 0 },
+        { deviceId: "dev_2", name: "Tablet", channel: "signed", scopes: [], revoked: false, approvalTrustedUntil: simdi + 2 * 3600 },
+      ],
+    },
+  });
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByLabelText("Uzaktan onay için cihaz başına süreli yetki iste"));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.ayar", { onayYetkisiIste: true }));
+  fireEvent.click(await screen.findByRole("button", { name: "Onay yetkisi ver (18 sa)" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.onay_yetkisi", { cihazId: "dev_1", saat: 18 }));
+  fireEvent.click(await screen.findByRole("button", { name: "Onay yetkisini kaldır" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.onay_yetkisi", { cihazId: "dev_2", saat: 0 }));
+  expect(screen.getByText(/Onay yetkisi: 1 sa kaldı|Onay yetkisi: 2 sa kaldı/)).toBeTruthy();
+});
+
+it("eşleştirme kodu istenirken seçilirse cihaza 18 saatlik onay yetkisi eklenir", async () => {
+  const client = fakeClient();
+  render(<RemoteAccess client={client} />);
+  fireEvent.click(await screen.findByLabelText(/Eşleşen cihaz 18 saat onay verebilsin/));
+  fireEvent.click(screen.getByRole("button", { name: "Telefon için eşleştirme kodu oluştur" }));
+  await waitFor(() => expect(client.request).toHaveBeenCalledWith("uzak.eslestir_baslat", {
+    kanal: "pwa", kapsamlar: ["project.read", "agent.run", "agent.cancel"], onaySaat: 18,
+  }));
+});
+
+it("kalan onay yetkisi saat ya da dakika olarak yazılır; dolmuşsa yok", () => {
+  expect(approvalTrustLabel(undefined, 1000)).toBe("Onay yetkisi yok");
+  expect(approvalTrustLabel(1000 + 7200, 1000)).toBe("Onay yetkisi: 2 sa kaldı");
+  expect(approvalTrustLabel(1000 + 600, 1000)).toBe("Onay yetkisi: 10 dk kaldı");
 });

@@ -12,14 +12,24 @@ Kipler ayrı tutulur çünkü davranışı değiştirirler:
   checkpoint/devam, final kabulü) yürütür. Varsayılan yol tek döngüdür; plan
   motoru yalnız bu seçimle ya da `workflow_mode: always` ile çalışır.
 
-Diğer makrolar (bug, commit, review, browser) yalnızca hazır görev metnidir; agent'ın
-davranışını değiştirmezler.
+Diğer makrolar (bug, commit, review, browser, simplify, security-review, debug, batch)
+yalnızca hazır görev metnidir; agent'ın davranışını değiştirmezler. Claude Code'un
+yerleşik iş-akışı becerileriyle (`/simplify`, `/security-review`, `/debug`, `/batch`)
+aynı adı taşırlar; kullanıcı `.claude/skills/<ad>/SKILL.md` ile gövdeyi önceleyebilir
+(bkz. `commands._macro`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+
+#: Uzun şablonlar koda gömülmez; paket verisi olarak okunur (RULES "Dil").
+_PROMPTS = Path(__file__).resolve().parents[2] / "engines" / "agent" / "prompts"
+SECURITY_REVIEW_PROMPT = (_PROMPTS / "security_review.md").read_text(encoding="utf-8")
+#: `/security-review` argümansız çağrıldığında denetlenen kapsam.
+SECURITY_REVIEW_DEFAULT_SCOPE = "çalışma ağacındaki tüm değişiklikler (staged ve unstaged)"
 
 
 class Mode(Enum):
@@ -29,6 +39,8 @@ class Mode(Enum):
     GOAL = "goal"
     GRILL = "grill"
     WORKFLOW = "workflow"
+    #: `/subtask <görev>` (P-054): tur ana bağlamı devralan fork alt ajanda koşar.
+    SUBTASK = "subtask"
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,9 +91,11 @@ MODE_PROMPTS = {Mode.GOAL: GOAL_PROMPT, Mode.GRILL: GRILL_PROMPT}
 MODE_STEP_LIMITS = {Mode.GOAL: 100}
 
 MACROS: dict[str, Macro] = {
+    # `/goal <koşul>` ilk turu; argümansız `/goal` durum gösterir (`goal_command`, P-058).
     "goal": Macro(
-        task="Proje hedefini belirle ve tamamla.",
+        task="",
         mode=Mode.GOAL,
+        argument_required=True,
     ),
     "grill-me": Macro(
         task="",
@@ -113,22 +127,89 @@ MACROS: dict[str, Macro] = {
         mode=Mode.WORKFLOW,
         argument_required=True,
     ),
+    # --- PR/CI makroları (P-057; "create a pr", /autofix-pr; /pr-comments yok, #226) --- #
+    "pr": Macro(
+        task="Mevcut dalın değişikliklerini `git` ile incele (log, diff --stat), hedef dalı "
+        "`gh repo view --json defaultBranchRef` ile bul; başlık ve gövdeyi (ne/neden, test "
+        "planı) yaz; gerekiyorsa commit'le ve dalı push et; sonra `run_shell` ile "
+        "`gh pr create --title … --body …` çalıştır ve PR adresini bildir.",
+        template="Mevcut dal için PR aç. Bağlam: {argument}. Değişiklikleri `git` ile incele, "
+        "başlık/gövde (ne, neden, test planı) yaz, gerekiyorsa commit'le ve push et, "
+        "`gh pr create` ile aç ve adresi bildir.",
+    ),
+    "autofix-pr": Macro(
+        task="Bu dalın PR'ında başarısız CI kontrollerini (`gh pr checks`, `gh run view "
+        "--log-failed`) ve açık inceleme yorumlarını oku; her birini en dar değişiklikle "
+        "düzelt, testleri yerelde çalıştır, düzeltmeleri commit'le ve push et; her yoruma "
+        "ne yaptığını `gh pr comment` ile tek mesajda bildir.",
+        template="PR #{argument} için: başarısız CI (`gh pr checks {argument}`) ve açık "
+        "yorumları oku, en dar düzeltmeleri uygula, testleri çalıştır, commit'le ve push et, "
+        "yapılanları `gh pr comment {argument}` ile bildir.",
+    ),
     "browser": Macro(
         task="",
         template="Web'de araştır: {argument}. `web_search` ile ara, `web_fetch` ile "
         "kaynakları oku, bulguları kaynak bağlantılarıyla özetle.",
         argument_required=True,
     ),
-    "btw": Macro(
+    "simplify": Macro(
+        task="Çalışma ağacındaki değişen kodu (`git diff`, staged ve unstaged) yeniden "
+        "kullanım, sadeleştirme, verimlilik ve soyutlama düzeyi açısından incele: tekrar "
+        "eden mantığı mevcut yardımcıya bağla, gereksiz dalları ve ölü kodu kaldır, "
+        "pahalı işlemleri sadeleştir. Hata avı YAPMA (onun için /review). Davranışı "
+        "değiştirmeden düzeltmeleri uygula ve ilgili testleri koşturup sonucu bildir.",
+        template="Şunu sadeleştir: {argument}. Yeniden kullanım, sadeleştirme, verimlilik "
+        "ve soyutlama düzeyi açısından incele; davranışı değiştirmeden düzeltmeleri uygula "
+        "ve ilgili testleri koşturup sonucu bildir. Hata avı yapma.",
+    ),
+    "security-review": Macro(
+        task=SECURITY_REVIEW_PROMPT.format(argument=SECURITY_REVIEW_DEFAULT_SCOPE),
+        template=SECURITY_REVIEW_PROMPT,
+    ),
+    "debug": Macro(
+        task="Fusion'ın bu oturumdaki davranışını teşhis et: `fusion doctor --json` "
+        "komutunu çalıştır, `recent_actions` ile son eylemleri ve hataları incele, "
+        "kullanıcının gördüğü belirtiyi bunlarla eşleştir. Kök nedeni (yapılandırma, "
+        "model, izin kipi, sağlayıcı, MCP) ve somut düzeltme adımını söyle. Proje "
+        "kodunu değiştirme; sırları raporda yazma.",
+        template="Fusion'ın şu sorununu teşhis et: {argument}. `fusion doctor --json` "
+        "komutunu çalıştır, `recent_actions` ile son eylemleri ve hataları incele, "
+        "belirtiyi bunlarla eşleştir; kök nedeni ve somut düzeltme adımını söyle. Proje "
+        "kodunu değiştirme; sırları raporda yazma.",
+    ),
+    "batch": Macro(
         task="",
-        template=(
-            "Ana görevi değiştirmeden şu yan soruyu kısa ve doğrudan yanıtla: {argument}. "
-            "Yanıtı ana görevin çalışma planına veya dosya değişikliklerine uygulama; "
-            "kullanıcı ayrıca isterse ana göreve dön."
-        ),
+        template="Şu talimatı kod tabanının tamamına uygula: {argument}. Önce etkilenen "
+        "dosyaları bul ve işi birbirinden bağımsız 3-10 parçaya böl (dosya ya da klasör "
+        "kümesi). Her parçayı aynı yanıtta ayrı `Agent` çağrılarıyla PARALEL alt ajanlara ver; "
+        "her çağrının `yazma_alani` değerini yalnız kendi dosyalarıyla sınırla ki iki ajan aynı "
+        "dosyaya dokunmasın. Ajanlar bitince sonuçları birleştir, testleri koştur ve "
+        "parça parça özetle.",
         argument_required=True,
     ),
 }
+
+
+#: `/skills new <ad>` — beceri dosyasını modele yazdıran görev (Claude Code `/skills new`).
+SKILL_NEW_TASK = (
+    "Yeni bir beceri (SKILL.md) oluştur: `.claude/skills/{name}/SKILL.md`. Önce `ask_user` ile "
+    "iki kısa soru sor: (1) beceri ne zaman kullanılacak ve ne yapacak, (2) hangi araçlara "
+    "ihtiyacı var (dosya/komut/web). Sonra dosyayı yaz: ön madde `name: {name}`, `description` "
+    "(ne yaptığı + ne zaman kullanılacağı, tek cümle, 150 karakteri geçmesin), gerekiyorsa "
+    "`allowed-tools` ve `argument-hint`; gövde adım adım talimat, `$ARGUMENTS` yer tutucusu. "
+    "Mevcut dosyanın üzerine yazma; varsa kullanıcıya sor. Bitince `/skills reload` demesini "
+    "hatırlat."
+)
+
+#: `/agents new <ad>` — uzman ajan dosyasını modele yazdıran görev (Claude Code `/agents`).
+AGENT_NEW_TASK = (
+    "Yeni bir uzman ajan tanımı oluştur: `.claude/agents/{name}.md`. Önce `ask_user` ile sor: "
+    "(1) uzmanlık alanı ve görevi, (2) kapsam (yalnız bu proje mi, `~/.claude/agents` altında "
+    "genel mi), (3) araç kısıtı (salt-okur mu, komut çalıştırır mı). Sonra dosyayı yaz: ön "
+    "madde `name: {name}`, `description` (hangi işte devreye girer), `tools` (ör. Read, Grep, "
+    "Bash); gövde ajanın sistem talimatı: rol, çalışma biçimi, çıktı biçimi. Mevcut dosyanın "
+    "üzerine yazma; varsa kullanıcıya sor."
+)
 
 
 def get(name: str) -> Macro | None:
@@ -148,3 +229,8 @@ def mode_step_limit(mode: Mode) -> int | None:
 def mode_workflow(mode: Mode) -> bool:
     """Kip bu turu plan motorunda yürütmeyi mi istiyor?"""
     return mode is Mode.WORKFLOW
+
+
+def mode_fork(mode: Mode) -> bool:
+    """Kip bu turu ana bağlamı devralan fork alt ajanda mı koşturacak (P-054)?"""
+    return mode is Mode.SUBTASK

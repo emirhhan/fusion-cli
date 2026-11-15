@@ -1,14 +1,33 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { isPickShortcut } from "../browser/BrowserToolbar";
+import { kabukVar } from "../voice/bridge";
+import { ayriKokenliOnizlemeAdresi } from "./htmlPreviewSource";
+import { PreviewLaunch } from "./PreviewLaunch";
+import { PreviewLog } from "./PreviewLog";
+import { PreviewScreenshot } from "./PreviewScreenshot";
+import { DEFAULT_VIEWPORT_ID, PREVIEW_VIEWPORTS, findViewport, frameWidth } from "./previewViewports";
 import "./PreviewPanel.css";
 
 type PreviewKind = "image" | "audio" | "video" | "pdf" | "html" | "text";
 interface PreviewAsset { yol: string; tur: PreviewKind; mime: string; boyut: number; base64: string }
 
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+const LOCAL_PROTOCOLS = ["http:", "https:"];
+
+/** Yerel geliştirme sunucusu adresi mi (http ya da https loopback, P-041)? Uygulamanın KENDİ
+ * kökeni (geliştirmede Vite portu) hariç: `allow-same-origin` + `allow-scripts` ile kendini
+ * çerçeveleyen sayfa sandbox'ını söker (U4-48). Üretimde uygulama `tauri://localhost` olduğundan
+ * loopback adresle çakışmaz. */
 export function isLocalPreviewUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (!LOCAL_PROTOCOLS.includes(url.protocol) || !LOOPBACK_HOSTS.includes(url.hostname)) return false;
+    const own = window.location;
+    const ownIsLoopback = own.protocol === url.protocol && LOOPBACK_HOSTS.includes(own.hostname);
+    const defaultPort = url.protocol === "https:" ? "443" : "80";
+    return !(ownIsLoopback && (url.port || defaultPort) === (own.port || defaultPort));
   } catch {
     return false;
   }
@@ -27,9 +46,14 @@ function decode(payload: Record<string, unknown>): PreviewAsset {
   return payload as unknown as PreviewAsset;
 }
 
-function textFromBase64(value: string): string {
-  const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+/** Geçersiz base64 render sırasında fırlayıp paneli çökertmesin; `null` = çözülemedi (U4-46). */
+function textFromBase64(value: string): string | null {
+  try {
+    const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
 }
 
 function bytesFromBase64(value: string): Uint8Array<ArrayBuffer> {
@@ -47,6 +71,18 @@ export interface PreviewPanelProps {
   /** Ajanın başlattığı önizleme (`PreviewReady`): gelince web kipinde açılır. `seq`
    *  aynı adresin yeniden istenmesini (sayfa yenilensin) ayırt eder. */
   requestedUrl?: { url: string; seq: number } | null;
+  /** Uygulama içi Tarayıcı paneline aktar (P-045): uzak adres ya da öğe seçici (`pick`). */
+  onOpenInBrowser?: (url: string, pick?: boolean) => void;
+}
+
+/** Önizlemeye gömülemeyen ama Tarayıcı panelinde açılabilen adres (http/https). */
+function browsableUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 async function openWithSystem(url: string): Promise<void> {
@@ -55,7 +91,8 @@ async function openWithSystem(url: string): Promise<void> {
 }
 
 type PreviewMode = "file" | "web";
-type PreviewViewport = "desktop" | "tablet" | "mobile";
+/** Alt çekmece: konsol/ağ günlüğü ya da ekran görüntüsü (P-041); ikisi aynı anda açılmaz. */
+type PreviewDrawer = "none" | "log" | "shot";
 
 export function PreviewPanel({
   client,
@@ -63,6 +100,7 @@ export function PreviewPanel({
   selectedPath,
   requestedUrl = null,
   revision = 0,
+  onOpenInBrowser,
 }: PreviewPanelProps) {
   const [asset, setAsset] = useState<PreviewAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -72,16 +110,39 @@ export function PreviewPanel({
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [addressError, setAddressError] = useState<string | null>(null);
+  /** Önizlemeye gömülemeyen adres: Tarayıcı paneline aktarılabilir. */
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
   const [frameErrorUrl, setFrameErrorUrl] = useState<string | null>(null);
+  /** Kendinden imzalı yerel https: WebView iframe'i boş bırakabilir, Tarayıcı paneli önerilir. */
+  const [tlsNote, setTlsNote] = useState<string | null>(null);
   const [frameChecking, setFrameChecking] = useState(false);
   const [frameRevision, setFrameRevision] = useState(0);
-  const [viewport, setViewport] = useState<PreviewViewport>("desktop");
+  const [viewportId, setViewportId] = useState<string>(DEFAULT_VIEWPORT_ID);
+  const [drawer, setDrawer] = useState<PreviewDrawer>("none");
+  const viewport = findViewport(viewportId);
   const [objectUrl, setObjectUrl] = useState("");
   const inputValueRef = useRef("");
   const modeRefs = useRef<Record<PreviewMode, HTMLButtonElement | null>>({ file: null, web: null });
   const validationRun = useRef(0);
   const localUrl = historyIndex >= 0 ? history[historyIndex] ?? null : null;
+  // Cmd/Ctrl+Shift+S: önizlenen sayfayı öğe seçiciyle Tarayıcı paneline aç (#444). Tarayıcı
+  // paneli de dinliyorsa önce işleyen `preventDefault` ile ötekini susturur.
+  useEffect(() => {
+    if (!localUrl || !onOpenInBrowser) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isPickShortcut(event)) return;
+      event.preventDefault();
+      onOpenInBrowser(localUrl, true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [localUrl, onOpenInBrowser]);
+  // Büyük metin/HTML varlığı her render'da (adres kutusundaki her tuşta) yeniden çözülmesin.
+  const assetText = useMemo(
+    () => (asset && (asset.tur === "html" || asset.tur === "text") ? textFromBase64(asset.base64) : null),
+    [asset],
+  );
 
   useEffect(() => {
     let active = true;
@@ -102,6 +163,16 @@ export function PreviewPanel({
       });
     return () => { active = false; };
   }, [client, selectedPath, revision]);
+
+  // HTML önizlemesi ayrı kökenden sunulur (U4-47); `undefined`: henüz çözülmedi, `null`: srcdoc yedeği.
+  const [htmlSrc, setHtmlSrc] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    setHtmlSrc(undefined);
+    if (asset?.tur !== "html" || assetText === null) return;
+    let active = true;
+    void ayriKokenliOnizlemeAdresi(assetText).then((src) => { if (active) setHtmlSrc(src); });
+    return () => { active = false; };
+  }, [asset, assetText]);
 
   useEffect(() => { if (selectedPath) setMode("file"); }, [client, selectedPath]);
 
@@ -133,8 +204,12 @@ export function PreviewPanel({
       if (result.ok !== true || typeof result.url !== "string" || !isLocalPreviewUrl(result.url)) {
         setFrameError(typeof result.metin === "string" ? result.metin : "Yerel önizleme doğrulanamadı.");
         setFrameErrorUrl(value);
+        setTlsNote(null);
         return null;
       }
+      setTlsNote(result.kendinden_imzali === true
+        ? (typeof result.not === "string" && result.not ? result.not : "Sertifika kendinden imzalı.")
+        : null);
       return result.url;
     } catch (reason) {
       if (run !== validationRun.current) return null;
@@ -150,10 +225,12 @@ export function PreviewPanel({
     if (!isLocalPreviewUrl(value)) {
       validationRun.current += 1;
       setFrameChecking(false);
-      setAddressError("Güvenlik için uygulama içine yalnız localhost adresleri açılabilir.");
+      setRemoteUrl(onOpenInBrowser ? browsableUrl(value) : null);
+      setAddressError("Güvenlik için önizlemeye yalnız localhost adresleri gömülür.");
       return;
     }
     setAddressError(null);
+    setRemoteUrl(null);
     const verified = await validateAddress(value);
     if (!verified || inputValueRef.current.trim() !== value) return;
     const next = history.slice(0, historyIndex + 1);
@@ -248,6 +325,7 @@ export function PreviewPanel({
                   inputValueRef.current = event.target.value;
                   setInput(event.target.value);
                   setAddressError(null);
+                  setRemoteUrl(null);
                   setFrameChecking(false);
                   setFrameError(null);
                   setFrameErrorUrl(null);
@@ -256,16 +334,59 @@ export function PreviewPanel({
               </form>
               <select
                 aria-label="Önizleme boyutu"
-                onChange={(event) => setViewport(event.target.value as PreviewViewport)}
-                value={viewport}
+                onChange={(event) => setViewportId(event.target.value)}
+                value={viewportId}
               >
-                <option value="desktop">Masaüstü</option>
-                <option value="tablet">Tablet</option>
-                <option value="mobile">Mobil</option>
+                {PREVIEW_VIEWPORTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
-              <button aria-label="Dışarıda aç" disabled={!localUrl} onClick={() => void launchExternal()} title="Dışarıda aç" type="button">↗</button>
+              <div className="preview-panel__actions">
+                <button
+                  aria-label="Konsol ve ağ günlüğü"
+                  aria-pressed={drawer === "log"}
+                  disabled={!localUrl}
+                  onClick={() => setDrawer((current) => (current === "log" ? "none" : "log"))}
+                  title="Konsol ve ağ günlüğü"
+                  type="button"
+                >≡</button>
+                <button
+                  aria-label="Ekran görüntüsü al"
+                  aria-pressed={drawer === "shot"}
+                  disabled={!localUrl}
+                  onClick={() => setDrawer((current) => (current === "shot" ? "none" : "shot"))}
+                  title="Ekran görüntüsü al"
+                  type="button"
+                >◧</button>
+                {onOpenInBrowser && (
+                  <button
+                    aria-label="Öğe seç (Tarayıcı panelinde)"
+                    disabled={!localUrl}
+                    onClick={() => { if (localUrl) onOpenInBrowser(localUrl, true); }}
+                    title="Öğe seç (⌘⇧S): sayfayı Tarayıcı panelinde açar, tıkladığın öğe sohbete eklenir"
+                    type="button"
+                  >⌖</button>
+                )}
+                <button aria-label="Dışarıda aç" disabled={!localUrl} onClick={() => void launchExternal()} title="Dışarıda aç" type="button">↗</button>
+              </div>
             </div>
-            {addressError && <p className="preview-panel__address-error" role="alert">{addressError}</p>}
+            {addressError && (
+              <p className="preview-panel__address-error" role="alert">
+                {addressError}
+                {remoteUrl && onOpenInBrowser && (
+                  <button className="preview-panel__inline-action" onClick={() => onOpenInBrowser(remoteUrl)} type="button">
+                    Tarayıcı panelinde aç
+                  </button>
+                )}
+              </p>
+            )}
+            <PreviewLaunch
+              client={client}
+              disabled={frameChecking}
+              onStarted={(url) => {
+                setInput(url);
+                inputValueRef.current = url;
+                void openAddress(url);
+              }}
+            />
           </div>
 
           {frameChecking ? (
@@ -280,15 +401,32 @@ export function PreviewPanel({
               {frameErrorUrl && <button onClick={() => void launchExternal(frameErrorUrl)} type="button">Dışarıda aç</button>}
             </div>
           ) : localUrl ? (
-            <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport}>
-              <iframe
-                className="preview-panel__frame"
-                data-revision={frameRevision}
-                key={`${localUrl}-${frameRevision}`}
-                sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
-                src={localUrl}
-                title="Yerel geliştirme önizlemesi"
-              />
+            <div className="preview-panel__stage" data-note={tlsNote ? "tls" : undefined}>
+              {tlsNote && (
+                <p className="preview-panel__tls-note" role="status">
+                  {tlsNote}
+                  {onOpenInBrowser && (
+                    <button className="preview-panel__inline-action" onClick={() => onOpenInBrowser(localUrl)} type="button">
+                      Tarayıcı panelinde aç
+                    </button>
+                  )}
+                </p>
+              )}
+              <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport.id}>
+                <iframe
+                  className="preview-panel__frame"
+                  data-revision={frameRevision}
+                  key={`${localUrl}-${frameRevision}`}
+                  sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+                  src={localUrl}
+                  style={{ width: frameWidth(viewport) }}
+                  title="Yerel geliştirme önizlemesi"
+                />
+              </div>
+              {drawer === "log" && <PreviewLog client={client} onClose={() => setDrawer("none")} url={localUrl} />}
+              {drawer === "shot" && (
+                <PreviewScreenshot client={client} onClose={() => setDrawer("none")} url={localUrl} viewport={viewport} />
+              )}
             </div>
           ) : (
             <div className="preview-panel__empty">
@@ -308,8 +446,22 @@ export function PreviewPanel({
               {asset.tur === "audio" && objectUrl && <audio controls src={objectUrl}>Ses önizlemesi desteklenmiyor.</audio>}
               {asset.tur === "video" && objectUrl && <video controls src={objectUrl}>Video önizlemesi desteklenmiyor.</video>}
               {asset.tur === "pdf" && objectUrl && <iframe className="preview-panel__frame" sandbox="" src={objectUrl} title={`${asset.yol} PDF önizlemesi`} />}
-              {asset.tur === "html" && <iframe className="preview-panel__frame" sandbox="" srcDoc={textFromBase64(asset.base64)} title={`${asset.yol} HTML önizlemesi`} />}
-              {asset.tur === "text" && <pre>{textFromBase64(asset.base64)}</pre>}
+              {(asset.tur === "html" || asset.tur === "text") && assetText === null && (
+                <p className="preview-panel__error" role="alert">Dosya içeriği çözülemedi.</p>
+              )}
+              {asset.tur === "html" && assetText !== null && htmlSrc === undefined && kabukVar() && (
+                <p className="preview-panel__empty">Önizleme hazırlanıyor…</p>
+              )}
+              {/* Opak köken: allow-same-origin YOK. Ayrı kökenli adres kendi CSP'siyle gelir; yedek srcdoc ana CSP'yi miras alır. */}
+              {asset.tur === "html" && assetText !== null && htmlSrc !== undefined && (
+                <iframe
+                  className="preview-panel__frame"
+                  sandbox="allow-scripts"
+                  title={`${asset.yol} HTML önizlemesi`}
+                  {...(htmlSrc === null ? { srcDoc: assetText } : { src: htmlSrc })}
+                />
+              )}
+              {asset.tur === "text" && assetText !== null && <pre>{assetText}</pre>}
             </div>
           ) : !assetError ? (
             <div className="preview-panel__empty">

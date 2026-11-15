@@ -15,6 +15,8 @@ Windows Speech Recognition ile sağlar. Uygulama adaptörü alt süreç olarak
 
 Olay türleri `hazir`, `ses-basladi`, `kismi`, `son`, `ses-bitti` ve `hata`dır.
 Her olay beş alanı da taşır; platformda bulunmayan güven değeri `null` yazılır.
+`hata` olaylarında hata sınıfı biliniyorsa isteğe bağlı altıncı alan `kod` yazılır (şimdilik
+`"dikte_kapali"`: macOS Siri/Dikte kapalı); arayüz önce koda, kod yoksa eski metne bakar.
 Oturum kimliği yardımcı tarafından üretilmez, süreç düzeyindeki oturumun sahibi Rust'tır.
 macOS yardımcısı ilk 300 ms'de ortam gürültüsünü ölçer, RMS tabanlı başlangıç/bitiş
 histerezisi uygular ve 250 ms'den kısa ses aralıklarında final metin yayınlamaz.

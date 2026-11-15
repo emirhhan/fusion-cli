@@ -10,6 +10,7 @@ import type {
   SampleProject,
 } from "./types";
 import type { AsyncState } from "../protocol/asyncState";
+import { sirlariMaskele } from "../protocol/sirMaskesi";
 import { Logo } from "../brand/Logo";
 import { Button } from "../ui/Button";
 import { StatusRow } from "../ui/StatusRow";
@@ -52,19 +53,8 @@ const PROVIDER_STATUSES: Record<
   unavailable: { label: "Kullanılamıyor", tone: "neutral" },
 };
 
-const SECRET_PATTERNS = [
-  /\bsk-(?:ant-)?[A-Za-z0-9_-]{12,}\b/g,
-  /\bgh[oprsu]_[A-Za-z0-9]{20,}\b/g,
-  /\bAIza[A-Za-z0-9_-]{20,}\b/g,
-  /\b(?:api[_-]?key|token|secret)\s*[:=]\s*[^\s,;]+/gi,
-];
-
-function redactExternalText(value: string): string {
-  return SECRET_PATTERNS.reduce(
-    (safeValue, pattern) => safeValue.replace(pattern, "[gizlendi]"),
-    value,
-  );
-}
+// Dış kaynaklı (çekirdek hata metni, sürüm, proje adı) her metin ekrana maskelenerek basılır.
+const redactExternalText = sirlariMaskele;
 
 export interface OnboardingProps {
   /** Ücretsiz API çırağı şu an etkin mi? Yoksa: `providers` sağlayıcı butonuyla döner. */
@@ -297,16 +287,23 @@ export function Onboarding({
     if (step) onChange({ ...value, step });
   };
 
+  // Başlık odağı adım değişince VE yükleniyor → yüklendi geçişinde (h1 değişir) yenilenir; aksi halde
+  // odak body'ye düşüyordu (U5-49).
+  const sourcesStatus = sourcesState?.status;
+  const controlStatus = controlState?.status;
   useEffect(() => {
     const heading = contentRef.current?.querySelector("h1");
     if (!heading) return;
     heading.tabIndex = -1;
     heading.focus();
-  }, [value.step]);
+  }, [value.step, sourcesStatus, controlStatus]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      // macOS'ta Option+ok metin alanında kelime atlar; düzenlenebilir alandayken adım değiştirilmez (U5-49).
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
       const offset = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
       if (offset === 0) return;
       if (offset === 1 && value.step === "project" && value.selectedProjectId === null) return;
@@ -323,9 +320,9 @@ export function Onboarding({
   const content = {
     welcome: <WelcomeStep />,
     runtime: <RuntimeStep runtime={runtime} />,
-    sources: sourcesState?.status === "loading" ? <><h1>Kaynaklar yükleniyor</h1><p role="status">Kaynak keşfi sürüyor.</p></> : sourcesState?.status === "error" ? <><h1>Kaynaklar okunamadı</h1><p role="alert">{sourcesState.message}</p><Button onClick={onRetrySources}>Yeniden dene</Button></> : <SourcesStep sources={sources} />,
-    providers: !controlHasSnapshot && controlState?.status === "loading" ? <><h1>Sağlayıcılar yükleniyor</h1><p role="status">Kontrol durumu yükleniyor.</p></> : !controlHasSnapshot && controlState?.status === "error" ? <><h1>Sağlayıcılar okunamadı</h1><p role="alert">{controlState.message}</p><Button onClick={onRetryControl}>Yeniden dene</Button></> : (
-      <> {controlHasSnapshot && controlState?.status === "error" && <p role="alert">{controlState.message}<Button onClick={onRetryControl}>Durumu yeniden dene</Button></p>}
+    sources: sourcesState?.status === "loading" ? <><h1>Kaynaklar yükleniyor</h1><p role="status">Kaynak keşfi sürüyor.</p></> : sourcesState?.status === "error" ? <><h1>Kaynaklar okunamadı</h1><p role="alert">{redactExternalText(sourcesState.message)}</p><Button onClick={onRetrySources}>Yeniden dene</Button></> : <SourcesStep sources={sources} />,
+    providers: !controlHasSnapshot && controlState?.status === "loading" ? <><h1>Sağlayıcılar yükleniyor</h1><p role="status">Kontrol durumu yükleniyor.</p></> : !controlHasSnapshot && controlState?.status === "error" ? <><h1>Sağlayıcılar okunamadı</h1><p role="alert">{redactExternalText(controlState.message)}</p><Button onClick={onRetryControl}>Yeniden dene</Button></> : (
+      <> {controlHasSnapshot && controlState?.status === "error" && <p role="alert">{redactExternalText(controlState.message)}<Button onClick={onRetryControl}>Durumu yeniden dene</Button></p>}
       <ProvidersStep
         apprentice={apprentice}
         onResetToApprentice={onResetToApprentice}
@@ -354,19 +351,20 @@ export function Onboarding({
             <li aria-current={step === value.step ? "step" : undefined} data-complete={index < stepIndex} key={step}>
               <span aria-hidden="true">{index + 1}</span>
               {STEP_LABELS[step]}
+              {index < stepIndex && <span className="onboarding__sr-only"> (tamamlandı)</span>}
             </li>
           ))}
         </ol>
       </aside>
       <section className="onboarding__panel">
-        <div className="onboarding__content" ref={contentRef}>{content[value.step]}{resetError && <p role="alert">{resetError}<Button onClick={onResetToApprentice} disabled={resetPending}>Yeniden dene</Button></p>}</div>
+        <div className="onboarding__content" ref={contentRef}>{content[value.step]}{resetError && <p role="alert">{redactExternalText(resetError)}<Button onClick={onResetToApprentice} disabled={resetPending}>Yeniden dene</Button></p>}</div>
         <footer className="onboarding__footer">
           <div>
             {stepIndex > 0 && <Button onClick={() => move(-1)} variant="ghost">Geri</Button>}
           </div>
           <div className="onboarding__actions">
             {value.step === "project" && <Button onClick={() => onComplete({ selectedProjectId: null })} variant="secondary">Proje seçmeden devam et</Button>}
-            {value.step !== "complete" && <Button onClick={() => onSkip(value)} variant="ghost">Şimdilik atla</Button>}
+            {value.step !== "complete" && <Button onClick={() => onSkip(value)} title="Kurulumu Ayarlar → Genel bölümünden yeniden açabilirsin." variant="ghost">Şimdilik atla</Button>}
             {value.step === "complete" ? (
               <Button
                 onClick={() => onComplete({ selectedProjectId: value.selectedProjectId })}

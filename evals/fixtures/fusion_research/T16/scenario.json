@@ -1,0 +1,10 @@
+{
+  "kind": "environment",
+  "split": "blind",
+  "request": "Ortam dosyası değişince doğrulama kapısını yeniden çalıştır ve sonucu açıkla.",
+  "checks": [],
+  "after_read": {
+    "path": "requirements.txt",
+    "content": "# ikinci ortam\n"
+  }
+}

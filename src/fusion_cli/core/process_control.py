@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 import platform
 import signal
 import subprocess
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Event
 from typing import Any
 
+from .bounded_capture import BoundedCapture
 from .clock import SystemClock
-from .constants import PROCESS_CONTROL_TIMEOUT_S, PROCESS_POLL_S, PROCESS_TERMINATE_GRACE_S
-from .errors import CleanupFailedError, ProcessCancelledError
+from .constants import (
+    PROCESS_CONTROL_TIMEOUT_S,
+    PROCESS_POLL_S,
+    PROCESS_TERMINATE_GRACE_S,
+    SHELL_CAPTURE_CHARS,
+)
+from .errors import CleanupFailedError, FusionError, ProcessCancelledError
 from .protocols import Clock
 
 
@@ -38,11 +47,102 @@ def terminate_process_tree(pid: int, *, force: bool) -> None:
             if result.returncode:
                 raise CleanupFailedError("Süreç ağacı Windows tarafından durdurulamadı.")
         else:
+            # Kaçanlar ÖNCE ve hemen SIGKILL ile: kabuk ölünce init'e geçerler, ebeveyn
+            # zinciri kopar ve ikinci (zorlayıcı) turda bir daha bulunamazlar.
+            escaped = _escaped_descendants(pid) if _group_alive(pid) else []
+            for child in escaped:
+                _signal_quietly(child, signal.SIGKILL)
             os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
+            _await_exit(escaped)
     except ProcessLookupError:
+        return
+    except PermissionError:
+        # macOS, yalnız zombilerden oluşan grup için EPERM döndürür. Çıkış burada
+        # varsayılmaz; `ensure_process_group_exit` grubu ayrıca doğrular.
+        if os.name == "nt":
+            raise CleanupFailedError("Süreç ağacı temizlenemedi (PermissionError).") from None
         return
     except (OSError, subprocess.SubprocessError) as error:
         raise CleanupFailedError(f"Süreç ağacı temizlenemedi ({type(error).__name__}).") from None
+
+
+def _escaped_descendants(pid: int) -> list[int]:
+    """`setsid` ile gruptan çıkmış torunlar: `killpg` onlara ulaşmaz.
+
+    Ölçüldü (29 Ekim): gruptan kaçan torun stdout borusunu açık tuttuğu için iptal
+    `CleanupFailedError` ile bitiyor, torun yaşamaya devam ediyordu. Ebeveyn zinciri
+    yalnız kabuk yaşarken okunabilir; çift fork ile init'e geçmiş süreç bulunamaz.
+    """
+    try:
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=PROCESS_CONTROL_TIMEOUT_S,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    children: dict[int, list[tuple[int, int]]] = {}
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and all(field.isdigit() for field in fields):
+            child, parent, group = map(int, fields)
+            children.setdefault(parent, []).append((child, group))
+    escaped: list[int] = []
+    stack = [pid]
+    while stack:
+        for child, group in children.get(stack.pop(), []):
+            stack.append(child)
+            if group != pid:
+                escaped.append(child)
+    return escaped
+
+
+def _group_alive(pid: int) -> bool:
+    """Grup hâlâ var mı? Yoksa `pid` geri dönüştürülmüş olabilir; çocukları bizim değildir."""
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # macOS: yalnız zombilerden oluşan grup
+    return True
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    state = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=PROCESS_CONTROL_TIMEOUT_S,
+    ).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def _await_exit(pids: list[int]) -> None:
+    """Kaçan torunların gerçekten çıktığını doğrula; çıkmadıysa başarı bildirme."""
+    deadline = time.monotonic() + PROCESS_TERMINATE_GRACE_S
+    remaining = [pid for pid in pids if _alive(pid)]
+    while remaining:
+        if time.monotonic() >= deadline:
+            raise CleanupFailedError("Süreç grubundan ayrılmış bir alt süreç durdurulamadı.")
+        time.sleep(PROCESS_POLL_S / 10)
+        remaining = [pid for pid in remaining if _alive(pid)]
+
+
+def _signal_quietly(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        return
 
 
 def _group_exists(pid: int) -> bool:
@@ -68,20 +168,33 @@ def _group_exists(pid: int) -> bool:
             ) from None
 
 
-def _drain(process: subprocess.Popen[str], *, force: bool) -> tuple[str, str]:
+def _drain(
+    process: subprocess.Popen[bytes],
+    captures: tuple[BoundedCapture, BoundedCapture],
+    *,
+    force: bool,
+) -> tuple[str, str]:
+    """Süreç ağacını durdur; kabuğun çıkışını ve boruların kapanmasını doğrula."""
     terminate_process_tree(process.pid, force=force)
-    try:
-        output = process.communicate(timeout=PROCESS_TERMINATE_GRACE_S)
-    except subprocess.TimeoutExpired:
+    if not _await_closed(process, captures):
         terminate_process_tree(process.pid, force=True)
-        try:
-            output = process.communicate(timeout=PROCESS_TERMINATE_GRACE_S)
-        except subprocess.TimeoutExpired:
+        if not _await_closed(process, captures):
             raise CleanupFailedError(
                 "Süreç çıkışı veya çıktı borularının kapanması doğrulanamadı."
             ) from None
     ensure_process_group_exit(process.pid)
-    return output
+    return captures[0].text(), captures[1].text()
+
+
+def _await_closed(
+    process: subprocess.Popen[bytes], captures: tuple[BoundedCapture, BoundedCapture]
+) -> bool:
+    """Kabuk çıktı mı ve iki boru EOF'a ulaştı mı (her biri en çok bir bekleme payı)?"""
+    try:
+        process.wait(timeout=PROCESS_TERMINATE_GRACE_S)
+    except subprocess.TimeoutExpired:
+        return False
+    return all(capture.wait_eof(PROCESS_TERMINATE_GRACE_S) for capture in captures)
 
 
 def ensure_process_group_exit(pid: int, *, graceful: bool = False) -> None:
@@ -102,6 +215,25 @@ def ensure_process_group_exit(pid: int, *, graceful: bool = False) -> None:
             time.sleep(min(PROCESS_POLL_S, remaining))
 
 
+class MovedToBackgroundError(FusionError):
+    """Zaman aşımında süreç öldürülmedi; sahipliği çağırana devredildi (#319)."""
+
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        captures: tuple[BoundedCapture, BoundedCapture],
+        timeout_s: float,
+        *,
+        by_user: bool = False,
+    ) -> None:
+        super().__init__(f"Komut {timeout_s:.0f}s içinde bitmedi; arka plana taşındı.")
+        self.process = process
+        self.captures = captures
+        self.timeout_s = timeout_s
+        #: Ctrl+B ile mi (True) yoksa zaman aşımında mı (False) taşındı?
+        self.by_user = by_user
+
+
 def run_foreground(
     command: str,
     *,
@@ -110,40 +242,138 @@ def run_foreground(
     cancelled: Event,
     timeout_s: float,
     clock: Clock | None = None,
+    argv_prefix: Sequence[str] = (),
+    adopt_on_timeout: Callable[[], bool] | None = None,
+    handoff: Event | None = None,
+    ownership_marker: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür."""
+    """İptal/timeout sonucunu ancak sahipli grup drain edildikten sonra döndür.
+
+    `argv_prefix` doluysa (ör. `sandbox-exec ...`) komut `/bin/sh -c` ile onun altında çalışır;
+    `shell=True` ile aynı kabuktur.
+
+    Çıktı bellekte SINIRLIDIR (`SHELL_CAPTURE_CHARS`: akış başına baş + son kesit, C1-16).
+    Kabuk normal çıkınca borular `PROCESS_TERMINATE_GRACE_S` içinde kapanmazsa (boruyu tutan
+    `cmd &` çocuğu) o ana kadarki çıktıyla DÖNÜLÜR; çocuğa dokunulmaz ve yaşamaya devam eder,
+    çıktısı atılarak boşaltılır. Zaman aşımı ve iptal yolları grubu eskisi gibi öldürür;
+    yalnız `adopt_on_timeout()` doğruysa zaman aşımında süreç öldürülmez,
+    `MovedToBackgroundError` ile sahipliği çağırana geçer (Claude Code, #319). `handoff` olayı
+    kurulursa (Ctrl+B, #320) süreç aynı yolla hemen devredilir. `ownership_marker` verilirse
+    betiğin başına `: <işaret>` eklenir; `trap : EXIT` kabuğun son komutu `exec` ile
+    değiştirmesini engeller, işaret süreç satırında kalır (devredilen işin sahiplik kanıtı).
+    Davranış ve çıkış kodu değişmez.
+    """
     if cancelled.is_set():
         raise ProcessCancelledError("Komut başlamadan iptal edildi.")
     timing = clock or SystemClock()
     deadline = timing.monotonic() + timeout_s
+    script = f"trap : EXIT; : {ownership_marker}\n{command}\n" if ownership_marker else command
     process = subprocess.Popen(
-        command,
-        shell=True,
+        [*argv_prefix, "/bin/sh", "-c", script] if argv_prefix else script,
+        shell=not argv_prefix,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
         cwd=cwd,
         env=env,
         **process_group_options(),
     )
-    cleanup_started = False
+    assert process.stdout is not None and process.stderr is not None
+    captures = (
+        BoundedCapture(process.stdout, limit=SHELL_CAPTURE_CHARS),
+        BoundedCapture(process.stderr, limit=SHELL_CAPTURE_CHARS),
+    )
     try:
-        while True:
-            if cancelled.is_set():
-                cleanup_started = True
-                _drain(process, force=False)
-                raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
-            remaining = deadline - timing.monotonic()
-            if remaining <= 0:
-                cleanup_started = True
-                stdout, stderr = _drain(process, force=True)
-                raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
-            try:
-                stdout, stderr = process.communicate(timeout=min(PROCESS_POLL_S, remaining))
-                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
-            except subprocess.TimeoutExpired:
-                continue
+        return _supervise(
+            process,
+            captures,
+            command=command,
+            cancelled=cancelled,
+            deadline=deadline,
+            timing=timing,
+            timeout_s=timeout_s,
+            adopt_on_timeout=adopt_on_timeout,
+            handoff=handoff,
+        )
+    except _SETTLED:
+        raise  # temizlik ya da devir zaten yapıldı
     except BaseException:
-        if not cleanup_started:
-            _drain(process, force=True)
+        _drain(process, captures, force=True)
         raise
+
+
+#: `_supervise` bu istisnaları süreci temizledikten (ya da devrettikten) sonra yükseltir.
+_SETTLED = (
+    ProcessCancelledError,
+    CleanupFailedError,
+    subprocess.TimeoutExpired,
+    MovedToBackgroundError,
+)
+
+
+def _supervise(
+    process: subprocess.Popen[bytes],
+    captures: tuple[BoundedCapture, BoundedCapture],
+    *,
+    command: str,
+    cancelled: Event,
+    deadline: float,
+    timing: Clock,
+    timeout_s: float,
+    adopt_on_timeout: Callable[[], bool] | None,
+    handoff: Event | None,
+) -> subprocess.CompletedProcess[str]:
+    while True:
+        if cancelled.is_set():
+            _drain(process, captures, force=False)
+            raise ProcessCancelledError("Komut ve sahip olunan çocuk süreçler durduruldu.")
+        if handoff is not None and handoff.is_set():
+            raise MovedToBackgroundError(process, captures, timeout_s, by_user=True)
+        remaining = deadline - timing.monotonic()
+        if remaining <= 0:
+            if adopt_on_timeout is not None and adopt_on_timeout():
+                raise MovedToBackgroundError(process, captures, timeout_s)
+            stdout, stderr = _drain(process, captures, force=True)
+            raise subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
+        try:
+            process.wait(timeout=min(PROCESS_POLL_S, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+        for capture in captures:
+            capture.wait_eof(PROCESS_TERMINATE_GRACE_S)
+        return subprocess.CompletedProcess(
+            command, process.returncode, captures[0].text(), captures[1].text()
+        )
+
+
+async def terminate_async_process_tree(process: asyncio.subprocess.Process) -> None:
+    """`asyncio` kabuk sürecinin SAHİP OLUNAN grubunu ve kaçak torunları öldür.
+
+    `process_group_options()` ile başlatılmış sürece uygulanır. `process.kill()` yalnız
+    kabuğu öldürür; `npm → node → tsc` zinciri ve açık port/dosya kilidi yetim kalırdı.
+    Engelleyici `ps`/`killpg` çağrıları iş parçacığında koşar (olay döngüsünü dondurmaz)
+    ve `shield` altındadır: temizlik sırasında gelen iptal temizliği yarıda bırakmaz.
+    """
+    pid = process.pid
+
+    def _temizle() -> None:
+        try:
+            terminate_process_tree(pid, force=True)
+        finally:
+            ensure_process_group_exit(pid)
+
+    await asyncio.shield(asyncio.to_thread(_temizle))
+    if process.returncode is None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=PROCESS_TERMINATE_GRACE_S)
+
+
+async def wait_for_shell_exit(process: asyncio.subprocess.Process) -> int:
+    """Kabuğun ÇIKIŞINI bekle; çıktı borularının kapanmasını beklemez.
+
+    `Process.wait()` boru uçları kapanana dek döner: arka plana süreç doğuran komut
+    (`dev server &`) boruyu açık tutunca kabuk çıksa da sonsuza dek takılır (ölçüldü,
+    29 Ekim). `returncode` ise kabuk çıkar çıkmaz dolar; bu yüzden yoklanır.
+    """
+    while process.returncode is None:  # noqa: ASYNC110 - Process.wait() boru kapanmasına bağlı
+        await asyncio.sleep(PROCESS_POLL_S / 10)
+    return process.returncode

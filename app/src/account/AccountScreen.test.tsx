@@ -64,8 +64,8 @@ describe("AccountScreen", () => {
     render(<AccountScreen account={denetleyici([KULLANICI], { guncelle })} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
-    fireEvent.click(screen.getByRole("button", { name: "Avatar: 🚀" }));
-    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ avatar: "🚀" }));
+    fireEvent.click(screen.getByRole("button", { name: "Avatar: Zeynep" }));
+    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ avatar: "fusion:zeynep" }));
   });
 
   test("tek hesap varken değiştirilecek hesap olmadığı söylenir", () => {
@@ -97,7 +97,34 @@ describe("AccountScreen", () => {
     expect(dugme.hasAttribute("disabled")).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    // Kullanıcı adı tek başına yetmez: parola da gerekir (U5-33).
+    expect(dugme.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Parolan"), { target: { value: "parola1234" } });
     expect(dugme.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("silme isteği parolayı taşır; parola alanı gizlidir (U5-33)", () => {
+    const sil = vi.fn(async () => false);
+    render(<AccountScreen account={denetleyici([KULLANICI], { sil })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesabı sil"));
+    expect(screen.getByLabelText("Parolan")).toHaveProperty("type", "password");
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    fireEvent.change(screen.getByLabelText("Parolan"), { target: { value: "parola1234" } });
+    fireEvent.click(screen.getByRole("button", { name: /kalıcı olarak sil/i }));
+    expect(sil).toHaveBeenCalledWith(KULLANICI.kimlik, { parola: "parola1234" });
+  });
+
+  test("parolasını unutan kurtarma koduyla silebilir (U5-33)", () => {
+    const sil = vi.fn(async () => false);
+    render(<AccountScreen account={denetleyici([KULLANICI], { sil })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Hesabı sil"));
+    fireEvent.click(screen.getByRole("button", { name: /Parolamı unuttum/ }));
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
+    fireEvent.change(screen.getByLabelText("Kurtarma kodun"), { target: { value: " ABCD-EFGH " } });
+    fireEvent.click(screen.getByRole("button", { name: /kalıcı olarak sil/i }));
+    expect(sil).toHaveBeenCalledWith(KULLANICI.kimlik, { kurtarma_kodu: "ABCD-EFGH" });
   });
 
   test("silmenin neyi götürdüğünü açıkça yazar", () => {
@@ -106,5 +133,51 @@ describe("AccountScreen", () => {
     fireEvent.click(screen.getByText("Hesabı sil"));
     expect(screen.getByText(/kalıcı olarak silinir/i)).toBeTruthy();
     expect(screen.getByText(/geri alınamaz/i)).toBeTruthy();
+  });
+});
+
+// Ölçüldü (31 Ekim, P-066): Hesabım ekranında sağlayıcı oturumu (ChatGPT/Claude web) görünmüyordu;
+// "sağlayıcıyla giriş" yalnız Kontrol Paneli'nin derinindeydi.
+describe("AccountScreen sağlayıcı hesapları", () => {
+  const istemci = () => ({
+    request: vi.fn(async (name: string) =>
+      name === "web.saglayicilar"
+        ? { ok: true, saglayicilar: [
+            { id: "chatgpt", kart_id: "chatgpt", ad: "ChatGPT", hesap: "main", bagli: true, profil_var: true },
+            { id: "claude", kart_id: "claude", ad: "Claude", hesap: "main", bagli: false, profil_var: false },
+          ] }
+        : { ok: true, kullanim: { cagri: 0, toplam_token: 0 } },
+    ),
+  }) as unknown as import("../protocol/client").ProtocolClient;
+
+  test("bağlı/bağlı değil durumunu gösterir ve girişi Kontrol Paneli'ne yönlendirir", async () => {
+    const onOpenProviders = vi.fn();
+    render(<AccountScreen account={denetleyici([KULLANICI])} client={istemci()} onClose={vi.fn()} onOpenProviders={onOpenProviders} />);
+    expect(await screen.findByText("ChatGPT")).toBeTruthy();
+    expect(screen.getByText("Bağlı")).toBeTruthy();
+    expect(screen.getByText("Giriş yapılmadı")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sağlayıcıyla giriş yap" }));
+    expect(onOpenProviders).toHaveBeenCalledWith("claude");
+  });
+
+  test("yönlendirme verilmezse bölüm çizilmez ve sağlayıcı listesi okunmaz", () => {
+    const client = istemci();
+    render(<AccountScreen account={denetleyici([KULLANICI])} client={client} onClose={vi.fn()} />);
+    expect(screen.queryByText("Sağlayıcı hesapları")).toBeNull();
+    expect((client.request as ReturnType<typeof vi.fn>).mock.calls.some(([name]) => name === "web.saglayicilar")).toBe(false);
+  });
+});
+
+describe("AccountProfile — Hesabım ve Ayarlar › Hesap aynı içerik", () => {
+  test("Ayarlar'a gömülü içerik ad, e-posta, avatar değiştirme ve profil düzenlemeyi doğrudan gösterir", async () => {
+    const { AccountProfile } = await import("./AccountProfile");
+    render(<AccountProfile account={denetleyici([KULLANICI, IKINCI])} layout="embedded" />);
+    expect(screen.getByRole("heading", { name: "kullanici" })).toBeTruthy();
+    expect(screen.getByText("e@ornek.com")).toBeTruthy();
+    expect(screen.getByText("Profili düzenle")).toBeTruthy();
+    expect(screen.getByText("Hesap yönetimi")).toBeTruthy();
+    expect(document.querySelector('.account-screen__content[data-layout="embedded"]')).not.toBeNull();
+    // Gömülü içerikte "Kapat" yoktur; o yalnız Hesabım sayfasının kabuğundadır.
+    expect(screen.queryByRole("button", { name: "Kapat" })).toBeNull();
   });
 });

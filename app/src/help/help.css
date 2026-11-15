@@ -6,6 +6,7 @@
    hiç çıkmıyordu. `Settings` aynı gerekçeyle kendi yüksekliğini/taşmasını
    tanımlar (bkz. `Settings.css`). */
 .help {
+  align-content: start;
   display: grid;
   gap: var(--space-4);
   height: 100%;
@@ -13,7 +14,13 @@
   padding: var(--space-6);
 }
 
+/* Kartlar başlıkla (PageHeader) aynı sayfa sütununda durur; eskiden sütun sınırı yoktu,
+   kartlar başlıktan 27 px solda başlayıp sağa taşıyordu. */
 .help__card {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: var(--page-max-width);
+  width: 100%;
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);

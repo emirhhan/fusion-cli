@@ -29,6 +29,7 @@ from fusion_cli.engines.agent.loop import (
     _parse_arguments_checked,
     run_agent,
 )
+from fusion_cli.memory.plain_memory import PlainMemory
 
 from .fakes import (
     AlwaysApprove,
@@ -87,9 +88,11 @@ def _kur(monkeypatch, provider):
         clock=None,
         sleeper=None,
         background=False,
+        purpose="other",
         health=None,
         key_pools=None,
         web_sessions=None,
+        model_specs=(),
     ):
         return provider
 
@@ -667,6 +670,15 @@ async def test_plan_modu_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     assert "PLAN MODUNDASIN" in sistem.content
 
 
+def _proje_baglami(provider):  # type: ignore[no-untyped-def]
+    """Claude Code (#149): CLAUDE.md sistem isteminden SONRA ayrı kullanıcı mesajıdır."""
+    from fusion_cli.engines.agent.loop import PROJECT_CONTEXT_HEADER
+
+    mesaj = provider.seen_messages[0][1]
+    assert mesaj.role == "user" and mesaj.content.startswith(PROJECT_CONTEXT_HEADER)
+    return mesaj
+
+
 async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     """OpenCode'un 'Custom Instructions' katmanı: proje kökündeki CLAUDE.md garantili okunur."""
     (tmp_path / "CLAUDE.md").write_text("Bu projede daima Türkçe yorum yaz.", encoding="utf-8")
@@ -674,7 +686,7 @@ async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(monkeypat
 
     await run_agent("gorev", _deps(tmp_path, sink))
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert "Bu projede daima Türkçe yorum yaz." in sistem.content
     assert "CLAUDE.md" in sistem.content
 
@@ -711,9 +723,11 @@ async def test_home_verildiginde_dis_bellek_sistem_promptuna_girer(monkeypatch, 
         tool_context=ToolContext(root=root),
         home=home,
     )
+    # Claude Code (#153): bu dosya Fusion'ın kendi otomatik belleğidir (MEMORY.md).
+    deps.plain_memory = PlainMemory(bellek_dizini, index_name="MEMORY.md", boundary=bellek_dizini)
     await run_agent("gorev", deps)
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert "Kullanıcı: motosiklet ekipmanı satıyor." in sistem.content
 
 
@@ -725,7 +739,7 @@ async def test_home_yoksa_dis_bellek_okunmaz_ama_proje_talimati_calisir(
 
     await run_agent("gorev", _deps(tmp_path, sink, home=None))
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert "proje kurali" in sistem.content
     assert "<dis_bellek " not in sistem.content
 
@@ -749,9 +763,11 @@ async def test_proje_talimati_dis_bellekten_once_gelir(monkeypatch, tmp_path, si
         tool_context=ToolContext(root=root),
         home=home,
     )
+    # Claude Code (#153): bu dosya Fusion'ın kendi otomatik belleğidir (MEMORY.md).
+    deps.plain_memory = PlainMemory(bellek_dizini, index_name="MEMORY.md", boundary=bellek_dizini)
     await run_agent("gorev", deps)
 
-    sistem = provider.seen_messages[0][0]
+    sistem = _proje_baglami(provider)  # Claude Code #149: kullanıcı mesajı
     assert sistem.content.index("proje kurali once gelmeli") < sistem.content.index(
         "dis bellek sonra gelmeli"
     )
@@ -828,7 +844,9 @@ async def test_alt_ajan_derinlik_siniri_asilmaz(monkeypatch, tmp_path, sink):
         ),
     )
 
-    await run_agent("bol", _deps(tmp_path, sink))
+    # Derinlik tavanı yapılandırmadan okunur (P-035; varsayılan 2). Tavan 1 ile ikinci
+    # seviye reddedilmeli.
+    await run_agent("bol", _deps(tmp_path, sink, runtime={"max_agent_depth": 1}))
 
     olaylar = [e for e in sink.events if isinstance(e, SubAgentStarted)]
     assert len(olaylar) == 1  # ikinci seviye reddedildi
@@ -988,7 +1006,9 @@ async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
     async def _sikistir(messages, *, config, publisher=None, threshold_chars=None):
         return messages[:1]
 
-    monkeypatch.setattr(agent_loop.compaction, "compress", _sikistir)
+    from fusion_cli.engines.agent import compaction
+
+    monkeypatch.setattr(compaction, "compress", _sikistir)
 
     await run_agent("gorev", _deps(tmp_path, sink))
 
@@ -1010,10 +1030,12 @@ def test_sozluk_olmayan_json_bos_sozluk_ve_hata_dondurur():
     assert hata == "arguments bir JSON nesnesi olmalı"
 
 
-def test_bos_arguman_bos_sozluk_ve_hata_dondurur():
+def test_bos_arguman_bos_sozluk_dondurur_zorunlu_alani_semaya_birakir():
+    """A2-07: parametresiz araçta bazı sağlayıcılar "" yollar; eksik zorunlu alan
+    sözleşme doğrulamasında (`validate_arguments`) yine yakalanır."""
     arguments, hata = _parse_arguments_checked("")
     assert arguments == {}
-    assert hata is not None
+    assert hata is None
 
 
 def test_gecerli_json_hatasiz_ayristirilir():
@@ -1021,7 +1043,9 @@ def test_gecerli_json_hatasiz_ayristirilir():
 
 
 def _sabit_denetim(sonuc):
-    async def _review(task, final_text, messages, *, config, publisher=None):
+    async def _review(
+        task, final_text, messages, *, config, publisher=None, diff="", criteria=(), failures=()
+    ):
         return sonuc
 
     return _review
@@ -1048,6 +1072,49 @@ async def test_asker_varsa_ask_user_araci_sunulur(monkeypatch, tmp_path, sink):
     ask_schema = next(s for s in semalar if s["function"]["name"] == "ask_user")
     properties = ask_schema["function"]["parameters"]["properties"]
     assert {"question", "options", "recommended"} <= properties.keys()
+
+
+async def test_denied_tools_defterden_dusurulur_desen_acilir(monkeypatch, tmp_path, sink):
+    """Oturum kişiliğinin `disallowedTools`u `tools` verilmese de uygulanır (P-053)."""
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent(
+        "gorev",
+        _deps(tmp_path, sink),
+        denied_tools=frozenset({"write_file", "run_shell"}),
+    )
+
+    adlar = {s["function"]["name"] for s in provider.seen_requests[0]}
+    assert "read_file" in adlar
+    assert not adlar & {"write_file", "run_shell"}
+
+
+async def test_yalin_deny_kurali_araci_baglamdan_cikarir(monkeypatch, tmp_path, sink):
+    """Claude (#63): `Bash` ya da `Read` yalın deny kuralı aracı modele hiç sunmaz;
+    belirteçli `Bash(rm *)` aracı bırakır."""
+    from dataclasses import replace
+
+    from fusion_cli.config.permission_rules import (
+        PermissionDecision,
+        PermissionRuleSet,
+        parse_rule,
+    )
+
+    def _kume(*metinler):
+        return PermissionRuleSet(
+            rules=tuple(parse_rule(m, PermissionDecision.DENY, source="t") for m in metinler)
+        )
+
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)] * 2))
+    deps = replace(_deps(tmp_path, sink), permission_rules=_kume("Bash", "WebFetch(*)"))
+    await run_agent("gorev", deps)
+    adlar = {s["function"]["name"] for s in provider.seen_requests[0]}
+    assert "read_file" in adlar
+    assert not adlar & {"run_shell", "web_fetch"}
+
+    deps = replace(_deps(tmp_path, sink), permission_rules=_kume("Bash(rm *)"))
+    await run_agent("gorev", deps)
+    assert "run_shell" in {s["function"]["name"] for s in provider.seen_requests[1]}
 
 
 async def test_plan_modunda_engelleme_reddetmeden_ayirt_edilir(monkeypatch, tmp_path, sink):
@@ -1247,11 +1314,12 @@ async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp
 
     sonuc = await run_agent("site yap", deps)
 
-    assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
-    # İkinci bakış da düştüğü için tur başarı sayılmaz; düzeltici turun metni
-    # uyarının ardında korunur (bkz. `_mark_unverified`).
+    # Ölçüldü (29 Ekim, A2-01): kapı bütçesi 2 doğrulama turudur; ikinci düzeltmenin
+    # sonucu eskiden hiç ölçülmüyor, bayat başarısız sonuç turu `ok=False` yapıyordu.
+    # Artık düzeltme turu AÇMADAN bir salt-doğrulama daha yapılır (3. bakış).
+    assert dogrulayici.calls == 3, "son düzeltmeden sonra salt-doğrulama yapılmalı"
     assert sonuc.final_text.endswith("ikinci duzeltme")
-    assert sonuc.ok is False
+    assert sonuc.ok is True
     assert provider.calls == 6
 
 
@@ -1334,7 +1402,8 @@ async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
 
     await run_agent("site yap", deps)
 
-    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
+    # 2 doğrula+düzelt turu + son düzeltmeyi ölçen tek salt-doğrulama (A2-01).
+    assert dogrulayici.calls <= 3, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
 
 
 async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_path, sink):
@@ -1365,7 +1434,8 @@ async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_pat
 
     await run_agent("site yap", deps)
 
-    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
+    # İç içe tur kapı açsaydı 4+ olurdu; 3 = 2 tur + son düzeltmeyi ölçen salt-doğrulama.
+    assert dogrulayici.calls <= 3, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
 
 
 async def test_bos_cevapta_bir_kez_daha_denenir(monkeypatch, tmp_path, sink):
@@ -2324,7 +2394,7 @@ def test_ogretmen_tanimliyken_esik_asilinca_onerilir():
     assert "ask_teacher" in gec
 
 
-def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
+def test_uzun_okuma_dongusu_somut_takilma_olmadan_ogretmene_yonlendirilmez():
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
     from fusion_cli.engines.agent.loop import _exploration_note, _State
 
@@ -2334,6 +2404,9 @@ def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
 
     assert note is not None
     assert "ilk somut değişikliği" in note
+    assert "ask_teacher" not in note
+    state.repeat_blocked = True
+    note = _exploration_note(state, policy, plan_mode=False, teacher_available=True)
     assert "ask_teacher" in note
     state.exploration_pushes = 1
     assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None
@@ -2722,8 +2795,18 @@ async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
     bir model çağrısı yapıyor, panel cevabı ancak ondan sonra görüyordu. Tarayıcıda
     denetlenecek dosya yoktur."""
 
+    from socket import AF_INET, IPPROTO_TCP, SOCK_STREAM
+
+    # URL kapısı gerçek DNS'e bağlı olmadan genel IP'yi doğrulasın.
+    monkeypatch.setattr(
+        "fusion_cli.tools.web.socket.getaddrinfo",
+        lambda *args, **kwargs: [(AF_INET, SOCK_STREAM, IPPROTO_TCP, "", ("8.8.8.8", 443))],
+    )
+    invoked = []
+
     class _Kopru:
         async def invoke(self, name, data):
+            invoked.append((name, data))
             return {"ok": True, "veri": {"url": "https://ads.google.com/aw/overview"}}
 
     _kur(
@@ -2748,6 +2831,7 @@ async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
 
     sonuc = await run_agent("Google Ads'i aç", deps)
 
+    assert invoked == [("navigate", {"url": "https://ads.google.com"})]
     assert sonuc.mutating_tool_calls_made == 1
     assert denetim_cagrildi is False
 
@@ -3118,3 +3202,39 @@ async def test_arac_mesaji_yalniz_basarili_gercek_olay_diffini_korur(monkeypatch
     mesaj = next(message for message in sonuc.messages if message.role == "tool")
     assert olay.diff is not None
     assert mesaj.tool_diff == olay.diff
+
+
+@pytest.mark.parametrize("changes_file", [True, False])
+@pytest.mark.parametrize("target", ["a.py", "dist/a.py"])
+async def test_self_review_remeasures_gate_only_after_actual_change(
+    monkeypatch, tmp_path, sink, changes_file, target
+):
+    """Son öz-denetim değişikliği eski kapı başarısını kullanamaz."""
+    from fusion_cli.core.verification import VerificationResult
+
+    calls = []
+
+    class ContentVerifier:
+        async def verify(self):
+            content = (tmp_path / target).read_text()
+            calls.append(content)
+            return VerificationResult(
+                ok=content == "valid", findings=() if content == "valid" else ("bozuk",)
+            )
+
+    replies = [
+        model_result(tool_calls=[tool_call("write_file", path=target, content="valid")]),
+        model_result("ilk cevap"),
+    ]
+    if changes_file:
+        replies.append(
+            model_result(tool_calls=[tool_call("write_file", path=target, content="invalid")])
+        )
+    replies.append(model_result("düzeltildi"))
+    _kur(monkeypatch, ScriptedProvider(replies))
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("düzelt"))
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps.verifier = ContentVerifier()
+    result = await run_agent("a.py üret", deps)
+    assert calls == (["valid", "invalid"] if changes_file else ["valid"])
+    assert result.ok is (not changes_file)

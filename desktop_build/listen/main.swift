@@ -10,8 +10,12 @@ struct TanimaOlayi: Codable {
     let guven: Float?
     let speech_ms: Int
     let segment: Int
+    let surekli_tur: Bool?
+    /// Yalnız `hata` olaylarında, hatanın sınıfı biliniyorsa yazılır (ör. `dikte_kapali`). Arayüz
+    /// metni ayrıştırmak yerine önce bu koda bakar; diğer olaylarda alan HİÇ yazılmaz.
+    let kod: String?
 
-    enum CodingKeys: String, CodingKey { case tur, metin, guven, speech_ms, segment }
+    enum CodingKeys: String, CodingKey { case tur, metin, guven, speech_ms, segment, kod, surekli_tur }
 
     func encode(to encoder: Encoder) throws {
         var kutu = encoder.container(keyedBy: CodingKeys.self)
@@ -21,11 +25,20 @@ struct TanimaOlayi: Codable {
         else { try kutu.encodeNil(forKey: .guven) }
         try kutu.encode(speech_ms, forKey: .speech_ms)
         try kutu.encode(segment, forKey: .segment)
+        if let kod = kod { try kutu.encode(kod, forKey: .kod) }
+        if let surekli_tur = surekli_tur { try kutu.encode(surekli_tur, forKey: .surekli_tur) }
     }
 }
 
-func yaz(_ tur: String, _ metin: String = "", guven: Float? = nil, speechMs: Int = 0, segment: Int = 0) {
-    let olay = TanimaOlayi(tur: tur, metin: metin, guven: guven, speech_ms: speechMs, segment: segment)
+/// macOS "Siri ve Dikte kapalı" hatası: `kLSRErrorDomain 201`; bazı sürümlerde yalnız açıklaması gelir.
+func diktePasifMi(_ hata: NSError) -> Bool {
+    if hata.domain == "kLSRErrorDomain" && hata.code == 201 { return true }
+    return hata.localizedDescription.range(of: "Siri and Dictation are disabled", options: .caseInsensitive) != nil
+}
+
+func yaz(_ tur: String, _ metin: String = "", guven: Float? = nil, speechMs: Int = 0, segment: Int = 0, kod: String? = nil) {
+    let olay = TanimaOlayi(tur: tur, metin: metin, guven: guven, speech_ms: speechMs,
+                         segment: segment, surekli_tur: tur == "hazir" ? true : nil, kod: kod)
     if let veri = try? JSONEncoder().encode(olay), let satır = String(data: veri, encoding: .utf8) {
         print(satır); fflush(stdout)
     }
@@ -37,7 +50,7 @@ final class SesEtkinligiKapisi {
     private let baslangicDogrulamaMs = 60
     // Yavaş konuşan biri cümle ortasında duraklayınca tur kesilmesin: 350 ms
     // cümlenin başını gönderiyordu. İnsanlar arası doğal duraklama 1-2 sn'dir.
-    let bitisDogrulamaMs = 2000
+    let bitisDogrulamaMs = 2300
     private var gecenMs = 0
     private var kalibrasyonEnDusuk: Float = .greatestFiniteMagnitude
     /// Sürekli izlenen ortam gürültüsü tabanı (asgari istatistik: hızlı iner, yavaş çıkar).
@@ -104,6 +117,8 @@ final class SesEtkinligiKapisi {
 let dil = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "tr-TR"
 let motor = AVAudioEngine()
 let kapı = SesEtkinligiKapisi()
+var sonTeslimSegment = 0
+var kapıTurSegment = 0
 /// Bir tanıma turu: isteği ve görevi BİRLİKTE yaşar.
 ///
 /// Üç ayrı global (`istek`, `görev`, `acikIstek`) tutmak aynı hatayı iki kez
@@ -114,6 +129,7 @@ let kapı = SesEtkinligiKapisi()
 /// finalini teslim edince bırakılır.
 final class Tur {
     let istek: SFSpeechAudioBufferRecognitionRequest
+    let segment: Int
     var gorev: SFSpeechRecognitionTask?
     /// Bu turda görülen SON boş olmayan kısmi metin.
     ///
@@ -137,7 +153,10 @@ final class Tur {
     /// kesiyordu ve kullanıcı Talk'ı kapatıp açmak zorunda kalıyordu.
     var sonEtkinlik = Date()
 
-    init(istek: SFSpeechAudioBufferRecognitionRequest) { self.istek = istek }
+    init(istek: SFSpeechAudioBufferRecognitionRequest, segment: Int) {
+        self.istek = istek
+        self.segment = segment
+    }
 
     /// Duraklama öncesi metin + tanıyıcının güncel hipotezi.
     func tamMetin(_ ham: String) -> String {
@@ -300,6 +319,61 @@ func guvenYeterli(_ puan: Float) -> Bool {
     puan <= 0 || puan >= enAzGuven
 }
 
+private let fixtureMode = ProcessInfo.processInfo.environment["FUSION_LISTEN_TEST_FIXTURE"] != nil
+
+struct TurnBoundary {
+    var lastActivity: TimeInterval?
+    var lastLexicalActivity: TimeInterval?
+    var text = ""
+    var confidence: Float = 0
+    var speechMs = 0
+    var segment = 0
+
+    mutating func append(_ final: String, confidence: Float, speechMs: Int, segment: Int) {
+        self.text = preview(final)
+        if confidence > 0 && (self.confidence <= 0 || confidence < self.confidence) {
+            self.confidence = confidence
+        }
+        self.speechMs += speechMs
+        self.segment = max(self.segment, segment)
+    }
+
+    func preview(_ next: String) -> String {
+        guard !text.isEmpty else { return next }
+        let previousWords = text.split(separator: " ")
+        let nextWords = next.split(separator: " ")
+        let limit = min(previousWords.count, nextWords.count)
+        if limit > 0 {
+            func normalized(_ word: Substring) -> String {
+                word.trimmingCharacters(in: .punctuationCharacters).lowercased(with: Locale(identifier: "tr_TR"))
+            }
+            if let count = stride(from: limit, through: 1, by: -1).first(where: {
+                previousWords.suffix($0).map(normalized) == nextWords.prefix($0).map(normalized)
+            }) {
+                return (previousWords + nextWords.dropFirst(count)).joined(separator: " ")
+            }
+        }
+        return text + " " + next
+    }
+
+    func quietTarget() -> TimeInterval {
+        let tail = text.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            .split(separator: " ").last?.lowercased(with: Locale(identifier: "tr_TR"))
+        return ["ve", "veya", "ama", "çünkü", "sonra", "bir", "şey", "bu", "için"].contains(tail ?? "")
+            ? 3.3 : 2.1
+    }
+
+    func remaining(at now: TimeInterval) -> TimeInterval {
+        let quietDeadline = (lastActivity ?? now) + quietTarget()
+        let lexicalDeadline = (lastLexicalActivity ?? lastActivity ?? now) + 5.5
+        return max(0, min(quietDeadline, lexicalDeadline) - now)
+    }
+}
+
+var turnBoundary = TurnBoundary()
+var boundaryTimer: DispatchWorkItem?
+var closeRecognitionAtBoundary: (() -> Void)?
+
 @discardableResult
 func metinYaz(
     final: Bool, metin: String, guven puan: Float, callbackSegment: Int, konusmaSuresi: Int? = nil
@@ -310,12 +384,39 @@ func metinYaz(
     // konuşma süresi eşiği yeterlidir.
     let sure = konusmaSuresi ?? kapı.konusmaMs
     guard final ? kapı.yeterliKonusma(sure) : konusmaAcik else { return false }
-    yaz(final ? "son" : "kismi", metin, guven: puan,
-        speechMs: sure, segment: callbackSegment)
+    if !fixtureMode {
+        let now = ProcessInfo.processInfo.systemUptime
+        if final {
+            if turnBoundary.lastActivity == nil { turnBoundary.lastActivity = now }
+            if turnBoundary.preview(metin) != turnBoundary.text { turnBoundary.lastLexicalActivity = now }
+            turnBoundary.append(metin, confidence: puan, speechMs: sure, segment: callbackSegment)
+            scheduleTurnBoundary(after: turnBoundary.remaining(at: now))
+        }
+        let preview = final ? turnBoundary.text : turnBoundary.preview(metin)
+        yaz("kismi", preview, guven: final ? turnBoundary.confidence : puan, speechMs: final ? turnBoundary.speechMs : sure, segment: callbackSegment)
+    } else {
+        if final { sonTeslimSegment = max(sonTeslimSegment, callbackSegment) }
+        yaz(final ? "son" : "kismi", metin, guven: puan, speechMs: sure, segment: callbackSegment)
+    }
     return true
 }
 
 func sentetikFixture(_ ad: String) -> Never {
+    if ad == "nefes-arasi" {
+        var turn = TurnBoundary(lastActivity: 1.0)
+        turn.append("Bu dosyayı incele ve", confidence: 0.8, speechMs: 600, segment: 1)
+        guard turn.remaining(at: 3.0) > 0 else { bitir(1) }
+        turn.lastActivity = 3.0
+        turn.append("ve kısa özetini çıkar", confidence: 0.8, speechMs: 600, segment: 2)
+        guard turn.text == "Bu dosyayı incele ve kısa özetini çıkar",
+              turn.remaining(at: 4.0) > 0, turn.remaining(at: 5.2) == 0 else { bitir(1) }
+        var noisy = TurnBoundary(lastActivity: 10.0, lastLexicalActivity: 3.0)
+        noisy.append("Örnek", confidence: 0.1, speechMs: 300, segment: 1)
+        noisy.append("söz", confidence: 0, speechMs: 300, segment: 2)
+        guard noisy.remaining(at: 9.0) == 0, noisy.confidence == 0.1 else { bitir(1) }
+        yaz("son", turn.text, speechMs: turn.speechMs, segment: turn.segment)
+        bitir(0)
+    }
     yaz("hazir", dil)
     for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
     if ad == "segment-kaniti" {
@@ -600,9 +701,9 @@ final class OnTampon {
     }
 }
 
-//: 1024 örneklik tamponlarda ~48 kHz'de her tampon ~21 ms; 16 tampon ≈ 340 ms.
-//: Kapının 80 ms'lik doğrulama penceresini rahatça kapsar.
-let onTampon = OnTampon(kapasite: 24)
+//: 48 kHz'de 1024 örneklik 64 tampon, önceki turun 1,2 sn'lik bitiş
+//: penceresinde başlayan yeni sözü saklar.
+let onTampon = OnTampon(kapasite: 64)
 
 /// Paylaşılan tur durumunu koruyan kilit.
 ///
@@ -635,7 +736,7 @@ private let enUzunTurSaniye = 12.0
 
 //: `endAudio()` sonrası tanıma geri çağrısı için tanınan ek süre. Bu da
 //: gelmezse tur asılı kalmış demektir ve dinleme zorla sürdürülür.
-private let geriCagriBeklemeSaniye = 5.0
+private let geriCagriBeklemeSaniye = 1.2
 
 //: Kısmi metin bu kadar süre DEĞİŞMEZSE kullanıcı sözünü bitirmiştir.
 //:
@@ -720,21 +821,14 @@ func konusmaAc(segment: Int) {
     acikTurNo += 1
     let turNo = acikTurNo
     turGozcusuKur(turNo: turNo)
-    // İKİNCİ gözcü: `endAudio()` sonrası tanıma geri çağrısı hiç gelmezse tur
-    // sonsuza kadar sözlükte kalır ve yeni tur açılmaz — süreç sessizce sağır
-    // olur. Bu gözcü o durumu görür, görevi iptal eder ve dinlemeyi sürdürür.
-    DispatchQueue.main.asyncAfter(deadline: .now() + enUzunTurSaniye + geriCagriBeklemeSaniye) {
-        durumla {
-            guard !bitiyor, let asili = turlar[turNo] else { return }
-            taniYaz("tur-geri-cagri-gelmedi", uzunluk: 0, guven: 0, segment: turNo)
-            asili.gorev?.cancel()
-            turTamamlandi(turNo)
-        }
-    }
     let r = SFSpeechAudioBufferRecognitionRequest()
     r.shouldReportPartialResults = true
+    r.taskHint = .dictation
+    if dil.lowercased().hasPrefix("tr") {
+        r.contextualStrings = ["Fusion", "Fusion Kits", "MotoGate", "ChatGPT", "API", "Python", "acentik", "agentic", "workflow"]
+    }
     r.requiresOnDeviceRecognition = true
-    let tur = Tur(istek: r)
+    let tur = Tur(istek: r, segment: segment)
     turlar[turNo] = tur
     acikIstek = r
     konusmaAcik = true
@@ -743,6 +837,7 @@ func konusmaAc(segment: Int) {
 
     tur.gorev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
       durumla {
+        guard turlar[turNo] != nil else { return }
         // Sonuç ve hata AYNI çağrıda gelebiliyor. İki bağımsız `if let`
         // kullanmak turu iki kez tamamlıyor ve başarılı finalin hemen ardından
         // sahte bir hata yazıyordu; bu yüzden dallar birbirini dışlar.
@@ -769,7 +864,7 @@ func konusmaAc(segment: Int) {
                         yaz("ses-bitti", speechMs: sure, segment: segment)
                     } else {
                         yaz("hata", "Ses duydum ancak sözcükleri net çözemedim. Tekrar söyleyebilirsin.",
-                            speechMs: sure, segment: segment)
+                            speechMs: sure, segment: segment, kod: "metin_cikmadi")
                     }
                 }
                 turTamamlandi(turNo)
@@ -777,6 +872,11 @@ func konusmaAc(segment: Int) {
                 var tamMetin = metin
                 if !metin.isEmpty, let tur = turlar[turNo] {
                     if tur.hipotezSifirlandiMi(metin) { tur.onceki = tur.sonKismi }
+                    if tur.hamKismi != metin {
+                        let now = ProcessInfo.processInfo.systemUptime
+                        turnBoundary.lastActivity = now
+                        turnBoundary.lastLexicalActivity = now
+                    }
                     tur.hamKismi = metin
                     tamMetin = tur.tamMetin(metin)
                 }
@@ -826,10 +926,13 @@ func konusmaAc(segment: Int) {
                         yaz("ses-bitti", speechMs: sure, segment: segment)
                     } else {
                         yaz("hata", "Ses duydum ancak sözcükleri net çözemedim. Tekrar söyleyebilirsin.",
-                            speechMs: sure, segment: segment)
+                            speechMs: sure, segment: segment, kod: "metin_cikmadi")
                     }
                 } else {
-                    yaz("hata", hata.localizedDescription, speechMs: sure, segment: segment)
+                    // Sistem Dikte/Siri kapalıysa tanıyıcı bu hatayı verir. Arayüz metni
+                    // ayrıştırmasın diye yapısal kod da yazılır (metin aynı kalır).
+                    yaz("hata", hata.localizedDescription, speechMs: sure, segment: segment,
+                        kod: diktePasifMi(ns) ? "dikte_kapali" : nil)
                 }
             }
             turTamamlandi(turNo)
@@ -856,17 +959,60 @@ func turTamamlandi(_ turNo: Int) {
     // olarak sağır kalırdı — düzeltmeye çalıştığımız hatanın ta kendisi.
     guard !bitiyor, acikTurNo == turNo else { return }
     konusmaKapat()
-    konusmaAc(segment: kapı.segment + 1)
+    let siradakiSegment = kapı.etkin ? kapıTurSegment : kapı.segment + 1
+    konusmaAc(segment: max(sonTeslimSegment + 1, turnBoundary.segment + 1, siradakiSegment))
   }
+}
+
+func scheduleTurnBoundary(after delay: TimeInterval) {
+    boundaryTimer?.cancel()
+    let work = DispatchWorkItem {
+        durumla {
+            boundaryTimer = nil
+            guard !bitiyor, !turnBoundary.text.isEmpty else { return }
+            let remaining = turnBoundary.remaining(at: ProcessInfo.processInfo.systemUptime)
+            if remaining > 0 {
+                scheduleTurnBoundary(after: remaining)
+                return
+            }
+            // A new recognition task can already hold the next piece of the same sentence.
+            // Ask it to finish before publishing the committed text.
+            if let tur = turlar[acikTurNo], !tur.sonKismi.isEmpty {
+                if acikIstek != nil { closeRecognitionAtBoundary?() }
+                scheduleTurnBoundary(after: geriCagriBeklemeSaniye)
+                return
+            }
+            let final = turnBoundary
+            turnBoundary = TurnBoundary()
+            sonTeslimSegment = max(sonTeslimSegment, final.segment)
+            yaz("son", final.text, guven: final.confidence, speechMs: final.speechMs, segment: final.segment)
+        }
+    }
+    boundaryTimer = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + max(0.05, delay), execute: work)
 }
 
 /// Açık konuşmayı kapat; tanıyıcı kalan sesi işleyip `isFinal` üretir.
 func konusmaKapat() {
   durumla {
-    if acikIstek != nil { taniYaz("ses-sonu-bildirildi", uzunluk: 0, guven: 0, segment: acikTurNo) }
-    acikIstek?.endAudio()
+    guard let istek = acikIstek else { return }
+    let turNo = acikTurNo
+    taniYaz("ses-sonu-bildirildi", uzunluk: 0, guven: 0, segment: turNo)
     acikIstek = nil
     konusmaAcik = false
+    istek.endAudio()
+    DispatchQueue.main.asyncAfter(deadline: .now() + geriCagriBeklemeSaniye) {
+        durumla {
+            guard !bitiyor, let asili = turlar.removeValue(forKey: turNo) else { return }
+            taniYaz("tur-geri-cagri-gelmedi", uzunluk: 0, guven: 0, segment: turNo)
+            if guvenYeterli(asili.sonKismiGuven) {
+                metinYaz(final: true, metin: asili.sonKismi, guven: asili.sonKismiGuven,
+                         callbackSegment: asili.segment, konusmaSuresi: asili.konusmaMs)
+            }
+            asili.gorev?.cancel()
+            turTamamlandi(turNo)
+        }
+    }
   }
 }
 
@@ -915,7 +1061,13 @@ func tamponIsle(_ tampon: AVAudioPCMBuffer) {
     let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
     let seviye = rms(tampon)
     akisTanisi.olc(rms: seviye, biçim: biçim)
-    let olay = kapı.isle(rms: seviye, sureMs: sureMs)
+    let (olay, duyuldu) = durumla { () -> (String?, Bool) in
+        let previousSpeechMs = kapı.konusmaMs
+        let event = kapı.isle(rms: seviye, sureMs: sureMs)
+        let audible = event == "ses-basladi" || kapı.konusmaMs > previousSpeechMs
+        if audible { turnBoundary.lastActivity = ProcessInfo.processInfo.systemUptime }
+        return (event, audible)
+    }
     // Ses tanıyıcıya KOŞULSUZ akar. Eskiden kapı açılmadan tampon
     // tutuluyordu; kapının eşiği bu mikrofonun seviyesinin üstünde kalınca
     // tanıyıcıya tek bir örnek bile gitmiyor ve hiçbir şey olmuyordu.
@@ -929,16 +1081,16 @@ func tamponIsle(_ tampon: AVAudioPCMBuffer) {
         // `append` ile `endAudio` aynı istek üzerinde yarışabiliyordu;
         // ikisi de aynı kilidi alır.
         durumla {
-            if beslemeAcikMi() {
-                for onceki in onTampon.bosalt() { kazancUygula(onceki); acikIstek?.append(onceki) }
+            if let istek = acikIstek, beslemeAcikMi() {
+                for onceki in onTampon.bosalt() { kazancUygula(onceki); istek.append(onceki) }
                 kazancUygula(mono)
-                acikIstek?.append(mono)
+                istek.append(mono)
             } else {
                 onTampon.ekle(mono)
             }
             // Konuşma sesi de etkinliktir; gözcü konuşmanın ortasında
             // turu kesmemeli.
-            if kapı.etkin {
+            if duyuldu && acikIstek != nil {
                 turlar[acikTurNo]?.sonEtkinlik = Date()
                 turlar[acikTurNo]?.konusmaMs += sureMs
             }
@@ -947,15 +1099,20 @@ func tamponIsle(_ tampon: AVAudioPCMBuffer) {
         akisTanisi.donusumBasarisiz()
     }
     guard let olay = olay else { return }
-    if olay == "ses-bitti" {
+    durumla {
+      if olay == "ses-basladi" {
+        let turSegment = turlar[acikTurNo]?.segment ?? 1
+        kapıTurSegment = max(kapı.segment, sonTeslimSegment + 1,
+                            acikIstek == nil ? turSegment + 1 : turSegment)
+      }
+      if olay == "ses-bitti" {
         // YALNIZCA kapatılır. Sıradaki tur, bir öncekinin finali gelince
         // açılır: `SFSpeechRecognizer` aynı anda TEK görev destekler ve
         // yeni görev başlatmak bir öncekini iptal eder (ölçüldü:
         // `kLSRErrorDomain kod=301`, final boş dönüyordu).
         konusmaKapat()
-        yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
-    } else {
-        yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+      }
+      yaz(olay, speechMs: kapı.konusmaMs, segment: kapıTurSegment)
     }
 }
 
@@ -1096,6 +1253,8 @@ func sessizAkisGozcusuKur() {
         )
     }
 }
+
+closeRecognitionAtBoundary = konusmaKapat
 
 SFSpeechRecognizer.requestAuthorization { durum in
     DispatchQueue.main.async {

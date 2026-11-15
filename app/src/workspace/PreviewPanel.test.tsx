@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProtocolClient } from "../protocol/client";
+const { ayriAdres } = vi.hoisted(() => ({ ayriAdres: vi.fn(async (): Promise<string | null> => null) }));
+vi.mock("./htmlPreviewSource", () => ({ ayriKokenliOnizlemeAdresi: ayriAdres }));
+
 import { PreviewPanel, isLocalPreviewUrl } from "./PreviewPanel";
 
 afterEach(cleanup);
@@ -16,11 +19,60 @@ afterEach(() => {
 describe("PreviewPanel", () => {
   it("yalnız localhost geliştirme adreslerini gömer", () => {
     expect(isLocalPreviewUrl("http://localhost:5173/game")).toBe(true);
-    expect(isLocalPreviewUrl("http://127.0.0.1:3000")).toBe(true);
+    expect(isLocalPreviewUrl("http://127.0.0.1:3001")).toBe(true);
     expect(isLocalPreviewUrl("http://[::1]:8080")).toBe(true);
     expect(isLocalPreviewUrl("https://example.com")).toBe(false);
+    // P-041: yerel https (mkcert, Vite basicSsl) da gömülür; uzak https gömülmez.
+    expect(isLocalPreviewUrl("https://localhost:8443/")).toBe(true);
+    expect(isLocalPreviewUrl("https://127.0.0.1:5173")).toBe(true);
+    expect(isLocalPreviewUrl("https://192.168.1.4:5173")).toBe(false);
     expect(isLocalPreviewUrl("javascript:alert(1)")).toBe(false);
     expect(isLocalPreviewUrl("http://localhost.evil.example")).toBe(false);
+  });
+
+  it("uygulamanın kendi kökenini (aynı port) gömmeyi reddeder (U4-48)", () => {
+    const own = new URL(window.location.href);
+    expect(isLocalPreviewUrl(`http://localhost:${own.port}/`)).toBe(false);
+    expect(isLocalPreviewUrl(`http://127.0.0.1:${own.port}/x`)).toBe(false);
+    expect(isLocalPreviewUrl(`http://[::1]:${own.port}`)).toBe(false);
+    expect(isLocalPreviewUrl(`http://localhost:${Number(own.port) + 1}/`)).toBe(true);
+  });
+
+  it("HTML dosya önizlemesi betik çalıştırır ama opak kökenli kalır: allow-scripts var, allow-same-origin yok (U4-47)", async () => {
+    const html = "<script>document.title='x'</script><p>oyun</p>";
+    const client = {
+      request: vi.fn(async () => ({
+        ok: true, yol: "oyun.html", tur: "html", mime: "text/html",
+        boyut: html.length, base64: btoa(html),
+      })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath="oyun.html" revision={0} />);
+    const frame = await screen.findByTitle("oyun.html HTML önizlemesi");
+    const sandbox = (frame.getAttribute("sandbox") ?? "").split(/\s+/);
+    expect(sandbox).toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+    expect(sandbox).not.toContain("allow-top-navigation");
+    expect(sandbox).not.toContain("allow-popups");
+  });
+
+  /* Ölçüldü (30 Ekim): srcdoc önizlemesi ana pencerenin CSP'sini miras alıyor, paketli uygulamada satır içi
+     betikler çalışmıyordu. Ayrı kökenli adres varsa iframe srcdoc yerine o adresle açılır (U4-47). */
+  it("ayrı kökenli önizleme adresi varsa iframe onunla açılır, srcdoc kullanılmaz; sandbox aynı kalır", async () => {
+    ayriAdres.mockResolvedValueOnce("fusion-preview://localhost/abc");
+    const html = "<script>1</script>";
+    const client = {
+      request: vi.fn(async () => ({
+        ok: true, yol: "oyun.html", tur: "html", mime: "text/html", boyut: html.length, base64: btoa(html),
+      })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath="oyun.html" revision={0} />);
+
+    const frame = await screen.findByTitle("oyun.html HTML önizlemesi");
+
+    expect(frame.getAttribute("src")).toBe("fusion-preview://localhost/abc");
+    expect(frame.hasAttribute("srcdoc")).toBe(false);
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(ayriAdres).toHaveBeenCalledWith(html);
   });
 
   it("seçili görseli protokolden güvenli veri adresiyle gösterir", async () => {
@@ -59,6 +111,52 @@ describe("PreviewPanel", () => {
     expect(screen.getByRole("button", { name: "Dışarıda aç" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("uzak adresi Tarayıcı paneline, yerel sayfayı öğe seçiciyle Tarayıcı paneline aktarır (P-045)", async () => {
+    const onOpenInBrowser = vi.fn();
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "web.onizleme_dogrula"
+        ? { ok: true, url: data.url, durum: 200 }
+        : { ok: true }),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} onOpenInBrowser={onOpenInBrowser} selectedPath={null} />);
+
+    const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" });
+    fireEvent.change(address, { target: { value: "https://example.com/a" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tarayıcı panelinde aç" }));
+    expect(onOpenInBrowser).toHaveBeenCalledWith("https://example.com/a");
+
+    fireEvent.change(address, { target: { value: "http://localhost:3001/" } });
+    expect(screen.queryByRole("button", { name: "Tarayıcı panelinde aç" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    const sec = screen.getByRole("button", { name: "Öğe seç (Tarayıcı panelinde)" });
+    await waitFor(() => expect(sec.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(sec);
+    expect(onOpenInBrowser).toHaveBeenLastCalledWith("http://localhost:3001/", true);
+    // Cmd/Ctrl+Shift+S aynı öğe seçiciyi açar (Claude Desktop, #444).
+    onOpenInBrowser.mockClear();
+    fireEvent.keyDown(document, { key: "S", code: "KeyS", metaKey: true, shiftKey: true });
+    expect(onOpenInBrowser).toHaveBeenCalledExactlyOnceWith("http://localhost:3001/", true);
+  });
+
+  it("kendinden imzalı yerel https'te önizleme açılır ve Tarayıcı paneli önerilir", async () => {
+    const onOpenInBrowser = vi.fn();
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "web.onizleme_dogrula"
+        ? { ok: true, url: data.url, durum: 200, kendinden_imzali: true, not: "Sertifika sistemce doğrulanamadı (kendinden imzalı)." }
+        : { ok: true }),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} onOpenInBrowser={onOpenInBrowser} selectedPath={null} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), { target: { value: "https://localhost:5173/" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+
+    expect(await screen.findByTitle("Yerel geliştirme önizlemesi")).toBeTruthy();
+    expect(screen.getByText(/kendinden imzalı/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tarayıcı panelinde aç" }));
+    expect(onOpenInBrowser).toHaveBeenCalledWith("https://localhost:5173/");
+  });
+
   it("yerel web geçmişinde geri, ileri, yenile ve harici aç eylemlerini yönetir", async () => {
     const openExternal = vi.fn(async () => undefined);
     const client = {
@@ -70,7 +168,7 @@ describe("PreviewPanel", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Web" }));
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" });
-    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.change(address, { target: { value: "http://localhost:3001" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     await screen.findByTitle("Yerel geliştirme önizlemesi");
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
@@ -78,7 +176,7 @@ describe("PreviewPanel", () => {
     await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173"));
 
     fireEvent.click(screen.getByRole("button", { name: "Geri" }));
-    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3000"));
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3001"));
     fireEvent.click(screen.getByRole("button", { name: "İleri" }));
     await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173"));
     const before = screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision");
@@ -109,6 +207,62 @@ describe("PreviewPanel", () => {
       target: { value: "mobile" },
     });
     await waitFor(() => expect(screen.getByTestId("web-preview-viewport").getAttribute("data-viewport")).toBe("mobile"));
+    // Genişlik tek listeden (previewViewports) gelir: Mobil 375 px (P-041).
+    expect((screen.getByTitle("Yerel geliştirme önizlemesi") as HTMLIFrameElement).style.width).toBe("375px");
+    fireEvent.change(screen.getByRole("combobox", { name: "Önizleme boyutu" }), { target: { value: "mobile-small" } });
+    await waitFor(() => expect((screen.getByTitle("Yerel geliştirme önizlemesi") as HTMLIFrameElement).style.width).toBe("320px"));
+  });
+
+  it("konsol/ağ ve ekran görüntüsü çekmeceleri yalnız açık adreste etkindir ve birbirini kapatır (P-041)", async () => {
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => {
+        if (name === "web.onizleme_dogrula") return { ok: true, url: data.url, durum: 200 };
+        if (name === "onizleme.gunluk") return { ok: true, konsol: [], ag: [], hata_sayisi: 0, basarisiz_istek: 0 };
+        if (name === "onizleme.ekran_goruntusu") return { ok: true, base64: "aGk=", mime: "image/png", yol: ".fusion/onizleme-ekran.png", genislik: 1280, yukseklik: 800 };
+        return { ok: true, yapilandirmalar: [] };
+      }),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath={null} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+    const gunluk = screen.getByRole("button", { name: "Konsol ve ağ günlüğü" });
+    const goruntu = screen.getByRole("button", { name: "Ekran görüntüsü al" });
+    expect(gunluk.hasAttribute("disabled")).toBe(true);
+    expect(goruntu.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), { target: { value: "http://localhost:3001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    await screen.findByTitle("Yerel geliştirme önizlemesi");
+
+    fireEvent.click(gunluk);
+    expect(await screen.findByTestId("preview-log")).toBeTruthy();
+    expect(client.request).toHaveBeenCalledWith("onizleme.gunluk", { url: "http://localhost:3001" });
+    fireEvent.click(goruntu);
+    expect(await screen.findByTestId("preview-shot")).toBeTruthy();
+    expect(screen.queryByTestId("preview-log")).toBeNull();
+    // Görüntü isteği kısa beklemeyle (debounce) gider: hızlı boyut geçişi tarayıcı başlatmasın.
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("onizleme.ekran_goruntusu", { url: "http://localhost:3001", genislik: 1280, yukseklik: 800 }));
+    fireEvent.click(screen.getByRole("button", { name: "Ekran görüntüsünü kapat" }));
+    expect(screen.queryByTestId("preview-shot")).toBeNull();
+  });
+
+  it("launch.json başlatıcısı sunucuyu açınca adres doğrulanıp panelde gösterilir (P-041)", async () => {
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => {
+        if (name === "web.onizleme_dogrula") return { ok: true, url: data.url, durum: 200 };
+        if (name === "onizleme.yapilandirmalar") return {
+          ok: true, kaynak: ".fusion/launch.json",
+          yapilandirmalar: [{ ad: "web", komut: "npm run dev", url: "http://127.0.0.1:5173/", baglan: false, calisiyor: false }],
+        };
+        if (name === "onizleme.baslat") return { ok: true, ad: "web", url: "http://127.0.0.1:5173/" };
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath={null} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Başlat" }));
+
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://127.0.0.1:5173/"));
+    expect((screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement).value).toBe("http://127.0.0.1:5173/");
   });
 
   it("iframe yüklenemediğinde boş alan yerine açıklama ve harici açma sunar", async () => {
@@ -152,10 +306,10 @@ describe("PreviewPanel", () => {
     } as unknown as ProtocolClient;
     render(<PreviewPanel client={client} selectedPath={null} />);
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement;
-    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.change(address, { target: { value: "http://localhost:3001" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
-    resolveValidation?.({ ok: true, url: "http://localhost:3000", durum: 200 });
+    resolveValidation?.({ ok: true, url: "http://localhost:3001", durum: 200 });
 
     await waitFor(() => expect(address.value).toBe("http://localhost:4173"));
     expect(screen.queryByTitle("Yerel geliştirme önizlemesi")).toBeNull();
@@ -168,7 +322,7 @@ describe("PreviewPanel", () => {
     } as unknown as ProtocolClient;
     render(<PreviewPanel client={client} selectedPath={null} />);
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement;
-    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.change(address, { target: { value: "http://localhost:3001" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
     resolveValidation?.({ ok: false, metin: "Eski adres açılamadı" });

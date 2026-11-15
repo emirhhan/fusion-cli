@@ -91,6 +91,9 @@ class _MarkdownDonusturucu(HTMLParser):
         self._acik_satirici: list[str] = []
         #: İçeriği atlanan elemanın adı (script/style gibi).
         self._atlanan = ""
+        #: İç içe atılan etiket sayısı: `<button><svg></svg>Kopyala</button>` içinde `svg`
+        #: kapanınca bayrak erken sıfırlanıp 'Kopyala' çıktıya giriyordu.
+        self._atlanan_derinlik = 0
         #: Açık bağlantının adresi.
         self._baglanti = ""
         #: Tablo hücresinin metninin başladığı parça indeksi.
@@ -123,7 +126,18 @@ class _MarkdownDonusturucu(HTMLParser):
     # -- HTMLParser arayüzü ---------------------------------------------
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in _ATILAN:
-            self._atlanan = tag
+            if not self._atlanan:
+                self._atlanan = tag
+            self._atlanan_derinlik += 1
+            return
+        if self._atlanan:
+            return
+        if tag == "br":
+            if self._pre_derinlik:
+                self._pre_metin.append("\n")
+            else:
+                # Tablo hücresinde satır sonu satırı bölerdi: boşluk.
+                self._yaz(" " if self._hucreler is not None else "\n")
             return
         if tag == "pre":
             self._blok_ac()
@@ -183,7 +197,11 @@ class _MarkdownDonusturucu(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _ATILAN:
-            self._atlanan = ""
+            self._atlanan_derinlik = max(0, self._atlanan_derinlik - 1)
+            if self._atlanan_derinlik == 0:
+                self._atlanan = ""
+            return
+        if self._atlanan:
             return
         if tag == "pre" and self._pre_derinlik:
             self._pre_derinlik -= 1

@@ -87,12 +87,16 @@ function ilkHarfBuyuk(metin: string): string {
 export function adimOzeti(adimlar: OlayAdimi[]): string {
   const sayac = new Map<AdimTuru, { adet: number; hedefler: Set<string> }>();
   const serbest: string[] = [];
+  // Sonucu "ok" olmayan (başarısız, reddedilen, zaman aşımı, iptal, doğrulanamayan)
+  // çağrı başarı cümlesine girmez; ayrı sayılır.
+  let tamamlanmayan = 0;
   for (const adim of adimlar) {
     if (!adim.arac) {
       if (adim.kalici && !serbest.includes(adim.metin)) serbest.push(adim.metin);
       continue;
     }
     if (OZETE_GIRMEYEN.has(adim.arac)) continue;
+    if (adim.durum !== undefined && adim.durum !== "ok") { tamamlanmayan += 1; continue; }
     const tur = aracTuru(adim.arac);
     const kayit = sayac.get(tur) ?? { adet: 0, hedefler: new Set<string>() };
     kayit.adet += 1;
@@ -102,6 +106,7 @@ export function adimOzeti(adimlar: OlayAdimi[]): string {
   const parcalar = [...sayac.entries()].map(([tur, { adet, hedefler }]) =>
     cumle(tur, adet, hedefler.size === 1 ? [...hedefler][0] : undefined),
   );
+  if (tamamlanmayan) parcalar.push(`${tamamlanmayan} araç çağrısı tamamlanamadı`);
   const tumu = [...parcalar, ...serbest.map((metin) => metin.toLocaleLowerCase("tr-TR"))];
   return ilkHarfBuyuk(tumu.join(", "));
 }

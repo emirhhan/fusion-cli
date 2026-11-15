@@ -194,3 +194,190 @@ def test_modul_olarak_calistirilinca_komut_isler():
 
     assert sonuc.returncode == 0, sonuc.stderr
     assert "fusion-cli" in sonuc.stdout
+
+
+# --- Dalga 4: hata çıktısı stderr'e gider, traceback yerelleri basmaz (L1-11, L1-12) --- #
+
+
+def test_beklenen_hata_stdout_yerine_stderr_e_yazilir(monkeypatch, capsys):
+    """Ölçüldü (30 Ekim): `main()` FusionError'ı stdout'a basıyordu; `fusion mcp` ve
+    `fusion app` protokol akışına düz metin karışıyordu."""
+    import pytest
+
+    from fusion_cli.cli import app as cli_app
+    from fusion_cli.core.errors import FusionError
+
+    def _patlat(**kwargs):
+        raise FusionError("protokol dışı bozuk [/x]")
+
+    monkeypatch.setattr(cli_app, "app", _patlat)
+
+    with pytest.raises(SystemExit) as cikis:
+        cli_app.main()
+
+    yakalanan = capsys.readouterr()
+    assert cikis.value.code == 1
+    assert yakalanan.out == ""
+    assert "protokol dışı bozuk [/x]" in yakalanan.err
+
+
+def test_typer_beklenmeyen_hatada_yerel_degiskenleri_gostermez():
+    from fusion_cli.cli.app import app
+
+    assert app.pretty_exceptions_show_locals is False
+
+
+# --- Dalga 4: REPL kapısı yalnız OpenRouter/NIM anahtarına bakmaz (L1-13) --------- #
+
+
+def _anahtarsiz_ollama_kurulumu(monkeypatch):
+    from dataclasses import replace
+
+    from fusion_cli.config.keys import ProviderKeys
+    from fusion_cli.config.loader import load_config
+
+    gercek = load_config()
+    yerel = replace(gercek.agent, model="ollama/qwen2.5-coder", fallback=())
+    yapilandirma = replace(gercek, agent=yerel, web_sessions=())
+    monkeypatch.setattr(app_module, "load_config", lambda: yapilandirma)
+    monkeypatch.setattr(app_module, "detect", lambda: ProviderKeys(openrouter=False, nim=False))
+    return yapilandirma
+
+
+def test_anahtarsiz_varsayilan_kurulumda_repl_acilmaz(monkeypatch):
+    from dataclasses import replace
+
+    from fusion_cli.config.keys import ProviderKeys
+    from fusion_cli.config.loader import load_config
+
+    monkeypatch.setattr(app_module, "load_config", lambda: replace(load_config(), web_sessions=()))
+    monkeypatch.setattr(app_module, "detect", lambda: ProviderKeys(openrouter=False, nim=False))
+
+    assert runner.invoke(app_module.app, []).exit_code == 1
+
+
+def test_yalniz_yerel_model_kullanan_repl_e_girebilir(monkeypatch):
+    """Ölçüldü (30 Ekim): kapı `openrouter or nim` idi; yalnız Ollama kullanan çıkış 1 alıyordu."""
+    _anahtarsiz_ollama_kurulumu(monkeypatch)
+    cagrildi = []
+
+    async def _sahte_repl(*args, **kwargs):
+        cagrildi.append(1)
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _sahte_repl)
+    monkeypatch.setattr(app_module, "open_memory", lambda *a, **k: None)
+
+    sonuc = runner.invoke(app_module.app, [])
+
+    assert cagrildi == [1]
+    assert sonuc.exit_code == 0
+
+
+def test_etkilesimli_oturum_permission_mode_bayragini_iletir(monkeypatch):
+    """Claude Code `claude --permission-mode plan` (#328)."""
+    _anahtarsiz_ollama_kurulumu(monkeypatch)
+    gelen: list[str] = []
+
+    async def _sahte_repl(*args, **kwargs):
+        from fusion_cli.cli.launch_permissions import launch_permissions
+
+        mode = launch_permissions().mode
+        gelen.append(mode.value if mode is not None else "")
+        return 0
+
+    monkeypatch.setattr(app_module, "run_repl", _sahte_repl)
+    monkeypatch.setattr(app_module, "open_memory", lambda *a, **k: None)
+
+    sonuc = runner.invoke(app_module.app, ["--permission-mode", "plan"])
+
+    assert sonuc.exit_code == 0 and gelen == ["plan"]
+
+
+def test_karsilama_terminal_degilse_kontrol_dizisi_yazmaz():
+    """Boruya/dosyaya yönlendirilen çıktıya `ESC [ 3 J` bulaşmamalı (L1-39)."""
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui import banner
+
+    tampon = io.StringIO()
+    console = Console(file=tampon, width=80, force_terminal=False)
+
+    banner.print_welcome(console, banner.SessionInfo(**_ornek_oturum()), clear=True)
+
+    assert "\x1b" not in tampon.getvalue()
+
+
+# --- Dalga 4: agent çıkış kodu, kesilen koşuda temizlik, mcp-tools zaman aşımı (L1-26/28/46) --- #
+
+
+def _agent_calistir(monkeypatch, sonuc):
+    async def _sahte(*args, **kwargs):
+        return sonuc
+
+    monkeypatch.setattr(app_module, "run_agent_task", _sahte)
+    return runner.invoke(app_module.app, ["agent", "gorev", "--no-memory", "--quiet"])
+
+
+def test_agent_basarisiz_ama_metin_dolu_sonuc_sifirdan_farkli_doner(monkeypatch):
+    from types import SimpleNamespace
+
+    sonuc = SimpleNamespace(final_text="bütçe doldu, yarım kaldı", ok=False)
+
+    assert _agent_calistir(monkeypatch, sonuc).exit_code == 1
+
+
+def test_agent_basarili_sonuc_sifir_doner(monkeypatch):
+    from types import SimpleNamespace
+
+    assert _agent_calistir(monkeypatch, SimpleNamespace(final_text="tamam", ok=True)).exit_code == 0
+
+
+def test_agent_hata_firlatinca_gosterge_ve_iz_kapatilir(monkeypatch):
+    kapanis = []
+
+    async def _patlat(*args, **kwargs):
+        raise RuntimeError("motor çöktü")
+
+    monkeypatch.setattr(app_module, "run_agent_task", _patlat)
+    monkeypatch.setattr(
+        app_module.ConsoleRenderer, "abort", lambda self: kapanis.append("abort"), raising=True
+    )
+    monkeypatch.setattr(
+        app_module.Observers, "finish", lambda self: kapanis.append("finish"), raising=True
+    )
+
+    sonuc = runner.invoke(app_module.app, ["agent", "gorev", "--no-memory"])
+
+    assert sonuc.exit_code != 0
+    assert kapanis == ["abort", "finish"]
+
+
+def test_mcp_tools_baglanamayan_sunucuda_zaman_asimi_fusion_hatasi_verir(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    import pytest
+
+    from fusion_cli.core.errors import FusionError
+
+    class _Asili:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            await asyncio.sleep(30)
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr("fusion_cli.mcp_bridge.client.McpClient", _Asili)
+    monkeypatch.setattr(
+        app_module, "load_config", lambda: SimpleNamespace(mcp_servers=(SimpleNamespace(name="x"),))
+    )
+    monkeypatch.setattr(app_module, "MCP_TOOLS_TIMEOUT_S", 0.05)
+
+    with pytest.raises(FusionError, match="bağlanılamadı"):
+        app_module.mcp_tools()

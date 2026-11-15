@@ -8,13 +8,12 @@ import "./Panels.css";
  * açıklama, sağ tarafta denetim. Renkler ve yarıçaplar yalnız tasarım jetonlarından gelir.
  */
 
-export function PanelIntro({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <>
-      <h3 className="settings__section-heading">{title}</h3>
-      <p className="px-lead">{children}</p>
-    </>
-  );
+/**
+ * Bölüm açıklaması. Başlığı Ayarlar kabuğu (`settings__section-heading`) zaten yazar; burada tekrar
+ * yazmak ekran okuyucuya çift başlık okutuyordu (U2-54). `title` yalnız çağıran kodu okunur kılar.
+ */
+export function PanelIntro({ children }: { title?: string; children: ReactNode }) {
+  return <p className="px-lead">{children}</p>;
 }
 
 export function PanelGroup({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
@@ -54,12 +53,14 @@ export function ToggleRow({ checked, disabled, title, description, chip, warning
           </div>
         )}
       </div>
+      {/* `disabled` yerine `aria-disabled`: kaydetme sırasında öğe devre dışı kalırsa klavye odağı kaybolur (U2-46). */}
       <input
+        aria-disabled={disabled || undefined}
         checked={checked}
         className="px-switch"
-        disabled={disabled}
+        data-busy={disabled || undefined}
         id={id}
-        onChange={(event) => onChange(event.target.checked)}
+        onChange={(event) => { if (!disabled) onChange(event.target.checked); }}
         role="switch"
         type="checkbox"
       />
@@ -82,7 +83,8 @@ interface ChoiceCardsProps {
 /** Birbirini dışlayan seçenekler: işaretli olan kart vurgulanır. */
 export function ChoiceCards({ legend, name, value, options, disabled, note, onChange }: ChoiceCardsProps) {
   return (
-    <fieldset className="px-choices" disabled={disabled}>
+    // `fieldset disabled` odağı düşürürdü (U2-46): meşgulken yalnız işaretlenir, değişiklikler yok sayılır.
+    <fieldset aria-busy={disabled || undefined} className="px-choices" data-busy={disabled || undefined}>
       <legend>{legend}</legend>
       <div className="px-choices__grid">
         {options.map((option) => (
@@ -90,7 +92,7 @@ export function ChoiceCards({ legend, name, value, options, disabled, note, onCh
             <input
               checked={value === option.value}
               name={name}
-              onChange={() => onChange(option.value)}
+              onChange={() => { if (!disabled) onChange(option.value); }}
               type="radio"
             />
             <span className="px-choice__title">{option.title}</span>

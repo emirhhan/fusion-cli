@@ -15,23 +15,32 @@ dokunulmaz.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import math
 import os
 from enum import Enum
 from pathlib import Path
 from types import UnionType
-from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
+from typing import Any, Literal, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import yaml
 from dotenv import dotenv_values
 
+from ..core.desktop_settings import DesktopSettings
 from ..core.errors import ConfigError
+from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
+from . import computer_use_projects, trust
+from .agent_launch_compat import read_agent_launch
+from .agent_launch_settings import AgentLaunchConfig
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
+    BrowserConfig,
+    CapabilitiesConfig,
     Config,
     EmbeddingConfig,
     HostedConnectorConfig,
+    McpScope,
     McpServerConfig,
     ProfileEligibility,
     RuntimeConfig,
@@ -40,13 +49,18 @@ from .models import (
 )
 from .paths import (
     ENV_CONFIG,
+    ENV_HOME,
     bundled_defaults,
     credentials_file,
     env_file_candidates,
     memory_dir,
     user_config_candidates,
+    user_config_dir,
     web_profile_dir,
 )
+from .sandbox_config import SandboxConfig, validate_sandbox
+
+_logger = logging.getLogger(__name__)
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
 _SECTIONS = (
@@ -64,6 +78,11 @@ _SECTIONS = (
     "hosted_connectors",
     "mcp_servers",
     "web_sessions",
+    "browser",
+    "capabilities",
+    "sandbox",
+    "desktop",
+    "agent_launch",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -91,7 +110,10 @@ def load_environment() -> None:
         if not candidate.is_file():
             continue
         for key, value in dotenv_values(candidate).items():
-            if value and value.strip() and key not in os.environ:
+            # Mevcut ortamda BOŞ dışa aktarılmış değişken (`OPENROUTER_API_KEY=""`) "yok"
+            # sayılır: aksi hâlde `.env`'deki gerçek anahtarı gölgeliyordu (`_apply_stored_secrets`
+            # boşları zaten böyle ele alıyor; L2-19).
+            if value and value.strip() and not os.environ.get(key, "").strip():
                 os.environ[key] = value
                 eklenen.add(key)
     _DOTENV_KEYS = _DOTENV_KEYS | eklenen
@@ -112,8 +134,11 @@ def _apply_stored_secrets() -> None:
     if not store.available:
         return
     try:
+        # Eski (SHA-256) dosya ilk açılışta scrypt biçimine taşınır; başarısızlık açılışı
+        # engellemez, eski dosya okunmaya devam eder (L2-27).
+        store.upgrade_format()
         store.apply_to_environ(os.environ)
-    except ConfigError:
+    except (ConfigError, OSError):
         # Bozuk dosya / yanlış anahtar: sır uygulanamaz ama uygulama açılmaya devam eder.
         return
 
@@ -141,6 +166,9 @@ def load_config(path: str | Path | None = None) -> Config:
     # etmedi. `.env`'den gelen değer ise yalnız bir adaydır: kullanıcıların
     # `.env`'inde göreli `config.yaml` duruyor ve başka dizinde yok sayılmalı.
     from_env = None if ENV_CONFIG in _DOTENV_KEYS else os.environ.get(ENV_CONFIG)
+    # `.env` yüklenmeden ÖNCE: proje `.env`'i FUSION_CONFIG/FUSION_HOME/XDG_CONFIG_HOME
+    # ile config yolunu kendi dosyasına çevirip güven denetimini atlatamasın.
+    owned = _user_owned_configs()
     load_environment()
 
     defaults = _read_yaml(bundled_defaults())
@@ -152,14 +180,49 @@ def load_config(path: str | Path | None = None) -> Config:
             raise ConfigError(f"Yapılandırma dosyası bulunamadı: {source}")
         user = _read_yaml(source)
         _reject_removed(user)
-        merged = _deep_merge(defaults, _apply_renames(user))
+        if path is None:
+            user = _restrict_untrusted_project(user, source, owned)
+        merged = _deep_merge(defaults, _claude_sandbox(_apply_renames(user)))
     else:
         merged = defaults
+    # Claude Code `settings.json` sandbox bölümleri Fusion YAML'ının üstündedir (#322, #369).
+    from .claude_sandbox_settings import with_claude_sandbox
+
+    merged = with_claude_sandbox(merged, Path.cwd())
 
     try:
         # Kurulu olmayan sağlayıcıların modelleri zincirden düşürülür: NIM anahtarı
         # olmayan kullanıcı her rolde önce başarısız bir çağrı yapıp yedeğe düşerdi.
         yapilandirma = _assemble(merged, source)
+        yapilandirma = dataclasses.replace(
+            yapilandirma,
+            agent_launch=read_agent_launch(
+                yapilandirma.agent_launch, home=Path.home(), root=Path.cwd(), environ=os.environ
+            ),
+            agent_launch_configured=yapilandirma.agent_launch,
+        )
+        yapilandirma = _with_plugin_default_agent(yapilandirma)  # #389: eklenti settings.json
+        yapilandirma = with_eval_model(yapilandirma)  # #380: plugin eval --model
+        # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
+        # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
+        yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
+        # Claude ayarındaki `permissions.blockReadsOutsideWorkingDirectories: true` (#76).
+        yapilandirma = _with_claude_read_block(yapilandirma, Path.cwd())
+        # Computer use proje başına açılabilir (`/mcp enable computer-use`, #420).
+        yapilandirma = dataclasses.replace(
+            yapilandirma,
+            desktop=computer_use_projects.effective(yapilandirma.desktop, Path.cwd()),
+        )
+        # Etkin ve çalıştırma onaylı eklentilerin MCP sunucuları (P-059).
+        yapilandirma = _with_plugin_mcp_servers(yapilandirma)
+        # `--mcp-config` / `--strict-mcp-config` (Claude Code; #253).
+        from .mcp_cli import apply_session_mcp
+
+        yapilandirma = apply_session_mcp(yapilandirma)
+        # Kuruluş MCP denetimi: managed-mcp.json tekeli, managedMcpServers, izin/ret (#274).
+        from .mcp_policy import apply_mcp_policy
+
+        yapilandirma = apply_mcp_policy(yapilandirma, Path.cwd())
         # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
         # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
         # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
@@ -171,6 +234,55 @@ def load_config(path: str | Path | None = None) -> Config:
         if source is None:
             raise
         raise ConfigError(f"{exc} (dosya: {source})") from exc
+
+
+#: `.env`'den geldiğinde kullanıcı yapılandırma dizinini başka yere taşıyan değişkenler.
+_CONFIG_DIR_ENV = frozenset({"XDG_CONFIG_HOME", "APPDATA"})
+
+
+def _user_owned_configs() -> frozenset[Path]:
+    """Kullanıcının kendi seçtiği config yolları; `.env` yönlendirmesi sayılmaz."""
+    owned: list[Path] = []
+    if not _DOTENV_KEYS & _CONFIG_DIR_ENV:
+        owned.append(user_config_dir() / trust.PROJECT_CONFIG_NAME)
+    home = os.environ.get(ENV_HOME)
+    if home and ENV_HOME not in _DOTENV_KEYS:
+        owned.append(Path(home) / trust.PROJECT_CONFIG_NAME)
+    return frozenset(path.resolve() for path in owned)
+
+
+def _restrict_untrusted_project(
+    user: YamlMapping, source: Path, owned: frozenset[Path]
+) -> YamlMapping:
+    """Kullanıcıya ait olmayan config güvenilmiyorsa yürütme ayarlarını düşür.
+
+    Kullanıcı dizini, süreç ortamındaki FUSION_HOME ve açıkça verilen yol kullanıcının
+    seçimidir. `./config.yaml` yedeği yalnız `fusion trust` ile güvenilirse uygulanır;
+    proje `.env`'inin gösterdiği başka bir yol hiçbir zaman güvenilir sayılmaz.
+    """
+    resolved = source.resolve()
+    if resolved in owned:
+        return user
+    cwd = Path.cwd().resolve()
+    if resolved == cwd / trust.PROJECT_CONFIG_NAME:
+        state = trust.resolve_project_trust(cwd)
+    else:
+        state = trust.TrustState(False, trust.REASON_REDIRECTED)
+    if state.trusted:
+        return user
+    cleaned, removed = trust.without_execution_settings(user)
+    if "agent_launch" in cleaned:
+        cleaned = {key: value for key, value in cleaned.items() if key != "agent_launch"}
+        removed = (*removed, "agent_launch")
+    if removed:
+        _logger.warning(
+            "Proje yapılandırması (%s) güvenilir değil (%s); şu ayarlar uygulanmadı: %s. "
+            "Güveniyorsan: fusion trust",
+            source,
+            state.reason,
+            ", ".join(removed),
+        )
+    return cleaned
 
 
 def _assemble(merged: dict[str, object], source: Path | None) -> Config:
@@ -199,7 +311,22 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
         hosted_connectors=_build_hosted_connectors(merged.get("hosted_connectors")),
         web_sessions=web_sessions,
+        # Eski kullanıcı dosyasında `browser:` yoksa gömülü varsayılanlar geçerlidir.
+        browser=_build(BrowserConfig, merged.get("browser") or {}, "browser"),
+        capabilities=_build(CapabilitiesConfig, merged.get("capabilities") or {}, "capabilities"),
+        # Eski dosyada `sandbox:` yoksa varsayılan politika (P-010).
+        sandbox=validate_sandbox(_build(SandboxConfig, merged.get("sandbox") or {}, "sandbox")),
+        desktop=_build_desktop(merged.get("desktop") or {}),
+        agent_launch=_build(AgentLaunchConfig, merged.get("agent_launch") or {}, "agent_launch"),
     )
+
+
+def _build_desktop(raw: object) -> DesktopSettings:
+    """`desktop:` bölümü; kullanımdan kalkan kademe anahtarları okunur, bir kez uyarılır (#424)."""
+    from .desktop_deprecation import warn_deprecated_desktop_keys
+
+    warn_deprecated_desktop_keys(raw)
+    return _build(DesktopSettings, raw, "desktop")
 
 
 def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec | None:
@@ -221,9 +348,70 @@ def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec |
 
 
 def _build_runtime(raw: object) -> RuntimeConfig:
+    from .desktop_deprecation import warn_deprecated_runtime_keys
+
+    warn_deprecated_runtime_keys(raw)
+    # YAML 1.1: tırnaksız `off` mantıksal false okunur; kullanıcı niyeti "off"tur.
+    if isinstance(raw, dict) and raw.get("shell_sandbox") is False:
+        raw = {**raw, "shell_sandbox": "off"}
     runtime = _build(RuntimeConfig, raw, "runtime")
     if runtime.workflow_attempt_calls < 0:
         raise ConfigError("runtime.workflow_attempt_calls: negatif olamaz.")
+    # Aralık dışı değerler eskiden sessizce geçiyordu (negatif zaman aşımı, α > 1…; L2-19).
+    for name in (
+        "request_timeout_s",
+        "judge_timeout_s",
+        "circuit_cooldown_s",
+        "teacher_timeout_s",
+        "teacher_auto_phase_timeout_s",
+        "auto_classifier_timeout_s",
+    ):
+        if getattr(runtime, name) <= 0:
+            raise ConfigError(f"runtime.{name}: sıfırdan büyük olmalı.")
+    for name in (
+        "max_retries",
+        "circuit_failure_threshold",
+        "compact_tools_window_tokens",
+        "compact_external_tools",
+        "tool_output_window",
+        "repo_map_chars",
+        "instruction_max_chars",
+        "skill_index_chars",
+        "goal_checkin_minutes",
+        "dynamic_workflow_max_concurrent",
+        "dynamic_workflow_confirm_agents",
+        "agent_team_max_wakes",
+    ):
+        if getattr(runtime, name) < 0:
+            raise ConfigError(f"runtime.{name}: negatif olamaz.")
+    if runtime.goal_max_turns < 1:
+        raise ConfigError("runtime.goal_max_turns: en az 1 olmalı.")
+    for name in ("dynamic_workflow_max_agents", "agent_team_max_members", "agent_team_max_runs"):
+        if getattr(runtime, name) < 1:
+            raise ConfigError(f"runtime.{name}: en az 1 olmalı.")
+    if runtime.desktop_screenshot_max_width < 256:
+        raise ConfigError("runtime.desktop_screenshot_max_width: en az 256 piksel olmalı.")
+    if runtime.escalation_model.strip() and "/" not in runtime.escalation_model:
+        raise ConfigError(
+            "runtime.escalation_model: <sağlayıcı>/<model> biçiminde olmalı "
+            f"(gelen: {runtime.escalation_model!r}); boş bırakılırsa kademeden otomatik seçilir."
+        )
+    if runtime.auto_classifier_model.strip() and "/" not in runtime.auto_classifier_model:
+        raise ConfigError(
+            "runtime.auto_classifier_model: <sağlayıcı>/<model> biçiminde olmalı "
+            f"(gelen: {runtime.auto_classifier_model!r}); boş bırakılırsa hakem modeli kullanılır."
+        )
+    if not 0.0 <= runtime.external_lesson_confidence <= 1.0:
+        raise ConfigError("runtime.external_lesson_confidence: 0 ile 1 arasında olmalı.")
+    if not 0.0 <= runtime.weak_model_compaction_ratio <= 1.0:
+        raise ConfigError("runtime.weak_model_compaction_ratio: 0 ile 1 arasında olmalı.")
+    if not 0.0 <= runtime.reliability_alpha <= 1.0:
+        raise ConfigError("runtime.reliability_alpha: 0 ile 1 arasında olmalı.")
+    if runtime.shell_sandbox not in SHELL_SANDBOX_MODES:
+        raise ConfigError(
+            f"runtime.shell_sandbox: {runtime.shell_sandbox!r} geçersiz; "
+            f"geçerli: {', '.join(SHELL_SANDBOX_MODES)}."
+        )
     return runtime
 
 
@@ -285,6 +473,82 @@ def _build_hosted_connectors(raw: object) -> tuple[HostedConnectorConfig, ...]:
     )
 
 
+def _with_project_mcp_servers(config: Config, root: Path) -> Config:
+    """Güvenilen projenin `.mcp.json` sunucularını kullanıcı kayıtlarına ekle."""
+    from .mcp_json import merge_mcp_servers, trusted_project_mcp_servers
+    from .mcp_local import disabled_mcp_servers, read_local_mcp_servers
+
+    project_servers = trusted_project_mcp_servers(root)
+    local_servers = read_local_mcp_servers(root)
+    disabled = disabled_mcp_servers(root)
+    if not project_servers and not local_servers and not disabled:
+        return config
+    merged = merge_mcp_servers(config.mcp_servers, project_servers, local_servers)
+    return dataclasses.replace(
+        config, mcp_servers=tuple(server for server in merged if server.name not in disabled)
+    )
+
+
+def _with_claude_read_block(config: Config, root: Path) -> Config:
+    """Herhangi bir Claude ayar kapsamındaki `true` kök dışı okumayı kapatır (#76)."""
+    from .permission_settings import block_reads_outside_working_directories
+
+    if config.runtime.block_reads_outside_root:
+        return config
+    if not block_reads_outside_working_directories(root):
+        return config
+    runtime = dataclasses.replace(config.runtime, block_reads_outside_root=True)
+    return dataclasses.replace(config, runtime=runtime)
+
+
+def with_eval_model(config: Config) -> Config:
+    from .plugin_eval_env import with_eval_model as apply
+
+    return apply(config)
+
+
+def _with_plugin_default_agent(config: Config) -> Config:
+    """Kullanıcı/proje `agent` vermediyse etkin eklentinin `settings.json` `agent`'ı (Claude)."""
+    if config.agent_launch.default_agent:
+        return config
+    from .plugin_settings import plugin_default_agent
+
+    agent = plugin_default_agent()
+    if not agent:
+        return config
+    launch = dataclasses.replace(config.agent_launch, default_agent=agent)
+    return dataclasses.replace(config, agent_launch=launch)
+
+
+def _with_plugin_mcp_servers(config: Config) -> Config:
+    """Eklenti sunucuları (`plugin_<eklenti>_<sunucu>`) kullanıcı/proje adlarını geçmez."""
+    from .mcp_local import disabled_mcp_servers
+    from .plugin_eval_env import with_eval_mocks
+    from .plugin_store import plugin_mcp_servers
+
+    taken = {server.name for server in config.mcp_servers}
+    # `/mcp` aç/kapa ile bu projede kapatılan sunucular yüklenmez (Claude disabledMcpServers).
+    taken |= disabled_mcp_servers(Path.cwd())
+    found = with_eval_mocks(plugin_mcp_servers())  # #380: plugin eval --mocks
+    extra = tuple(server for server in found if server.name not in taken)
+    if not extra:
+        return config
+    return dataclasses.replace(config, mcp_servers=(*config.mcp_servers, *extra))
+
+
+def refresh_plugin_mcp_servers(config: Config) -> Config:
+    """Eklenti kur/aç/kapat/kaldır sonrası: PLUGIN kapsamlı kayıtları diskteki kayda göre yenile.
+
+    Ölçüldü (31 Ekim): kapatılan ya da kaldırılan eklentinin MCP sunucusu çalışan oturumun
+    yapılandırmasında kalıyor, araçları oturum yeniden başlayana dek çağrılabiliyordu.
+    """
+    from .mcp_policy import apply_mcp_policy
+
+    others = tuple(s for s in config.mcp_servers if s.scope is not McpScope.PLUGIN)
+    refreshed = _with_plugin_mcp_servers(dataclasses.replace(config, mcp_servers=others))
+    return apply_mcp_policy(refreshed, Path.cwd())  # #274: eklenti sunucusu politikayı aşmaz
+
+
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:
     """Dış MCP sunucu listesini kur. Tanımsız/boşsa MCP istemcisi hiç kurulmaz."""
     if raw is None:
@@ -305,6 +569,10 @@ def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:
                 raise ConfigError("MCP ağ süre sınırları pozitif ve sonlu olmalı.")
         if any(not math.isfinite(delay) or delay <= 0 for delay in server.retry_delays_s or ()):
             raise ConfigError("MCP yeniden deneme aralıkları pozitif ve sonlu olmalı.")
+        if server.max_tools is not None and server.max_tools < 1:
+            raise ConfigError(
+                f"MCP '{server.name}': max_tools en az 1 olmalı (sınırsız için boş bırak)."
+            )
     return servers
 
 
@@ -423,6 +691,31 @@ REMOVED_KEYS = {
 }
 
 
+def _claude_sandbox(data: YamlMapping) -> YamlMapping:
+    """Claude `sandbox.*` adlarını iç adlara çevir; `sandbox.enabled` → `runtime.shell_sandbox`.
+
+    Bkz. `sandbox_claude_keys` (#321, #322). `sandbox.enabled` yazılmışsa Claude adı kazanır;
+    yalnız eski `runtime.shell_sandbox` yazılmışsa kullanımdan kalkma uyarısı verilir.
+    """
+    from .sandbox_claude_keys import normalize_claude_sandbox, warn_legacy_switch
+
+    result = dict(data)
+    if "sandbox" in result:
+        section, enabled = normalize_claude_sandbox(result["sandbox"])
+        result["sandbox"] = section
+    else:
+        enabled = None
+    runtime = result.get("runtime")
+    runtime_data = dict(runtime) if isinstance(runtime, dict) else None
+    if enabled is not None:
+        merged_runtime = runtime_data or {}
+        merged_runtime["shell_sandbox"] = "write_root" if enabled else "off"
+        result["runtime"] = merged_runtime
+    elif runtime_data is not None and "shell_sandbox" in runtime_data:
+        warn_legacy_switch()
+    return result
+
+
 def _apply_renames(data: YamlMapping) -> YamlMapping:
     """Eski adla yazılmış ayarları yeni adlarına taşı."""
     result = dict(data)
@@ -522,6 +815,10 @@ def _convert(value: object, target: object, where: str) -> object:
     if dataclasses.is_dataclass(target) and isinstance(target, type):
         return _build(target, value, where)
 
+    if get_origin(target) is Literal:
+        if any(type(value) is type(option) and value == option for option in get_args(target)):
+            return value
+        raise ConfigError(f"{where}: izin verilen değerlerden biri gerekli.")
     if get_origin(target) is tuple:
         return _convert_tuple(value, target, where)
     if get_origin(target) is dict:
@@ -581,6 +878,8 @@ def _convert_dict(value: object, target: object, where: str) -> dict[str, object
 
 def _convert_tuple(value: object, target: object, where: str) -> tuple[object, ...]:
     (item_type, *_) = get_args(target)
+    if where == "runtime.lsp_server.command" and isinstance(value, str):
+        raise ConfigError(f"{where}: açık argv listesi gerekli; metin komut kabul edilmez.")
     # Metin listesi beklenen yere yazılan TEK metin, tek elemanlı liste sayılır.
     # Önceki sürüm `fallback: str | list[str]` kabul ediyordu; kullanıcıların
     # elindeki `fallback: bir/model` yazan config'ler yükleme anında patlamasın.

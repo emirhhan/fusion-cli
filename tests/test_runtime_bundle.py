@@ -390,6 +390,7 @@ def test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly(tmp_path: Path):
             "guven": None,
             "speech_ms": 0,
             "segment": 0,
+            "surekli_tur": True,
         }
         helper.terminate()
         assert helper.wait(timeout=3) == 0
@@ -412,9 +413,9 @@ def test_desktop_bundle_scripts_build_platform_listen_adapters():
 
     assert "build_adapter.py --platform macos" in scripts["listen:build:mac"]
     assert "build_adapter.py --platform windows" in scripts["listen:build:win"]
-    assert scripts["bundle:mac"].startswith("npm run listen:build:mac &&")
+    assert scripts["bundle:mac"].startswith("npm run kits:prepare && npm run listen:build:mac &&")
     assert "stable_sign_bundle.py --bundle-root" in scripts["bundle:mac"]
-    assert scripts["bundle:win"].startswith("npm run listen:build:win &&")
+    assert scripts["bundle:win"].startswith("npm run kits:prepare && npm run listen:build:win &&")
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS codesign/DMG sözleşme testi")

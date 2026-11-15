@@ -83,3 +83,64 @@ def test_puan_sinirlar_icinde_kalir():
 
     assert 0.0 <= yuksek <= 1.0
     assert 0.0 <= dusuk <= 1.0
+
+
+def _fingerprint(output):
+    from fusion_cli.core.evidence import ToolUse
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.progress import progress_fingerprint
+    from fusion_cli.engines.agent.step_verification import StepVerificationResult
+    from tests.test_gate_cache import _adim
+
+    outcome = AgentOutcome("", [], tool_uses=(ToolUse("run_shell", False, output=output),))
+    return progress_fingerprint(_adim("check"), outcome, StepVerificationResult(False))
+
+
+def test_numeric_assertion_change_is_new_progress():
+    assert _fingerprint("AssertionError: expected 2 got 1") != _fingerprint(
+        "AssertionError: expected 3 got 1"
+    )
+
+
+def test_timestamp_and_explicit_pid_change_is_not_new_progress():
+    assert _fingerprint("2026-10-31 12:20:00 PID=123 expected 2") == _fingerprint(
+        "2026-10-31 12:30:00 PID=456 expected 2"
+    )
+
+
+def test_typed_failure_source_change_and_new_criterion_change_progress():
+    from dataclasses import replace
+
+    from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+    from fusion_cli.core.repair_ledger import FailureEvidence, SourceFingerprint
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.progress import progress_fingerprint
+    from fusion_cli.engines.agent.step_verification import StepVerificationResult
+    from tests.test_gate_cache import _adim
+
+    step, outcome = _adim("check"), AgentOutcome("", [])
+    failure = FailureEvidence(
+        "test/layout", "AssertionError", "attempt-1", (SourceFingerprint("a.py", "hash-one"),)
+    )
+    original = StepVerificationResult(False, failure_evidence=(failure,))
+    changed = replace(
+        failure, attempt_id="attempt-2", sources=(SourceFingerprint("a.py", "hash-two"),)
+    )
+    assert progress_fingerprint(step, outcome, original) != progress_fingerprint(
+        step, outcome, replace(original, failure_evidence=(changed,))
+    )
+    same = replace(failure, attempt_id="attempt-3")
+    assert progress_fingerprint(step, outcome, original) == progress_fingerprint(
+        step, outcome, replace(original, failure_evidence=(same,))
+    )
+    criterion = CriterionEvidence(
+        "behavior", VerificationCheckKind.COMMAND, EvidenceStatus.PASSED, "gerçek kontrol geçti"
+    )
+    assert progress_fingerprint(step, outcome, original) != progress_fingerprint(
+        step, outcome, replace(original, criteria=(criterion,))
+    )
+
+
+def test_large_numeric_expectations_are_not_mistaken_for_hex_identity():
+    assert _fingerprint("expected 12345678 got 1") != _fingerprint("expected 12345679 got 1")

@@ -54,12 +54,23 @@ class CaptureProvenanceCheck:
     is_original_theme: bool
 
 
+#: Kişiye özel rota bileşenleri. Eskiden yalnız İngilizce WooCommerce slug'ları vardı;
+#: Türkçe mağazalarda (`/odeme/`, `/siparis-alindi/`, `/hesabim/`) yol olduğu gibi `.fusion/`
+#: altına yazılıp depoya girebiliyordu (ölçüldü, 30 Ekim).
+_PRIVATE_PATH_PARTS = frozenset(
+    {
+        "order-pay", "order-received", "my-account", "checkout", "cart", "account", "login",
+        "odeme", "siparis-alindi", "siparis-tamamla", "siparis-takip", "siparislerim",
+        "hesabim", "hesap", "sepet", "giris", "uye-girisi", "kayit", "sifre-sifirla",
+        "lost-password", "wp-admin", "wp-login.php", "admin",
+    }
+)  # fmt: skip
+
+
 def _public_path(url: str) -> str:
     """Sorgu ve kişiye özel ödeme rotasını kayda taşıma."""
     path = unquote(urlsplit(url).path) or "/"
-    if any(
-        part.lower() in {"order-pay", "order-received", "my-account"} for part in path.split("/")
-    ):
+    if any(part.lower() in _PRIVATE_PATH_PARTS for part in path.split("/")):
         return "/[redacted]"
     return path
 

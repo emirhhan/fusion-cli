@@ -56,8 +56,13 @@ class TraceStore:
         """Kayıtlı koşu kimlikleri, eskiden yeniye."""
         if not self._root.is_dir():
             return ()
-        files = sorted(self._root.glob("*.jsonl"), key=lambda item: item.stat().st_mtime)
-        return tuple(item.stem for item in files)
+        zamanli: list[tuple[float, str]] = []
+        for item in self._root.glob("*.jsonl"):
+            try:
+                zamanli.append((item.stat().st_mtime, item.stem))
+            except OSError:
+                continue  # listeleme ile stat arasında silinen iz dosyası
+        return tuple(stem for _, stem in sorted(zamanli))
 
     def latest(self) -> str | None:
         """En son yazılan koşunun kimliği."""

@@ -82,3 +82,14 @@ def test_bos_metin_cokertmez():
 @pytest.mark.parametrize("giris", ["", "   ", "\n\n"])
 def test_bosluktan_ibaret_metin_bos_doner(giris: str):
     assert prepare_speech(giris) == ""
+
+
+def test_binlik_ayraci_tarih_surum_ve_baglanti_bozulmaz() -> None:
+    """Ölçüldü (30 Ekim, S2-32): "1.000" → "1 virgül 000", "25.10.2026" → "25.10 virgül 2026",
+    "https://a.com/x/y" → "https: y" okunuyordu."""
+    assert prepare_speech("1.000 dosya") == "1000 dosya"
+    assert prepare_speech("12.500.000 TL") == "12500000 TL"
+    assert "virgül" not in prepare_speech("25.10.2026 tarihinde")
+    assert "virgül" not in prepare_speech("sürüm 3.11.2 çıktı")
+    assert prepare_speech("bkz https://a.com/x/y sayfası") == "bkz a.com sayfası"
+    assert "2 virgül 4" in prepare_speech("2,4 saniye")  # gerçek ondalık korunur

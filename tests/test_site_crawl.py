@@ -90,3 +90,78 @@ def test_sayfa_ayristirici_basligi_ve_aciklamayi_okur():
     assert sayfa.description == "Üçüncü dalga kahve"
     assert sayfa.headings == ["h1: Hoş geldiniz"]
     assert sayfa.og_image == "https://kafe.example/og.jpg"
+
+
+# --- Dalga 4 (T1-46) -----------------------------------------------------------------
+
+
+def test_www_yonlendirmesi_taramayi_tek_sayfada_birakmaz(monkeypatch, tmp_path):
+    """`example.com` -> `www.example.com` yönlenince sayfa bağlantıları "başka site" sayılıyordu."""
+    istenen: list[str] = []
+    sayfalar = {
+        "https://ornek.example/": (
+            "https://www.ornek.example/",
+            '<html><title>Ana</title><a href="https://www.ornek.example/menu">m</a></html>',
+        ),
+        "https://www.ornek.example/menu": (
+            "https://www.ornek.example/menu",
+            "<html><title>Menü</title></html>",
+        ),
+    }
+
+    def _fetch(url):
+        istenen.append(url)
+        if url.endswith("robots.txt") or url not in sayfalar:
+            import httpx
+
+            raise httpx.HTTPStatusError("404", request=httpx.Request("GET", url), response=None)
+        son, govde = sayfalar[url]
+        return "text/html", govde, son
+
+    monkeypatch.setattr(crawl, "fetch_following_redirects", _fetch)
+    monkeypatch.setattr(crawl, "url_block_reason", lambda _u: None)
+    monkeypatch.setattr(crawl, "_sleep", lambda _s: None)
+
+    sonuc = crawl.site_crawl({"url": "https://ornek.example/"}, ToolContext(root=tmp_path))
+
+    assert "https://www.ornek.example/menu" in istenen
+    assert "2 sayfa okundu" in sonuc.output
+
+
+def test_robots_5xx_tum_siteyi_yasak_sayar(monkeypatch, tmp_path):
+    """RFC 9309: robots.txt 5xx ise tamamen yasak varsay (eskiden "kısıt yok")."""
+    import httpx
+
+    istenen: list[str] = []
+
+    def _fetch(url):
+        istenen.append(url)
+        if url.endswith("robots.txt"):
+            yanit = httpx.Response(503, request=httpx.Request("GET", url))
+            raise httpx.HTTPStatusError("503", request=yanit.request, response=yanit)
+        return "text/html", "<html><title>x</title></html>", url
+
+    monkeypatch.setattr(crawl, "fetch_following_redirects", _fetch)
+    monkeypatch.setattr(crawl, "url_block_reason", lambda _u: None)
+    monkeypatch.setattr(crawl, "_sleep", lambda _s: None)
+
+    sonuc = crawl.site_crawl({"url": "https://ornek.example/"}, ToolContext(root=tmp_path))
+
+    assert not sonuc.ok
+    assert [u for u in istenen if not u.endswith("robots.txt")] == []
+
+
+def test_robots_404_kisit_yok_sayilir(monkeypatch, tmp_path):
+    import httpx
+
+    def _fetch(url):
+        if url.endswith("robots.txt"):
+            yanit = httpx.Response(404, request=httpx.Request("GET", url))
+            raise httpx.HTTPStatusError("404", request=yanit.request, response=yanit)
+        return "text/html", "<html><title>x</title></html>", url
+
+    monkeypatch.setattr(crawl, "fetch_following_redirects", _fetch)
+    monkeypatch.setattr(crawl, "url_block_reason", lambda _u: None)
+    monkeypatch.setattr(crawl, "_sleep", lambda _s: None)
+
+    assert crawl.site_crawl({"url": "https://ornek.example/"}, ToolContext(root=tmp_path)).ok

@@ -107,11 +107,18 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     # araca yönlendirdi; model aynı duvara üç kez çarptı ve oyun teslim edilemedi.
     # Kural depoda zaten yazılı: bir kapı, işi YAPAMAYAN bir yeteneğe yönlendiremez.
     context = replace(
-        deps.tool_context, available_tools=set(deps.tool_context.available_tools) & allowed
+        deps.tool_context,
+        available_tools=set(deps.tool_context.available_tools) & allowed,
+        tool_phase=step.phase.value,
+        localization_step_id=step.step_id,
+        localization_criterion_ids=tuple(
+            dict.fromkeys(check.criterion_id for check in step.verification_checks)
+        ),
     )
     return replace(
         deps,
         tool_context=context,
+        context_step=step,
         execution=replace(
             policy,
             required_effect=effect,
@@ -332,11 +339,13 @@ def _bos_dizin_notu(context: ToolContext) -> str:
 def _relative_names(context: ToolContext, paths: Iterable[Path]) -> list[str]:
     """Yolları proje köküne göre kısalt; kök dışındakiler olduğu gibi kalır."""
     adlar: list[str] = []
-    for path in sorted(paths):
+    tum = sorted(paths)
+    for path in tum[:MAX_STEP_WORKSPACE_FILES]:
         try:
             adlar.append(path.relative_to(context.root).as_posix())
         except ValueError:
             adlar.append(path.name)
-        if len(adlar) >= MAX_STEP_WORKSPACE_FILES:
-            break
+    if len(tum) > MAX_STEP_WORKSPACE_FILES:
+        # Kesilen dosyalar sayılır: model listede olmayan dosyayı "yok" sanmasın (A3-39).
+        adlar.append(f"(+{len(tum) - MAX_STEP_WORKSPACE_FILES} dosya daha)")
     return adlar

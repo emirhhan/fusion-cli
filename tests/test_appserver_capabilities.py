@@ -41,7 +41,9 @@ async def test_katalog_dis_kaynaklari_proje_talimatini_ve_birlesik_etiketi_goste
     assert result["beceriler"][0]["kaynak"] == "claude+codex"
     assert result["ajanlar"][0]["ad"] == "architect"
     assert result["ajanlar"][0]["izinler"] == ["dosya okuma", "komut çalıştırma"]
-    assert result["talimatlar"] == [{"ad": "CLAUDE.md", "kaynak": "proje", "etkin": True}]
+    assert [(t["ad"], t["kaynak"], t["etkin"]) for t in result["talimatlar"]] == [
+        ("CLAUDE.md", "proje", True)
+    ]
 
 
 async def test_detay_yalniz_katalogdaki_ogeyi_okur_ve_oturumluk_kapatma_filtreler(tmp_path: Path):
@@ -89,6 +91,110 @@ async def test_acikca_secim_yalniz_sonraki_tur_icin_butceli_baglam_hazirlar(tmp_
     second = session._take_capability_context()
     await session.close()
 
-    assert selected == {"ok": True, "tur": "beceri", "ad": "research", "sonraki_tur": True}
+    assert selected == {
+        "ok": True,
+        "tur": "beceri",
+        "ad": "research",
+        "sonraki_tur": True,
+        "fork": False,
+    }
     assert "research" in context and len(context) <= 6_500
     assert second == ""
+
+
+async def test_katalog_alt_ajan_ayarlarini_gosterir(tmp_path: Path):
+    """P-034: frontmatter'daki model/izin kipi/tur tavanı/bellek katalogda görünür."""
+    home = tmp_path / "home"
+    root = tmp_path / "project"
+    root.mkdir()
+    agent_dir = home / ".claude/agents"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "denetci.md").write_text(
+        "---\nname: denetci\ndescription: Denetler\ntools: Read\nmodel: openrouter/a/b\n"
+        "permissionMode: plan\nmaxTurns: 5\nmemory: project\nmcpServers: [github]\n"
+        "disallowedTools: Bash\n---\nAjan",
+        encoding="utf-8",
+    )
+    (agent_dir / "yalin.md").write_text(
+        "---\nname: yalin\ndescription: Alansız\n---\nAjan", encoding="utf-8"
+    )
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    result = await _request(session, lines, "yetenek.katalog", {})
+    await session.close()
+
+    ajan = next(item for item in result["ajanlar"] if item["ad"] == "denetci")
+    assert ajan["ayarlar"] == {
+        "model": "openrouter/a/b",
+        "izin_kipi": "plan",
+        "en_fazla_tur": 5,
+        "mcp": ["github"],
+        "bellek": "project",
+        "yasak_araclar": ["Bash"],
+    }
+    # Alanı olmayan ajan boş sözlük taşır; eski istemci bozulmaz.
+    yalin = next(item for item in result["ajanlar"] if item["ad"] == "yalin")
+    assert yalin["ayarlar"] == {}
+
+
+async def test_ajan_ayrintisi_bellegi_gosterir_ve_siler(tmp_path: Path):
+    """P-055: `yetenek.detay` ajan belleğini taşır; `yetenek.bellek_sil` dizini kaldırır."""
+    from fusion_cli.memory.plain_memory import open_agent_memory
+    from tests.fakes import make_config
+
+    home = tmp_path / "home"
+    root = tmp_path / "project"
+    root.mkdir()
+    agent_dir = home / ".claude/agents"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "kodcu.md").write_text(
+        "---\nname: kodcu\ndescription: Kodlar\nmemory: project\n---\nAjan", encoding="utf-8"
+    )
+    (agent_dir / "duz.md").write_text("---\nname: duz\ndescription: D\n---\nAjan", encoding="utf-8")
+    bellek = open_agent_memory(make_config(), root, "kodcu", "project")
+    assert bellek is not None
+    bellek.remember("testler", "önce pytest; anahtar sk-abcdefghijklmnopqrstuvwxyz0123456789")
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    detay = await _request(session, lines, "yetenek.detay", {"tur": "ajan", "ad": "kodcu"})
+    assert detay["bellek"]["kapsam"] == "project" and detay["bellek"]["konular"] == ["testler"]
+    assert detay["bellek"]["satir"] > 0 and "testler" in detay["bellek"]["metin"]
+    duz = await _request(session, lines, "yetenek.detay", {"tur": "ajan", "ad": "duz"})
+    assert "bellek" not in duz
+
+    silme = await _request(session, lines, "yetenek.bellek_sil", {"ad": "kodcu"})
+    assert silme == {"ok": True, "ad": "kodcu", "silindi": True}
+    assert not (root / ".fusion" / "ajan-bellek" / "kodcu").exists()
+    yok = await _request(session, lines, "yetenek.bellek_sil", {"ad": "duz"})
+    assert yok["ok"] is False
+    await session.close()
+
+
+async def test_katalog_kurallari_ve_kullanici_katmanini_listeler_detay_okur(tmp_path: Path):
+    """P-015/P-016: ~/.claude/CLAUDE.md ve .claude/rules dosyaları talimat sekmesinde görünür."""
+    home, root = tmp_path / "home", tmp_path / "project"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "CLAUDE.md").write_text("genel kural", encoding="utf-8")
+    (root / ".claude" / "rules").mkdir(parents=True)
+    (root / ".claude" / "rules" / "test.md").write_text(
+        "---\npaths: ['tests/**']\n---\nTest kuralı", encoding="utf-8"
+    )
+    lines: list[str] = []
+    session = AppSession(lines.append, root=root, home=home)
+
+    result = await _request(session, lines, "yetenek.katalog", {})
+    detail = await _request(
+        session, lines, "yetenek.detay", {"tur": "talimat", "ad": ".claude/rules/test.md"}
+    )
+    yabanci = await _request(
+        session, lines, "yetenek.detay", {"tur": "talimat", "ad": "../../etc/passwd"}
+    )
+    await session.close()
+
+    adlar = {t["ad"]: t for t in result["talimatlar"]}
+    assert adlar["~/.claude/CLAUDE.md"]["kaynak"] == "kullanici"
+    assert "tests/**" in adlar[".claude/rules/test.md"]["aciklama"]
+    assert detail["ok"] is True and "Test kuralı" in detail["icerik"]
+    assert yabanci["ok"] is False

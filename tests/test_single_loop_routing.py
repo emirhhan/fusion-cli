@@ -20,13 +20,14 @@ from fusion_cli.cli.repl import macros
 from fusion_cli.config.loader import load_config
 from fusion_cli.core.events import CapabilityActivated, ExecutionRouteSelected
 from fusion_cli.core.execution_mode import ExecutionMode
-from fusion_cli.core.memory import Lesson, LessonKind
+from fusion_cli.core.memory import Lesson, LessonKind, LessonRecallPolicy
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message, ModelSpec
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome, _permitted, run_agent
+from fusion_cli.memory.lesson_ranking import Candidate, select_lessons
 from fusion_cli.tools import build_registry
 from fusion_cli.tools.capabilities import CapabilityRegistry
 
@@ -268,15 +269,26 @@ async def test_beceri_metni_kendiliginden_baglama_girmez(monkeypatch, tmp_path):
 
 class _SayanDersBellegi:
     def __init__(self):
-        self.recall_cagrilari: list[str] = []
+        self.recall_cagrilari: list[tuple[str, str | None]] = []
         self._ders = Lesson(text="Godot'ta res:// yolunu kullanma.", kind=LessonKind.MISTAKE)
 
     def add(self, lesson):
         return True
 
-    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
+    def recall(
+        self,
+        task,
+        limit=4,
+        *,
+        scope=None,
+        workspace=None,
+        tags=(),
+        policy: LessonRecallPolicy | None = None,
+    ):
         self.recall_cagrilari.append((task, scope))
-        return (self._ders,)
+        return select_lessons(
+            (Candidate(self._ders, 0.0),), limit=limit, scope=scope, policy=policy
+        )
 
     def reinforce(self, texts, *, success):
         return 0

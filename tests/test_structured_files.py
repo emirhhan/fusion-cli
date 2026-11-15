@@ -359,3 +359,39 @@ def test_gecerli_bolum_basliklari_kabul_edilir():
     )
 
     assert validate_structured(Path("a.tscn"), iyi) is None
+
+
+def test_gomulu_script_icinde_koseli_parantezli_satir_baslik_sayilmaz():
+    """Dize içindeki `[1, 2]` satırı bölüm başlığı değildir (C1-18)."""
+    gecerli = (
+        "[gd_scene format=3]\n\n"
+        '[sub_resource type="GDScript" id="g"]\n'
+        'script/source = "extends Node2D\n'
+        "var dizi = [\n"
+        "[1, 2],\n"
+        "[3, 4]]\n"
+        'func _ready():\\n\\tpass\n"\n\n'
+        '[node name="root" type="Node2D"]\n'
+    )
+
+    assert validate_structured(Path("main.tscn"), gecerli, authoring=False) is None
+
+
+def test_cok_belgeli_ve_etiketli_yaml_gecerlidir():
+    """k8s manifesti (`---`) ve CloudFormation etiketleri (`!Ref`) reddedilmez (C1-19)."""
+    coklu = "a: 1\n---\nb: 2\n"
+    etiketli = "Kaynak:\n  Ad: !Ref Param\n  Liste: !Sub\n    - x\n    - y\n"
+
+    assert validate_structured(Path("k8s.yaml"), coklu) is None
+    assert validate_structured(Path("sablon.yml"), etiketli) is None
+    assert validate_structured(Path("bozuk.yaml"), "a: [1, 2\n") is not None
+
+
+def test_tsconfig_ve_vscode_json_yorum_ve_sondaki_virgulu_kabul_eder():
+    """JSONC dosyaları kesin JSON gibi reddedilmez (C1-20); sıradan .json hâlâ katı."""
+    jsonc = '{\n  // yorum\n  "a": "//değil",\n  /* blok */ "b": [1, 2,],\n}\n'
+
+    assert validate_structured(Path("tsconfig.json"), jsonc) is None
+    assert validate_structured(Path(".vscode/settings.json"), jsonc) is None
+    assert validate_structured(Path("package.json"), jsonc) is not None
+    assert validate_structured(Path("tsconfig.json"), '{"a": ') is not None

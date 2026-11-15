@@ -3,6 +3,18 @@ import { setShowSteps } from "../preferences";
 import { useShowSteps } from "../useShowSteps";
 import { setPlacement, type InspectorPlacement } from "../placement";
 import { useInspectorPlacement } from "../useInspectorPlacement";
+import { LANGUAGE_NAMES, LANGUAGES, setLanguage } from "../../i18n/language";
+import { useLanguage } from "../../i18n/useLanguage";
+import {
+  FONT_SCALE_FACTORS,
+  setAccessibilityPreference,
+  type AccentPreference,
+  type FontScale,
+  type MotionPreference,
+} from "../../theme/accessibility";
+import { useAccessibility } from "../../theme/useAccessibility";
+import { setTrayEnabled, useTrayEnabled } from "../../windowing/tray";
+import { setAutoArchivePr, useAutoArchivePr } from "../../screens/usePrAutoArchive";
 
 /**
  * Genel — kullanıcının günlük tercihleri.
@@ -24,44 +36,119 @@ export function readHistoryOpen(): boolean {
   }
 }
 
+const VURGULAR: AccentPreference[] = ["brand", "blue", "violet", "mint"];
+const HAREKETLER: MotionPreference[] = ["system", "reduce", "allow"];
+
 export function General({
   historyOpen,
   onHistoryChange,
+  onReopenSetup,
   onThemeChange,
   themePreference,
 }: {
   historyOpen: boolean;
   onHistoryChange: (open: boolean) => void;
+  /** Kurulum sihirbazını baştan açar ("Şimdilik atla"dan dönüş yolu, U5-47). */
+  onReopenSetup?: () => void;
   onThemeChange: (preference: ThemePreference) => void;
   themePreference: ThemePreference;
 }) {
   const showSteps = useShowSteps();
   const placement = useInspectorPlacement();
+  const { language, t } = useLanguage();
+  const erisilebilirlik = useAccessibility();
+  const trayEnabled = useTrayEnabled();
+  const autoArchivePr = useAutoArchivePr();
   return (
     <>
-      <article className="settings__card">
-        <h3>Görünüm</h3>
+      {/* Çevrilen kartlar kendi dilini taşır; belge dili çeviri tamamlanana dek "tr" (bkz. i18n/language.ts). */}
+      <article className="settings__card" lang={language}>
+        <h3>{t("gorunum.baslik")}</h3>
         <label className="settings__row" htmlFor="settings-theme">
-          <span>Tema</span>
+          <span>{t("gorunum.tema")}</span>
           <select
             id="settings-theme"
             onChange={(event) => onThemeChange(event.target.value as ThemePreference)}
             value={themePreference}
           >
-            <option value="system">Sistemi izle</option>
-            <option value="light">Açık</option>
-            <option value="dark">Koyu</option>
+            <option value="system">{t("gorunum.tema.sistem")}</option>
+            <option value="light">{t("gorunum.tema.acik")}</option>
+            <option value="dark">{t("gorunum.tema.koyu")}</option>
           </select>
         </label>
-        <label className="settings__row" htmlFor="settings-language">
-          <span>Dil</span>
-          <select disabled id="settings-language" value="tr">
-            <option value="tr">Türkçe</option>
+        {/* Dil bir açılır liste DEĞİL, iki seçenekli bir radyo grubu: seçili dil onay
+            işaretiyle görünür ve tıklandığı anda uygulanıp kaydedilir. */}
+        <div className="settings__row">
+          <span id="settings-language-label">{t("gorunum.dil")}</span>
+          <div aria-labelledby="settings-language-label" className="settings__segmented" id="settings-language" role="radiogroup" tabIndex={-1}>
+            {LANGUAGES.map((secenek) => (
+              <label className="settings__segment-option" data-selected={language === secenek} key={secenek} lang={secenek}>
+                <input
+                  checked={language === secenek}
+                  name="settings-language"
+                  onChange={() => setLanguage(secenek)}
+                  type="radio"
+                  value={secenek}
+                />
+                <span aria-hidden="true" className="settings__segment-check">{language === secenek ? "✓" : ""}</span>
+                <span>{LANGUAGE_NAMES[secenek]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <p className="settings__hint">{t("gorunum.dil.ipucu")}</p>
+      </article>
+
+      {/* Erişilebilirlik (P-065): yazı ölçeği, vurgu, hareket, kontrast. Hepsi belge
+          kökünde data-* olarak uygulanır; varsayılan değer öznitelik bırakmaz. */}
+      <article className="settings__card" id="settings-accessibility" lang={language}>
+        <h3>{t("erisilebilirlik.baslik")}</h3>
+        <label className="settings__row" htmlFor="settings-font-scale">
+          <span>{t("erisilebilirlik.yazi")}</span>
+          <select
+            id="settings-font-scale"
+            onChange={(event) => setAccessibilityPreference("fontScale", event.target.value as FontScale)}
+            value={erisilebilirlik.fontScale}
+          >
+            {(Object.keys(FONT_SCALE_FACTORS) as FontScale[]).map((olcek) => (
+              <option key={olcek} value={olcek}>{t(`erisilebilirlik.yazi.${olcek}`)}</option>
+            ))}
           </select>
         </label>
-        <p className="settings__hint">
-          Fusion şimdilik yalnız Türkçe. Diğer diller sonraki sürümlerde eklenecek.
-        </p>
+        <label className="settings__row" htmlFor="settings-accent">
+          <span>{t("erisilebilirlik.vurgu")}</span>
+          <select
+            id="settings-accent"
+            onChange={(event) => setAccessibilityPreference("accent", event.target.value as AccentPreference)}
+            value={erisilebilirlik.accent}
+          >
+            {VURGULAR.map((vurgu) => (
+              <option key={vurgu} value={vurgu}>{t(`erisilebilirlik.vurgu.${vurgu}`)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="settings__row" htmlFor="settings-motion">
+          <span>{t("erisilebilirlik.hareket")}</span>
+          <select
+            id="settings-motion"
+            onChange={(event) => setAccessibilityPreference("motion", event.target.value as MotionPreference)}
+            value={erisilebilirlik.motion}
+          >
+            {HAREKETLER.map((hareket) => (
+              <option key={hareket} value={hareket}>{t(`erisilebilirlik.hareket.${hareket}`)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="settings__row settings__row--check">
+          <input
+            checked={erisilebilirlik.highContrast}
+            id="settings-contrast"
+            onChange={(event) => setAccessibilityPreference("highContrast", event.target.checked)}
+            type="checkbox"
+          />
+          <span>{t("erisilebilirlik.kontrast")}</span>
+        </label>
+        <p className="settings__hint">{t("erisilebilirlik.ipucu")}</p>
       </article>
 
       <article className="settings__card">
@@ -86,6 +173,26 @@ export function General({
           />
           <span>Fusion'ın attığı adımları göster</span>
         </label>
+        {/* Sistem tepsisi (P-064): menü çubuğunda hızlı "göster / yeni sohbet"; kapatılabilir. */}
+        <label className="settings__row settings__row--check">
+          <input
+            checked={trayEnabled}
+            id="settings-tray"
+            onChange={(event) => setTrayEnabled(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Menü çubuğunda Fusion simgesi</span>
+        </label>
+        {/* Claude Desktop "Auto-archive after PR merge or close" (#443); çalışan sohbet atlanır. */}
+        <label className="settings__row settings__row--check">
+          <input
+            checked={autoArchivePr}
+            id="settings-auto-archive-pr"
+            onChange={(event) => setAutoArchivePr(event.target.checked)}
+            type="checkbox"
+          />
+          <span>PR birleşince ya da kapanınca sohbeti otomatik arşivle</span>
+        </label>
         <label className="settings__row" htmlFor="settings-placement">
           <span>Çalışma paneli</span>
           <select
@@ -101,6 +208,17 @@ export function General({
           Geniş bir terminal ya da uzun bir diff, alt yerleşimde daha rahat okunur.
         </p>
       </article>
+
+      {onReopenSetup && (
+        <article className="settings__card">
+          <h3>Kurulum</h3>
+          <p className="settings__hint">
+            Karşılama sihirbazını atladıysan ya da sağlayıcı, geçmiş ve proje adımlarını yeniden görmek istiyorsan baştan aç.
+            Sohbetlerin ve ayarların değişmez.
+          </p>
+          <button onClick={onReopenSetup} type="button">Kurulumu yeniden aç</button>
+        </article>
+      )}
     </>
   );
 }

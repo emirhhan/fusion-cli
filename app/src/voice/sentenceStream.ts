@@ -16,13 +16,31 @@
 //: yüksek bir değer gerçek kısa cümleleri ("Tamam." "Evet.") de yutardı.
 const MIN_STANDALONE_SENTENCE_CHARS = 3;
 
+/**
+ * Cümle sonu işaretinden sonraki boşlukta böler. Eskiden `(?<=…)` geriye bakışlı düzenli ifade
+ * kullanılıyordu; WKWebView 16.4 öncesinde (macOS 13.3'ten eski) bu `SyntaxError` verip modülün
+ * yüklenmesini kırıyordu. El ile tarama her sürümde çalışır. (Ölçüldü, 29 Ekim, U2-24.)
+ */
+function splitAfterSentenceEnd(text: string): string[] {
+  const pieces: string[] = [];
+  let start = 0;
+  const separator = /\s+(?=\S)/gu;
+  for (let match = separator.exec(text); match; match = separator.exec(text)) {
+    if (!/[.!?…]/u.test(text[match.index - 1] ?? "")) continue;
+    pieces.push(text.slice(start, match.index));
+    start = match.index + match[0].length;
+  }
+  pieces.push(text.slice(start));
+  return pieces;
+}
+
 export function splitIntoSentences(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
   // Cümle sonu noktalamasından (. ! ? …) sonra gelen boşluk ve ardından yeni
   // bir karakter geldiğinde böl. Noktalamadan SONRA metin bitiyorsa (son
   // cümle) bölme olmaz, tek parça olarak kalır.
-  const pieces = trimmed.split(/(?<=[.!?…])\s+(?=\S)/);
+  const pieces = splitAfterSentenceEnd(trimmed);
   const sentences: string[] = [];
   for (const piece of pieces) {
     const value = piece.trim();

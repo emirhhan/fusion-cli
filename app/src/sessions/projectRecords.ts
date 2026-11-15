@@ -26,7 +26,11 @@ export interface ProjectRegistry {
   chats: Record<string, string>;
 }
 
-export const emptyRegistry: ProjectRegistry = { projects: [], chats: {} };
+// Paylaşılan başlangıç değeri: yanlışlıkla değiştirilip tüm çağıranlara sızmasın diye dondurulur.
+export const emptyRegistry: ProjectRegistry = Object.freeze({
+  projects: Object.freeze([]) as unknown as ProjectRecord[],
+  chats: Object.freeze({}) as Record<string, string>,
+});
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
@@ -97,20 +101,42 @@ function isRecord(value: unknown): value is ProjectRecord {
     && typeof item.createdAt === "number" && Number.isFinite(item.createdAt);
 }
 
-export function loadRegistry(storage: StorageLike | (() => StorageLike)): ProjectRegistry {
+/** Okunamayan kaydın ilk ezilmeden önceki kopyası; kullanıcı/destek elle geri alabilir. */
+export const PROJECT_REGISTRY_BACKUP_KEY = `${PROJECT_REGISTRY_KEY}.okunamayan-yedek`;
+
+/**
+ * Kayıt okunamıyorsa (bozuk JSON, bilinmeyen sürüm) boş kayıt döner; ama ilk `commit` bunu
+ * depolamaya yazıp mevcut proje listesini KALICI ezeceğinden ham değer önce yedeklenir.
+ * Ölçüldü (30 Ekim): tek bozuk kayıt ya da daha yeni sürümden geri dönüş tüm listeyi siliyordu (U4-41).
+ */
+function backupUnreadable(storage: StorageLike, raw: string): void {
   try {
-    const result = readStorage(typeof storage === "function" ? storage : () => storage, PROJECT_REGISTRY_KEY);
-    if (!result.ok || !result.value) return emptyRegistry;
-    const parsed = JSON.parse(result.value) as Record<string, unknown>;
-    if (parsed.version !== REGISTRY_VERSION || !Array.isArray(parsed.projects)) return emptyRegistry;
-    if (!parsed.projects.every(isRecord)) return emptyRegistry;
+    if (storage.getItem(PROJECT_REGISTRY_BACKUP_KEY) === null) storage.setItem(PROJECT_REGISTRY_BACKUP_KEY, raw);
+  } catch { /* Yedek alınamazsa yükleme yine boş kayıtla sürer. */ }
+}
+
+export function loadRegistry(storage: StorageLike | (() => StorageLike)): ProjectRegistry {
+  const access = typeof storage === "function" ? storage : () => storage;
+  try {
+    const result = readStorage(access, PROJECT_REGISTRY_KEY);
+    if (!result.ok || !result.value) return { projects: [], chats: {} };
+    let parsed: Record<string, unknown> | null = null;
+    try { parsed = JSON.parse(result.value) as Record<string, unknown>; } catch { parsed = null; }
+    if (!parsed || parsed.version !== REGISTRY_VERSION || !Array.isArray(parsed.projects)) {
+      backupUnreadable(access(), result.value);
+      return { projects: [], chats: {} };
+    }
+    // Biçim dışı tek kayıt ayıklanır; sağlam projeler ve eşlemeleri korunur.
+    const projects = parsed.projects.filter(isRecord);
+    if (projects.length !== parsed.projects.length) backupUnreadable(access(), result.value);
     const chats = parsed.chats;
-    if (!chats || typeof chats !== "object" || Array.isArray(chats)) return emptyRegistry;
-    const valid = Object.entries(chats as Record<string, unknown>)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string");
-    return { projects: parsed.projects, chats: Object.fromEntries(valid) };
+    const valid = chats && typeof chats === "object" && !Array.isArray(chats)
+      ? Object.entries(chats as Record<string, unknown>)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      : [];
+    return { projects, chats: Object.fromEntries(valid) };
   } catch {
-    return emptyRegistry;
+    return { projects: [], chats: {} };
   }
 }
 

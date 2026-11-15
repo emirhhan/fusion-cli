@@ -24,11 +24,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .prepared_voice import PreparedVoiceStore
+from .prepared_voice import PreparedVoiceStore, StaleVoiceGenerationError
 
-#: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
-#: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
-MAX_SPEECH_CHARS = 4_000
 CANCEL_TIMEOUT_SECONDS = 0.5
 
 # Yalnız Fusion'ın başlattığı TTS süreçleri yönetilir. Sistem genelinde
@@ -211,6 +208,10 @@ def upgrade_hint(installed: tuple[tuple[str, str, str], ...]) -> str | None:
     if not turkish:
         return None
     if any(_quality_rank(item[2]) < _QUALITY_ORDER.index("compact") for item in turkish):
+        return None
+    # `say -v ?` kalite etiketi vermez: Cem kuruluyken de herkes "compact" sayılıp "Cem'i indir"
+    # denirdi (ölçüldü 30 Ekim). Önerilen ses zaten kuruluysa öneri yapılmaz.
+    if any(item[0].casefold() == BETTER_TURKISH_VOICE.casefold() for item in turkish):
         return None
     return (
         f"Daha doğal bir Türkçe ses ücretsiz indirilebilir: {BETTER_TURKISH_VOICE}. "
@@ -426,6 +427,7 @@ def _speak_with_ema(text: str) -> dict[str, Any]:
 
 def _play_wav_file(cikti: Path) -> dict[str, Any]:
     """Sahipli WAV dosyasını mevcut iptal/bekleme yoluyla çal."""
+    quoted_path = str(cikti).replace("'", "''")
     calar = (
         ["afplay", str(cikti)]
         if platform.system() == "Darwin"
@@ -433,7 +435,9 @@ def _play_wav_file(cikti: Path) -> dict[str, Any]:
             "powershell",
             "-NoProfile",
             "-Command",
-            f"(New-Object Media.SoundPlayer '{cikti}').PlaySync()",
+            # PowerShell tek tırnaklı dizgede `'` iki kez yazılarak kaçırılır; kullanıcı adında
+            # kesme işareti (O'Brien) çalmayı bozuyordu (ölçüldü 30 Ekim).
+            f"(New-Object Media.SoundPlayer '{quoted_path}').PlaySync()",
         ]
     )
     try:
@@ -479,7 +483,16 @@ def warm_voice(_request: object = None) -> dict[str, Any]:
     return {"ok": True, "hazir": True}
 
 
-def prepare_voice(text: object) -> dict[str, Any]:
+def _stale_generation_result() -> dict[str, Any]:
+    return {"ok": False, "eski_nesil": True, "metin": "Daha yeni bir konuşma başladı."}
+
+
+def _generation(value: object) -> int | None:
+    """İstemcinin nesil kimliği: yalnız gerçek tamsayı; bool ve diğerleri nesilsiz sayılır."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def prepare_voice(text: object, generation: object = None) -> dict[str, Any]:
     """Cümleyi çalmadan hazırla; sonraki oynatma yalnız kimlikle yapılır."""
     from .ema_synthesis import synthesize_ema
     from .voice_text import prepare_speech
@@ -491,7 +504,11 @@ def prepare_voice(text: object) -> dict[str, Any]:
         return {"ok": False, "metin": "Okunacak metin boş."}
     hiz = load_settings()["hiz"]
     try:
-        token = _prepared_store().prepare(lambda path: synthesize_ema(content, path, hiz))
+        token = _prepared_store().prepare(
+            lambda path: synthesize_ema(content, path, hiz), _generation(generation)
+        )
+    except StaleVoiceGenerationError:
+        return _stale_generation_result()
     except Exception as error:  # Yerel sentez ve dosya sistemi sınırı.
         import logging
 
@@ -502,10 +519,14 @@ def prepare_voice(text: object) -> dict[str, Any]:
     return {"ok": True, "hazir_id": token}
 
 
-def play_prepared_voice(token: object) -> dict[str, Any]:
-    """Hazırlanmış sesi bir kez mevcut oynatıcıya devret."""
-    path = _prepared_store().take(token) if isinstance(token, str) else None
+def play_prepared_voice(token: object, generation: object = None) -> dict[str, Any]:
+    """Hazırlanmış sesi bir kez mevcut oynatıcıya devret; eski nesil çalamaz."""
+    owner = _generation(generation)
+    store = _prepared_store()
+    path = store.take(token, owner) if isinstance(token, str) else None
     if path is None:
+        if store.is_stale(owner):
+            return _stale_generation_result()
         return {"ok": False, "metin": "Hazır ses bulunamadı veya zaten kullanıldı."}
     return _play_wav_file(path)
 
@@ -588,6 +609,21 @@ def stop(turn_id: object = None) -> dict[str, Any]:
     return {"ok": True, "durduruldu": bool(targets), "tur_id": identifier}
 
 
+def _player_available(system: str, *, ema: bool) -> bool:
+    """Seçili yolun çalıcısı gerçekten var mı? Hedefe ulaşmayan adaptör hazır sayılmaz.
+
+    Ölçüldü (29 Ekim): `status()` yalnız platform adına bakıyordu; `say`/`afplay`/`powershell`
+    yokken ya da Linux'ta EMA kuruluyken (çalıcı powershell'dir) "kullanilabilir" True dönüyor,
+    kullanıcı ilk konuşmada hata alıyordu. Yedek yol (bas-konuş) bu durumda açık kalır.
+    """
+    name = system.casefold()
+    if name == "darwin":
+        return shutil.which("afplay" if ema else "say") is not None
+    if name == "windows":
+        return shutil.which("powershell") is not None
+    return False
+
+
 def status() -> dict[str, Any]:
     """`ses.durum`: hangi motor, hangi ses ve gerçekten uygulanabilir bir öneri var mı?
 
@@ -599,7 +635,7 @@ def status() -> dict[str, Any]:
     system_voice = best_voice(records)
     ayar = load_settings()
     ema_available = ema_ready()
-    supported = ema_available or platform.system().casefold() in ("darwin", "windows")
+    supported = _player_available(platform.system(), ema=ema_available)
 
     if ema_available:
         # EMA devredeyken sistem sesi önerisi anlamsızdır.

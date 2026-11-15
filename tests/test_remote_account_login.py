@@ -20,10 +20,14 @@ PASSWORD = "cok-gizli-parola-123"  # gitleaks:allow
 
 def _login_rig(rig: Rig, *, enabled: bool = True) -> None:
     login = AccountLogin(
-        authenticate=lambda identifier, password: identifier == "emir" and password == PASSWORD,
+        authenticate=lambda identifier, password: (
+            "hesap-emir" if identifier == "emir" and password == PASSWORD else None
+        ),
         registry=rig.registry,
         limiter=rig.limiter,
     )
+    # Telefon, masaüstünde AÇIK olan hesapla giriş yapar (başka hesap: baska_hesap).
+    rig.service._host_tenant = lambda: "hesap-emir"
     rig.app = RemoteApp(
         service=rig.service,
         registry=rig.registry,

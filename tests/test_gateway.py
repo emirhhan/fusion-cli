@@ -32,7 +32,7 @@ def _app(reply="Merhaba, ben mock model.", ok=True):
     )
 
 
-def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(caplog, monkeypatch):
+def test_serve_0_0_0_0_belirtecle_guvenlik_uyarisi_verir_ve_calisir(caplog, monkeypatch):
     from fusion_cli.gateway import server
 
     baslatildi = False
@@ -46,12 +46,12 @@ def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(caplog, mo
     monkeypatch.setitem(sys.modules, "uvicorn", sahte_uvicorn)
 
     with caplog.at_level(logging.WARNING, logger="fusion_cli.gateway.server"):
-        server.serve(make_config(), host="0.0.0.0", port=8787)
+        server.serve(make_config(), host="0.0.0.0", port=8787, access_token="belirtec")
 
     assert baslatildi is True
     assert "0.0.0.0" in caplog.text
-    assert "tüm ağ arayüzlerine" in caplog.text
-    assert "kimlik doğrulaması sağlamaz" in caplog.text
+    assert "ağa açılıyor" in caplog.text
+    assert "yalnız belirteçle" in caplog.text
 
 
 # --- temel uçlar ----------------------------------------------------------- #
@@ -796,3 +796,128 @@ async def test_chat_stream_model_hatasini_istemciye_iletir():
     ]
     hatalar = [parca["error"]["message"] for parca in parcalar if "error" in parca]
     assert hatalar and "400: geçersiz sıra" in hatalar[0]
+
+
+# --- akışlı yolda sır maskeleme (E1-05) ------------------------------------ #
+
+_SENTETIK_TOKEN = "ghp_SENTINEL0123456789ABCDEFGHIJKLMNOP"  # gitleaks:allow
+
+
+async def _akis_metni(parcalar, *, mask: bool = True) -> str:
+    from dataclasses import replace
+
+    config = make_config()
+    config = replace(config, runtime=replace(config.runtime, gateway_mask_secrets=mask))
+    app = GatewayApp(config, provider_factory=lambda spec: FakeProvider("mock", chunks=parcalar))
+    async with _client(app) as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True},
+        )
+    govde = [
+        json.loads(satir[6:]) for satir in resp.text.splitlines() if satir.startswith("data: {")
+    ]
+    return "".join(parca["choices"][0]["delta"].get("content") or "" for parca in govde)
+
+
+async def test_akisli_yanit_sirri_maskeler():
+    """Ölçüldü (29 Ekim): `stream:true` istemci sır maskesini atlıyordu."""
+    metin = await _akis_metni((f"anahtar: {_SENTETIK_TOKEN}\n", "devam\n"))
+
+    assert "SENTINEL0123456789" not in metin
+    assert "devam" in metin
+
+
+async def test_akisli_yanit_parca_sinirindaki_sirri_da_maskeler():
+    metin = await _akis_metni(("tok ghp_SENTINEL01234", "56789ABCDEFGHIJKLMNOP bitti\n"))
+
+    assert "SENTINEL0123456789" not in metin
+    assert "SENTINEL01234" not in metin
+    assert "bitti" in metin
+
+
+async def test_akisli_yanit_satir_sonsuz_kuyrugu_da_maskeler():
+    metin = await _akis_metni(("son satir ", _SENTETIK_TOKEN))
+
+    assert "SENTINEL0123456789" not in metin
+    assert "son satir" in metin
+
+
+async def test_maskeleme_kapaliysa_akis_degismez():
+    metin = await _akis_metni((f"x {_SENTETIK_TOKEN}",), mask=False)
+
+    assert _SENTETIK_TOKEN in metin
+
+
+# --- Dalga 4: sessiz veri kaybı yok (E1-14) ---------------------------------------- #
+
+
+def _istek(**ek):
+    govde = {"model": "auto", "messages": [{"role": "user", "content": "merhaba"}], **ek}
+    return to_request(govde, make_config().runtime)[0]
+
+
+def test_data_uri_gorsel_mesaja_iletilir_sessizce_dusmez():
+    """Ölçüldü (30 Ekim): `image_url` parçası atılıyor, görsel gönderen istemci cevabı
+    görselsiz alıyordu."""
+    istek = _istek(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "bu ne?"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            }
+        ]
+    )
+
+    assert istek.messages[0].content == "bu ne?"
+    assert istek.messages[0].images == ("data:image/png;base64,AAAA",)
+
+
+def test_uzak_gorsel_adresi_acik_hata_verir():
+    with pytest.raises(GatewayError, match="data:image"):
+        _istek(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": "https://x.example/a.png"}}
+                    ],
+                }
+            ]
+        )
+
+
+def test_tanimsiz_icerik_turu_acik_hata_verir():
+    with pytest.raises(GatewayError, match="desteklenmeyen"):
+        _istek(messages=[{"role": "user", "content": [{"type": "input_audio", "x": 1}]}])
+
+
+def test_sozluk_olarak_gelen_arac_argumani_kaybolmaz():
+    istek = _istek(
+        messages=[
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "oku", "arguments": {"p": "a"}},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        ]
+    )
+
+    assert istek.messages[0].tool_calls[0].arguments == '{"p": "a"}'
+
+
+def test_max_completion_tokens_kabul_edilir_ve_bool_sayi_sayilmaz():
+    assert _istek(max_completion_tokens=321).max_tokens == 321
+    varsayilan = make_config().runtime.max_tokens
+    assert _istek(max_tokens=True).max_tokens == varsayilan
+    assert _istek(temperature=True).temperature == make_config().runtime.temperature

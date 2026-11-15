@@ -27,3 +27,29 @@
 .guide-devtools__list { display: grid; gap: var(--space-2); }
 .guide-devtools__link { color: var(--brand-signal-deep); }
 @media (max-width: 640px) { .guide-topic { padding: var(--space-4) 0; } .guide-topic__head { align-items: flex-start; } }
+
+/* --- Ayarlar › Nasıl yapılır: açılır-kapanır görev listesi --------------------- */
+.guide-howto__search { margin-top: var(--space-1); }
+.guide-howto__group { margin-top: var(--space-2); }
+.guide-howto__list { border: 1px solid var(--settings-border); border-radius: var(--radius-md); margin-top: var(--space-2); overflow: hidden; }
+.guide-howto__item + .guide-howto__item { border-top: 1px solid var(--settings-border); }
+.guide-howto__item > summary {
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  list-style: none;
+  padding: var(--space-3) var(--space-5);
+}
+.guide-howto__item > summary::-webkit-details-marker { display: none; }
+.guide-howto__item > summary::after { align-self: center; color: var(--settings-muted); content: "⌄"; grid-column: 2; grid-row: 1 / span 2; }
+.guide-howto__item[open] > summary::after { content: "⌃"; }
+.guide-howto__item > summary:hover { background: var(--settings-input-bg); }
+.guide-howto__item > summary:focus-visible { outline: 2px solid var(--settings-ring); outline-offset: -2px; }
+.guide-howto__title { color: var(--settings-text); font-size: var(--text-sm); font-weight: 500; grid-column: 1; }
+.guide-howto__summary { color: var(--settings-muted); font-size: var(--text-xs); grid-column: 1; }
+.guide-howto__body { display: grid; gap: var(--space-3); padding: 0 var(--space-5) var(--space-4); }
+.guide-howto__where { color: var(--settings-muted); font-size: var(--text-xs); margin: 0; }
+.guide-howto__where strong { color: var(--settings-text); font-weight: 600; }
+.guide-howto__steps { color: var(--settings-text); display: grid; font-size: var(--text-sm); gap: var(--space-2); margin: 0; padding-left: var(--space-5); }
+.guide-howto__steps li { line-height: 1.5; text-wrap: pretty; }

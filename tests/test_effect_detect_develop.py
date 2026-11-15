@@ -54,3 +54,92 @@ def test_salt_okuma_ve_sohbet_etkilenmez(gorev, beklenen):
 )
 def test_isim_olarak_gecen_fiil_kokleri_degisiklik_sayilmaz(gorev):
     assert required_effect_for(gorev) != MUTASYON
+
+
+# --- E1-07: isim olan sözcükler olumsuzlama sayılmaz -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    [
+        "Arama kutusu ekle",
+        "yükleme ekranı oluştur",
+        "araştırma sayfası yaz",
+        "Hero bölümüne arama kutusu ekle, edit_file kullan",
+        "a.py dosyası oluştur ama silme lütfen",
+    ],
+)
+def test_isim_olarak_gecen_sozcuk_mutasyon_kapisini_kapatmaz(gorev):
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) is not None
+
+
+@pytest.mark.parametrize(
+    "gorev",
+    ["dosyayı silme", "a.py dosyası oluşturma", "Dosya oluşturma lütfen", "lütfen yapma"],
+)
+def test_fiil_kipindeki_olumsuz_emir_mutasyon_istemez(gorev):
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for(gorev) is None
+
+
+# --- Dalga 4: büyük harfli Türkçe girdi kalıpları bozmaz (E1-12) ----------------- #
+
+
+def test_buyuk_harfli_turkce_gorev_mutasyon_sayilir():
+    """Ölçüldü (30 Ekim): 'DOSYAYI SİL' → `İ`.lower() iki karakter olduğundan None dönüyordu."""
+    from fusion_cli.engines.effects.detect import required_effect_for
+    from fusion_cli.engines.effects.model import EffectKind  # noqa: F401
+
+    assert required_effect_for("DOSYAYI SİL") == required_effect_for("dosyayı sil")
+    assert required_effect_for("DÜZELT İNDEX.HTML") == required_effect_for("düzelt index.html")
+    assert required_effect_for("DOSYAYI SİL") is not None
+
+
+def test_buyuk_harfli_ingilizce_gorev_bozulmaz():
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    assert required_effect_for("FIX THE BUG IN app.py") == required_effect_for(
+        "fix the bug in app.py"
+    )
+
+
+def test_ortak_kucultme_dotted_i_yi_tek_karaktere_indirir():
+    from fusion_cli.core.text_fold import lower_tr_aware
+
+    assert lower_tr_aware("SİL") == "sil"
+    assert lower_tr_aware("İSTEK") == "istek"
+    assert lower_tr_aware("INDEX") == "index"
+    assert lower_tr_aware("kız") == "kız"
+
+
+# --- Dalga 4: salt okuma cümleleri mutasyon / commit sayılmaz (E1-44) ------------- #
+
+
+def test_isim_halindeki_fiil_koku_mutasyon_sayilmaz():
+    """Ölçüldü (30 Ekim): 'son güncellemeleri listele' workspace_mutation çıkıyordu."""
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    for gorev in (
+        "son güncellemeleri listele",
+        "ekleme tarihini göster",
+        "silinen dosyaları listele",
+    ):
+        assert required_effect_for(gorev) != "workspace_mutation", gorev
+
+
+def test_emir_ve_rica_kipleri_mutasyon_kalir():
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    for gorev in ("kodu güncelle", "bunu düzeltin", "şunu ekleyelim", "hatayı düzeltsene", "sil"):
+        assert required_effect_for(gorev) == "workspace_mutation", gorev
+
+
+def test_commitment_ve_commitleri_goster_git_commit_sayilmaz():
+    from fusion_cli.engines.effects.detect import required_effect_for
+
+    for gorev in ("committee üyelerini say", "son commitleri göster", "commitment kavramı"):
+        assert required_effect_for(gorev) != "git_commit", gorev
+    assert required_effect_for("değişiklikleri commitle") == "git_commit"

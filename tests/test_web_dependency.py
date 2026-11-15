@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.verification import WebVerifier
+from fusion_cli.engines.agent.web_dependency import missing_local_dependencies
 
 
 async def _verify(tmp_path, html, name="index.html"):
@@ -147,3 +148,54 @@ async def test_base_kodlanmis_ve_duz_ust_dizin_sirasi(tmp_path):
     assert not (await _verify(tmp_path, markup)).ok
     (tmp_path / "app.js").write_text("void 0")
     assert (await _verify(tmp_path, markup)).ok
+
+
+def test_sablon_sozdizimli_kaynaklar_dosya_yok_bulgusu_uretmez(tmp_path):
+    """Ölçüldü (29 Ekim): Jinja/CRA/PHP şablon kaynakları gerçek yol sanılıp BLOCKING
+    üretiyordu (A4-12). Gerçek eksik dosya yine yakalanır."""
+    belge = tmp_path / "index.html"
+    html = (
+        "<script src=\"{{ url_for('static', filename='app.js') }}\"></script>"
+        '<script src="%PUBLIC_URL%/x.js"></script>'
+        '<link rel="stylesheet" href="{% static \'a.css\' %}">'
+        '<script src="<?php echo $base ?>/a.js"></script>'
+        '<script src="${base}/a.js"></script>'
+        '<script src="eksik.js"></script>'
+    )
+
+    bulgular = missing_local_dependencies(html, document=belge, root=tmp_path)
+
+    assert len(bulgular) == 1 and "eksik.js" in bulgular[0]
+
+
+async def test_ayni_adli_iki_dosyadan_biri_digerini_ezmez(tmp_path):
+    """Ölçüldü (29 Ekim): `files[path.name]` a/index.html ile b/index.html'den birini
+    siliyordu; ikisinde de `href="#"` varken yalnız biri sayılıyordu (A4-08)."""
+    context = ToolContext(root=tmp_path)
+    for klasor in ("a", "b"):
+        yol = tmp_path / klasor / "index.html"
+        yol.parent.mkdir()
+        yol.write_text('<html><head></head><body><main><a href="#">x</a></main></body></html>')
+        context.touched.add(yol)
+
+    sonuc = await WebVerifier(context).verify()
+
+    assert any("2 boş bağlantı" in bulgu for bulgu in sonuc.findings), sonuc.findings
+
+
+async def test_dokunulmayan_sayfa_ve_css_proje_baglami_olarak_okunur(tmp_path):
+    """Ölçüldü (29 Ekim): `files` yalnız dokunulanlardan kurulduğu için other.html+app.js
+    turunda index.html'in bağladığı app.js 'bağlanmamış' BLOCKING veriyordu (A4-07)."""
+    (tmp_path / "index.html").write_text(
+        "<html><head><script src='app.js'></script></head><body><main>i</main></body></html>"
+    )
+    other = tmp_path / "other.html"
+    other.write_text("<html><head></head><body><main>o</main></body></html>")
+    app = tmp_path / "app.js"
+    app.write_text("console.log(1)")
+    context = ToolContext(root=tmp_path)
+    context.touched.update({other, app})
+
+    sonuc = await WebVerifier(context).verify()
+
+    assert sonuc.ok, sonuc.findings

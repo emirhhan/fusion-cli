@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..core.atomic_file import atomic_replace_text
 from ..core.protocols import Clock
-from .constants import DEVICE_SECRET_BYTES
+from .constants import APPROVAL_TRUST_MAX_HOURS, DEVICE_SECRET_BYTES, SCREEN_TRUST_SECONDS
 
 #: Bir cihazın bağlandığı kanal.
 CHANNEL_SIGNED = "signed"
@@ -34,6 +34,14 @@ class Device:
     revoked: bool = False
     screen_trusted: bool = False
     external_id: str = ""  # Telegram kullanıcı kimliği gibi kanal-içi kimlik
+    #: Cihazın bağlı olduğu yerel hesap (tenant). Boş: hesapsız kurulum ya da hesap
+    #: bağı olmadan eşleşmiş eski cihaz; o zaman `local` tenant'ındadır (WP02).
+    account_id: str = ""
+    #: Ekran güveninin bittiği an (Unix saniyesi). Eski süresiz güven 0 okunur: geçersiz.
+    screen_trusted_until: float = 0.0
+    #: Masaüstünün bu cihaza verdiği süreli ONAY yetkisinin bittiği an; 0 = yetki yok.
+    #: Eski kayıtlarda alan yoktur ve 0 okunur (P-040).
+    approval_trusted_until: float = 0.0
 
     @property
     def secret(self) -> bytes:
@@ -49,6 +57,7 @@ class Device:
             "createdAt": self.created_at,
             "revoked": self.revoked,
             "screenTrusted": self.screen_trusted,
+            "approvalTrustedUntil": self.approval_trusted_until,
         }
 
 
@@ -67,7 +76,15 @@ class DeviceRegistry:
         self._token_bytes = token_bytes
         self._devices: dict[str, Device] = self._load()
 
-    def add(self, name: str, channel: str, scopes: frozenset[str], external_id: str = "") -> Device:
+    def add(
+        self,
+        name: str,
+        channel: str,
+        scopes: frozenset[str],
+        external_id: str = "",
+        *,
+        account_id: str = "",
+    ) -> Device:
         device = Device(
             device_id="dev_" + self._token_bytes(9).hex(),
             name=name.strip()[:60] or "Adsız cihaz",
@@ -76,6 +93,7 @@ class DeviceRegistry:
             secret_hex=self._token_bytes(DEVICE_SECRET_BYTES).hex(),
             created_at=self._clock.now(),
             external_id=external_id,
+            account_id=account_id,
         )
         self._devices = {**self._devices, device.device_id: device}
         self._save()
@@ -104,10 +122,35 @@ class DeviceRegistry:
             return False
         self._devices = {
             **self._devices,
-            device_id: replace(device, revoked=True, screen_trusted=False),
+            device_id: replace(
+                device, revoked=True, screen_trusted=False, approval_trusted_until=0.0
+            ),
         }
         self._save()
         return True
+
+    def set_approval_trust(self, device_id: str, hours: float) -> bool:
+        """Etkin cihaza `hours` saatlik onay yetkisi ver; 0 yetkiyi kaldırır.
+
+        Yetki süresi tavanla sınırlıdır: süresiz yetki tanımı yoktur (P-040).
+        """
+        device = self.active(device_id)
+        if device is None or hours < 0 or hours > APPROVAL_TRUST_MAX_HOURS:
+            return False
+        until = self._clock.now() + hours * 3600 if hours else 0.0
+        self._devices = {**self._devices, device_id: replace(device, approval_trusted_until=until)}
+        self._save()
+        return True
+
+    def approval_trust_remaining(self, device_id: str) -> float:
+        """Kalan onay yetkisi süresi (saniye); yetki yoksa ya da dolduysa 0."""
+        device = self.active(device_id)
+        if device is None:
+            return 0.0
+        return max(0.0, device.approval_trusted_until - self._clock.now())
+
+    def has_approval_trust(self, device_id: str) -> bool:
+        return self.approval_trust_remaining(device_id) > 0
 
     def set_screen_trusted(self, device_id: str, trusted: bool) -> bool:
         """Yalnız etkin imzalı gözlemcinin açık ekran tercihini kalıcı tut."""
@@ -118,9 +161,22 @@ class DeviceRegistry:
             or "desktop.observe" not in device.scopes
         ):
             return False
-        self._devices = {**self._devices, device_id: replace(device, screen_trusted=trusted)}
+        until = self._clock.now() + SCREEN_TRUST_SECONDS if trusted else 0.0
+        self._devices = {
+            **self._devices,
+            device_id: replace(device, screen_trusted=trusted, screen_trusted_until=until),
+        }
         self._save()
         return True
+
+    def has_screen_trust(self, device_id: str) -> bool:
+        """Masaüstünde verilmiş ve süresi dolmamış ekran güveni var mı?"""
+        device = self.active(device_id)
+        return (
+            device is not None
+            and device.screen_trusted
+            and self._clock.now() < device.screen_trusted_until
+        )
 
     def list_devices(self) -> list[Device]:
         return sorted(self._devices.values(), key=lambda item: item.created_at)
@@ -145,6 +201,9 @@ class DeviceRegistry:
                     revoked=bool(item.get("revoked", False)),
                     external_id=item.get("externalId", ""),
                     screen_trusted=item.get("screenTrusted") is True,
+                    account_id=str(item.get("accountId", "")),
+                    screen_trusted_until=float(item.get("screenTrustedUntil", 0.0)),
+                    approval_trusted_until=float(item.get("approvalTrustedUntil", 0.0)),
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -164,6 +223,9 @@ class DeviceRegistry:
                     "revoked": d.revoked,
                     "externalId": d.external_id,
                     "screenTrusted": d.screen_trusted,
+                    "accountId": d.account_id,
+                    "screenTrustedUntil": d.screen_trusted_until,
+                    "approvalTrustedUntil": d.approval_trusted_until,
                 }
                 for d in self._devices.values()
             ]

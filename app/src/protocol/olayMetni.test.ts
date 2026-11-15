@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { olayAdimi } from "./olayMetni";
+import { aracVarsayilanMetni, olayAdimi } from "./olayMetni";
 
 it("desteklenen yoğunluk nedeni boş olsa da gerçek çağrı makbuzunda korunur", () => {
   const receipt = olayAdimi({ olay: "ModelCallFinished", requested_model: "model-A", result: { ok: true, model: "model-A", served_by: "observed", requested_effort: "high", applied_effort: "high", effort_reason: "" } });
@@ -8,6 +8,47 @@ it("desteklenen yoğunluk nedeni boş olsa da gerçek çağrı makbuzunda korunu
 });
 
 describe("olayAdimi", () => {
+  it.each([
+    {completed:false,issue_found:false},
+    {completed:false,issue_found:true},
+  ])('tamamlanmayan özdenetimi kalıcı ama görev hatası üretmeyen adım olarak gösterir: %s', result=>{
+    const step=olayAdimi({olay:'SelfReviewFinished',...result,reasoning:'Gizli düşünme'});
+    expect(step).toMatchObject({metin:'özdenetim tamamlanamadı',kalici:true,durum:'unknown'});
+    expect(step?.cikti).toContain('değerlendirmesi doğrulanmadı');
+    expect(step?.cikti).not.toContain('Gizli düşünme');
+    expect(step?.sonuc).toBeUndefined();
+  });
+  it.each([{issue_found:false},{completed:'false',issue_found:false},{completed:true,issue_found:'false'}])(
+    'eksik veya bozuk özdenetim sonucunu geçmiş gibi göstermez: %s', result=>{
+      expect(olayAdimi({olay:'SelfReviewFinished',...result})).toMatchObject({
+        metin:'özdenetim sonucu bilinmiyor',kalici:true,durum:'unknown'});
+    });
+  it('tamamlanmış özdenetim sadece tamamlanmayı ve bildirilmiş bulguyu anlatır',()=>{
+    const empty=olayAdimi({olay:'SelfReviewFinished',completed:true,issue_found:false});
+    expect(empty?.metin).toBe('özdenetim tamamlandı');
+    expect(empty?.cikti).not.toMatch(/tüm.*doğrulandı|geçti/);
+    expect(olayAdimi({olay:'SelfReviewFinished',completed:true,issue_found:true})?.metin).toContain('bulgu bildirildi');
+  });
+  it('doğrulama ve gerçek değişiklik özetini kalıcı ve sınırlı adım olarak taşır', () => {
+    const measured=olayAdimi({olay:'VerificationPassed',checks:['Tarayıcıda açıldı'],unmeasured:[]});
+    expect(measured).toMatchObject({kalici:true,cikti:expect.stringContaining('Tarayıcıda açıldı')});
+    const partial=olayAdimi({olay:'VerificationPassed',checks:['Dosya var'],unmeasured:['Gönderim ölçülmedi']});
+    expect(partial?.metin).toBe('doğrulama sonucu');
+    expect(partial?.durum).toBe('unknown');
+    expect(partial?.cikti).toContain('Gönderim ölçülmedi');
+    const digest=olayAdimi({olay:'ChangesDigested',lines:['rapor.html: 67 yeni satır','token=abcdefghijklmnop']});
+    expect(digest).toMatchObject({kalici:true,metin:'değişiklik özeti',cikti:expect.stringContaining('67 yeni satır')});
+    expect(digest?.diff).toBeUndefined();
+    expect(digest?.cikti).not.toContain('abcdefghijklmnop');
+    expect(olayAdimi({olay:'VerificationPassed',checks:['x',3],unmeasured:[]})?.metin).not.toBe('kontroller doğrulandı');
+    const limited=olayAdimi({olay:'VerificationPassed',checks:Array(10).fill('x'.repeat(500)),unmeasured:['Ağ gönderimi ölçülmedi']});
+    expect(limited?.cikti).toContain('Ağ gönderimi ölçülmedi');
+    expect(limited?.cikti?.length).toBeLessThanOrEqual(4002);
+    expect(olayAdimi({olay:'VerificationPassed',checks:[''],unmeasured:[]})?.metin).toBe('doğrulama sonucu');
+    const unicode=olayAdimi({olay:'ChangesDigested',lines:Array(20).fill('x'+'😀'.repeat(499))});
+    expect(unicode?.cikti?.length).toBeLessThanOrEqual(4002);
+    expect(unicode?.cikti).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u);
+  });
   it("öğretmen görev kararı ve planını kısa adım olarak gösterir", () => {
     expect(olayAdimi({ olay: "TeacherTaskClassified", size: "orta-buyuk", reasons: ["istenen etki: workspace_mutation"] })?.metin)
       .toBe("orta-büyük görev belirlendi");
@@ -148,6 +189,23 @@ describe("olayAdimi", () => {
   });
 
   it.each([
+    ["timeout", "araç zaman aşımına uğradı: write_file"],
+    ["cancelled", "araç iptal edildi: write_file"],
+    ["error", "araç sonucu doğrulanamadı: write_file"],
+    ["unknown", "araç sonucu doğrulanamadı: write_file"],
+    ["skipped", "araç sonucu doğrulanamadı: write_file"],
+    ["", "araç sonucu doğrulanamadı: write_file"],
+  ] as const)("%s sonuçlu araç çağrısı başarı etiketi almaz", (outcome, metin) => {
+    // Ölçüldü (29 Ekim): `ARAC_SONUCU[durumAdi] ?? ARAC_SONUCU.ok` bilinmeyen sonucu
+    // "araç çalıştı"ya çeviriyordu; zaman aşımı/iptal başarı gibi görünüyordu.
+    const adim = olayAdimi({ olay: "ToolExecuted", name: "write_file", outcome, args: {}, diff: "+x" });
+    expect(adim?.metin).toBe(metin);
+    expect(adim?.metin).not.toContain("çalıştı");
+    expect(adim?.diff).toBeUndefined();
+    expect(adim?.durum).not.toBe("ok");
+  });
+
+  it.each([
     ["completed", "görev tamamlandı"],
     ["partial", "görev kısmi kaldı"],
     ["failed", "görev başarısız"],
@@ -169,6 +227,14 @@ describe("olayAdimi", () => {
       total_steps: 4,
       goal: "testleri çalıştır",
     })).toEqual({ metin: "adım 2/4 başladı", ayrinti: "testleri çalıştır" });
+  });
+
+  it("adım zarfını (model çağrısı sınırı) görünür kılar; yoksa ya da 0 ise sessiz kalır (A3-40)", () => {
+    const temel = { olay: "ExecutionStepStarted", index: 1, total_steps: 3, goal: "varlıkları yaz" };
+    expect(olayAdimi({ ...temel, model_call_limit: 40 }))
+      .toEqual({ metin: "adım 1/3 başladı", ayrinti: "varlıkları yaz · en çok 40 model çağrısı" });
+    expect(olayAdimi({ ...temel, model_call_limit: 0 })?.ayrinti).toBe("varlıkları yaz");
+    expect(olayAdimi({ ...temel, model_call_limit: "çok" })?.ayrinti).toBe("varlıkları yaz");
   });
 
   it("doğrulama kanıtını ham JSON yerine okunabilir metne çevirir", () => {
@@ -216,5 +282,36 @@ it("boş gözlem istenen modeli doğrulamış sayılmaz", () => {
 it.each(["future-success-v9", undefined, 42])("bilinmeyen terminal sonucu başarı veya hata uydurmaz: %s", (status) => {
   expect(olayAdimi({ olay: "TurnOutcome", status })).toEqual({
     metin: "görev sonucu doğrulanamadı", sonuc: "unknown",
+  });
+});
+
+describe("olayAdimi (30 Ekim)", () => {
+  // Ölçüldü (30 Ekim): komut ve araç çıktısı ham basılıyordu; eksik alanlar "adım 0/0" üretiyordu (U5-16, U5-15).
+  it("kabuk komutu ve çıktısındaki sırlar maskelenir (U5-16)", () => {
+    const adim = olayAdimi({
+      olay: "ToolExecuted", name: "run_shell", outcome: "ok",
+      args: { command: "curl -H 'Authorization: Bearer abcdefghijkl123' https://x" },
+      output: "OPENAI_API_KEY=sk-proj-abcdefghijklmnop",
+    });
+    const tumu = JSON.stringify(adim);
+    expect(tumu).not.toContain("abcdefghijkl123");
+    expect(tumu).not.toContain("sk-proj-abcdefghijklmnop");
+    expect(adim?.komut).toContain("[gizlendi]");
+  });
+
+  it("eksik alanlı olaylar anlamsız metin üretmez (U5-15)", () => {
+    expect(olayAdimi({ olay: "ExecutionStepStarted" })?.metin).toBe("adım başladı");
+    expect(olayAdimi({ olay: "ModelFallbackActivated" })?.ayrinti).not.toBe(" → ");
+    expect(olayAdimi({ olay: "TeacherLimitationFound", topic: "Ses" })?.ayrinti).toBeUndefined();
+    expect(olayAdimi({ olay: "ExecutionStepVerified", ok: true, evidence: [{ a: 1 }, "test geçti"] })?.ayrinti).toBe("test geçti");
+  });
+});
+
+describe("Claude in Chrome adları (#431)", () => {
+  it("claude-in-chrome araçlarını Türkçe adım metniyle anlatır", () => {
+    expect(aracVarsayilanMetni("claude-in-chrome__navigate", { url: "https://ornek.com/a" })).toContain("ornek.com");
+    expect(aracVarsayilanMetni("claude-in-chrome__computer", { action: "left_click" })).toBe(
+      "chrome ile bir öğeye tıklanıyor",
+    );
   });
 });

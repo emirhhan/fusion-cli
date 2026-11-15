@@ -184,3 +184,117 @@ async def test_kayitsiz_saglayici_dogrulanamaz(config):
     sonuc = await web_control.validate_session(config, "chatgpt_web", "main")
 
     assert sonuc["ok"] is False
+
+
+# S2-30 — Ölçüldü (30 Ekim): "dosya değiştirebilir" izni tek stokastik ölçüme bağlıydı ve süresiz
+# geçerliydi. 7 gün sonra kart "yeniden ölç" uyarısı taşır; izin OTOMATİK düşürülmez.
+_GUN = 86_400.0
+
+
+def _olculmus_kart(tmp_path, config, *, gecti, yas_gun):
+    from dataclasses import replace
+
+    simdi = 5_000_000.0
+    kayitli, _ = web_control.register_session(config, "chatgpt_web", "main")
+    assert kayitli is not None
+    oturum = replace(
+        kayitli.web_sessions[0],
+        login_verified=True,
+        tool_eval_passed=gecti,
+        tool_evaluated_at=None if yas_gun is None else simdi - yas_gun * _GUN,
+    )
+    (tmp_path / "chatgpt_web" / "main").mkdir(parents=True, exist_ok=True)
+
+    class Saat:
+        def now(self) -> float:
+            return simdi
+
+        def monotonic(self) -> float:
+            return simdi
+
+    kartlar = web_control.provider_cards(sessions=(oturum,), secret_store=None, clock=Saat())
+    return next(kart for kart in kartlar if kart["id"] == "chatgpt_web")
+
+
+def test_yedi_gunden_eski_gecmis_olcum_yeniden_olc_uyarisi_verir(tmp_path, config):
+    kart = _olculmus_kart(tmp_path, config, gecti=True, yas_gun=8)
+
+    assert kart["olcum_eski"] is True and "yeniden ölç" in kart["olcum_uyari"].lower()
+    assert kart["olcum_gecti"] is True  # otomatik düşürme yok
+
+
+def test_taze_olcum_ve_gecmemis_olcum_uyari_vermez(tmp_path, config):
+    assert _olculmus_kart(tmp_path, config, gecti=True, yas_gun=6)["olcum_eski"] is False
+    assert _olculmus_kart(tmp_path, config, gecti=False, yas_gun=30)["olcum_eski"] is False
+
+
+def test_olcum_tarihi_olmayan_eski_kayit_da_uyarilir(tmp_path, config):
+    kart = _olculmus_kart(tmp_path, config, gecti=True, yas_gun=None)
+
+    assert kart["olcum_eski"] is True and kart["olcum_gecti"] is True
+
+
+# P1-39 — Ölçüldü (30 Ekim): `provider_cards` her sağlayıcı için yalnız `matching[0]` kullanıyordu;
+# `fusion web-login --account` ile kayıtlı ikinci hesap panelde görünmüyor, durumu (bağlı mı,
+# pencere kipi, model) gösterilmiyordu. Kart başına hesap üretilir; `id` HER kartta sağlayıcı
+# kimliği kalır (eski istemci ve RPC bağımsız değişkenleri), kart kimliği `kart_id`dir.
+def _iki_hesapli_yapilandirma(config):
+    from dataclasses import replace
+
+    ana, _ = web_control.register_session(config, "chatgpt_web", "main")
+    assert ana is not None
+    iki, _ = web_control.register_session(ana, "chatgpt_web", "is")
+    assert iki is not None
+    ana_oturum, is_oturumu = iki.web_sessions
+    return (
+        replace(ana_oturum, login_verified=True, selected_model="Thinking"),
+        replace(is_oturumu, login_verified=False, headless="visible"),
+    )
+
+
+def test_ikinci_hesap_kendi_kartiyla_gorunur(tmp_path, config):
+    ana, is_oturumu = _iki_hesapli_yapilandirma(config)
+    (tmp_path / "chatgpt_web" / "main").mkdir(parents=True)
+
+    kartlar = web_control.provider_cards(sessions=(ana, is_oturumu), secret_store=None)
+    chatgpt = [kart for kart in kartlar if kart["id"] == "chatgpt_web"]
+
+    assert [kart["hesap"] for kart in chatgpt] == ["main", "is"]
+    assert [kart["kart_id"] for kart in chatgpt] == ["chatgpt_web", "chatgpt_web:is"]
+    assert chatgpt[0]["bagli"] is True and chatgpt[1]["bagli"] is False
+    assert chatgpt[0]["secili_model"] == "Thinking"
+    assert chatgpt[1]["model"] == "chatgpt_web/is/auto"
+    assert chatgpt[1]["pencere_kipi"] == "visible"
+
+
+def test_kayitsiz_saglayici_tek_varsayilan_kart_kalir_eski_kimlik_uyumlu(config):
+    kartlar = web_control.provider_cards(sessions=(), secret_store=None)
+
+    assert [kart["id"] for kart in kartlar] == [
+        "chatgpt_web",
+        "claude_web",
+        "gemini_web",
+        "copilot_web",
+    ]
+    assert all(kart["kart_id"] == kart["id"] and kart["hesap"] == "main" for kart in kartlar)
+
+
+def test_ayni_hesabin_yinelenen_kaydi_tek_kart_uretir(config):
+    ana, _ = _iki_hesapli_yapilandirma(config)
+    from dataclasses import replace
+
+    kopya = replace(ana, model="chatgpt_web/main/baska")
+
+    kartlar = web_control.provider_cards(sessions=(ana, kopya), secret_store=None)
+
+    assert len([kart for kart in kartlar if kart["id"] == "chatgpt_web"]) == 1
+
+
+def test_katalog_hesap_basina_web_satiri_tasir(config):
+    ana, is_oturumu = _iki_hesapli_yapilandirma(config)
+
+    satirlar = web_control.provider_catalog(sessions=(ana, is_oturumu), secret_store=None)
+    web = [satir for satir in satirlar if satir["tur"] == "web" and satir["id"] == "chatgpt_web"]
+
+    assert [satir["kart_id"] for satir in web] == ["chatgpt_web", "chatgpt_web:is"]
+    assert all(satir["eylem"] == "oturum" for satir in web)

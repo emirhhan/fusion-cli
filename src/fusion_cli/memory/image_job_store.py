@@ -222,7 +222,8 @@ class ImageJobStore(SubmissionStore):
                     (encoded, *self._values(receipt.key)),
                 )
                 result = self._record(connection, receipt.key)
-                assert result is not None
+                if result is None:  # `assert` python -O'da kalkar
+                    raise ImageJobConflictError("Görsel işi kaydı güncellemeden sonra yok.")
                 return result
 
     async def finish_image(

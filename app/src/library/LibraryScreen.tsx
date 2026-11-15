@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { assetUrl } from "../platform/assetUrl";
 import { selectFiles } from "../platform/dialog";
 import { Icon, type IconName } from "../ui/Icon";
@@ -17,6 +17,9 @@ export interface LibraryItem {
   tur: "gorsel" | "video" | "belge" | "kod" | "diger";
   yol: string;
 }
+
+/** Arama kutusunda yazma durduktan sonra çekirdeğe sorulana dek bekleme. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 const FILTERS: readonly { id: "" | LibraryItem["tur"]; label: string }[] = [
   { id: "", label: "Tümü" },
@@ -73,50 +76,83 @@ export function LibraryScreen({
   const [total, setTotal] = useState(0);
   const [kind, setKind] = useState<"" | LibraryItem["tur"]>("");
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // Liste ve işlem hataları ayrıdır: başarılı bir yenileme, az önce başarısız olan
+  // yüklemenin hatasını silmemeli (ölçüldü, 29 Ekim).
+  const [listError, setListError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? listError;
   const [loading, setLoading] = useState(false);
+  // Arama kutusu her tuşta çekirdeğe gitmesin: yazma durunca sorgulanan değer güncellenir.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Son istek kazanır: yavaş eski yanıt yeni süzgecin listesini ezmesin.
+  const latestRequest = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const load = useCallback(async () => {
     if (!client) return;
+    const requestId = ++latestRequest.current;
     setLoading(true);
     try {
-      const result = await client.request("kitaplik.liste", { tur: kind, sorgu: query });
+      const result = await client.request("kitaplik.liste", { tur: kind, sorgu: debouncedQuery });
+      if (requestId !== latestRequest.current) return;
       if (result.ok) {
         setItems(Array.isArray(result.dosyalar) ? (result.dosyalar as LibraryItem[]) : []);
         setTotal(typeof result.toplam === "number" ? result.toplam : 0);
-        setError(null);
+        setListError(null);
       } else {
-        setError(typeof result.metin === "string" ? result.metin : "Kitaplık okunamadı.");
+        setListError(typeof result.metin === "string" ? result.metin : "Kitaplık okunamadı.");
       }
     } catch {
-      setError("Kitaplık okunamadı. Yeniden dene.");
+      if (requestId === latestRequest.current) setListError("Kitaplık okunamadı. Yeniden dene.");
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) setLoading(false);
     }
-  }, [client, kind, query]);
+  }, [client, kind, debouncedQuery]);
 
   useEffect(() => {
     if (visible) void load();
   }, [load, visible]);
 
-  const act = async (name: string, data: Record<string, unknown>, fallback: string) => {
-    if (!client) return;
+  /** Başarıda `null`, hatada kullanıcıya gösterilecek metin döner. */
+  const act = async (name: string, data: Record<string, unknown>, fallback: string): Promise<string | null> => {
+    if (!client) return fallback;
     try {
       const result = await client.request(name, data);
-      if (!result.ok) setError(typeof result.metin === "string" ? result.metin : fallback);
+      if (result.ok) return null;
+      return typeof result.metin === "string" ? result.metin : fallback;
     } catch {
-      setError(fallback);
+      return fallback;
     }
   };
 
   const upload = async () => {
-    const paths = await chooseFiles();
-    for (const yol of paths) await act("kitaplik.ekle", { yol }, "Dosya eklenemedi.");
-    if (paths.length > 0) await load();
+    let paths: string[];
+    try {
+      paths = await chooseFiles();
+    } catch {
+      setActionError("Dosya seçici açılamadı.");
+      return;
+    }
+    if (paths.length === 0) return;
+    setActionError(null);
+    const failures: string[] = [];
+    for (const yol of paths) {
+      const failure = await act("kitaplik.ekle", { yol }, "Dosya eklenemedi.");
+      if (failure) failures.push(failure);
+    }
+    if (failures.length === 1) setActionError(failures[0]);
+    else if (failures.length > 1) setActionError(`${failures.length} dosya eklenemedi. İlk neden: ${failures[0]}`);
+    await load();
   };
 
   const remove = async (yol: string) => {
-    await act("kitaplik.kaldir", { yol }, "Kayıt kaldırılamadı.");
+    setActionError(null);
+    const failure = await act("kitaplik.kaldir", { yol }, "Kayıt kaldırılamadı.");
+    if (failure) setActionError(failure);
     await load();
   };
 
@@ -161,7 +197,7 @@ export function LibraryScreen({
                   <p className="library__name" title={item.yol}>{item.ad}</p>
                   <p className="library__meta">{SOURCE_LABEL[item.kaynak]} · {formatSize(item.boyut)}</p>
                   <div className="library__actions">
-                    <button onClick={() => void reveal(item.yol).catch(() => setError("Klasör açılamadı."))} type="button">Klasörde göster</button>
+                    <button onClick={() => void reveal(item.yol).catch(() => setActionError("Klasör açılamadı."))} type="button">Klasörde göster</button>
                     {item.kaynak !== "gorsel" && (
                       <button aria-label={`${item.ad} kaydını kaldır`} onClick={() => void remove(item.yol)} type="button">Kaldır</button>
                     )}

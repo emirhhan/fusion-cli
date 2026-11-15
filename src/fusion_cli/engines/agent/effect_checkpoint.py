@@ -55,7 +55,13 @@ class PlanEffectRecorder:
             raise EffectAdmissionError(
                 "Önceki dış işlemin sonucu belirsiz; önce salt-okunur gözlem gerekli."
             )
-        step = next(item for item in run.current.steps if item.step_id == self.step_id)
+        step = next((item for item in run.current.steps if item.step_id == self.step_id), None)
+        if step is None:
+            # Bilinmeyen adım: `StopIteration` sızması yerine açık, yakalanabilir hata.
+            raise EffectAdmissionError(
+                f"Dış işlem bilinmeyen plan adımına bağlanamadı ({self.step_id}); "
+                "işlem başlatılmadı."
+            )
         safety = (
             RetrySafety.NEVER
             if (
@@ -74,8 +80,30 @@ class PlanEffectRecorder:
 
     async def finish(self, call_id: str, ok: bool) -> None:
         key = (self.step_id, self.attempt, call_id)
-        item = self.run.effect_intents[key]
+        item = self.run.effect_intents.get(key)
+        if item is None:
+            # `prepare` hiç kayıt açmadıysa (reddedildi) kapatılacak bir şey yoktur;
+            # eskiden `KeyError` sızıp turu düşürüyordu.
+            return
         self.run.effect_intents[key] = replace(
             item, phase=EffectPhase.RESPONDED if ok else EffectPhase.AMBIGUOUS
         )
         await self.run.save()
+
+
+def settle_observed(run: _PlanRun, step_id: str) -> bool:
+    """Salt-okunur gözlem adımın TÜM koşullarını kanıtladıysa belirsiz etkileri kapat.
+
+    `finish(ok=False)` her başarısızlığı `AMBIGUOUS` yapar ve bu kaydı kapatan başka
+    geçiş yoktu: bir kez belirsiz kalan uzak yazma, adımı doğrulanamaz yapıp aynı
+    kapsamdaki sonraki tüm yazmaları plan sonuna dek kilitliyordu (A1-42, ölçüldü
+    29 Ekim). Gözlem turu gerçek kanıtla (başarı koşullarının hiçbiri kanıtsız
+    değil) geçtiyse etkinin durumu BİLİNİYORDUR; kayıt `RESPONDED` olur. Kanıtsız
+    gözlem çağırıcı tarafından bu işleve hiç sokulmaz. Değişiklik olduysa True.
+    """
+    changed = False
+    for key, item in list(run.effect_intents.items()):
+        if item.step_id == step_id and item.phase is EffectPhase.AMBIGUOUS:
+            run.effect_intents[key] = replace(item, phase=EffectPhase.RESPONDED)
+            changed = True
+    return changed

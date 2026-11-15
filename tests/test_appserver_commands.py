@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.appserver.commands import command_choices, list_commands, run_command
+from fusion_cli.appserver.commands import (
+    command_choices,
+    list_commands,
+    run_command,
+    select_development_model,
+)
 from fusion_cli.cli.repl import model_flows
 from fusion_cli.cli.repl.commands import SlashCommand, build_registry
 from fusion_cli.cli.repl.state import ReplState
@@ -42,6 +47,12 @@ def test_liste_grup_ve_kullanim_tasir() -> None:
     rows = {row["ad"]: row for row in list_commands(build_registry())}
     assert rows["skills"]["grup"] == "Bilgi"
     assert rows["skills"]["kullanim"] == "[arama]"
+
+
+def test_subtask_masaustu_menusunde_desteklenir() -> None:
+    """Composer'ın 'Alt görev' düğmesi bu satıra bakar (P-054)."""
+    rows = {row["ad"]: row for row in list_commands(build_registry())}
+    assert rows["subtask"]["destekleniyor"] is True
 
 
 def test_etkilesimsiz_komut_calisir_ve_metin_doner(state: ReplState) -> None:
@@ -183,6 +194,57 @@ def test_development_kaynak_ve_model_adimlari_uygulanir(
     assert {candidate.model for candidate in state.config.candidates} == {model_id}
 
 
+def test_yapisal_model_secimi_komut_dizgesiyle_ayni_sonucu_verir(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U1-40: `model.sec` yolu `/development uygula ...` ile aynı uygulayıcıyı kullanır."""
+    model_id = "openrouter/ornek/model:free"
+    monkeypatch.setattr(
+        model_flows.catalog,
+        "fetch_openrouter_free",
+        lambda: (CatalogEntry(model_id, "openrouter", 128_000),),
+    )
+
+    result = select_development_model(state, "openrouter-free", model_id)
+
+    assert result["ok"] is True
+    assert state.config.agent.model == model_id
+
+
+@pytest.mark.parametrize(
+    ("source", "model"),
+    (
+        ("openrouter-free", "model\n/development uygula custom x/y"),
+        ("openrouter-free", "model\x00gizli"),
+        ("openrouter-free", ""),
+        ("openrouter-free", "   "),
+        ("openrouter-free", "x" * 600),
+        ("yok-boyle-kaynak", "ornek/model"),
+        ("", "ornek/model"),
+        (None, "ornek/model"),
+        ("openrouter-free", None),
+        ("openrouter-free", 42),
+    ),
+)
+def test_yapisal_model_secimi_gecersiz_girdiyi_reddeder(
+    state: ReplState, source: object, model: object
+) -> None:
+    onceki = state.config
+
+    result = select_development_model(state, source, model)  # type: ignore[arg-type]
+
+    assert result == {"ok": False, "metin": messages.APP_COMMAND_INVALID_SELECTION}
+    assert state.config is onceki
+
+
+def test_yapisal_model_secimi_icinde_bosluk_olan_kimligi_bolmez(state: ReplState) -> None:
+    """Komut dizgesi `uygula <kaynak> <model>` boşlukta bölünürdü; yapısal yol bölmez."""
+    result = select_development_model(state, "custom", "ollama/model adi:7b")
+
+    assert result["ok"] is True
+    assert state.config.agent.model == "ollama/model adi:7b"
+
+
 def test_development_custom_serbest_metin_adimi_uygulanir(state: ReplState) -> None:
     payload = command_choices(state, "development", "kaynak custom")
     assert payload is not None and payload["tur"] == "metin"
@@ -211,7 +273,12 @@ def test_profiles_tier_ve_aday_adimlari_uygulanir(state: ReplState) -> None:
 def test_providers_add_sirri_yansitmadan_kaydeder(state: ReplState, tmp_path: Path) -> None:
     payload = command_choices(state, "providers", "add openrouter")
     assert payload is not None and payload["tur"] == "gizli_metin"
-    assert payload["serbest_metin"] == {"gizli": True, "yer_tutucu": "API anahtarı"}
+    # S1-24: sağlayıcı kimliği yapısal gelir; uygulama anahtarı komut dizgesine katmaz.
+    assert payload["serbest_metin"] == {
+        "gizli": True,
+        "yer_tutucu": "API anahtarı",
+        "saglayici": "openrouter",
+    }
     secret = "SIR-PROVIDER-123"
     store = FernetSecretStore(tmp_path / "credentials.enc", secret_key="test-master")
     result = run_command(
@@ -322,3 +389,36 @@ def test_secim_uretici_hatasi_guvenli_sonuca_cevrilir(
     result = run_command(build_registry(), state, "development", "kaynak openrouter-free")
     assert result == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
     assert "AG-AYRINTISI" not in result["metin"]
+
+
+def test_komut_hatasi_gunluge_yazilir(state, caplog) -> None:
+    """Ölçüldü (30 Ekim, S1-21): `except Exception` hiçbir iz bırakmıyordu."""
+    registry = build_registry()
+
+    def bozuk(_state, _arg):
+        raise ConnectionError("ag yok")
+
+    registry.register(SlashCommand("bozuk-komut", "Test", bozuk))
+    with caplog.at_level("ERROR"):
+        sonuc = run_command(registry, state, "bozuk-komut", "")
+
+    assert sonuc == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
+    assert "bozuk-komut" in caplog.text and "ConnectionError" in caplog.text
+
+
+def test_terminale_ozgu_komutlar_masaustunde_desteklenmiyor_isaretli(state: ReplState) -> None:
+    """Ölçüldü (31 Ekim): /theme, /tui, /search, /vim, /keybindings, /statusline masaüstü
+    menüsünde 'destekleniyor' görünüyor; kalıcı config/keybindings.json yazıyor ama masaüstünde
+    hiçbir etkisi olmuyordu. `/keybindings` P-046'dan beri desteklenir: dosyanın `masaustu`
+    bağlamı masaüstü kısayollarıdır."""
+    registry = build_registry()
+    rows = {row["ad"]: row for row in list_commands(registry)}
+    assert rows["keybindings"]["destekleniyor"] is True
+    for name in ("theme", "tui", "search", "vim", "statusline"):
+        assert rows[name]["destekleniyor"] is False, name
+        assert run_command(registry, state, name, "acik") == {
+            "ok": False,
+            "metin": messages.APP_COMMAND_TERMINAL_ONLY,
+        }
+    assert rows["output-style"]["destekleniyor"] is True
+    assert rows["export"]["destekleniyor"] is True

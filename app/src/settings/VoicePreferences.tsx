@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { errorMessage } from "../protocol/result";
 import { VoiceSettings, type VoicePrefs } from "../voice/VoiceSettings";
 import "../voice/VoiceMode.css";
 
@@ -34,11 +35,19 @@ export function VoicePreferences({ client }: { client: ProtocolClient }) {
     setPrefs(result.ayar);
   }, [client]);
 
-  useEffect(() => {
-    void load().catch(() => setError("Ses ayarları alınamadı."));
+  // Gerçek neden gösterilir ve yeniden dene sunulur (U2-47); eskiden sabit metin gerçek nedeni atıyordu.
+  const retry = useCallback(() => {
+    setError(null);
+    void load().catch((reason) => setError(`Ses ayarları alınamadı: ${errorMessage(reason)}`));
   }, [load]);
+  useEffect(() => { retry(); }, [retry]);
 
-  const save = async (next: VoicePrefs) => {
+  /** Kayıt sürerken gelen son değer sıraya alınır; sürgü devre dışı kalmaz (odak kaybolmasın, U2-45). */
+  const kayitta = useRef(false);
+  const bekleyen = useRef<VoicePrefs | null>(null);
+  const save = async (next: VoicePrefs): Promise<void> => {
+    if (kayitta.current) { bekleyen.current = next; return; }
+    kayitta.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -48,7 +57,11 @@ export function VoicePreferences({ client }: { client: ProtocolClient }) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Ses ayarı kaydedilemedi.");
     } finally {
+      kayitta.current = false;
       setBusy(false);
+      const sonraki = bekleyen.current;
+      bekleyen.current = null;
+      if (sonraki && sonraki.hiz !== next.hiz) void save(sonraki);
     }
   };
 
@@ -66,7 +79,7 @@ export function VoicePreferences({ client }: { client: ProtocolClient }) {
 
       {status ? (
         <VoiceSettings
-          disabled={busy}
+          busy={busy}
           onChange={(next) => void save(next)}
           onTop={false}
           onTopChange={() => undefined}
@@ -78,7 +91,12 @@ export function VoicePreferences({ client }: { client: ProtocolClient }) {
       )}
 
       {status?.yukseltme && <p className="settings__hint">{status.yukseltme}</p>}
-      {error && <p className="settings__error" role="alert">{error}</p>}
+      {error && (
+        <p className="settings__error" role="alert">
+          {error}{" "}
+          {!status && <button className="settings__error-retry" onClick={retry} type="button">Yeniden dene</button>}
+        </p>
+      )}
     </article>
   );
 }

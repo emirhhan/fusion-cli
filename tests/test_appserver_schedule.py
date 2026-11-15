@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -165,3 +166,216 @@ def test_bozuk_depo_hata_verir_ve_gorev_siniri_uygulanir(tmp_path, monkeypatch):
     monkeypatch.setattr(schedule, "MAX_SCHEDULES", 1)
     assert _new(tmp_path, tur="gunluk", saat="11:00")["ok"] is True
     assert "En çok" in _new(tmp_path, tur="gunluk", saat="12:00")["metin"]
+
+
+def _bozuk_kayitli_depo(tmp_path):
+    """Biri geçerli, biri bozuk `teslimler` taşıyan iki kayıt (S2-12)."""
+
+    iyi = _new(tmp_path, tur="gunluk", saat="09:00")["gorev"]
+    path = tmp_path / "z.json"
+    kayitlar = json.loads(path.read_text(encoding="utf-8"))
+    bozuk = {**kayitlar[0], "id": "bozuk-1", "teslimler": "liste-degil"}
+    path.write_text(json.dumps([*kayitlar, bozuk, "kayit-degil"]), encoding="utf-8")
+    return path, iyi
+
+
+def test_tek_bozuk_kayit_listeyi_bos_gostermez_ve_yazmalari_engeller(tmp_path):
+    path, iyi = _bozuk_kayitli_depo(tmp_path)
+    onceki = path.read_bytes()
+
+    listed = schedule.list_schedules(path)
+
+    assert listed["ok"] is True and listed["bozuk_kayit"] == 2
+    assert [item["id"] for item in listed["gorevler"]] == [iyi["id"]]
+    # Bilinçli sözleşme (test_schedule_delivery): bozuk kayıt varken hiçbir yazma yapılmaz.
+    assert schedule.claim_due(path, NOW)["ok"] is False
+    assert path.read_bytes() == onceki
+
+
+def test_bozuk_kayitlar_acik_eylemle_yedeklenip_ayrilir_sonra_gorevler_calisir(tmp_path):
+
+    path, iyi = _bozuk_kayitli_depo(tmp_path)
+
+    sonuc = schedule.quarantine_invalid(path)
+
+    assert sonuc["ok"] is True and sonuc["ayrilan"] == 2
+    yedek = tmp_path / sonuc["yedek"]
+    yedeklenen = json.loads(yedek.read_text(encoding="utf-8"))
+    assert yedeklenen[0]["id"] == "bozuk-1" and "kayit-degil" in yedeklenen
+    assert [item["id"] for item in json.loads(path.read_text(encoding="utf-8"))] == [iyi["id"]]
+    due = schedule.claim_due(path, datetime.fromtimestamp(iyi["sonraki"] + 60, tz=TZ))
+    assert due["ok"] is True and len(due["gorevler"]) == 1
+    # Tekrar ayırmak yeni yedek üretmez.
+    assert schedule.quarantine_invalid(path) == {"ok": True, "ayrilan": 0}
+    assert len(list(tmp_path.glob("z.json.bad-*"))) == 1
+
+
+def test_yedek_yazilamazsa_depoya_dokunulmaz(tmp_path, monkeypatch):
+    path, _iyi = _bozuk_kayitli_depo(tmp_path)
+    onceki = path.read_bytes()
+    from pathlib import Path
+
+    gercek = Path.write_text
+
+    def reddet(self, *args, **kwargs):
+        if ".bad-" in self.name:
+            raise PermissionError("yedek yazılamıyor")
+        return gercek(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", reddet)
+
+    assert schedule.quarantine_invalid(path)["ok"] is False
+    assert path.read_bytes() == onceki
+
+
+def test_bozuk_ayirma_rotasi_kayitlidir():
+    assert "zamanlama.bozuklari_ayir" in schedule.SCHEDULE_ROUTES
+
+
+@pytest.mark.parametrize("kok", ["/", "~", "~/"])
+def test_kok_dizin_ve_ev_klasoru_reddedilir(tmp_path, monkeypatch, kok):
+    """S2-25: gözetimsiz görev `/` ya da ev klasöründe çalışmaz."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    sonuc = schedule.save_schedule(
+        {"gorev": "Her şeyi tara", "kok": kok, "tur": "gunluk", "saat": "09:00"},
+        tmp_path / "z.json",
+        NOW,
+    )
+
+    assert sonuc["ok"] is False
+    assert "proje klasörü" in sonuc["metin"]
+    assert not (tmp_path / "z.json").exists()
+
+
+def test_ev_klasorunun_altindaki_proje_kabul_edilir(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+
+    sonuc = schedule.save_schedule(
+        {"gorev": "Rapor", "kok": str(proje), "tur": "gunluk", "saat": "09:00"},
+        tmp_path / "z.json",
+        NOW,
+    )
+
+    assert sonuc["ok"] is True
+
+
+def test_eski_kayittaki_tehlikeli_kok_vadesi_gelince_verilmez_ve_durdurulur(tmp_path, monkeypatch):
+    """Doğrulamadan önce kaydedilmiş `/` kökü, vadesi gelince de çalışmamalı."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    yol = tmp_path / "z.json"
+    guvenli = _new(tmp_path, kok=str(proje), tur="gunluk", saat="11:00")["gorev"]
+
+    kayitlar = json.loads(yol.read_text(encoding="utf-8"))
+    kayitlar.append({**guvenli, "id": "eski", "kok": "/", "baslik": "eski kök"})
+    yol.write_text(json.dumps(kayitlar), encoding="utf-8")
+
+    verilen = schedule.claim_due(yol, datetime(2026, 10, 5, 12, 0, tzinfo=TZ))
+
+    assert [g["id"] for g in verilen["gorevler"]] == [guvenli["id"]]
+    liste = {g["id"]: g for g in schedule.list_schedules(yol)["gorevler"]}
+    assert liste["eski"]["etkin"] is False
+    assert "proje klasörü" in liste["eski"]["durdurma_nedeni"]
+
+
+def test_simdi_calistir_tehlikeli_kokte_reddedilir(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    proje = tmp_path / "proje"
+    proje.mkdir()
+    yol = tmp_path / "z.json"
+    guvenli = _new(tmp_path, kok=str(proje), tur="gunluk", saat="11:00")["gorev"]
+    kayitlar = json.loads(yol.read_text(encoding="utf-8"))
+    kayitlar.append({**guvenli, "id": "eski", "kok": "/"})
+    yol.write_text(json.dumps(kayitlar), encoding="utf-8")
+
+    sonuc = schedule.run_now({"id": "eski"}, yol, NOW)
+
+    assert sonuc["ok"] is False
+    assert "proje klasörü" in sonuc["metin"]
+
+
+# --- Cron ifadesi (P-038) ------------------------------------------------------- #
+
+
+def test_cron_turu_siradaki_zamani_ifadeden_hesaplar():
+    assert schedule.next_run({"tur": "cron", "cron": "30 10 * * *"}, NOW) == _at(5, 10, 30)
+    assert schedule.next_run({"tur": "cron", "cron": "0 9 * * *"}, NOW) == _at(6, 9)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"tur": "cron"},
+        {"tur": "cron", "cron": "bozuk"},
+        {"tur": "cron", "cron": "*/5 * * * *"},
+        {"tur": "cron", "cron": "* * * * *"},
+    ],
+)
+def test_cron_eksik_bozuk_ya_da_cok_sik_ifade_reddedilir(spec):
+    with pytest.raises(schedule.ScheduleError):
+        schedule.next_run(spec, NOW)
+
+
+def test_cron_gorevi_kaydedilir_ve_ifade_normalize_edilir(tmp_path):
+    path = tmp_path / "z.json"
+    sonuc = schedule.save_schedule(
+        {"gorev": "rapor", "kok": str(tmp_path), "tur": "cron", "cron": " 0  9 * * 1-5 "},
+        path,
+        NOW,
+    )
+    assert sonuc["ok"] is True
+    assert sonuc["gorev"]["cron"] == "0 9 * * 1-5"
+    assert "dakika" not in sonuc["gorev"]
+
+
+@pytest.mark.parametrize("ifade", ["*/1 9 * * *", "* 9 * * *", "0,5 9 * * *", "50,59 9 * * *"])
+def test_cron_siklik_denetimi_ilk_vadeden_bagimsiz(ifade):
+    """Ölçüldü (31 Ekim): saat 08:00'da '*/1 9 * * *' kaydediliyordu (ilk vade 1 saat
+    sonra); ilk çalışmadan sonra `_advance` hata yutup görevi sessizce kapatıyordu."""
+    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    with pytest.raises(schedule.ScheduleError):
+        schedule.next_run({"tur": "cron", "cron": ifade}, sabah)
+
+
+@pytest.mark.parametrize("ifade", ["*/15 * * * *", "0 9 * * *", "0,30 9-18 * * 1-5"])
+def test_cron_yeterince_seyrek_ifade_kabul_edilir(ifade):
+    sabah = datetime(2026, 10, 5, 8, 0, tzinfo=TZ)
+    assert schedule.next_run({"tur": "cron", "cron": ifade}, sabah) is not None
+
+
+def test_calisma_gecmisi_en_yeni_once_ve_tavanli_tutulur(tmp_path):
+    """P-038: kalıcı görev yalnız `son_calisma` tutuyordu; sonuç ve sohbet görünmüyordu."""
+    gorev = _new(tmp_path, tur="aralik", dakika=30)["gorev"]
+    yol = tmp_path / "z.json"
+    for sira in range(schedule.MAX_RUN_HISTORY + 2):
+        sonuc = schedule.record_run(
+            {"id": gorev["id"], "sohbet_id": f"s{sira}", "durum": "tamam", "ozet": "x" * 999},
+            yol,
+            NOW,
+        )
+        assert sonuc["ok"] is True
+    gecmis = sonuc["gorev"]["gecmis"]
+    assert len(gecmis) == schedule.MAX_RUN_HISTORY
+    assert gecmis[0]["sohbet_id"] == f"s{schedule.MAX_RUN_HISTORY + 1}"
+    assert len(gecmis[0]["ozet"]) == schedule.MAX_RUN_SUMMARY
+    # Görev düzenlenince geçmiş korunur.
+    guncel = schedule.save_schedule(
+        {"id": gorev["id"], "gorev": "yeni", "kok": str(tmp_path), "tur": "aralik", "dakika": 30},
+        yol,
+        NOW,
+    )
+    assert len(guncel["gorev"]["gecmis"]) == schedule.MAX_RUN_HISTORY
+
+
+def test_calisma_kaydi_gecersiz_durum_ve_bilinmeyen_gorevi_reddeder(tmp_path):
+    gorev = _new(tmp_path, tur="aralik", dakika=30)["gorev"]
+    yol = tmp_path / "z.json"
+    assert (
+        schedule.record_run({"id": gorev["id"], "sohbet_id": "s", "durum": "?"}, yol)["ok"] is False
+    )
+    assert schedule.record_run({"id": "yok", "sohbet_id": "s", "durum": "hata"}, yol)["ok"] is False
+    assert "zamanlama.calisma_kaydet" in schedule.SCHEDULE_ROUTES

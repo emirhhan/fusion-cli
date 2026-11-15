@@ -57,3 +57,39 @@ def test_kurulum_kapisi_kesif_tablosundan_da_gelir(tmp_path):
 def test_kurulum_kapisi_onaysiz_calisabilir():
     """Kapı onaya düşerse etkileşimsiz oturumda hiç çalışmaz."""
     assert is_unattended_safe("godot --headless --path . --editor --quit")
+
+
+# --- Dalga 4: içe aktarma denetimi üst dizin adından etkilenmez, 3B de görür (E1-09) --- #
+
+
+def test_gizli_ust_dizindeki_proje_icin_aktarma_gerektigi_gorulur(tmp_path):
+    """Ölçüldü (30 Ekim): kök `~/.projects/oyun` altındayken mutlak yol parçaları süzüldüğü için
+    hiçbir varlık sayılmıyor ve içe aktarma tetiklenmiyordu."""
+    from fusion_cli.engines.agent.domain_adapters.godot import godot_needs_import
+
+    kok = tmp_path / ".projects" / "build" / "oyun"
+    kok.mkdir(parents=True)
+    (kok / "karo.png").write_bytes(b"\x89PNG")
+
+    assert godot_needs_import(kok) is True
+
+
+def test_uc_boyutlu_varlik_aktarma_ister_aktarilinca_ister_degil(tmp_path):
+    from fusion_cli.engines.agent.domain_adapters.godot import godot_needs_import
+
+    (tmp_path / "model.glb").write_bytes(b"glTF")
+    assert godot_needs_import(tmp_path) is True
+
+    (tmp_path / "model.glb.import").write_text("[remap]", encoding="utf-8")
+    assert godot_needs_import(tmp_path) is False
+
+
+def test_node_modules_ve_gizli_klasorlere_girilmez(tmp_path):
+    from fusion_cli.engines.agent.domain_adapters.godot import godot_needs_import
+
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "x.png").write_bytes(b"png")
+    (tmp_path / ".godot").mkdir()
+    (tmp_path / ".godot" / "y.svg").write_text("<svg/>", encoding="utf-8")
+
+    assert godot_needs_import(tmp_path) is False

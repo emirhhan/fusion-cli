@@ -14,6 +14,7 @@ gezilir; alt panel üzerindeyken üst panel de açık kalır.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,10 @@ LEAVE_WAIT_MS = 600
 HIDE_DELAY_S = 0.25
 #: Fareyi "menünün üstünde değil" konumuna çekmek için görünümün sol alt köşesinden uzaklık.
 _REST_MARGIN_PX = 2
+
+
+#: `capture_hover_panels` için toplam süre bütçesi (sn); dolunca eldeki panellerle devam edilir.
+HOVER_BUDGET_S = 40.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,12 +176,19 @@ async def capture_hover_panels(page: Page) -> tuple[HoverPanel, ...]:
     """Menü öğelerinin (ve panel içi alt öğelerin) üzerine gel; açılanları işaretle."""
     walker = _Walker(page, HOVER_SCRIPT.read_text(encoding="utf-8"))
     panels: list[HoverPanel] = []
+    # Toplam süre bütçesi: tetikleyici başına ≥2,4 sn sabit bekleme vardı; 30 öğe × alt panel
+    # dakikalar sürüyor ve çağıranın zaman aşımını aşabiliyordu (ölçüldü, 30 Ekim).
+    deadline = time.monotonic() + HOVER_BUDGET_S
     for trigger in await walker.call("triggers"):
+        if time.monotonic() > deadline:
+            break
         found = await walker.probe(trigger, None)
         panels.extend(found)
         if not found:
             continue
         for child in await walker.call("triggers", "", str(trigger["id"])):
+            if time.monotonic() > deadline:
+                break
             panels.extend(await walker.probe(child, trigger))
     await walker.leave()
     await walker.call("restore")

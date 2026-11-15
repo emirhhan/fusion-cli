@@ -45,5 +45,25 @@ exit 0
 
     assert result.returncode == 0, result.stderr
     commands = log.read_text(encoding="utf-8")
-    assert "-m pip install --quiet -e .[dev,mcp,web]" in commands
+    assert "-m pip install --quiet -e .[dev,desktop,mcp,gateway,voice,web]" in commands
     assert "-m playwright install chromium" in commands
+
+
+def test_setup_sh_ekstralari_makefile_ile_ayni() -> None:
+    """Q1-21. Ölçüldü (30 Ekim): setup.sh `dev,mcp,web`, Makefile altı ekstra kuruyordu."""
+    import re
+
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    setup = Path("setup.sh").read_text(encoding="utf-8")
+    make_extras = re.search(r"^EXTRAS\s*:=\s*(\S+)", makefile, re.M)
+    sh_extras = re.search(r"FUSION_DEV_EXTRAS:-([^}]+)\}", setup)
+    assert make_extras and sh_extras
+    assert make_extras.group(1) == sh_extras.group(1)
+
+
+def test_app_package_adaptor_hatasini_sessizce_yutmaz() -> None:
+    """Q1-20: `|| true` yerel paketi adaptörsüz üretiyordu; CI zaten zorunlu."""
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    hedef = makefile[makefile.index("app-package: install") :]
+    hedef = hedef[: hedef.index("\n\n")]
+    assert "|| true" not in hedef

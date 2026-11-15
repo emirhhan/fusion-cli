@@ -14,10 +14,10 @@ function setup(remembered = false, state = "none") {
   view = createScreenView({ rpc, onAuth: vi.fn(), toast: vi.fn() });
   return rpc;
 }
-it("ilk istekte telefon içinde onay ve varsayılan hatırlama seçeneğini gösterir", async () => {
+it("ilk istekte masaüstünden izin isteme ve varsayılan hatırlama seçeneğini gösterir", async () => {
   setup(); await view.open();
   fireEvent.click(screen.getByText("İzlemeyi başlat"));
-  const approve = await screen.findByText("Onayla ve izlemeyi başlat");
+  const approve = await screen.findByText("Masaüstünden izin iste");
   expect(screen.getByRole("checkbox").checked).toBe(true);
   expect(fake.start).toHaveBeenCalledTimes(1);
   fireEvent.click(approve);
@@ -32,9 +32,9 @@ it("hatırlanan cihazı yeniden onay sormadan başlatır", async () => {
 it("hatırlama seçimi kapatılabilir; durdur sunucuyu çağırır, görünüm kapatma yalnız ayırır", async () => {
   setup(); await view.open();
   fireEvent.click(screen.getByText("İzlemeyi başlat"));
-  await screen.findByText("Onayla ve izlemeyi başlat");
+  await screen.findByText("Masaüstünden izin iste");
   fireEvent.click(screen.getByRole("checkbox"));
-  fireEvent.click(screen.getByText("Onayla ve izlemeyi başlat"));
+  fireEvent.click(screen.getByText("Masaüstünden izin iste"));
   expect(fake.start).toHaveBeenCalledWith({ request: true, remember: false, confirmed: true });
   fireEvent.click(screen.getByText("Durdur"));
   expect(fake.stop).toHaveBeenCalledTimes(1);
@@ -52,12 +52,14 @@ it("oranı yalnız gerçek görüntü yüklendiğinde uygular ve eski kareyi kap
   view.close(); expect(image.hasAttribute("src")).toBe(false);
 });
 
-it("bekleyen eski izni telefonda açık onayla tamamlar", async () => {
+it("bekleyen eski izinde masaüstü onayını telefondan açıkça ister", async () => {
   setup(false, "pending"); await view.open();
   expect(document.getElementById("ekranIste").hidden).toBe(false);
+  // Telefon onay VERMEZ; yalnız masaüstüne istek gönderir (R1-02, 29 Ekim).
+  expect(document.getElementById("ekranDurum").textContent).toContain("masaüstünden izin iste");
   fireEvent.click(document.getElementById("ekranIste"));
-  await screen.findByText("Onayla ve izlemeyi başlat");
+  await screen.findByText("Masaüstünden izin iste");
   expect(fake.start).toHaveBeenCalledTimes(0);
-  fireEvent.click(screen.getByText("Onayla ve izlemeyi başlat"));
+  fireEvent.click(screen.getByText("Masaüstünden izin iste"));
   expect(fake.start).toHaveBeenCalledWith({ request: true, remember: true, confirmed: true });
 });

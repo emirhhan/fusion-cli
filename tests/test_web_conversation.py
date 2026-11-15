@@ -80,7 +80,9 @@ def pool(monkeypatch, log) -> BrowserSessionPool:
 
     sayac = {"n": 0}
 
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         log.append(("send", prompt))
         # Her tur FARKLI yanıt: gerçek transport tazelik ölçütü olarak önceki
         # yanıtı kullanır; sahtenin de aynı sözleşmeyi karşılaması gerekir.
@@ -210,7 +212,9 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
 
     cagri = {"sayi": 0}
 
-    async def _patlayan(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _patlayan(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         cagri["sayi"] += 1
         raise web_browser.WebBrowserSelectorError("arayüz değişti")
 
@@ -481,7 +485,9 @@ def test_aracsiz_sistemli_istekte_arac_talimati_yok():
 
 
 async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         return "### FUSION//SIRADAKİ ADIM\nİş bitti."
 
     monkeypatch.setattr(web_browser, "_send_turn", _send)
@@ -596,7 +602,9 @@ def _kalip_ret_ortami(monkeypatch, cevaplar: dict[str, str]) -> dict[str, list[s
             durum["model"] = komsu
         return komsu
 
-    async def _send(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         kayit["gonderim"].append(durum["model"])
         return cevaplar[durum["model"]]
 
@@ -621,16 +629,50 @@ async def test_secili_model_kalip_ret_verirse_komsu_modelle_yeniden_sorulur(pool
     assert kayit["gonderim"] == ["3.1 Pro", "3.6 Flash"]
 
 
-async def test_kalip_ret_sonrasi_yeni_sohbet_dogrudan_calisan_modelle_acilir(pool, monkeypatch):
+# P1-30 — Ölçüldü (30 Ekim): komşu model tek bir retten sonra süreç boyu (sınırsız) hatırlanıyordu;
+# tek seferlik bir ret ya da geçici sağlayıcı hatası kullanıcının seçtiği modeli kalıcı olarak
+# bypass ediyordu. Artık ret iki kez doğrulanınca hatırlanır ve 30 dakikada unutulur.
+async def test_kalip_ret_iki_kez_dogrulaninca_yeni_sohbet_dogrudan_calisan_modelle_acilir(
+    pool, monkeypatch
+):
     kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": _RET, "3.6 Flash": "cevap"})
     transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
     await transport(WebSessionCredential(), (Message("user", "ilk soru"),), "m")
+    assert pool.model_choice(_secili("3.1 Pro")) == "3.1 Pro"  # tek ret: henüz hatırlanmaz
+    kayit["gonderim"].clear()
+    await transport(WebSessionCredential(), (Message("user", "ikinci soru"),), "m")
+    assert kayit["gonderim"] == ["3.1 Pro", "3.6 Flash"]  # ret ikinci kez doğrulandı
+    assert pool.model_choice(_secili("3.1 Pro")) == "3.6 Flash"
     kayit["gonderim"].clear()
 
-    await transport(WebSessionCredential(), (Message("user", "başka soru"),), "m")
+    await transport(WebSessionCredential(), (Message("user", "üçüncü soru"),), "m")
 
-    # İkinci sohbet reddi yeniden beklemez: doğrudan çalışan modelle gönderilir.
+    # Üçüncü sohbet reddi yeniden beklemez: doğrudan çalışan modelle gönderilir.
     assert kayit["gonderim"] == ["3.6 Flash"]
+
+
+async def test_hatirlanan_komsu_model_30_dakika_sonra_unutulur(monkeypatch):
+    class Saat:
+        value = 100.0
+
+    manager = BrowserSessionPool(clock=lambda: Saat.value)
+    oturum = _secili("3.1 Pro")
+
+    manager.remember_model_choice(oturum, "3.6 Flash")
+    assert manager.model_choice(oturum) == "3.6 Flash"
+    Saat.value += web_browser.MODEL_FALLBACK_TTL_S - 1
+    assert manager.model_choice(oturum) == "3.6 Flash"
+    Saat.value += 2
+    assert manager.model_choice(oturum) == "3.1 Pro"
+
+
+async def test_tek_seferlik_ret_sayaci_basarili_secili_modelle_sifirlanir(pool, monkeypatch):
+    oturum = _secili("3.1 Pro")
+    assert pool.confirm_fallback(oturum, "3.6 Flash") is False
+    pool.forget_fallback_candidate(oturum)  # seçili model bu kez cevap verdi
+    assert pool.confirm_fallback(oturum, "3.6 Flash") is False
+    assert pool.confirm_fallback(oturum, "3.6 Flash") is True
 
 
 async def test_komsu_model_de_reddederse_ret_oldugu_gibi_doner(pool, monkeypatch):
@@ -661,7 +703,9 @@ async def test_sure_asan_secili_modelden_sonraki_deneme_komsu_modelle_yapilir(po
     kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": "geç cevap", "3.6 Flash": "plan"})
     asil_gonder = web_browser._send_turn
 
-    async def _yavas(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _yavas(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         if kayit["secim"][-1:] == ["3.1 Pro"] and not kayit["gonderim"]:
             kayit["gonderim"].append("3.1 Pro")
             await asyncio.sleep(60)
@@ -677,14 +721,16 @@ async def test_sure_asan_secili_modelden_sonraki_deneme_komsu_modelle_yapilir(po
     cevap = await transport(WebSessionCredential(), (Message("user", "plan ver"),), "m")
 
     assert cevap.text == "plan" and cevap.tier == "Flash"
-    assert pool.model_choice(oturum) == "3.6 Flash"
+    assert pool.model_choice(oturum) == "3.6 Flash"  # süre aşımı: hemen hatırlanır (TTL'li)
 
 
 async def test_sure_asan_yeni_sohbetin_sayfasi_acik_birakilmaz(pool, monkeypatch):
     """Ölçüldü (2 Ekim 2026): süresi dolan iki tur, paylaşılan Chrome'da hâlâ cevap
     üreten iki sahipsiz sekme bıraktı (sohbet havuza kaydedilmeden iptal ediliyordu)."""
 
-    async def _yavas(page, definition, prompt, *, previous="", limit_s=180.0, images=()):
+    async def _yavas(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
         await asyncio.sleep(60)
 
     monkeypatch.setattr(web_browser, "_send_turn", _yavas)
@@ -790,3 +836,228 @@ async def test_gorunmez_kipte_pencere_acilamazsa_beklenmez(pool, monkeypatch):
     with pytest.raises(web_browser.WebBrowserAuthError):
         await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
     assert beklendi["n"] == 0
+
+
+async def test_gizli_kip_insan_dogrulamasinda_chromeu_one_getirmez(monkeypatch):
+    from dataclasses import replace
+
+    session = replace(_session(), headless=web_browser.WindowMode.HIDDEN)
+    browser = _SahteTarayici()
+    monkeypatch.setattr(web_browser, "_shared_profile_browser", lambda *_: browser)
+
+    async def challenge(page, definition):
+        raise _DOGRULAMA
+
+    with pytest.raises(web_browser.WebBrowserAuthError, match="insan doğrulaması"):
+        await web_browser._open_past_human_verification(
+            None, web_browser.provider_definition(session.provider), session, 30, challenge
+        )
+
+    assert browser.notlar == []
+
+
+async def test_oturum_zaman_asimi_yanit_beklemeye_gecirilir(pool, monkeypatch):
+    """P1-03: `limit_s` geçirilmezse 180 sn varsayılanı sahte seçici hatası üretirdi.
+
+    Ölçüldü (29 Ekim): `_deliver_turn` çağrısı `limit_s` taşımıyordu; `timeout_s=600`
+    iken bile yanıt beklemesi 180 sn'de düşüyor, tur yeni sohbette ikinci kez gönderiliyordu.
+    """
+    from dataclasses import replace
+
+    gorulen: list[float] = []
+
+    async def _send(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
+        gorulen.append(limit_s)
+        return "tamam"
+
+    monkeypatch.setattr(web_browser, "_send_turn", _send)
+    uzun = replace(_session(), timeout_s=600.0)
+    transport = build_browser_transport(uzun, pool=pool)
+
+    await transport(WebSessionCredential(), _messages(2), uzun.model)
+
+    assert gorulen and gorulen[0] > 500.0
+
+
+async def test_kademe_uyusmazligi_sohbeti_birakir_ayni_mesaj_ayni_sohbete_tekrar_yazilmaz(
+    pool, log, monkeypatch
+):
+    """Ölçüldü (30 Ekim): cevap alınmış, mesaj sağlayıcıda; kademe uyuşmazlığı hatası
+    durumu ilerletmeden fırlıyordu. Yeniden denemede sohbet 'devam edilebilir' kalıp
+    aynı mesaj AYNI sohbete ikinci kez yazılıyordu (P1-29)."""
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    await transport(credential, _messages(2), "chatgpt_web/main/auto")
+
+    async def _secim(manager, session, definition, page):
+        return "Pro"
+
+    async def _kademe(page, definition):
+        return "Flash"
+
+    monkeypatch.setattr(web_browser, "_apply_model_choice", _secim)
+    monkeypatch.setattr(web_browser, "observed_tier", _kademe)
+    monkeypatch.setattr(web_browser, "_model_choice_matches_observed", lambda choice, tier: False)
+
+    # Ölçüldü (30 Ekim): eski metin sağlayıcı adıyla başlayıp ekranda "seçili…" diye kesiliyordu.
+    with pytest.raises(web_browser.WebBrowserError, match=r"^seçili model \(Pro\) yerine Flash"):
+        await transport(credential, _messages(4), "chatgpt_web/main/auto")
+    gonderilen_once = [entry for entry in log if entry[0] == "send"]
+
+    monkeypatch.setattr(web_browser, "_model_choice_matches_observed", lambda choice, tier: True)
+    await transport(credential, _messages(4), "chatgpt_web/main/auto")
+    sonraki = [entry for entry in log if entry[0] == "send"][len(gonderilen_once) :]
+
+    # Eski sohbete DEVAM istemi (yalnız yeni 2 mesaj) değil, temiz sohbette tam geçmiş.
+    assert pool.fake_context.pages_created == 2
+    assert len(sonraki) == 1 and "mesaj-0" in sonraki[0][1]
+
+
+async def test_iptal_edilen_tur_sohbet_durumunu_bayat_birakmaz(pool, log, monkeypatch):
+    """Ölçüldü (30 Ekim): dış `wait_for` (zincir/adaptör) iptali transport'a `CancelledError`
+    olarak gelir; temizlik yalnız kendi `TimeoutError` yolunda çalışıyordu. Mesaj sağlayıcıya
+    gitmiş, `sent_count/last_answer` bayat kalmıştı → sonraki tur aynı mesajı tekrar yazardı
+    (P1-28)."""
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    mesajlar = _messages(2)
+    await transport(credential, mesajlar, "chatgpt_web/main/auto")
+    kok = conversation_digest(mesajlar[:1])
+    assert pool.conversation("chatgpt_web", "main", kok) is not None
+
+    async def _asili(
+        page, definition, prompt, *, previous="", limit_s=180.0, images=(), measurement_sink=None
+    ):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(web_browser, "_send_turn", _asili)
+    gorev = asyncio.create_task(transport(credential, _messages(4), "chatgpt_web/main/auto"))
+    await asyncio.sleep(0.05)
+
+    gorev.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await gorev
+
+    assert pool.conversation("chatgpt_web", "main", kok) is None
+
+
+def _istek(mesajlar: tuple[Message, ...], conversation_id: str = "", contract: str = ""):
+    from fusion_cli.core.types import CompletionRequest
+
+    return CompletionRequest(
+        messages=mesajlar,
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=30.0,
+        conversation_id=conversation_id,
+        answer_contract=contract,
+    )
+
+
+def _adaptor(pool):
+    from fusion_cli.core.model_capability import ToolSupport
+    from fusion_cli.providers.web_session import WebProviderAdapter
+
+    return WebProviderAdapter(
+        model="chatgpt_web/main/auto",
+        credential=WebSessionCredential(),
+        transport=build_browser_transport(_session(), pool=pool),
+        tool_support=ToolSupport.NONE,
+    )
+
+
+async def test_ayni_sistem_istemli_iki_is_conversation_id_ile_ayri_sohbet_tutar(pool, log):
+    """P1-31. Ölçüldü (30 Ekim): kök yalnız ilk mesajın özetiydi; aynı sistem istemli
+    ana ajan ve alt ajan birbirinin sohbetini düşürüp her geçişte yeni sohbet açıyordu.
+    Her işin `conversation_id`'si kendi sohbetini ve kendi devamını korur."""
+    adaptor = _adaptor(pool)
+    sistem = Message("system", "ortak sistem istemi")
+
+    async def tur(kimlik: str, *gorev: str):
+        mesajlar = (sistem, *(Message("user", metin) for metin in gorev))
+        return await adaptor.complete(_istek(mesajlar, kimlik))
+
+    await tur("ana", "ana-1")
+    await tur("alt", "alt-1")
+    await tur("ana", "ana-1", "ana-2")
+    await tur("alt", "alt-1", "alt-2")
+
+    assert pool.fake_context.pages_created == 2, "ikisi de kendi sohbetinde devam etmeli"
+    gonderilen = [entry[1] for entry in log if entry[0] == "send"]
+    assert "ana-1" not in gonderilen[2], "devam turu geçmişi yeniden göndermez"
+    assert "alt-1" not in gonderilen[3]
+
+
+async def test_conversation_id_yoksa_eski_kok_korunur(pool, log):
+    adaptor = _adaptor(pool)
+    mesajlar = _messages(2)
+
+    await adaptor.complete(_istek(mesajlar))
+
+    assert pool.conversation("chatgpt_web", "main", conversation_digest(mesajlar[:1])) is not None
+
+
+# 30 Ekim — Gemini'de "3.1 Pro" seçeneği menüde pasifti; tur "Locator.click: Timeout" ile
+# düşüyor, yedek zinciri her çağrıda yeniden Gemini'yi deniyordu. Pasif seçenek artık
+# tıklanmaz: mesaj sayfanın mevcut kipiyle gönderilir ve kullanıcıya tek satır not gider.
+async def test_pasif_mod_turu_dusurmez_mevcut_kiple_gonderir_ve_not_tasir(pool, log, monkeypatch):
+    async def _pasif(page, definition, choice):
+        raise web_browser.WebBrowserModeUnavailableError("pasif")
+
+    async def _kademe(page, definition):
+        return "Flash-Lite"
+
+    monkeypatch.setattr(web_browser, "ensure_model_choice", _pasif)
+    monkeypatch.setattr(web_browser, "observed_tier", _kademe)
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
+    ilk = await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
+    ikinci = await transport(WebSessionCredential(), (Message("user", "soru 2"),), "m")
+
+    assert [entry for entry in log if entry[0] == "send"], "mesaj gönderilmeliydi"
+    assert ilk.tier == "Flash-Lite"  # kullanıcı hangi kiple cevaplandığını görür
+    assert "3.1 Pro" in ilk.note and "mevcut" in ilk.note
+    assert ikinci.note == ""  # aynı not her turda tekrarlanmaz
+
+
+# Koordinatör kararı (30 Ekim): kullanıcı modeli AÇIKÇA seçtiyse (strict) pasif mod,
+# seçimi sessizce düşürerek "mevcut kiple" sürülmez; oturum hatası olur, zincir yedeğe geçer.
+async def test_katı_secimde_pasif_mod_oturum_hatasi_olur_tekrar_denenmez(pool, log, monkeypatch):
+    from fusion_cli.providers.web_session import WebTurnContext
+
+    cagri: list[str] = []
+
+    async def _pasif(page, definition, choice):
+        cagri.append(choice)
+        raise web_browser.WebBrowserModeUnavailableError("pasif")
+
+    monkeypatch.setattr(web_browser, "ensure_model_choice", _pasif)
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
+    with pytest.raises(web_browser.WebBrowserModeUnavailableError, match="kullanılamıyor"):
+        await transport(
+            WebSessionCredential(),
+            (Message("user", "soru"),),
+            "m",
+            context=WebTurnContext(strict=True),
+        )
+
+    assert cagri == ["3.1 Pro"], "pasif mod ikinci kez denenmemeli"
+    assert not [entry for entry in log if entry[0] == "send"], "mesaj gönderilmemeli"
+
+
+async def test_chatgpt_keeps_successful_tab_across_idle_release():
+    pool = BrowserSessionPool(idle_release_s=0)
+    page = _FakePage([])
+    pool.schedule_idle_release("chatgpt_web", "main")
+    assert ("chatgpt_web", "main") in pool._idle_timers
+    pool.remember_conversation("chatgpt_web", "main", "root", web_browser.ConversationState(page=page))
+    pool.schedule_idle_release("chatgpt_web", "main")
+    await pool._release_idle(("chatgpt_web", "main"))
+    assert not pool._idle_timers
+    assert pool.conversation("chatgpt_web", "main", "root").page is page
+    assert not page.is_closed()
+    await pool.close()
+    assert page.is_closed()

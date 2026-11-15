@@ -36,3 +36,11 @@ def test_dizin_yoksa_isaretleme_dizini_olusturur(tmp_path):
     mark_apprentice_notice_shown(hedef)
 
     assert apprentice_notice_shown(hedef) is True
+
+
+def test_yazilamayan_dizinde_isaretleme_cokmez_false_doner(tmp_path):
+    """Ölçüldü (30 Ekim): yapılandırma dizini yazılamazsa açılış PermissionError ile çöküyordu."""
+    dosya = tmp_path / "dosya-dizin-degil"
+    dosya.write_text("x", encoding="utf-8")
+
+    assert mark_apprentice_notice_shown(dosya / "alt") is False

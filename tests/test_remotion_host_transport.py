@@ -137,6 +137,7 @@ async def test_repl_entry_injects_host_transport_into_tui_state(monkeypatch, tmp
         return 0
 
     monkeypatch.delenv("FUSION_INLINE", raising=False)
+    monkeypatch.setattr("fusion_cli.cli.repl.loop.is_interactive_terminal", lambda: True)
     monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_tui_repl", tui)
     await run_repl(
         make_config(),

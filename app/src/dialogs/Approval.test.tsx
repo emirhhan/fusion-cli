@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { Approval } from "./Approval";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Approval, KARAR_KORUMA_MS } from "./Approval";
+
+/** Kart açıldıktan sonra kullanıcının bilinçli tuşuna izin veren koruma süresini geçirir. */
+const korumaGec = () => vi.advanceTimersByTime(KARAR_KORUMA_MS + 1);
 
 const temel = {
   tur: "onay" as const,
@@ -16,9 +19,38 @@ const temel = {
   ],
 };
 
-afterEach(cleanup);
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("Approval — izin kartı", () => {
+  it("masaüstü onayında uygulama ve kademeyi gösterir; Her zaman reddet `never` gönderir", () => {
+    const onCevap = vi.fn();
+    render(<Approval onCevap={onCevap} soru={{
+      ...temel,
+      arac: "desktop_click",
+      masaustu: { uygulama: "Mail", kademe: "full", kademe_etiket: "tam kontrol", oge: "Button 'Arşivle'" },
+      secenekler: [
+        { deger: "once", etiket: "Evet" },
+        { deger: "session", etiket: "Bu oturumda Mail için izin ver" },
+        { deger: "deny", etiket: "Hayır, başka bir yol dene" },
+        { deger: "never", etiket: "Her zaman reddet" },
+      ],
+    }} />);
+    expect(screen.getByText("Mail")).toBeTruthy();
+    expect(screen.getByText(/tam kontrol · Button 'Arşivle'/)).toBeTruthy();
+    korumaGec();
+    fireEvent.click(screen.getByRole("button", { name: /Her zaman reddet/ }));
+    expect(onCevap).toHaveBeenCalledWith({ secim: "never" });
+  });
+
+  it("alt ajanın isteğinde üst etikette kim istediğini yazar", () => {
+    render(<Approval soru={{ ...temel, ajan: "Denetçi (denetci-1a2b)" }} onCevap={vi.fn()} />);
+    expect(screen.getByText("Alt ajan izin istiyor: Denetçi (denetci-1a2b)")).toBeTruthy();
+    cleanup();
+    render(<Approval soru={{ ...temel, ajan: null }} onCevap={vi.fn()} />);
+    expect(screen.getByText("İzin gerekiyor")).toBeTruthy();
+  });
+
   it("insan dilinde başlığı ve hedefi olduğu gibi gösterir; ham argüman ayrıntıda kalır", () => {
     render(<Approval soru={temel} onCevap={vi.fn()} />);
     expect(screen.getByRole("heading").textContent).toBe("Bu komut çalıştırılsın mı?");
@@ -43,6 +75,7 @@ describe("Approval — izin kartı", () => {
     fireEvent.click(screen.getByRole("button", { name: /Hayır/ }));
     expect(onCevap).toHaveBeenLastCalledWith({ secim: "deny" });
     view.rerender(<Approval soru={{ ...temel }} onCevap={onCevap} />);
+    korumaGec();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "2" });
     expect(onCevap).toHaveBeenLastCalledWith({ secim: "session" });
   });
@@ -76,6 +109,32 @@ describe("Approval — izin kartı", () => {
       />,
     );
     expect(screen.getByText("KDV = 0.20", { exact: false })).toBeTruthy();
+  });
+});
+
+describe("Approval — karar notu ve izin kuralı (P-013, P-001)", () => {
+  const notlu = { ...temel, not_alinir: true, kural: "Bash(git push *)" };
+
+  it("Tab not kutusunu açar; dolu not kararla birlikte `not` alanında gider", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={notlu} onCevap={onCevap} />);
+    expect(screen.getByText("Bash(git push *)")).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Tab" });
+    const kutu = screen.getByLabelText("Karar notu");
+    expect(document.activeElement).toBe(kutu);
+    fireEvent.change(kutu, { target: { value: "  önce testleri yaz " } });
+    fireEvent.click(screen.getByRole("button", { name: /Hayır/ }));
+    expect(onCevap).toHaveBeenLastCalledWith({ secim: "deny", not: "önce testleri yaz" });
+  });
+
+  it("boş not alan eklemez; `not_alinir` yoksa not düğmesi yoktur", () => {
+    const onCevap = vi.fn();
+    const view = render(<Approval soru={notlu} onCevap={onCevap} />);
+    fireEvent.click(screen.getByRole("button", { name: /Not ekle/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Evet" }));
+    expect(onCevap).toHaveBeenLastCalledWith({ secim: "once" });
+    view.rerender(<Approval soru={{ ...temel }} onCevap={onCevap} />);
+    expect(screen.queryByRole("button", { name: /Not ekle/ })).toBeNull();
   });
 });
 
@@ -115,5 +174,92 @@ describe("Approval — soru kartı (ask_user)", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("Cevabın"));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onCevap).toHaveBeenCalledWith({ metin: "" });
+  });
+});
+
+describe("Approval — yazarken beliren kart (WP16 madde 2)", () => {
+  // Ölçüldü (29 Ekim): kart bağlanınca odağı kendine alır; kullanıcı composer'a
+  // yazarken (ör. "12" ya da basılı tutulan tuş) sonraki rakam tuşu ilk seçeneği
+  // (çoğu zaman "Evet") onay/geri alma olmadan seçiyordu.
+  it("kart yeni açıldıysa rakam tuşu karar vermez; koruma süresinden sonra verir", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
+    expect(onCevap).not.toHaveBeenCalled();
+    korumaGec();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "once" });
+  });
+
+  it("basılı tutulan tuş (repeat) koruma bitse bile karar vermez", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    korumaGec();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1", repeat: true });
+    expect(onCevap).not.toHaveBeenCalled();
+  });
+
+  it("odaktaki karta Enter basmak tek başına karar vermez", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    korumaGec();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
+    expect(onCevap).not.toHaveBeenCalled();
+  });
+
+  it("tehlikeli işlemde de aynı koruma geçerlidir ve Esc reddi seçmeye devam eder", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={{ ...temel, tehlike: "dosya siler" }} onCevap={onCevap} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "1" });
+    expect(onCevap).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
+  });
+
+  it("kendiliğinden açılan metin kutusunda koruma süresince Enter cevabı göndermez", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={{ tur: "soru", soru: "Proje adı ne olsun?" }} onCevap={onCevap} />);
+    const kutu = screen.getByLabelText("Cevabın");
+    fireEvent.change(kutu, { target: { value: "yazarken-kalan" } });
+    const enter = fireEvent.keyDown(kutu, { key: "Enter" });
+    expect(enter).toBe(false);
+    korumaGec();
+    expect(fireEvent.keyDown(kutu, { key: "Enter" })).toBe(true);
+  });
+
+  it("seçenek varken Esc, metin kutusundayken boş cevap göndermez; yalnız kutuyu kapatır", () => {
+    const onCevap = vi.fn();
+    const soru = { tur: "soru" as const, soru: "Hangisi?", secenekler: [{ etiket: "Astro" }] };
+    render(<Approval soru={soru} onCevap={onCevap} />);
+    fireEvent.click(screen.getByRole("button", { name: /Diğer/ }));
+    fireEvent.keyDown(screen.getByLabelText("Cevabın"), { key: "Escape" });
+    expect(onCevap).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Cevabın")).toBeNull();
+  });
+
+  // Ölçüldü (29 Ekim): `tur:"onay"` seçeneksiz gelirse kartta düğme yoktu, Esc de
+  // bir şey yapmıyordu; tur yalnız Durdur ile kurtuluyordu.
+  it("seçeneksiz gelen onay kartı yerleşik İzin ver / Reddet düğmeleri üretir", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={{ tur: "onay", arac: "run_shell", baslik: "Çalışsın mı?" }} onCevap={onCevap} />);
+    expect(screen.getByRole("button", { name: /İzin ver/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
+  });
+
+  // Ölçüldü (30 Ekim): aynı etiketli iki seçenek React key uyarısı ve yanlış düğme durumu üretiyordu;
+  // nesne argüman "[object Object]" yazıyordu (U4-15).
+  it("aynı etiketli seçenekler ayrı düğme olur, nesne argüman JSON olarak gösterilir (U4-15)", () => {
+    const hata = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    render(<Approval soru={{
+      tur: "soru", soru: "Hangisi?", secenekler: [{ etiket: "Evet" }, { etiket: "Evet" }],
+      argumanlar: { ayar: { a: 1 } } as never,
+    }} onCevap={vi.fn()} />);
+    expect(screen.getAllByRole("button", { name: /Evet/ })).toHaveLength(2);
+    expect(hata.mock.calls.flat().join(" ")).not.toContain("same key");
+    hata.mockRestore();
+    cleanup();
+    render(<Approval soru={{ ...temel, argumanlar: { ayar: { a: 1 } } as never }} onCevap={vi.fn()} />);
+    expect(screen.getByText('ayar={"a":1}')).toBeTruthy();
   });
 });

@@ -20,4 +20,9 @@ describe("baglamOlcusuOku", () => {
   it("yüzdeyi 100'e kırpar", () => {
     expect(baglamOlcusuOku({ kullanilan: 9, sinir: 1, yuzde: 900 })?.yuzde).toBe(100);
   });
+
+  it("bozuk isteğe bağlı alan yalnız kendini düşürür, gösterge kalır (U5-19)", () => {
+    const olcu = baglamOlcusuOku({ kullanilan: 1, sinir: 2, yuzde: 50, model_siniri_token: 1.5, son_girdi_model: 7, model: "m" });
+    expect(olcu).toEqual({ kullanilan: 1, sinir: 2, yuzde: 50, model: "m" });
+  });
 });

@@ -106,3 +106,39 @@ async def test_bozuk_resim_yuklenmis_ve_cizilmis_sayilmaz():
             assert report.loaded == () and report.drawn == ()
         finally:
             await browser.close()
+
+
+# --- Dalga 4 (T1-55) --------------------------------------------------------------------
+
+
+def test_canvas2d_kullanmayan_oyunda_cizilmedi_alarmi_verilmez():
+    """WebGL/DOM/ImageBitmap oyunları `drawImage`'e uğramaz; "yedek şekil çiziyor" yanlış alarmı."""
+    from fusion_cli.tools.game_assets import AssetUsage
+
+    yuklenen = tuple(f"https://x/{i}.png" for i in range(10))
+
+    assert AssetUsage(yuklenen, (), canvas2d=False).problem is None
+    assert AssetUsage(yuklenen, (), canvas2d=True).problem is not None
+    assert "Canvas2D" not in AssetUsage(yuklenen, (), canvas2d=False).summary().split("(")[0]
+
+
+async def test_asset_init_canvas2d_baglamini_izler():
+    import pytest
+
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+
+    from fusion_cli.tools.game_assets import ASSET_INIT, read_asset_usage
+
+    async with async_playwright() as driver:
+        browser = await driver.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.add_init_script(ASSET_INIT)
+            await page.goto("about:blank")
+            await page.evaluate("document.body.innerHTML='<canvas id=c></canvas>'")
+            assert (await read_asset_usage(page)).canvas2d is False
+            await page.evaluate("document.getElementById('c').getContext('2d')")
+            assert (await read_asset_usage(page)).canvas2d is True
+        finally:
+            await browser.close()

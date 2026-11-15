@@ -8,6 +8,9 @@ export const ELEVATED_SCOPES = [
   { id: "production.deploy", etiket: "Üretime yayın" },
 ];
 
+/** Bu kapsamlar seçiliyken masaüstü onayı kapatılamaz (U2-43). Çekirdek de elle onayı zorlar (R1-13). */
+export const APPROVAL_FORCING_SCOPES = ["desktop.control", "production.deploy"];
+
 function validatedScopes(scopes: unknown[]): string[] {
   return [...new Set(scopes.filter((scope): scope is string =>
     typeof scope === "string" && ELEVATED_SCOPES.some((item) => item.id === scope)))];

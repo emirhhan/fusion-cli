@@ -1,0 +1,357 @@
+[
+  {
+    "name": "complete",
+    "input": {
+      "schema_version": 1,
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [
+        "python-raporu.html içinde 1 dokunma hedefi 24x24 px'ten küçük ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): a (164x18). Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
+      ],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false,
+      "sunum": "document",
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ]
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [
+        "python-raporu.html içinde 1 dokunma hedefi 24x24 px'ten küçük ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): a (164x18). Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
+      ],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "sunum": "document"
+    },
+    "document": true
+  },
+  {
+    "name": "optional_detail_shortened",
+    "input": {
+      "schema_version": 1,
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [
+        "python-raporu.html içinde 1 dokunma hedefi 24x24 px'ten küçük ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): a (164x18). Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
+      ],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false,
+      "sunum": "document",
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "kontroller": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ]
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [
+        "python-raporu.html içinde 1 dokunma hedefi 24x24 px'ten küçük ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): a (164x18). Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
+      ],
+      "kontroller": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "sunum": "document",
+      "ayrintilar_kisaltildi": true
+    },
+    "document": true
+  },
+  {
+    "name": "warning_overlength",
+    "input": {
+      "schema_version": 1,
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      ],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false,
+      "sunum": "document",
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ]
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [
+        "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      ],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "ayrintilar_kisaltildi": true
+    },
+    "document": false
+  },
+  {
+    "name": "warning_overcount",
+    "input": {
+      "schema_version": 1,
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_count": 0,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [
+        "Not 0",
+        "Not 1",
+        "Not 2",
+        "Not 3",
+        "Not 4",
+        "Not 5",
+        "Not 6",
+        "Not 7",
+        "Not 8",
+        "Not 9",
+        "Not 10"
+      ],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false,
+      "sunum": "document",
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ]
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 0,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [
+        "Not 0",
+        "Not 1",
+        "Not 2",
+        "Not 3",
+        "Not 4",
+        "Not 5",
+        "Not 6",
+        "Not 7",
+        "Not 8",
+        "Not 9"
+      ],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "teslim_turu": "code",
+      "criteria": [],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 0
+      },
+      "ayrintilar_kisaltildi": true
+    },
+    "document": false
+  },
+  {
+    "name": "unverified",
+    "input": {
+      "schema_version": 1,
+      "teslim_turu": "code",
+      "criteria": [
+        {
+          "status": "unverified"
+        }
+      ],
+      "criteria_count": 1,
+      "criteria_truncated": false,
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 1
+      },
+      "dogrulandi": true,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen": [
+        "rapor.html"
+      ],
+      "degisen_sayisi": 1,
+      "degisen_kisaltildi": false,
+      "uyarilar": [
+        "python-raporu.html içinde 1 dokunma hedefi 24x24 px'ten küçük ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): a (164x18). Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
+      ],
+      "sorunlar": [],
+      "sorun_sayisi": 0,
+      "sorunlar_kisaltildi": false,
+      "sunum": "document",
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ]
+    },
+    "projected": {
+      "schema_version": 1,
+      "dogrulandi": null,
+      "engelliyor": false,
+      "yanlis_iddia": false,
+      "degisen_kisaltildi": false,
+      "sorunlar_kisaltildi": false,
+      "criteria_truncated": false,
+      "degisen_sayisi": 1,
+      "sorun_sayisi": 0,
+      "criteria_count": 1,
+      "degisen": [
+        "rapor.html"
+      ],
+      "sorunlar": [],
+      "uyarilar": [
+        "python-raporu.html içinde 1 dokunma hedefi 24x24 px'ten küçük ve aralık kontrolü gerekli olabilir (WCAG 2.2 SC 2.5.8): a (164x18). Diğer istisnalar değerlendirilmedi; bu bulgu tek başına uyumsuzluk kanıtı değildir."
+      ],
+      "oneriler": [
+        "Bir main landmark önerilir."
+      ],
+      "teslim_turu": "code",
+      "criteria": [
+        {
+          "status": "unverified",
+          "applicable": false,
+          "text_truncated": false
+        }
+      ],
+      "criteria_status_counts": {
+        "passed": 0,
+        "failed": 0,
+        "unverified": 1
+      }
+    },
+    "document": false
+  }
+]

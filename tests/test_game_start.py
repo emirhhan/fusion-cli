@@ -111,3 +111,47 @@ def test_oyun_becerisi_kacis_bolunme_ve_restart_dersini_tam_enjekte_eder():
     assert hint is not None
     for lesson in ("alive → resolved", "idempotent", "Bölünmede", "restart", "Masaüstüne"):
         assert lesson in hint
+
+
+# --- Dalga 4 (T1-57) ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("etiket", ["Play Again", "Playlist", "Display", "Tekrar oyna"])
+async def test_baslat_olmayan_dugmeler_baslat_sayilmaz(etiket):
+    """ "Play Again" ve alt dize eşleşmeleri (Playlist/Display) Başla düğmesi değildir."""
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as driver:
+        browser = await driver.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.set_content(f"<button>{etiket}</button>")
+            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            assert not report.has_button
+        finally:
+            await browser.close()
+
+
+async def test_oyun_kabi_konumlu_olsa_da_menu_sayilmaz():
+    """Konumlu en DIŞ ata seçilince oyunu saran kap sahte "menü ekranda kaldı" kusuru veriyordu."""
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+
+    source = """<style>body{margin:0}#wrap{position:absolute;inset:0}
+    canvas{display:block;width:100vw;height:100vh}
+    #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+    #menu.hidden{display:none}</style>
+    <div id='wrap'><canvas></canvas><div id='menu'><button>Başla</button></div></div>
+    <script>const s={state:'menu'};document.querySelector('button').onclick=()=>{
+    s.state='playing';document.getElementById('menu').classList.add('hidden')};
+    window.__GAME_STATE__=()=>s;</script>"""
+    async with async_playwright() as driver:
+        browser = await driver.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.set_content(source)
+            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            assert report.has_button and report.problems == ()
+        finally:
+            await browser.close()

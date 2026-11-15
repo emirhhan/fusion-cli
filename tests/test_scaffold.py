@@ -195,3 +195,49 @@ def test_tokens_fiyat_stilleri_ayrik(tmp_path):
 
     assert ".price__old" in css and "line-through" in css
     assert ".price__now" in css
+
+
+def test_placeholder_gorsel_etiketi_xml_kacisli_gecerli_svg_uretir():
+    """`&` ve `<` içeren etiket SVG'yi bozmamalı (Z1-21); ölçüler sayıya zorlanır."""
+    import json
+    import shutil
+    import subprocess
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    from urllib.parse import unquote
+
+    import pytest
+
+    if shutil.which("node") is None:
+        pytest.skip("node yok")
+    kaynak = Path(__file__).parents[1] / "src/fusion_cli/tools/scaffold/format.js"
+    betik = (
+        "global.document = {documentElement: {classList: {add() {}}}, addEventListener() {}};"
+        f"{kaynak.read_text(encoding='utf-8')};"
+        "console.log(JSON.stringify([placeholderImage('Ürün & <Co> \"x\"', 'kötü', -5),"
+        " placeholderImage('Banner', 800, 300)]));"
+    )
+    cikti = subprocess.run(
+        ["node", "-e", betik], capture_output=True, text=True, check=True, timeout=30
+    ).stdout
+    for uri in json.loads(cikti):
+        svg = unquote(uri.removeprefix("data:image/svg+xml,"))
+        kok = ET.fromstring(svg)  # geçersiz XML burada patlar
+        assert kok.tag.endswith("svg")
+    assert "Ürün &amp; &lt;Co&gt;" in unquote(json.loads(cikti)[0])
+    assert 'viewBox="0 0 400 400"' in unquote(json.loads(cikti)[0])
+
+
+def test_index_html_in_yerel_baglantilari_iskelede_vardir(tmp_path):
+    """Ölçüldü (30 Ekim): index.html style.css/script.js'e bağlıydı ama iskele bunları yazmıyordu;
+    model yazmayı unutunca sayfa 404 alıyordu."""
+    import re
+
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    yerel = re.findall(r'(?:href|src)="([^"#:]+\.(?:css|js))"', html)
+    assert {"tokens.css", "format.js", "style.css", "script.js"} <= set(yerel)
+    for ad in yerel:
+        assert (tmp_path / ad).is_file(), f"{ad} iskelede yok"

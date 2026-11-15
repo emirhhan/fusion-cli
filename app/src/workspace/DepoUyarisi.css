@@ -30,4 +30,11 @@
 }
 .depo-uyarisi__proje:hover { background: var(--surface-hover); }
 .depo-uyarisi__proje:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.depo-uyarisi__kalan { color: var(--text-secondary); }
+.depo-uyarisi__kalan {
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}

@@ -40,6 +40,8 @@ interface VoiceModeProps {
   ask?: VoiceAsk | null;
   answerPending?: boolean;
   listening: boolean;
+  permissionWaiting?: string;
+  onOpenPermissionSettings?: () => void;
   onAnswer?: (answer: string) => void;
   onClose: () => void;
   onDrag?: () => Promise<void>;
@@ -48,6 +50,8 @@ interface VoiceModeProps {
   onInterrupt?: () => void;
   /** Son adımların kısa izi; sağ tık menüsünden "Tanı bilgisi" ile açılır. */
   diagnostics?: readonly string[];
+  readTalkTranscript?: () => Promise<string[]>;
+  transcriptWarning?: boolean;
   sessionOpen?: boolean;
   onPrefsChange?: (next: VoicePrefs) => void;
   onTop?: boolean;
@@ -65,6 +69,8 @@ export function VoiceMode({
   ask = null,
   answerPending = false,
   listening,
+  permissionWaiting,
+  onOpenPermissionSettings,
   onAnswer,
   onClose,
   onDrag = dragVoiceWindow,
@@ -72,6 +78,8 @@ export function VoiceMode({
   onListen,
   onInterrupt,
   diagnostics = [],
+  readTalkTranscript,
+  transcriptWarning,
   sessionOpen = false,
   onPrefsChange,
   onTop = true,
@@ -87,17 +95,54 @@ export function VoiceMode({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [history, setHistory] = useState<string[] | null>(null);
+  const historyCloseRef = useRef<HTMLButtonElement>(null);
+  const historyOpen = history !== null;
+  const showHistory = () => {
+    setMenuOpen(false);
+    setHistory([]);
+    void readTalkTranscript?.()
+      .then(lines => setHistory(open => open === null ? null : lines))
+      .catch(() => setHistory(open => open === null ? null : ["Konuşma dökümü okunamadı."]));
+  };
+  const askOpen = ask !== null;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const characterRef = useRef<HTMLButtonElement>(null);
+  const diagnosticsCloseRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (menuOpen) setMenuOpen(false);
-        else if (settingsOpen) setSettingsOpen(false);
-        else onClose();
-      }
+      if (event.key !== "Escape") return;
+      // Önce en içteki katman kapanır (U2-30): tanı kutusu, menü, ayar. Bekleyen bir onay sorusu varken
+      // Esc bütün pencereyi kapatmaz; cevapsız soru çekirdekte asılı kalırdı.
+      if (historyOpen) { setHistory(null); characterRef.current?.focus(); }
+      else if (diagnosticsOpen) setDiagnosticsOpen(false);
+      else if (menuOpen) setMenuOpen(false);
+      else if (settingsOpen) setSettingsOpen(false);
+      else if (!askOpen) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menuOpen, settingsOpen, onClose]);
+  }, [askOpen, diagnosticsOpen, historyOpen, menuOpen, settingsOpen, onClose]);
+
+  // Menü ve tanı kutusu açılınca odak içlerine taşınır, kapanınca karaktere döner (U2-29).
+  useEffect(() => {
+    if (menuOpen) menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+  }, [menuOpen]);
+  useEffect(() => {
+    if (diagnosticsOpen) diagnosticsCloseRef.current?.focus();
+  }, [diagnosticsOpen]);
+  useEffect(() => { if (historyOpen) historyCloseRef.current?.focus(); }, [historyOpen]);
+  const closeMenuToCharacter = () => { setMenuOpen(false); characterRef.current?.focus(); };
+  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]"));
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const move = (to: number) => { event.preventDefault(); items[(to + items.length) % items.length]?.focus(); };
+    if (event.key === "ArrowDown") move(index + 1);
+    else if (event.key === "ArrowUp") move(index - 1);
+    else if (event.key === "Home") move(0);
+    else if (event.key === "End") move(items.length - 1);
+    else if (event.key === "Escape") { event.stopPropagation(); closeMenuToCharacter(); }
+  };
 
   // Açılır menü ve ayar paneli dışarıya basınca kapanır; yalnız Esc'e güvenmek
   // pencere odakta değilken paneli açık bırakıyordu.
@@ -125,6 +170,11 @@ export function VoiceMode({
     };
   }, []);
 
+  const microphoneStatus = permissionWaiting
+    ? `${permissionWaiting}; durdurmak için tıkla.`
+    : sessionOpen || listening ? "Mikrofon açık, dinleme sürüyor; kapatmak için tıkla."
+      : "Mikrofon kapalı; dinlemeyi başlatmak için tıkla.";
+
   return (
     <section
       aria-label="Fusion Talk"
@@ -134,10 +184,10 @@ export function VoiceMode({
       role="region"
     >
       <div className="voice-panel__stage">
-        <button type="button" className="voice-panel__character"
-          aria-label={`Fusion. ${sessionOpen ? "Mikrofon açık, dinleme sürüyor; kapatmak için tıkla." : "Mikrofon kapalı; dinlemeyi başlatmak için tıkla."} ${listening ? "Mikrofon açık." : "Mikrofon kapalı."} ${DURUM_METNI[state]}`}
+        <button type="button" className="voice-panel__character" ref={characterRef}
+          aria-label={`Fusion. ${microphoneStatus}`}
           aria-haspopup="menu" aria-expanded={menuOpen}
-          title={sessionOpen ? "Dinliyorum — kapatmak için tıkla" : "Konuşmak için tıkla, taşımak için sürükle"}
+          title={permissionWaiting ?? (sessionOpen ? "Dinliyorum — kapatmak için tıkla" : "Konuşmak için tıkla, taşımak için sürükle")}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             dragged.current = false;
@@ -174,30 +224,47 @@ export function VoiceMode({
         </button>
         <div className="voice-panel__content">
           {dragError && <p role="alert" className="voice-panel__error">{dragError}</p>}
-          {state !== "error" && <span className="voice-panel__sr" role="status" aria-label={listening ? "Dinliyor" : "Dinleme hazırlanıyor"}>{DURUM_METNI[state]}</span>}
+          {/* `aria-label` canlı bölgenin içeriğini ezerdi (U2-29): mikrofon sahipliği ve durum metni ayrı okunur. */}
+          <span className="voice-panel__sr" role="status" aria-label={permissionWaiting ?? (listening ? "Dinliyor" : "Dinleme hazırlanıyor")} />
+          {!permissionWaiting && state !== "error" && <span className="voice-panel__sr" aria-live="polite">{DURUM_METNI[state]}</span>}
           {state === "thinking" && <span className="voice-panel__thinking" aria-hidden="true">Hmm…</span>}
           {/* Ne olduğu GÖRÜNÜR olsun: ne duyuldu, dinliyor mu, düşünüyor mu. */}
           {state !== "error" && state !== "thinking" && (
-            <span className="voice-panel__caption" aria-hidden="true">{transcript || DURUM_METNI[state]}</span>
+            <span className="voice-panel__caption" aria-hidden="true">{permissionWaiting || transcript || DURUM_METNI[state]}</span>
           )}
-          {state !== "error" && transcript && <span className="voice-panel__sr">{transcript}</span>}
+          {state !== "error" && transcript && <span className="voice-panel__sr" aria-live="polite">{transcript}</span>}
           {ask && onAnswer && (
             <VoiceQuestion ask={ask} answerPending={answerPending} key={`${ask.sessionId ?? ""}:${ask.questionId ?? ""}:${ask.metin}`} onAnswer={onAnswer} />
           )}
           {state === "error" && transcript && <p role="alert" className="voice-panel__error">{transcript}</p>}
+          {state === "error" && onOpenPermissionSettings && (
+            <button className="voice-panel__permission-link" type="button" onClick={onOpenPermissionSettings}>
+              Sistem Ayarlarını Aç
+            </button>
+          )}
         </div>
       </div>
 
-      {menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" role="menu">
+      {menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" onKeyDown={onMenuKeyDown} ref={menuRef} role="menu">
         {onPrefsChange && onTopChange && <button onClick={() => { setMenuOpen(false); setSettingsOpen(true); }} role="menuitem" type="button">Ses ayarları</button>}
+        {readTalkTranscript && <button onClick={showHistory} role="menuitem" type="button">Konuşma dökümü</button>}
         <button onClick={() => { setMenuOpen(false); setDiagnosticsOpen(true); }} role="menuitem" type="button">Tanı bilgisi</button>
         <button onClick={() => { setMenuOpen(false); onMinimize(); }} role="menuitem" type="button">Simge durumuna küçült</button>
         <button onClick={() => { setMenuOpen(false); onClose(); }} role="menuitem" type="button">Konuşmayı kapat</button>
       </div>}
+      {history && (
+        <div aria-label="Konuşma dökümü" aria-modal="true" className="voice-panel__diagnostics" role="dialog">
+          <button onClick={() => { setHistory(null); characterRef.current?.focus(); }} ref={historyCloseRef} type="button">Kapat</button>
+          {transcriptWarning && <p role="alert">Bazı satırlar bu cihaza kaydedilemedi.</p>}
+          {history.length ? history.map((line, index) => <pre key={index}>{line}</pre>)
+            : <pre>Henüz konuşma kaydı yok.</pre>}
+        </div>
+      )}
       {diagnosticsOpen && (
-        <div aria-label="Tanı bilgisi" className="voice-panel__diagnostics" role="dialog">
-          <button onClick={() => setDiagnosticsOpen(false)} type="button">Kapat</button>
-          <pre>{diagnostics.length ? diagnostics.join("\n") : "Henüz kayıt yok."}</pre>
+        <div aria-label="Tanı bilgisi" aria-modal="true" className="voice-panel__diagnostics" role="dialog">
+          <button onClick={() => { setDiagnosticsOpen(false); characterRef.current?.focus(); }} ref={diagnosticsCloseRef} type="button">Kapat</button>
+          {diagnostics.length ? diagnostics.map((line, index) => <pre key={index}>{line}</pre>)
+            : <pre>Henüz kayıt yok.</pre>}
         </div>
       )}
       {settingsOpen && onPrefsChange && onTopChange && (

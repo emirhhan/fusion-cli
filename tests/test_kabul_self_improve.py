@@ -11,9 +11,22 @@ from evals.kabul.areas import self_improve as area
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_gizli_olumlu_test_ozellik_yokken_duser():
-    """Mutant kanıtı: bu deponun şimdiki kodunda `--url` yok, test KAÇMALI."""
-    env = {"PYTHONPATH": str(REPO_ROOT / "src"), "PATH": "/usr/bin:/bin"}
+def test_gizli_olumlu_test_ozellik_yokken_duser(tmp_path):
+    """Mutant kanıtı: bu deponun şimdiki kodunda `--url` yok, test KAÇMALI.
+
+    Ölçüldü (30 Ekim): gizli test `tests/` dışında durduğu için `conftest` yalıtımı
+    orada işlemez; HOME verilmeyince `Path.home()` gerçek ev dizinine düşüyor ve
+    `load_config` geliştiricinin gerçek kasasını Keychain'e taşıyordu. Kullanıcı
+    dizinleri geçici klasöre alınır, Keychain kapatılır.
+    """
+    env = {
+        "PYTHONPATH": str(REPO_ROOT / "src"),
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+        "FUSION_KEYCHAIN": "off",
+    }
     completed = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(area.HIDDEN_TEST)],
         cwd=REPO_ROOT,

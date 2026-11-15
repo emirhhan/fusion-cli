@@ -218,7 +218,7 @@ def test_summary_yalniz_aktarilan_yolun_pending_bildirimini_dusurur(tmp_path):
     secondary = replace(primary, url="https://source.test/category")
     capture = replace(capture, pages=(primary, secondary), problems=(pending, pending))
     theme = write_theme(capture, tmp_path, "https://source.test")
-    summary = _summary(capture, theme, [], list(capture.problems), tmp_path)
+    summary = _summary(capture, theme, [], list(capture.problems), tmp_path, "https://ornek.test")
     assert summary.count(pending) == 1
     assert "diğer kaynak etkileşimleri aktarılmadı" in summary
 
@@ -237,7 +237,7 @@ def test_summary_dogrulanmayan_yolda_pending_ve_bulgu_korunur(tmp_path):
         capture, pages=(primary,), problems=(pending, "Kaynak menü olayı doğrulanamadı.")
     )
     theme = write_theme(capture, tmp_path, "https://source.test")
-    summary = _summary(capture, theme, [], list(capture.problems), tmp_path)
+    summary = _summary(capture, theme, [], list(capture.problems), tmp_path, "https://ornek.test")
     assert pending in summary and "Kaynak menü olayı doğrulanamadı." in summary
 
 
@@ -382,7 +382,7 @@ def test_summary_resolves_only_transferred_primary_multiregion_pending(tmp_path)
         problems=(pending, pending, "Kaynak JavaScript koşulu desteklenmiyor."),
     )
     theme = write_theme(capture, tmp_path, "https://source.test")
-    summary = _summary(capture, theme, [], list(capture.problems), tmp_path)
+    summary = _summary(capture, theme, [], list(capture.problems), tmp_path, "https://ornek.test")
     assert summary.count(pending) == 1
     assert "Kaynak JavaScript koşulu desteklenmiyor." in summary
     assert "piksel geometrisi kanıtı değildir" in summary

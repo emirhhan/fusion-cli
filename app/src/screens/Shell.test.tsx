@@ -114,6 +114,28 @@ describe("Shell", () => {
     expect(onInspectorClose).toHaveBeenCalledTimes(2);
   });
 
+  // Ölçüldü (29 Ekim, U1-01): window seviyesindeki dinleyici, menünün tükettiği Esc'yi de
+  // sayıp denetçiyi kapatıyordu; masaüstünde yerleşik denetçi de Esc ile kapanıyordu.
+  it("başka bileşenin tükettiği Escape denetçiyi kapatmaz", () => {
+    setNarrowViewport(true);
+    const onInspectorClose = vi.fn();
+    render(<Shell content="İçerik" inspector="Denetçi" inspectorOpen onInspectorClose={onInspectorClose} sidebar="Gezinme" />);
+    const consumed = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    consumed.preventDefault();
+    window.dispatchEvent(consumed);
+    expect(onInspectorClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onInspectorClose).toHaveBeenCalledOnce();
+  });
+
+  it("masaüstünde yerleşik denetçi Escape ile kapanmaz", () => {
+    setNarrowViewport(false);
+    const onInspectorClose = vi.fn();
+    render(<Shell content="İçerik" inspector="Denetçi" inspectorOpen onInspectorClose={onInspectorClose} sidebar="Gezinme" />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onInspectorClose).not.toHaveBeenCalled();
+  });
+
   it("dar görünüm denetçisinde odağı içeri taşır ve kapanınca geri verir", () => {
     setNarrowViewport(true);
     function InspectorHarness() {

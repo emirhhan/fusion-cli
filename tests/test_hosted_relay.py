@@ -162,8 +162,8 @@ async def test_kayitli_araclar_connector_onekiyle_ve_mutating_gelir():
 
     eklenen = await client.register_into(registry)
 
-    assert eklenen == ("MetaAds__get_campaigns",)
-    arac = registry.get("MetaAds__get_campaigns")
+    assert eklenen == ("mcp__MetaAds__get_campaigns",)
+    arac = registry.get("mcp__MetaAds__get_campaigns")
     assert arac is not None
     # Dış aracın ne yaptığı bilinemez: onay akışından geçsin.
     assert arac.mutating is True
@@ -182,7 +182,7 @@ async def test_barindirmali_arac_uzak_yazma_etkisiyle_kaydedilir_ve_auto_kipte_s
     client = HostedConnectorClient((_connector(),), ask=oturum)
     registry = ToolRegistry()
     await client.register_into(registry)
-    arac = registry.get("MetaAds__update_budget")
+    arac = registry.get("mcp__MetaAds__update_budget")
     assert arac is not None
 
     sorulanlar: list[str] = []
@@ -196,7 +196,7 @@ async def test_barindirmali_arac_uzak_yazma_etkisiyle_kaydedilir_ve_auto_kipte_s
 
     # Keşif cevabı modelden gelir; MCP açıklaması taşınmaz, güvenilir de değildir.
     assert arac.effect is ToolEffect.REMOTE_WRITE
-    assert sorulanlar == ["MetaAds__update_budget"]
+    assert sorulanlar == ["mcp__MetaAds__update_budget"]
     assert karar is Decision.DENIED
 
 
@@ -319,3 +319,97 @@ async def test_semasi_bilinmeyen_arac_dogrulanmadan_gecer():
     result = await client.call("MetaAds", "get_campaigns", {"serbest": 1})
 
     assert result.ok is True
+
+
+async def test_kesif_semasindaki_tip_uyumsuzlugu_gecerli_cagriyi_engellemez():
+    """M1-18: keşif şeması modelin yazdığı metindir; yanlış `type` çağrıyı kesmemeli."""
+    sema = {
+        "type": "object",
+        "properties": {"hesap": {"type": "string"}, "butce": {"type": "integer"}},
+        "required": ["hesap"],
+    }
+    oturum = _Oturum(
+        _zarf({"araclar": [{"ad": "set_budget", "aciklama": "", "sema": sema}]}),
+        _zarf({"ok": True, "sonuc": {"tamam": 1}}),
+    )
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+    await client.list_tools("MetaAds")
+
+    result = await client.call("MetaAds", "set_budget", {"hesap": "act_1", "butce": "12.5"})
+
+    assert result.ok is True
+
+
+async def test_kesif_semasi_saglayiciya_sade_gider_dogrulama_ham_semayla_yapilir():
+    sema = {
+        "type": "object",
+        "properties": {"p": {"$ref": "#/$defs/P"}},
+        "required": ["p"],
+        "$defs": {"P": {"type": "string", "format": "uri"}},
+        "additionalProperties": False,
+    }
+    oturum = _Oturum(_zarf({"araclar": [{"ad": "ac", "aciklama": "Aç.", "sema": sema}]}))
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+
+    araclar = await client.list_tools("MetaAds")
+
+    assert araclar[0].schema["properties"]["p"] == {"type": "string"}
+    assert "$defs" not in araclar[0].schema
+
+
+# --- 30 Ekim ayıklaması (M1-17, M1-19, M1-20) ------------------------------ #
+
+
+async def test_her_bozuk_zarf_hatasi_islem_yapilmis_olabilir_uyarisi_tasir():
+    """Ölçüldü: yalnız 'zarf yok' hatasında uyarı vardı; gövdede işaret kalan ya da JSON
+    olmayan zarfta model/kullanıcı güvenle tekrar deneyip işlemi iki kez yaptırabilirdi."""
+    bozuklar = (
+        f"{RESULT_OPEN}\n{RESULT_OPEN} x\n{RESULT_CLOSE}",
+        f"{RESULT_OPEN}\nJSON değil\n{RESULT_CLOSE}",
+        f"{RESULT_OPEN}\n\n{RESULT_CLOSE}",
+    )
+    for cevap in bozuklar:
+        client = HostedConnectorClient((_connector(),), ask=_Oturum(cevap))
+
+        result = await client.call("MetaAds", "update_budget", {})
+
+        assert result.ok is False
+        assert "tekrarlama" in result.output, cevap
+
+
+async def test_buyuk_sonuc_bellek_butcesine_kirpilir():
+    from fusion_cli.core.constants import MAX_OUTPUT_CHARS
+
+    buyuk = {"ok": True, "sonuc": {"satirlar": ["x" * 100] * 1000}}
+    client = HostedConnectorClient((_connector(),), ask=_Oturum(_zarf(buyuk)))
+
+    result = await client.call("MetaAds", "report", {})
+
+    assert result.ok
+    assert len(result.output) < MAX_OUTPUT_CHARS + 200
+    assert "KIRPILDI" in result.output
+
+
+async def test_kanal_istisnasi_yol_ve_sir_sizdirmaz():
+    async def ask(connector, prompt):
+        raise RuntimeError("/Users/ali/.config/chrome/Cookies sessionid=GIZLI")
+
+    client = HostedConnectorClient((_connector(),), ask=ask)
+
+    result = await client._make_run("MetaAds", "get_campaigns")({}, None)  # type: ignore[arg-type]
+
+    assert result.ok is False
+    assert "GIZLI" not in result.output and "/Users/" not in result.output
+    assert "RuntimeError" in result.output
+
+
+async def test_kanal_zaman_asimi_sonucu_belirsiz_der():
+    async def ask(connector, prompt):
+        raise TimeoutError
+
+    client = HostedConnectorClient((_connector(),), ask=ask)
+
+    result = await client._make_run("MetaAds", "update_budget")({}, None)  # type: ignore[arg-type]
+
+    assert result.ok is False
+    assert "belirsiz" in result.output

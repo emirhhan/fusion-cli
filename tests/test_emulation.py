@@ -110,7 +110,9 @@ def test_mukemmel_model_esikleri_gecer():
         EvalCase("sadece cevap", None),
     ]
     skor = score_emulation(cases)
-    assert skor.passes() is True
+    assert skor.passes(Thresholds(min_cases=2)) is True
+    # Varsayılan en az 3 ölçülmüş senaryo ister: 2 senaryoda "%100" anlamsızdır (T1-54).
+    assert skor.passes() is False
 
 
 def test_yanlis_arac_seciminde_esik_gecilmez():
@@ -129,7 +131,11 @@ def test_sahte_cagri_no_false_calls_dusurur():
 
 def test_esikler_yapilandirilabilir():
     gevsek = Thresholds(
-        tool_selection=0.0, schema_validity=0.0, argument_preservation=0.0, no_false_calls=0.0
+        tool_selection=0.0,
+        schema_validity=0.0,
+        argument_preservation=0.0,
+        no_false_calls=0.0,
+        min_cases=1,
     )
     assert score_emulation([EvalCase(_call("x", {}), "y")]).passes(gevsek) is True
 
@@ -217,3 +223,13 @@ def test_blok_cikarilinca_iki_yanindaki_metin_birbirine_yapismaz():
     sonuc = parse_tool_calls(metin)
     assert [c.name for c in sonuc.calls] == ["chrome_page"]
     assert "ve\n\nÖnceki" in sonuc.text
+
+
+def test_yetim_kapanis_isareti_sonraki_gercek_cagriyi_yutmaz():
+    """`FUSION_TOOL_CALL_END` açılış sanılmaz; sonraki gerçek çağrı kaybolmaz (C1-44)."""
+    metin = (
+        f"Protokolde {CALL_CLOSE} bir kapanış işaretidir.\n\n"
+        f'{CALL_OPEN}\n{{"name":"edit_file","arguments":{{"path":"a","content":"b"}}}}\n{CALL_CLOSE}'
+    )
+    sonuc = parse_tool_calls(metin)
+    assert [c.name for c in sonuc.calls] == ["edit_file"]

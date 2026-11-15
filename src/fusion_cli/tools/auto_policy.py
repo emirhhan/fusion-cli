@@ -23,18 +23,21 @@ from __future__ import annotations
 
 import re
 import shlex
+from collections.abc import Iterator
 from pathlib import Path
 
 from .command_paths import escapes_project
 from .command_policy import (
-    CURL_SEND_FLAGS,
+    _FIND_UNSAFE,
     GLOBAL_INSTALL_FLAGS,
     READ_ONLY_COMMANDS,
-    READONLY_GIT_SUBCOMMANDS,
+    curl_sends_data,
     is_outward_script,
     only_local_urls,
 )
+from .command_semantics import awk_reads_only, git_reads_only, sed_reads_only
 from .delete_preview import inline_code_danger
+from .github_cli import gh_reads_only
 
 #: Komutun önüne gelip asıl komutu değiştirmeyen sözcükler (`time`, `nohup`, `do`).
 _PREFIX_WORDS = frozenset(
@@ -73,10 +76,54 @@ _OUTWARD_SUBCOMMANDS = {
     "twine": {"upload"},
     "supabase": {"deploy", "push"},
 }
-#: `gh` ile GitHub'da bir şey değiştiren eylemler.
-_GH_WRITES = frozenset(
-    {"create", "merge", "close", "delete", "edit", "comment", "review", "upload", "fork"}
+#: Uzak hesapta kaynak silen/kaldıran araçlar ve alt komut fiilleri (`kubectl delete`,
+#: `aws ec2 terminate-instances`, `heroku apps:destroy`, `terraform apply -destroy`,
+#: `gh api -X DELETE`). `docker` yerel kapsayıcı da sildiği için dışarıda tutulur.
+_REMOTE_DELETERS = _DEPLOY_COMMANDS | {
+    "kubectl", "terraform", "helm", "firebase", "wrangler", "supabase", "eas", "gh",
+}  # fmt: skip
+_REMOTE_DELETE_VERB = re.compile(
+    r"(?i)(?:^|[-:])(delete|destroy|terminate|uninstall|remove|purge|deregister)(?=$|[-:])"
 )
+#: Fiil yalnız ilk birkaç sözcükte aranır; sonrası kaynak adıdır (`kubectl delete ns prod`).
+_REMOTE_DELETE_SCAN = 5
+#: `gh` ile GitHub'da bir şey değiştiren eylemler (komuttan bağımsız alt komut adları).
+_GH_WRITES = frozenset(
+    {
+        "create",
+        "merge",
+        "close",
+        "delete",
+        "edit",
+        "comment",
+        "review",
+        "upload",
+        "fork",
+        "reopen",
+        "lock",
+        "unlock",
+        "ready",
+        "transfer",
+        "pin",
+        "unpin",
+        "set",
+        "enable",
+        "disable",
+        "cancel",
+        "rerun",
+        "sync",
+        "rename",
+        "archive",
+        "unarchive",
+    }
+)
+#: Yalnız belirli `gh <komut>` altında yazma anlamına gelen alt komutlar: `gh workflow run`
+#: iş akışı tetikler, `gh run list` ise okur. Ölçüldü (31 Ekim): `gh workflow run` ve
+#: `gh api -X POST` onaysız geçiyordu; `api` için `github_cli.gh_reads_only` kapısı kullanılır.
+_GH_COMMAND_WRITES: dict[str, frozenset[str]] = {
+    "workflow": frozenset({"run"}),
+    "cache": frozenset({"delete"}),
+}
 #: Veritabanını silen ifadeler (SQL ya da çerçeve komutu).
 _DB_DROP = re.compile(
     r"(?i)\bdrop\s+(database|schema|table)\b|\btruncate\s+table\b|\bdb:drop\b|"
@@ -92,16 +139,116 @@ _SCRATCH_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/dev/null")
 #: Yönlendirme hedefi: `> x`, `>> x`, `2> x`, `&> x` (`>&1` değil).
 _REDIRECT = re.compile(r"(?<![<>])(?:\d|&)?>{1,2}(?!&)\s*([^\s;&|<>()]+)")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+#: Başka bir komutu kendi adına çalıştıran kabuklar (`sh -c '…'`) ve sarmalayıcılar.
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+_SHELL_C_FLAGS = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
+#: Sarmalayıcı → değer alan seçenekleri ve atlanacak konumsal sayısı (`timeout 30 …`).
+_WRAPPERS: dict[str, tuple[frozenset[str], int]] = {
+    "timeout": (frozenset({"-s", "-k", "--signal", "--kill-after"}), 1),
+    "nice": (frozenset({"-n", "--adjustment"}), 0),
+    "caffeinate": (frozenset({"-t", "-w"}), 0),
+    "watch": (frozenset({"-n", "--interval"}), 0),
+}
+#: Önek sözcüklerin değer alan seçenekleri (`env -u AD komut`, `xargs -n 1 komut`).
+_PREFIX_VALUE_FLAGS = {
+    "env": frozenset({"-u", "-C", "-S", "-P", "--unset", "--chdir"}),
+    "xargs": frozenset({"-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-J"}),
+}
+#: İç içe komutun en fazla derinliği; aşılırsa belirsiz sayılıp sorulur.
+_MAX_NESTING = 4
+#: Çıktıyı kabuğa/yorumlayıcıya boşaltan boru: `curl … | sh`, `| python3`, `| sudo bash`.
+#: Betik dosyası ya da `-c '…'` alan yorumlayıcı bu desene girmez.
+_PIPE_TO_INTERPRETER = re.compile(
+    r"\|\s*(?:(?:sudo|env)\s+)*(?:sh|bash|zsh|dash|ksh|python[\d.]*|node|perl|ruby|php)"
+    r"(?:\s+-[\w-]*)*\s*(?=$|[;&|)\n])"
+)
+#: Çift tırnak içinde bile çalışan komut ikamesi: `"$(git push)"`, `"`git push`"`.
+_SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+#: Satır içi kodun komut çalıştırdığını ya da ağa bağlandığını gösteren izler.
+_INLINE_OUTWARD = re.compile(
+    r"\bsubprocess\b|\bos\.(?:system|popen|exec\w*|spawn\w*)|\bpty\b|\bsocket\b|"
+    r"\burllib\b|\brequests\b|\bhttp\.client\b|\bhttpx\b|\baiohttp\b|\bsmtplib\b|"
+    r"\bftplib\b|\bchild_process\b|\bexecSync\b|\bspawnSync\b|\bfetch\s*\(|"
+    r"\bXMLHttpRequest\b|\baxios\b|\bsystem\s*\(|\bpopen\b|\bexec\s*[(\"']"
+)
+_INTERPRETERS = frozenset({"node", "deno", "perl", "ruby", "php"})
 _HOME_VAR = re.compile(r"\$\{?(HOME|USER)\b")
 
 
 def auto_risk(command: str, root: Path | None) -> str | None:
-    """Otomatik kipte bu komut SORULMALI mı? Gerekçe ya da None (sormadan çalışır)."""
+    """Otomatik kipte bu komut SORULMALI mı? Gerekçe ya da None (sormadan çalışır).
+
+    İç içe komut (`sh -c '…'`, `eval`, `timeout 5 …`, `"$(…)"`) özyinelemeli çözülür:
+    ölçüldü (29 Ekim), eskiden `sh -c 'git push'` içteki komuta hiç bakılmadan geçiyordu.
+    """
+    return next(_risks(command, root, 0), None)
+
+
+def auto_risks(command: str, root: Path | None) -> tuple[str, ...]:
+    """Komuttaki BÜTÜN risk gerekçeleri (sırayla, tekrarsız).
+
+    Denetçi (P-011) yalnız ilk gerekçeye bakarsa `git push && sudo …` zincirindeki sudo
+    modele bırakılırdı; sabit riskler (`is_fixed_risk`) her parçada aranır.
+    """
+    return tuple(dict.fromkeys(_risks(command, root, 0)))
+
+
+#: Hiçbir zaman denetçi modeline bırakılmayan, kuralın kesin sorduğu gerekçeler (P-011).
+SUDO_REASON = "yönetici yetkisi (sudo) istiyor"
+SYSTEM_SETTING_REASON = "sistem ayarını değiştiriyor"
+ENV_DUMP_REASON = "ortam değişkenlerini (API anahtarları dahil) döküyor"
+PIPE_TO_SHELL_REASON = "çıktıyı kabuğa/yorumlayıcıya boşaltıyor (… | sh) — içeriği denetlenemiyor"
+VARIABLE_COMMAND_REASON = "komut adı bir değişkenden geliyor (ne çalışacağı bilinmiyor)"
+NESTING_REASON = "iç içe çok katmanlı komut (içeriği denetlenemiyor)"
+KILLALL_REASON = "uygulamaları ada göre kapatıyor"
+DB_DROP_REASON = "veritabanını/tabloyu siliyor"
+INLINE_OUTWARD_REASON = "satır içi kod komut çalıştırıyor ya da ağa bağlanıyor"
+#: Uzak hesapta kaynak silme (`kubectl delete`, `terraform destroy`, `gh repo delete`):
+#: MCP'nin `REMOTE_DESTRUCTIVE` etkisinin kabuk karşılığı; hiçbir ayarda modele bırakılmaz.
+REMOTE_DELETE_REASON = "uzakta geri alınamaz silme yapıyor ({name} {verb})"
+FIXED_RISK_REASONS = frozenset(
+    {
+        SUDO_REASON,
+        SYSTEM_SETTING_REASON,
+        ENV_DUMP_REASON,
+        PIPE_TO_SHELL_REASON,
+        VARIABLE_COMMAND_REASON,
+        NESTING_REASON,
+        KILLALL_REASON,
+        DB_DROP_REASON,
+        INLINE_OUTWARD_REASON,
+    }
+)
+#: Başka modüllerin ürettiği, aynı sınıftaki gerekçelerin başı: dikkat gerektiren silme
+#: (`delete_preview.delete_caution`), satır içi silme kodu (`inline_code_danger`) ve bu turda
+#: yazılmış betiğin riski (`script_chain`) — içerik modele gösterilmez, karar kurala kalır.
+FIXED_RISK_PREFIXES = (
+    "silme hedefi ",
+    "satır içi kod ",
+    "bu turda yazdığın betik ",
+    REMOTE_DELETE_REASON.split("(", 1)[0],
+)
+
+
+def is_fixed_risk(reason: str) -> bool:
+    """Gerekçe denetçiye bırakılamayan (her zaman sorulan) sınıftan mı?"""
+    return reason in FIXED_RISK_REASONS or reason.startswith(FIXED_RISK_PREFIXES)
+
+
+def _risks(command: str, root: Path | None, depth: int) -> Iterator[str]:
     if not command.strip():
-        return None
-    for target in _REDIRECT.findall(_unquoted(command)):
+        return
+    if depth > _MAX_NESTING:
+        yield NESTING_REASON
+        return
+    unquoted = _unquoted(command)
+    for target in _REDIRECT.findall(unquoted):
         if _outside(target, root):
-            return f"proje dışına yazıyor ({target})"
+            yield f"proje dışına yazıyor ({target})"
+    if _PIPE_TO_INTERPRETER.search(unquoted):
+        yield PIPE_TO_SHELL_REASON
+    for match in _SUBSTITUTION.finditer(re.sub(r"'[^']*'", "''", command)):
+        yield from _risks(match.group(1) or match.group(2) or "", root, depth + 1)
     away = False
     for segment in _segments(command):
         parts = _words(segment)
@@ -111,12 +258,31 @@ def auto_risk(command: str, root: Path | None) -> str | None:
         if name == "cd":
             away = bool(arguments) and _outside(arguments[0], root)
             continue
-        reason = _segment_risk(name, arguments, segment, root)
-        if reason is None and away and not _reads_only(name, arguments):
-            reason = "proje dışındaki bir klasörde değişiklik yapıyor"
-        if reason is not None:
-            return reason
-    return None
+        found = False
+        for reason in _segment_risks(name, arguments, segment, root, depth):
+            found = True
+            yield reason
+        if not found and away and not _reads_only(name, arguments):
+            yield "proje dışındaki bir klasörde değişiklik yapıyor"
+
+
+def command_words(command: str) -> list[list[str]]:
+    """Komutun her parçası için sözcükler (`_segments` + `_words`); boş parçalar atılır."""
+    return [parts for segment in _segments(command) if (parts := _words(segment))]
+
+
+def written_files(command: str) -> list[str]:
+    """Komutun dosyaya YAZDIĞI adlar: yönlendirme hedefleri ve `tee` argümanları."""
+    targets = list(_REDIRECT.findall(_unquoted(command)))
+    for parts in command_words(command):
+        if parts[0] == "tee":
+            targets.extend(a for a in parts[1:] if not a.startswith("-"))
+    return targets
+
+
+def reads_only_words(parts: list[str]) -> bool:
+    """Sözcüklerine ayrılmış tek parça (`command_words` öğesi) yalnız okuyor mu?"""
+    return bool(parts) and _reads_only(parts[0].rsplit("/", 1)[-1], parts[1:])
 
 
 def is_read_only_command(command: str) -> bool:
@@ -135,31 +301,75 @@ def is_read_only_command(command: str) -> bool:
     return True
 
 
-def _segment_risk(name: str, arguments: list[str], segment: str, root: Path | None) -> str | None:
-    """Tek bir komut parçasının riski (sıra: yetki, sistem, dışarı, yol)."""
+def _segment_risks(
+    name: str, arguments: list[str], segment: str, root: Path | None, depth: int = 0
+) -> Iterator[str]:
+    """Tek bir komut parçasının riskleri (sıra: yetki, sistem, dışarı, iç içe, yol).
+
+    İlk gerekçe eski tek-sonuçlu sırayla aynıdır (`auto_risk` onu kullanır).
+    """
     sub = next((a for a in arguments if not a.startswith("-")), "")
     if name in {"sudo", "doas", "su"}:
-        return "yönetici yetkisi (sudo) istiyor"
+        yield SUDO_REASON
+        # Yetki öneki asıl komutu sarar: `sudo git push` → içteki komut da değerlendirilir.
+        yield from _risks(" ".join(shlex.quote(part) for part in arguments), root, depth + 1)
+        return
     if name in _SYSTEM_COMMANDS or (name == "defaults" and sub in {"write", "delete"}):
-        return "sistem ayarını değiştiriyor"
+        yield SYSTEM_SETTING_REASON
     if name in {"env", "printenv"} or (name == "set" and not arguments):
-        return "ortam değişkenlerini (API anahtarları dahil) döküyor"
+        yield ENV_DUMP_REASON
     reason = _install_risk(name, arguments, sub) or _outward_risk(name, arguments, sub)
     if reason is not None:
-        return reason
+        yield reason
+    if name.startswith("$"):
+        yield VARIABLE_COMMAND_REASON
+        return
+    nested = _nested_command(name, arguments)
+    if nested is not None:
+        yield from _risks(nested, root, depth + 1)
+        return
     if name == "killall":
-        return "uygulamaları ada göre kapatıyor"
+        yield KILLALL_REASON
     if _DB_DROP.search(segment):
-        return "veritabanını/tabloyu siliyor"
+        yield DB_DROP_REASON
     code = _inline_code(name, arguments)
     tehlike = inline_code_danger(code) if code is not None else None
     if tehlike is not None:
-        return tehlike
+        yield tehlike
+    inline_runner = name.startswith("python") or name in _INTERPRETERS
+    if code is not None and inline_runner and _INLINE_OUTWARD.search(code):
+        yield INLINE_OUTWARD_REASON
     if not _reads_only(name, arguments) and any(
         _outside(target, root) for target in _write_targets(name, arguments)
     ):
-        return "proje dışındaki bir yolu değiştiriyor"
-    return None
+        yield "proje dışındaki bir yolu değiştiriyor"
+
+
+def nested_command(name: str, arguments: list[str]) -> str | None:
+    """Komutun kendi adına çalıştırdığı iç komut: `sh -c '…'`, `eval …`, `timeout 5 …`.
+
+    İzin kuralı eşlemesi (`permission_match`) de aynı çözücüyü kullanır: deny kuralı
+    sarmalayıcıyla aşılmasın (ölçüldü, 31 Ekim: `bash -c 'rm x'` deny bulmuyordu).
+    """
+    return _nested_command(name, arguments)
+
+
+def _nested_command(name: str, arguments: list[str]) -> str | None:
+    if name in _SHELLS:
+        for index, argument in enumerate(arguments[:-1]):
+            if _SHELL_C_FLAGS.match(argument):
+                return arguments[index + 1]
+        return None
+    if name == "eval":
+        return " ".join(arguments)
+    wrapper = _WRAPPERS.get(name)
+    if wrapper is None:
+        return None
+    value_flags, skip = wrapper
+    rest = list(arguments)
+    while rest and rest[0].startswith("-"):
+        rest = rest[2:] if rest[0] in value_flags else rest[1:]
+    return " ".join(shlex.quote(part) for part in rest[skip:]) or None
 
 
 def _install_risk(name: str, arguments: list[str], sub: str) -> str | None:
@@ -181,9 +391,12 @@ def _outward_risk(name: str, arguments: list[str], sub: str) -> str | None:
         return "uzak depoya gönderiyor (git push)"
     if sub == "publish" or (name in {"npm", "pnpm", "yarn", "bun"} and _outward_run(arguments)):
         return f"dışarıya yayınlıyor ({name} {sub})"
+    verb = _remote_delete_verb(name, arguments)
+    if verb is not None:
+        return REMOTE_DELETE_REASON.format(name=name, verb=verb)
     if name in _DEPLOY_COMMANDS or sub in _OUTWARD_SUBCOMMANDS.get(name, ()):
         return f"bulut/dağıtım hesabında işlem yapıyor ({name})"
-    if name == "gh" and any(argument in _GH_WRITES for argument in arguments[1:3]):
+    if name == "gh" and _gh_writes(arguments):
         return "GitHub'da değişiklik yapıyor (gh)"
     if name in _REMOTE_COMMANDS or (name == "rsync" and any(_is_remote(a) for a in arguments)):
         return f"uzak sunucuya bağlanıyor ({name})"
@@ -195,6 +408,30 @@ def _outward_risk(name: str, arguments: list[str], sub: str) -> str | None:
     return None
 
 
+def _remote_delete_verb(name: str, arguments: list[str]) -> str | None:
+    """Uzak hesapta silen alt komut/fiil (`delete`, `terminate-instances`) ya da None."""
+    if name not in _REMOTE_DELETERS:
+        return None
+    for argument in arguments[:_REMOTE_DELETE_SCAN]:
+        if _REMOTE_DELETE_VERB.search(argument):
+            return argument
+    return None
+
+
+def _gh_writes(arguments: list[str]) -> bool:
+    """`gh …` GitHub'da bir şey değiştiriyor mu? `api` için salt-okur kapısının tersi."""
+    if not arguments:
+        return False
+    if arguments[0] == "api":
+        return not gh_reads_only(arguments)
+    head = [argument for argument in arguments[:3] if not argument.startswith("-")]
+    if any(argument in _GH_WRITES for argument in head[1:3]):
+        return True
+    return bool(head) and any(
+        argument in _GH_COMMAND_WRITES.get(head[0], frozenset()) for argument in head[1:3]
+    )
+
+
 def _outward_run(arguments: list[str]) -> bool:
     """`npm run deploy` gibi adı dışa dönük iş söyleyen paket betiği mi?"""
     return len(arguments) >= 2 and arguments[0] == "run" and is_outward_script(arguments[1])
@@ -202,11 +439,12 @@ def _outward_run(arguments: list[str]) -> bool:
 
 def _sends_data(name: str, arguments: list[str]) -> bool:
     if name == "wget":
-        sends = any(a.startswith(("--post-data", "--post-file", "--method")) for a in arguments)
-    else:
         sends = any(
-            a in CURL_SEND_FLAGS or a.startswith(("--data", "-d@", "--json")) for a in arguments
+            a.startswith(("--post-data", "--post-file", "--method", "--body-data", "--body-file"))
+            for a in arguments
         )
+    else:
+        sends = curl_sends_data(arguments)
     return sends and not only_local_urls(arguments)
 
 
@@ -220,11 +458,13 @@ def _is_remote(argument: str) -> bool:
 def _reads_only(name: str, arguments: list[str]) -> bool:
     """Bu parça yalnız okuyor mu?"""
     if name == "git":
-        return bool(arguments) and arguments[0] in READONLY_GIT_SUBCOMMANDS
+        return git_reads_only(arguments)
     if name == "sed":
-        return not any(a.startswith("-i") or a == "--in-place" for a in arguments)
+        return sed_reads_only(arguments)
+    if name == "awk":
+        return awk_reads_only(arguments)
     if name == "find":
-        return not any(a in {"-delete", "-exec", "-execdir", "-ok", "-fprint"} for a in arguments)
+        return not any(a in _FIND_UNSAFE for a in arguments)
     if name == "php":
         return arguments[:1] in (["-l"], ["-v"], ["--version"])
     if name in {"node", "python", "python3"}:
@@ -250,7 +490,13 @@ def _outside(token: str, root: Path | None) -> bool:
 
 
 def _inline_code(name: str, arguments: list[str]) -> str | None:
-    """`python -c`, `node -e`, `php -r` gibi satır içi kodun metni."""
+    """`python -c`, `node -e`, `php -r` gibi satır içi kodun metni.
+
+    Yalnız YORUMLAYICILARDA: `grep -e os.remove src`, `sort -r`, `rm -r dizin` kod
+    değildir (ölçüldü, 30 Ekim: alakasız onay sorusu üretiyordu).
+    """
+    if not (name.startswith("python") or name in _INTERPRETERS):
+        return None
     flags = {"-c"} if name.startswith("python") else {"-e", "--eval", "-r"}
     for index, argument in enumerate(arguments[:-1]):
         if argument in flags:
@@ -265,10 +511,28 @@ def _words(segment: str) -> list[str]:
     except ValueError:
         parts = segment.split()
     while len(parts) > 1 and (parts[0] in _PREFIX_WORDS or _ENV_ASSIGN.match(parts[0])):
-        parts = parts[1:]
+        prefix, parts = parts[0], parts[1:]
+        parts = _drop_options(prefix, parts)
     if parts[:1] == ["xargs"]:
-        parts = [a for a in parts[1:] if not a.startswith("-")]
+        parts = _drop_options("xargs", parts[1:])
     return parts
+
+
+def _drop_options(prefix: str, parts: list[str]) -> list[str]:
+    """Önek sözcüğün seçeneklerini (ve değerlerini) at: `env -u AD komut` → `komut`.
+
+    Ölçüldü (29 Ekim): `env -i git push` ve `xargs -n 1 git push` seçenek/değer asıl
+    komut sanıldığı için riskli komut görülmüyordu.
+    """
+    value_flags = _PREFIX_VALUE_FLAGS.get(prefix, frozenset())
+    while parts and parts[0].startswith("-") and len(parts[0]) > 1:
+        parts = parts[2:] if parts[0] in value_flags else parts[1:]
+    return parts
+
+
+def raw_segments(command: str) -> list[str]:
+    """Zincirin ham alt komut metinleri (`_segments`; izin allow eşlemesi kullanır, #58)."""
+    return _segments(command)
 
 
 def _segments(command: str) -> list[str]:
@@ -279,7 +543,17 @@ def _segments(command: str) -> list[str]:
     pieces: list[str] = []
     current: list[str] = []
     quote = ""
+    escaped = False
     for char in command.replace("$(", "("):
+        if escaped:
+            # `\"` ve `\;` düz karakterdir: tırnak açmaz, komutu bölmez.
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+            continue
         if quote:
             quote = "" if char == quote else quote
         elif char in "'\"":
@@ -293,6 +567,14 @@ def _segments(command: str) -> list[str]:
     return [piece.strip() for piece in pieces if piece.strip()]
 
 
+_QUOTED_OR_ESCAPED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"|\\.", re.DOTALL)
+
+
 def _unquoted(command: str) -> str:
-    """Tırnak içini boşaltılmış komut: `grep ">" a` içindeki `>` yönlendirme değildir."""
-    return re.sub(r"'[^']*'|\"[^\"]*\"", "''", command)
+    """Tırnak içini boşaltılmış komut: `grep ">" a` içindeki `>` yönlendirme değildir.
+
+    Ters eğik çizgiyle kaçırılmış karakter (tırnak, `>`) düz harftir; tırnak açmaz.
+    """
+    return _QUOTED_OR_ESCAPED.sub(
+        lambda match: "_" if match.group(0).startswith("\\") else "''", command
+    )

@@ -8,6 +8,13 @@ vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it("kenar çubuğundan bildirilen sürümü açınca kurulum düğmesini hazırlar", async () => {
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined) });
+  render(<UpdatePanel announcedVersion="1.0.0" />);
+  await screen.findByRole("button", { name: "İndir, kur ve yeniden başlat" });
+  expect(mocks.check).toHaveBeenCalledOnce();
+});
+
 it("sunucu hatasında güncel demez ve yeniden denemeye izin verir", async () => {
   mocks.check.mockRejectedValue(new Error("offline"));
   render(<UpdatePanel />);
@@ -31,4 +38,54 @@ it("başarılı kurulumdan sonra yeniden başlatır", async () => {
   fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
   fireEvent.click(await screen.findByText("İndir, kur ve yeniden başlat"));
   await waitFor(() => expect(mocks.relaunch).toHaveBeenCalledOnce());
+});
+
+// Ölçüldü (30 Ekim): imza hatası ağ hatasından ayırt edilemiyor, relaunch hatası "tamamlanamadı" diyordu (U5-43).
+it("imza hatası kurulumun güvenlik nedeniyle yapılmadığını söyler", async () => {
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn().mockRejectedValue(new Error("signature verification failed")) });
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  fireEvent.click(await screen.findByText("İndir, kur ve yeniden başlat"));
+  await screen.findByText(/imza doğrulanamadığı için kurulum yapılmadı/);
+});
+
+it("kurulum başarılı ama yeniden başlatma düşerse kurulduğu söylenir", async () => {
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn().mockResolvedValue(undefined) });
+  mocks.relaunch.mockRejectedValue(new Error("izin yok"));
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  fireEvent.click(await screen.findByText("İndir, kur ve yeniden başlat"));
+  await screen.findByText(/kuruldu ama Fusion yeniden başlatılamadı/);
+  expect(screen.queryByText(/Güncelleme tamamlanamadı/)).toBeNull();
+});
+
+it("çalışan görev varken kurulumu kapatır ve nedenini söyler (Q1-23)", async () => {
+  const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall });
+  render(<UpdatePanel turnRunning />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  const install = await screen.findByText("İndir, kur ve yeniden başlat");
+  expect(install.hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("alert").textContent).toMatch(/Çalışan bir görev var/);
+  fireEvent.click(install);
+  expect(downloadAndInstall).not.toHaveBeenCalled();
+  expect(mocks.relaunch).not.toHaveBeenCalled();
+});
+
+// Ölçüldü (31 Ekim, P-066): manifestin `notes` alanı (Update.body) hiç gösterilmiyordu; kullanıcı neyi kurduğunu bilmiyordu.
+it("sürüm notlarını düz metin olarak gösterir; not yoksa bölüm çizilmez", async () => {
+  mocks.check.mockResolvedValue({ version: "1.2.0", body: "- Telefondan onay\n- <b>HTML</b> yorumlanmaz", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn() });
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  await screen.findByText("Sürüm notları · 1.2.0");
+  const pre = screen.getByText(/Telefondan onay/);
+  expect(pre.tagName).toBe("PRE");
+  expect(pre.textContent).toContain("<b>HTML</b>");
+  cleanup();
+
+  mocks.check.mockResolvedValue({ version: "1.2.1", body: "   ", close: vi.fn().mockResolvedValue(undefined), downloadAndInstall: vi.fn() });
+  render(<UpdatePanel />);
+  fireEvent.click(screen.getByText("Güncellemeleri kontrol et"));
+  await screen.findByText("1.2.1 sürümü hazır.");
+  expect(screen.queryByText(/Sürüm notları/)).toBeNull();
 });

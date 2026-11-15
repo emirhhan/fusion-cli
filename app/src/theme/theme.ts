@@ -6,9 +6,14 @@ export const THEME_STORAGE_KEY = "fusion.theme";
 const isThemePreference = (value: string | null): value is ThemePreference =>
   value === "system" || value === "light" || value === "dark";
 
-export function readThemePreference(storage: Pick<Storage, "getItem"> = localStorage): ThemePreference {
+/**
+ * Varsayılan parametre (`= localStorage`) `try`'dan ÖNCE değerlendirilirdi: depoya erişim
+ * SecurityError atarsa `main.tsx` modül yüklemesinde patlar ve pencere boş açılırdı (U6-10).
+ * Depo artık `try` içinde çözülür.
+ */
+export function readThemePreference(storage?: Pick<Storage, "getItem">): ThemePreference {
   try {
-    const value = storage.getItem(THEME_STORAGE_KEY);
+    const value = (storage ?? localStorage).getItem(THEME_STORAGE_KEY);
     return isThemePreference(value) ? value : "dark";
   } catch {
     return "dark";
@@ -17,10 +22,10 @@ export function readThemePreference(storage: Pick<Storage, "getItem"> = localSto
 
 export function saveThemePreference(
   preference: ThemePreference,
-  storage: Pick<Storage, "setItem"> = localStorage,
+  storage?: Pick<Storage, "setItem">,
 ): void {
   try {
-    storage.setItem(THEME_STORAGE_KEY, preference);
+    (storage ?? localStorage).setItem(THEME_STORAGE_KEY, preference);
   } catch {
     // Tema tercihi kalıcılaştırılamasa da uygulama kullanılabilir kalır.
   }

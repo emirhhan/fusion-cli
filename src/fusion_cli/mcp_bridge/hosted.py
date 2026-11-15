@@ -27,13 +27,17 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..config.models import HostedConnectorConfig
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolEvidenceRole, ToolResult
 from ..tools import ToolRegistry
-from ..tools.emulation import coerce_arguments, validate_arguments
+from ..tools.emulation import MESSAGE_REQUIRED_MISSING, coerce_arguments, validate_arguments
+from .call_errors import describe_call_error
+from .schema import clean_description, simplify_schema
+from .tool_name import fusion_tool_name
 
 __all__ = [
     "MESSAGE_MARKER_IN_BODY",
@@ -182,6 +186,9 @@ class HostedConnectorClient:
         # araçlar: uydurulmuş bir ad ya da eksik zorunlu alan, parayı yanlış
         # harcadıktan SONRA fark edilmemeli.
         self._schemas: dict[tuple[str, str], Mapping[str, object]] = {}
+        #: Başarılı keşfin sonucu: `register_into` tur başına sağlayıcı oturumuna yeniden
+        #: keşif turu yazmasın (ölçüldü 30 Ekim). Başarısız keşif BURAYA GİRMEZ.
+        self._discovered: dict[str, list[HostedTool]] = {}
 
     def _connector(self, name: str) -> HostedConnectorConfig:
         connector = self._connectors.get(name)
@@ -212,8 +219,9 @@ class HostedConnectorClient:
                 HostedTool(
                     connector=connector,
                     name=name,
-                    description=str(item.get("aciklama", "")),
-                    schema=resolved,
+                    description=clean_description(str(item.get("aciklama", ""))),
+                    # Doğrulama HAM şemayla (`_schemas`), sağlayıcıya giden kopya sade.
+                    schema=simplify_schema(resolved) if resolved else {},
                 )
             )
         return tools
@@ -240,7 +248,12 @@ class HostedConnectorClient:
             )
         except HostedRelayError as error:
             # Görünür hata: modele düzeltme şansı verir, sessizce başarı saymaz.
-            return ToolResult.failure(f"{connector}.{tool} sonucu okunamadı: {error}")
+            # Ölçüldü (30 Ekim): uyarı yalnız "zarf yok" mesajındaydı; gövdede işaret
+            # kalan ya da JSON olmayan zarfta da iş uzakta yapılmış olabilir.
+            return ToolResult.failure(
+                f"{connector}.{tool} sonucu okunamadı: {error}. İşlem uzakta yapılmış "
+                "olabilir; durumu doğrulamadan tekrarlama."
+            )
         if not isinstance(payload, Mapping):
             return ToolResult.failure(f"{connector}.{tool}: cevap JSON nesnesi değil")
         if payload.get("ok") is False:
@@ -254,7 +267,11 @@ class HostedConnectorClient:
             return ToolResult.failure(f"{connector}.{tool}: {MESSAGE_MISSING_RESULT}")
         sonuc = payload["sonuc"]
         structured = sonuc if isinstance(sonuc, Mapping) else {"sonuc": sonuc}
-        return ToolResult(output=json.dumps(sonuc, ensure_ascii=False), structured=dict(structured))
+        # Büyük rapor/kampanya listesi bağlama olduğu gibi girmez (`MAX_OUTPUT_CHARS`).
+        output = truncate_notice(
+            json.dumps(sonuc, ensure_ascii=False), MAX_OUTPUT_CHARS, ne="connector sonucu"
+        )
+        return ToolResult(output=output, structured=dict(structured))
 
     def _precheck(self, connector: str, tool: str, args: Mapping[str, object]) -> str | None:
         """Çağrı oturuma gitmeden önce adı ve argümanları doğrula; hata metni döndür.
@@ -275,8 +292,19 @@ class HostedConnectorClient:
         if not schema:
             return None
         errors = validate_arguments(schema, coerce_arguments(schema, args))
-        if errors:
-            return f"{connector}.{tool} argümanları şemaya uymuyor: {'; '.join(errors)}"
+        # Şema, sağlayıcı modelinin KEŞİF cevabında yazdığı metindir (halüsinasyon olabilir).
+        # Yalnız ZORUNLU ALAN eksikliği bağlayıcıdır: eksik alanı oturumdaki model tahminle
+        # doldurabilir ve bu bir reklam bütçesini yanlış değiştirebilir. Tip uyumsuzluğu
+        # ise uyarıdır: uydurma bir `type` gerçek ve geçerli çağrıyı engellememeli (M1-18).
+        missing = [error for error in errors if error.endswith(MESSAGE_REQUIRED_MISSING)]
+        soft = [error for error in errors if error not in missing]
+        if soft:
+            _LOG.warning(
+                "keşif şemasına tip uyumsuzluğu; çağrı yine de gönderiliyor",
+                extra={"baglanti": connector, "arac": tool, "hata": "; ".join(soft)[:300]},
+            )
+        if missing:
+            return f"{connector}.{tool} argümanları şemaya uymuyor: {'; '.join(missing)}"
         return None
 
     async def _exchange(
@@ -300,7 +328,9 @@ class HostedConnectorClient:
         repaired = await self._ask(connector, _repair_reminder())
         return parse_result(repaired)
 
-    async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
+    async def register_into(
+        self, registry: ToolRegistry, *, selected_names: Iterable[str] | None = None
+    ) -> tuple[str, ...]:
         """Doğrulanmış connector'ların araçlarını kayıt defterine ekle.
 
         Doğrulanmamış connector için oturuma HİÇ gidilmez: ölçülmemiş bir
@@ -308,11 +338,15 @@ class HostedConnectorClient:
         güvenmesine yol açar (`WebSessionConfig.tool_eval_passed` ile aynı gerekçe).
         """
         added: list[str] = []
+        selected = None if selected_names is None else set(selected_names)
         for name, connector in self._connectors.items():
-            if not connector.verified:
+            if not connector.verified or (selected is not None and name not in selected):
                 continue
             try:
-                tools = await self.list_tools(name)
+                tools = self._discovered.get(name)
+                if tools is None:
+                    tools = await self.list_tools(name)
+                    self._discovered[name] = tools
             except HostedRelayError as error:
                 _LOG.warning(
                     "connector araçları keşfedilemedi",
@@ -320,7 +354,13 @@ class HostedConnectorClient:
                 )
                 continue
             for tool in tools:
-                fusion_name = f"{name}__{tool.name}"
+                fusion_name = fusion_tool_name(name, tool.name)
+                if fusion_name is None:  # Claude: tam adı 128'i aşan araç gönderilmez (#242)
+                    _LOG.warning(
+                        "connector aracı atlandı: tam adı 128 karakteri aşıyor",
+                        extra={"baglanti": name, "arac": tool.name},
+                    )
+                    continue
                 registry.register_or_replace(
                     Tool(
                         name=fusion_name,
@@ -334,6 +374,7 @@ class HostedConnectorClient:
                         # Bu yüzden stdio/HTTP araçlarının açıklamasız varsayılanı
                         # uygulanır: auto kip ilk çağrıda sorar.
                         effect=ToolEffect.REMOTE_WRITE,
+                        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
                     )
                 )
                 added.append(fusion_name)
@@ -346,7 +387,16 @@ class HostedConnectorClient:
             del context
             try:
                 return await self.call(connector, tool, dict(args))
+            except TimeoutError:
+                return ToolResult.failure(
+                    f"Bağlantı aracı zaman aşımına uğradı ({connector}.{tool}). Uzak işlemin "
+                    "sonucu belirsiz; tekrarlamadan önce durumu gözle."
+                )
             except Exception as error:
-                return ToolResult.failure(f"Bağlantı aracı hatası ({connector}.{tool}): {error}")
+                # Kanal istisnası yol/URL/çerez ipucu taşıyabilir: yalnız tür adı
+                # (bkz. `client.py` ve `call_errors.py`).
+                return ToolResult.failure(
+                    f"Bağlantı aracı hatası ({connector}.{tool}): {describe_call_error(error)}"
+                )
 
         return _run

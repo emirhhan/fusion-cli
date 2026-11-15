@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ..config.keys import detect
+from ..config.keys import detect, environ_snapshot
 from ..config.models import Config
 from ..config.tool_policy import mutation_policy_for_model
 from ..core.types import ModelSpec
+from .codex_cli import codex_ready, is_codex_model
 from .registry import ProviderKind, provider_for_model
 
 
@@ -22,6 +23,9 @@ def _usable(config: Config, model: str) -> bool:
     web = next((item for item in config.web_sessions if item.model == model), None)
     if web is not None:
         return web.enabled and web.login_verified
+    if is_codex_model(model):
+        # Kurulu ve girişli mi? Yoksa her tur "codex girişi yok" hatasıyla zincirde kalırdı.
+        return codex_ready()
     definition = provider_for_model(model)
     if definition is None:
         return True
@@ -34,7 +38,9 @@ def _usable(config: Config, model: str) -> bool:
         return bool(keys.nim)
     if definition.id == "openrouter":
         return bool(keys.openrouter)
-    return True
+    # Diğer API sağlayıcıları (OpenAI, Anthropic, Gemini, Groq…): kendi anahtar
+    # ortam değişkeni dolu değilse yedek ölüdür.
+    return definition.is_configured(environ_snapshot())
 
 
 def _web_fallbacks(config: Config) -> tuple[str, ...]:

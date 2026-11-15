@@ -74,6 +74,8 @@ class KeyringTokenStorage:
         digest = hashlib.sha256(server_id.encode("utf-8")).hexdigest()[:32]
         self._tokens_account = f"{digest}:tokens"
         self._client_account = f"{digest}:client"
+        #: Önceden kayıtlı OAuth uygulamasının sırrı (Claude Code `--client-secret`, #248).
+        self._secret_account = f"{digest}:secret"
         self._backend = backend or _SystemKeyring()
 
     async def get_tokens(self) -> OAuthToken | None:
@@ -110,8 +112,17 @@ class KeyringTokenStorage:
             client_info.model_dump_json(),
         )
 
-    async def clear(self) -> None:
-        for account in (self._tokens_account, self._client_account):
+    async def get_client_secret(self) -> str:
+        raw = await _keyring_call(self._backend.get_password, self._SERVICE, self._secret_account)
+        return raw or ""
+
+    async def set_client_secret(self, secret: str) -> None:
+        await _keyring_call(self._backend.set_password, self._SERVICE, self._secret_account, secret)
+
+    async def clear(self, *, include_secret: bool = False) -> None:
+        """Token ve istemci kaydını sil; `include_secret` sunucu kaldırılırken sırrı da siler."""
+        accounts = (self._tokens_account, self._client_account)
+        for account in (*accounts, *((self._secret_account,) if include_secret else ())):
             try:
                 await _keyring_call(self._backend.delete_password, self._SERVICE, account)
             except Exception:

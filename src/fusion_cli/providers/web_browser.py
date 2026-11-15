@@ -27,31 +27,44 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from ..config.models import WebSessionConfig
 from ..config.paths import web_profile_dir
-from ..core.constants import MIN_BROWSER_TURN_S
-from ..core.redaction import redact
+from ..core.constants import MIN_BROWSER_TURN_S, WEB_IMAGE_UPLOAD_PROVIDERS
+from ..core.prompt_manifest import PromptTransportMeasurement
+from ..core.redaction import redact, strip_driver_log
 from ..core.refusal import looks_like_refusal
 from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from ..core.types import Message, ToolCall
+from ..core.web_provenance import WebCallContext
 from ..core.window_mode import WindowMode
 from .web_markdown import html_to_markdown
-from .web_session import WebSessionCredential, WebTransport, WebTurn
+from .web_response import (
+    ObservedResponse,
+    accepted_snapshot,
+    observation_options,
+    observed_response,
+    origin_script,
+)
+from .web_selectors import ProviderSelectors, web_selectors
+from .web_session import WebSessionCredential, WebTransport, WebTurn, WebTurnContext
 from .web_shared_browser import (
     SharedBrowserError,
     SharedBrowserHooks,
     SharedProfileBrowser,
     chrome_launch_arguments,
     endpoint_alive,
+    endpoint_matches_browser,
 )
 
 _logger = logging.getLogger(__name__)
@@ -94,15 +107,114 @@ _ROLE_HEADER_LINE = re.compile(rf"^[ \t]*#{{0,6}}[ \t]*{re.escape(ROLE_PREFIX)}.
 # Ölçüt dar: satırın TAMAMI bir alan adı olmalı (boşluk yok, cümle noktalaması
 # yok). "Detaylar için example.com adresine bak" cümlesi korunur.
 _CITATION_LINE = re.compile(
-    r"^[ \t]*(?:https?://)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/\S*)?"
+    r"^[ \t]*(?:https?://)?[a-z0-9][a-z0-9.-]*\.(?P<tld>[a-z]{2,})(?:/\S*)?"
     r"(?:[ \t]*[-–—][ \t]*[^\n]{0,60})?[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
+#: Alan adı uzantısı gibi görünen ama DOSYA uzantısı olan sonlar.
+#
+# Ölçüldü (29 Ekim): `README.md`, `main.py`, `docker-compose.yml`, `app.py - ana giriş` gibi
+# tek başına satırlar alan adı sayılıp siliniyordu; model bunları bir `write_file`
+# içeriğinde (dosya ağacı, `.gitignore`, MANIFEST) yazınca içerik sessizce bozuluyordu.
+# `.md`, `.py`, `.sh`, `.rs`, `.pl`, `.cc`… aynı zamanda ülke alan adı uzantılarıdır; bu yüzden
+# alan adı olup olmadığına değil, bilinen DOSYA uzantısı olup olmadığına bakılır.
+_FILE_EXTENSIONS = frozenset(
+    [
+        "md",
+        "py",
+        "sh",
+        "rs",
+        "pl",
+        "cc",
+        "js",
+        "jsx",
+        "ts",
+        "tsx",
+        "mjs",
+        "cjs",
+        "json",
+        "jsonc",
+        "yml",
+        "yaml",
+        "toml",
+        "ini",
+        "cfg",
+        "conf",
+        "txt",
+        "csv",
+        "tsv",
+        "xml",
+        "html",
+        "htm",
+        "css",
+        "scss",
+        "sass",
+        "less",
+        "php",
+        "java",
+        "kt",
+        "kts",
+        "swift",
+        "cpp",
+        "hpp",
+        "cs",
+        "lock",
+        "log",
+        "sql",
+        "env",
+        "gd",
+        "tscn",
+        "tres",
+        "gdshader",
+        "svg",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "pdf",
+        "zip",
+        "tar",
+        "gz",
+        "rst",
+        "tex",
+        "bat",
+        "ps1",
+        "gradle",
+        "mod",
+        "sum",
+        "ipynb",
+        "vue",
+        "svelte",
+        "dart",
+        "lua",
+        "ex",
+        "exs",
+        "erl",
+        "hs",
+        "ml",
+        "scala",
+        "jl",
+        "nim",
+        "zig",
+        "bash",
+        "zsh",
+        "fish",
+        "rb",
+        "go",
+    ]
+)
+
+
+def _drop_citation(match: re.Match[str]) -> str:
+    """Atıf çipi satırını sil; dosya adı satırını olduğu gibi bırak."""
+    return match.group(0) if match.group("tld").casefold() in _FILE_EXTENSIONS else ""
+
 
 def strip_page_noise(answer: str) -> str:
     """Sayfadan sızan atıf/kaynak satırlarını cevaptan ayıkla."""
-    return _clean_text(_CITATION_LINE.sub("", answer))
+    return _clean_text(_CITATION_LINE.sub(_drop_citation, answer))
 
 
 def strip_role_headers(answer: str) -> str:
@@ -120,6 +232,16 @@ class WebBrowserAuthError(WebBrowserError):
 
 class WebBrowserSelectorError(WebBrowserError):
     """Sağlayıcı arayüzü değişti; tanımlı seçiciler artık eşleşmiyor."""
+
+
+class WebBrowserModeUnavailableError(WebBrowserSelectorError):
+    """Seçilen model/mod menüde var ama PASİF (`aria-disabled`); tıklanamaz.
+
+    Ölçüldü (30 Ekim, Gemini "3.1 Pro"): pasif seçeneğe tıklama Playwright'ta 5 sn sonra
+    "element is not enabled" ile zaman aşımına düşüyor ve hata ham günlükle ekrana
+    basılıyordu. Pasif seçenek bir arayüz bozukluğu değil, hesabın o anki durumudur;
+    tıklanmaz, sayfanın mevcut kipiyle sürülür (`_apply_model_choice`).
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +301,15 @@ class BrowserProviderDefinition:
     recommended_window_mode: WindowMode = WindowMode.HEADLESS
 
 
+#: Arayüz seçicilerinin TEK kaynağı `data/web-selectors.json`'dur (P1-43); burada yalnız
+#: sağlayıcının kimliği, adresleri ve davranış varsayılanları durur.
+_SELECTORS = web_selectors()
+
+
+def _selectors_of(provider_id: str) -> ProviderSelectors:
+    return _SELECTORS.providers[provider_id]
+
+
 WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
     "chatgpt_web": BrowserProviderDefinition(
         id="chatgpt_web",
@@ -186,61 +317,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://chatgpt.com/",
         new_chat_url="https://chatgpt.com/",
         cookie_urls=("https://chatgpt.com/", "https://openai.com/"),
-        # Sıra ÖLÇÜME göre (22 Eylül 2026, kullanıcının gerçek Plus oturumu, TR
-        # arayüz): ChatGPT composer'ı Lexical'dan ProseMirror'a geçmiş ve eski beş
-        # seçicinin HEPSİ 0 eşleşme veriyordu. Oturum açıktı, sayfa yüklüydü, hata
-        # yalnız "mesaj alanı bulunamadı" idi — yani her ChatGPT turu, CAPTCHA
-        # olmasa bile burada ölüyordu. ProseMirror seçicisi dil-bağımsızdır;
-        # `aria-label` ("ChatGPT'ye mesaj gönder") yerelleştirilmiş, ona güvenilmez.
-        # Eskiler yedekte kalır: başka sürüm/arayüz varyantı onları kullanabilir.
-        input_selectors=(
-            'div.ProseMirror[contenteditable="true"]',
-            "#prompt-textarea",
-            '[data-testid="prompt-textarea"]',
-            'div[contenteditable="true"][data-lexical-editor="true"]',
-            'textarea[placeholder*="Message"]',
-            "textarea",
-        ),
-        # Aynı ölçümde: `data-testid="send-button"` 0, `form button[type=submit]`
-        # 1 ve görünür. Submit düğmesi composer'da metin varken belirir, bu yüzden
-        # boş sayfada aranırsa bulunamaz. Düğme hiç bulunamazsa kod zaten Enter'a
-        # düşer (`_send_turn`), ama o yol her turda 2 saniyelik boş bekleme yakar.
-        send_selectors=(
-            'form button[type="submit"]',
-            'button[data-testid="send-button"]',
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-        ),
-        # Sıra dardan genişe: `article[data-testid^="conversation-turn-"]` tüm turu
-        # (kullanıcı mesajı, eylem düğmeleri) kapsayan geniş kaptır, en sonda.
-        #
-        # 18 Ekim 2026 ölçümü (canlı Plus oturumu): ChatGPT mesaj işaretini
-        # değiştirdi — `data-message-author-role` ve `conversation-turn-*` testid'leri
-        # 0 eşleşme veriyor, cevap geliyor ama Fusion onu görmediği için her tur
-        # "zaman aşımı" ile ölüyordu. Yeni kaplar: asistan turu
-        # `data-content-search-unit-key="…:assistant"`, cevap gövdesi
-        # `data-markdown-text-style="assistant-message"`, kullanıcı balonu
-        # `data-user-message-bubble`. Eskiler yedekte.
-        response_selectors=(
-            '[data-markdown-text-style="assistant-message"]',
-            '[data-content-search-unit-key$=":assistant"]',
-            '[data-testid^="conversation-turn-"] [data-message-author-role="assistant"]',
-            '[data-message-author-role="assistant"]',
-            'article[data-testid^="conversation-turn-"]',
-        ),
-        stop_selectors=(
-            'button[data-testid="stop-button"]',
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("chatgpt_web").input,
+        send_selectors=_selectors_of("chatgpt_web").send,
+        response_selectors=_selectors_of("chatgpt_web").response,
+        stop_selectors=_selectors_of("chatgpt_web").stop,
         login_markers=("log in", "sign up", "giriş yap", "oturum aç"),
-        history_selectors=(
-            "[data-content-search-unit-key]",
-            '[data-user-message-bubble="true"]',
-            "[data-message-author-role]",
-            'article[data-testid^="conversation-turn-"]',
-            "main .group\\/conversation-turn",
-        ),
+        history_selectors=_selectors_of("chatgpt_web").history,
         default_models=("auto",),
         cookie_hint="chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
         connector_settings_url="https://chatgpt.com/#settings/Connectors",
@@ -252,34 +334,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://claude.ai/",
         new_chat_url="https://claude.ai/new",
         cookie_urls=("https://claude.ai/",),
-        input_selectors=(
-            'div.ProseMirror[contenteditable="true"]',
-            '[contenteditable="true"][data-placeholder]',
-            'fieldset [contenteditable="true"]',
-            "textarea",
-        ),
-        send_selectors=(
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-            'button[data-testid*="send"]',
-        ),
-        response_selectors=(
-            '[data-testid="assistant-message"]',
-            "[data-is-streaming] .font-claude-message",
-            ".font-claude-message",
-            'div[data-testid^="message-"]',
-        ),
-        stop_selectors=(
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("claude_web").input,
+        send_selectors=_selectors_of("claude_web").send,
+        response_selectors=_selectors_of("claude_web").response,
+        stop_selectors=_selectors_of("claude_web").stop,
         login_markers=("log in", "continue with google", "giriş yap", "oturum aç"),
-        history_selectors=(
-            '[data-testid="user-message"]',
-            '[data-testid="assistant-message"]',
-            ".font-claude-message",
-            "div[data-test-render-count]",
-        ),
+        history_selectors=_selectors_of("claude_web").history,
         default_models=("auto",),
         cookie_hint="claude.ai oturumunun tam Cookie başlığı (sessionKey dahil)",
         connector_settings_url="https://claude.ai/settings/connectors",
@@ -290,42 +350,13 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://gemini.google.com/app",
         new_chat_url="https://gemini.google.com/app",
         cookie_urls=("https://gemini.google.com/", "https://accounts.google.com/"),
-        input_selectors=(
-            'rich-textarea div[contenteditable="true"]',
-            'div[contenteditable="true"][aria-label]',
-            "textarea[aria-label]",
-            "textarea",
-        ),
-        send_selectors=(
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-            "button.send-button",
-        ),
-        # Sıra DARDAN GENİŞE: ilk sonuç veren kazanır (bkz. `_response_snapshot`).
-        # `model-response` kaynak/atıf kartlarını da içeren geniş kaptır ve en
-        # sona alınmıştır; yalnızca dar seçiciler arayüz değişikliğiyle
-        # eşleşmediğinde devreye girer.
-        response_selectors=(
-            "model-response .model-response-text",
-            ".model-response-text",
-            '[data-test-id="response"]',
-            "model-response",
-        ),
-        stop_selectors=(
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("gemini_web").input,
+        send_selectors=_selectors_of("gemini_web").send,
+        response_selectors=_selectors_of("gemini_web").response,
+        stop_selectors=_selectors_of("gemini_web").stop,
         login_markers=("sign in", "oturum aç", "giriş yap", "choose an account"),
-        history_selectors=(
-            "user-query",
-            "model-response",
-            ".conversation-container",
-            "infinite-scroller",
-        ),
-        # Ölçüldü: kip düğmesinin metni seçili kademedir ("Flash-Lite", "2.5 Pro"…),
-        # aria-label'ı ise "Mod seçiciyi aç, şu anda Flash-Lite modunda" biçiminde.
-        # Metin kısa ve yerelleştirmeden bağımsız olduğu için o okunur.
-        tier_selectors=('button[data-test-id="bard-mode-menu-button"]',),
+        history_selectors=_selectors_of("gemini_web").history,
+        tier_selectors=_selectors_of("gemini_web").tier,
         default_models=("auto",),
         cookie_hint=(
             "gemini.google.com isteğinin tam Cookie başlığı; Google için tarayıcıyla giriş önerilir"
@@ -344,34 +375,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "https://login.live.com/",
             "https://www.bing.com/",
         ),
-        input_selectors=(
-            "textarea[placeholder]",
-            "textarea[aria-label]",
-            'div[contenteditable="true"]',
-            "textarea",
-        ),
-        send_selectors=(
-            'button[aria-label*="Submit" i]',
-            'button[aria-label*="Send" i]',
-            'button[aria-label*="Gönder" i]',
-        ),
-        response_selectors=(
-            '[data-content="ai-message"]',
-            '[data-testid="copilot-response"]',
-            ".ac-textBlock",
-            'cib-message-group[source="bot"]',
-        ),
-        stop_selectors=(
-            'button[aria-label*="Stop" i]',
-            'button[aria-label*="Durdur" i]',
-        ),
+        input_selectors=_selectors_of("copilot_web").input,
+        send_selectors=_selectors_of("copilot_web").send,
+        response_selectors=_selectors_of("copilot_web").response,
+        stop_selectors=_selectors_of("copilot_web").stop,
         login_markers=("sign in", "oturum aç", "giriş yap", "microsoft account"),
-        history_selectors=(
-            '[data-content="ai-message"]',
-            '[data-content="user-message"]',
-            "cib-message-group",
-            '[data-testid="chat-turn"]',
-        ),
+        history_selectors=_selectors_of("copilot_web").history,
         default_models=("auto",),
         cookie_hint=(
             "copilot.microsoft.com oturumundaki tam Cookie başlığı; tarayıcıyla giriş önerilir"
@@ -382,16 +391,9 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
 # Yalnız arayüzde gerçek seçim düğmesi gözlenebilen sağlayıcılar. Bir menü
 # bulunamazsa model adı uydurulmaz; kullanıcıya sadece otomatik kip sunulur.
 MODEL_MENU_BUTTONS: dict[str, tuple[str, ...]] = {
-    "gemini_web": ('button[data-test-id="bard-mode-menu-button"]',),
-    "chatgpt_web": (
-        'button[data-testid="model-switcher-dropdown-button"]',
-        'button[aria-label*="model seç" i]',
-        'button[aria-label*="select model" i]',
-    ),
-    "claude_web": (
-        'button[data-testid="model-selector-dropdown"]',
-        'button[aria-label*="select model" i]',
-    ),
+    provider_id: selectors.model_menu
+    for provider_id, selectors in _SELECTORS.providers.items()
+    if selectors.model_menu
 }
 
 
@@ -451,9 +453,9 @@ async def _visible_model_options(
     # Gemini aynı menüde "Genişletilmiş düşünme" ayarını da gösteriyor. Bu bir
     # model değil; yalnız model seçeneklerine ait test kimlikleri alınır.
     option_selector = (
-        'gem-menu-item[data-test-id^="bard-mode-option-"]'
+        _SELECTORS.model_option_gemini
         if definition.id == "gemini_web"
-        else '[role="menuitemradio"], [role="menuitem"], [role="option"], mat-option'
+        else _SELECTORS.model_option_default
     )
     options = menu.locator(option_selector)
     result: list[tuple[str, Any]] = []
@@ -466,6 +468,19 @@ async def _visible_model_options(
         except Exception:
             continue
     return tuple(result)
+
+
+async def _option_disabled(item: Any) -> bool:
+    """Menü seçeneği pasif mi? (`aria-disabled="true"` ya da `disabled` özniteliği)"""
+    try:
+        aria = await item.get_attribute("aria-disabled")
+        if aria is not None and aria.strip().lower() == "true":
+            return True
+        return (await item.get_attribute("disabled")) is not None
+    except Exception:
+        # Öznitelik okunamıyorsa (sayfa yenileniyor, sahte öğe) pasif SAYILMAZ:
+        # eski davranış (tıkla) korunur.
+        return False
 
 
 async def model_choices_on_page(
@@ -495,7 +510,25 @@ async def ensure_model_choice(page: Any, definition: BrowserProviderDefinition, 
         raise WebBrowserSelectorError(
             f"{definition.name} hesabında '{choice}' modeli artık seçilebilir değil"
         )
-    await matches[0].click(timeout=5000)
+    if await _option_disabled(matches[0]):
+        with contextlib.suppress(Exception):
+            await page.keyboard.press("Escape")
+        raise WebBrowserModeUnavailableError(
+            f"{definition.name} '{choice}' seçeneği şu an pasif (menüde kullanılamıyor)"
+        )
+    try:
+        await matches[0].click(timeout=5000)
+    except Exception as error:
+        # Ham sürücü hatası (Call log) kullanıcıya sızmasın; ayrıntı günlüğe.
+        _logger.warning(
+            "model secenegi tiklanamadi: saglayici=%s secim=%s hata=%s",
+            definition.id,
+            choice,
+            strip_driver_log(str(error), limit=400),
+        )
+        raise WebBrowserSelectorError(
+            f"{definition.name} '{choice}' model seçeneği tıklanamadı"
+        ) from error
     visible = _model_label(
         " ".join(((await button.inner_text()), (await button.get_attribute("aria-label")) or ""))
     )
@@ -523,6 +556,8 @@ async def switch_to_adjacent_model(
     neighbours = (
         [] if index is None else [i for i in (index - 1, index + 1) if 0 <= i < len(options)]
     )
+    # Pasif komşuya tıklamak 5 sn bekleyip düşer; yalnız seçilebilir olanlar sayılır.
+    neighbours = [i for i in neighbours if not await _option_disabled(options[i][1])]
     if not neighbours:
         with contextlib.suppress(Exception):
             await page.keyboard.press("Escape")
@@ -540,7 +575,7 @@ async def discover_browser_models(
     lock = _POOL.lock_for(session.provider, session.account)
     async with lock:
         context = await _POOL.context_for(session, credential or WebSessionCredential())
-        page = await context.new_page()
+        page = await _new_conversation_page(context, session)
         try:
             await _open_conversation(page, definition)
             if await _first_visible(page, definition.input_selectors, timeout_ms=12_000) is None:
@@ -670,6 +705,7 @@ def format_browser_prompt(
     continuation: bool = False,
     full_history: Sequence[Message] | None = None,
     trim: bool = True,
+    answer_contract: str = "",
 ) -> str:
     """Kanonik Fusion mesajlarını tarayıcıya gönderilecek metne dök.
 
@@ -701,6 +737,9 @@ def format_browser_prompt(
     biçimindeydi — bu bir araç ÇAĞRISINA benziyor ve model onu taklit ediyordu.
     Tanımlayıcı bilgi korunur ama çağrı biçiminde değil.
 
+    `answer_contract` motorun ürettiği nihai cevap sözleşmesidir (P1-33); boşsa hiçbir
+    sözleşme metni eklenmez.
+
     `trim=False` verilirse (Faz 4, Görev 2) sonuç KIRPILMADAN döner — çağıran
     taraf (`_send_turn`) `page`'e erişebildiği için taşan promptu göndermeden
     önce ÖNCE dosya yüklemeyi dener, olmazsa YİNE bu modüldeki
@@ -712,7 +751,7 @@ def format_browser_prompt(
     # ölçüldü — hatırlatma bloğu boş kalıyor ya da harness notunu gösteriyordu.
     gecmis = full_history if full_history is not None else messages
     if continuation:
-        govde = _format_continuation(messages, gecmis)
+        govde = _format_continuation(messages, gecmis, answer_contract)
         return trim_to_prompt_budget(govde) if trim else govde
     if not _offers_tools(messages):
         govde = _format_plain(messages)
@@ -739,9 +778,12 @@ def format_browser_prompt(
     # Talimat her iki kipte de tekrarlanır: web arayüzleri uzun sohbetlerde ilk
     # mesajdaki kuralları zayıflatır ve model biçimi bırakmaya başlar.
     rendered.append(
-        f"### {ROLE_PREFIX}TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır; "
-        "aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı at: "
-        f"ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.\n{_ANSWER_CONTRACT}"
+        _with_contract(
+            f"### {ROLE_PREFIX}TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının "
+            "cevabıdır; aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı "
+            "at: ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.",
+            answer_contract,
+        )
     )
     rendered.append(_task_reminder(messages))
     govde = "\n\n".join(part for part in rendered if part)
@@ -808,35 +850,29 @@ def _task_reminder(messages: Sequence[Message]) -> str:
     return f"### {ROLE_PREFIX}GÖREV (yapılacak iş budur)\n{gorev}"
 
 
-#: Her iki kipte de tekrarlanan nihai cevap sözleşmesi.
+#: Nihai cevap sözleşmesinin METNİ burada TUTULMAZ (P1-33): hangi araçların sunulduğunu
+#: ve planın durumunu bilen motor üretir (`engines/agent/web_contract.py`) ve
+#: `CompletionRequest.answer_contract` ile gönderir. Taşıma yalnız yerleştirir.
+#: Eskiden burada sabit metin vardı; plan modunda ya da `todo_write`/`ask_user`
+#: sunulmayan kümede modele var olmayan aracı çağırmasını söylüyor, her devam turunda
+#: "İLK iş todo_write ile plan yaz" cümlesini tekrarlıyordu.
+
+
+#: Çerçeve notu TAŞIMANIN kendi biçimine aittir (başlıkları o üretir), politika değildir.
 #:
 #: `### FUSION//…` başlıkları ÇERÇEVEDİR, içerik değil; model onları taklit edip
 #: kendini "sıradaki adımı sor" rolünde görüyordu. Kuralın ayıklama (bkz.
 #: `strip_role_headers`) ile birlikte durmasının sebebi, ayıklamanın belirtiyi
 #: temizlemesi ama nedenini ortadan kaldırmamasıdır.
-#:
-#: Nihai cevabın ŞEKLİ de burada söylenir: sistem promptundaki aynı kural, 3500
-#: karakterlik araç çıktılarının ardında kalıp zayıflıyordu.
-_ANSWER_CONTRACT = (
-    "Görev geniş ya da çok adımlıysa İLK iş todo_write ile 3-7 maddelik somut bir "
-    "plan yazmaktır; her madde tek bir dosyada tek bir değişiklik olsun. Sonra "
-    "maddeleri sırayla bitir ve her birini biter bitmez işaretle; liste bitmeden "
-    "turu kapatma.\n"
-    "İlk yanıtında, ilk araç çağrının yanında 2-3 cümlelik bir AÇILIŞ yaz: isteği "
-    "nasıl anladığın, hangi adımları izleyeceğin, ilk adımın ne olduğu. Sonraki "
-    "çağrılarda tek satırlık kısa öncü yeter.\n"
+_FRAME_NOTE = (
     f"`{ROLE_PREFIX}` ile başlayan başlıkları KENDİ cevabında tekrarlama; onlar "
-    "çerçevedir, senin rolün değildir.\n"
-    "Kullanıcı görevini zaten verdi: ne yapacağını ona tekrar sorma. Gerçekten "
-    "kullanıcının kararı olan bir seçim varsa ask_user aracını çağır; düzyazıyla "
-    "soru sorup turu bitirme.\n"
-    "İş bittiğinde nihai cevabında şunlar bulunur: ne yaptığın, hangi dosyaların "
-    "değiştiği ve kullanıcının ne kontrol etmesi gerektiği. Bunu birkaç cümlede "
-    "topla; adım adım günlük dökme.\n"
-    "YALNIZCA bu turda gerçekten çağırdığın araçlarla değiştirdiğin dosyaları say. "
-    "Okuduğun bir dosyada ZATEN var olan bir şeyi kendi işin gibi raporlama. "
-    "Hiçbir şey değiştirmediysen bunu açıkça söyle — yapılmamış işi yapılmış gösterme."
+    "çerçevedir, senin rolün değildir."
 )
+
+
+def _with_contract(text: str, answer_contract: str) -> str:
+    """Talimat metnine çerçeve notunu ve (varsa) motorun verdiği sözleşmeyi ekle."""
+    return "\n".join(part for part in (text, _FRAME_NOTE, answer_contract) if part)
 
 
 def _tool_result_label(message: Message, calls_by_id: Mapping[str, ToolCall]) -> str:
@@ -878,16 +914,18 @@ CONTINUATION_LEAD = (
     f"### {ROLE_PREFIX}SIRADAKİ ADIM\n"
     "Aşağıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır — bu çağrıları "
     "ZATEN yaptın, tekrarlama. Sonuçları kullanarak bir sonraki adımı at: gereken "
-    f"değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver.\n{_ANSWER_CONTRACT}"
+    "değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver."
 )
 
 
 def _format_continuation(
-    messages: Sequence[Message], full_history: Sequence[Message] | None = None
+    messages: Sequence[Message],
+    full_history: Sequence[Message] | None = None,
+    answer_contract: str = "",
 ) -> str:
     """Açık sohbete gönderilecek metin: talimat başta, asistan turu yok."""
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
-    parcalar = [CONTINUATION_LEAD]
+    parcalar = [_with_contract(CONTINUATION_LEAD, answer_contract)]
     for message in messages:
         if message.role == "assistant":
             continue
@@ -958,17 +996,27 @@ async def _launch_profile_context(
 def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProfileBrowser:
     """Profilin süreçler arası paylaşılan Chrome'u için gerçek kancaları kur."""
 
-    async def launch(path: Path, headless: bool) -> None:
+    async def launch(path: Path, mode: WindowMode) -> None:
         executable = _native_login_executable() or (
             playwright.chromium.executable_path if playwright is not None else None
         )
         if not executable:
             raise WebBrowserError("Chrome bulunamadı. Google Chrome'u kurup tekrar dene.")
+        arguments = chrome_launch_arguments(executable, path, headless=mode)
+        if arguments[0] == "/usr/bin/open":
+            launcher = await asyncio.create_subprocess_exec(
+                *arguments,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if await launcher.wait():
+                raise SharedBrowserError("macOS, gizli Chrome başlatma isteğini reddetti.")
+            return
         # Chrome bu süreçten BAĞIMSIZ yaşar: sekme kapanınca diğer sekmelerin
         # sohbetleri düşmesin. Kapanışı kira kaydı yönetir.
         await asyncio.to_thread(
             subprocess.Popen,
-            chrome_launch_arguments(executable, path, headless=headless),
+            arguments,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -983,6 +1031,11 @@ def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProf
         session = await browser.new_browser_cdp_session()
         with contextlib.suppress(Exception):  # Chrome kapanırken bağlantı kopabilir
             await session.send("Browser.close")
+        for _ in range(30):
+            if not _profile_process_alive(profile):
+                return
+            await asyncio.sleep(0.1)
+        raise SharedBrowserError("Fusion Chrome profili zamanında kapanmadı.")
 
     return SharedProfileBrowser(
         profile,
@@ -991,6 +1044,7 @@ def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProf
             launch=launch,
             is_alive=endpoint_alive,
             close=close,
+            verify_identity=endpoint_matches_browser,
         ),
         owner_pid=os.getpid(),
     )
@@ -1013,6 +1067,32 @@ async def _connect_shared_context(
         raise
     context = browser.contexts[0] if browser.contexts else await browser.new_context()
     return browser, context
+
+
+async def _new_conversation_page(context: Any, session: WebSessionConfig) -> Any:
+    if WindowMode(session.headless) is not WindowMode.HIDDEN or sys.platform != "darwin":
+        return await context.new_page()
+
+    # CDP'nin varsayılanı sekmeyi seçer ve gizli Chrome'u öne getirebilir.
+    # Benzersiz URL, başka bir Fusion sürecinin sekmesini almamızı engeller.
+    url = f"about:blank#{uuid4().hex}"
+    cdp = await context.browser.new_browser_cdp_session()
+    try:
+        async with context.expect_page(lambda page: page.url == url) as opened:
+            await cdp.send("Target.createTarget", {"url": url, "background": True})
+        page = await opened.value
+    finally:
+        with contextlib.suppress(Exception):
+            await cdp.detach()
+    try:
+        await _shared_profile_browser(
+            None, browser_profile_dir(session.provider, session.account)
+        ).reassert_window(headless=session.headless)
+    except BaseException:
+        with contextlib.suppress(Exception):
+            await page.close()
+        raise
+    return page
 
 
 #: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
@@ -1114,6 +1194,18 @@ def conversation_digest(messages: Sequence[Message]) -> str:
     return digest.hexdigest()
 
 
+def conversation_root(messages: Sequence[Message], conversation_id: str = "") -> str:
+    """Açık sohbetin havuzdaki anahtarı: iş kimliği + İLK mesajın özeti.
+
+    Yalnız ilk mesajın (sistem istemi) özeti kök olunca, aynı sistem istemini kullanan
+    ana ajan, alt ajan ve konsey adayları AYNI sohbeti çekiştiriyordu: her geçişte
+    önek uyuşmaz, sohbet düşer, yeni sohbet açılır ve geçmişin tamamı yeniden yazılırdı
+    (P1-31). `conversation_id` boşsa anahtar eskisiyle birebir aynıdır.
+    """
+    digest = conversation_digest(messages[:1])
+    return f"{conversation_id}:{digest}" if conversation_id else digest
+
+
 #: Web oturumu bu kadar süre kullanılmazsa bu sürecin tarayıcı kirası bırakılır.
 #:
 #: Ölçüldü (26 Eylül): Fusion açık kaldıkça gizli Chrome da açık kalıyor, macOS
@@ -1124,6 +1216,11 @@ def conversation_digest(messages: Sequence[Message]) -> str:
 #: istekte birkaç saniyede yeniden açılır (sohbet yeni başlar, geçmiş yeniden gider).
 IDLE_RELEASE_S = 300.0
 
+#: Komşu modele geçiş bu kadar süre hatırlanır, sonra seçili modele dönülür (P1-30).
+MODEL_FALLBACK_TTL_S = 30 * 60.0
+#: Kalıp ret, komşu modele KALICI geçmeden önce bu kadar kez gözlenmeli (P1-30).
+MODEL_FALLBACK_CONFIRMATIONS = 2
+
 
 class BrowserSessionPool:
     """Paylaşılan Chrome'a açılan süreç-yerel bağlantılar; sağlayıcı/hesap başına bir tane.
@@ -1132,9 +1229,18 @@ class BrowserSessionPool:
     havuz yalnız bu sürecin CDP bağlantısını, bağlamını ve sohbet sayfalarını tutar.
     """
 
-    def __init__(self, *, idle_release_s: float | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        idle_release_s: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._idle_release_s = IDLE_RELEASE_S if idle_release_s is None else idle_release_s
+        self._clock = clock
         self._idle_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
+        #: Bırakma görevleri: asyncio görevlere ZAYIF referans tutar, referanssız görev
+        #: bitmeden toplanabilir.
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self._playwright: Any | None = None
         self._contexts: dict[tuple[str, str], Any] = {}
         #: Bağlamların geldiği CDP bağlantıları; kapatmak Chrome'u değil bağlantıyı bırakır.
@@ -1151,25 +1257,45 @@ class BrowserSessionPool:
         self._conversations: dict[tuple[str, str, str], ConversationState] = {}
         #: Hesap başına yeni-sohbet hız kovası (bkz. `ConversationPacer`).
         self._pacers: dict[tuple[str, str], ConversationPacer] = {}
-        #: (sağlayıcı, hesap, seçili model) → kalıp ret sonrası geçilen çalışan model.
-        self._model_fallbacks: dict[tuple[str, str, str], str] = {}
+        #: (sağlayıcı, hesap, seçili model) → (geçilen çalışan model, geçerlilik sonu).
+        self._model_fallbacks: dict[tuple[str, str, str], tuple[str, float]] = {}
+        #: (sağlayıcı, hesap, seçili model) → komşunun çalıştığı doğrulanmış ret sayısı.
+        self._fallback_confirmations: dict[tuple[str, str, str], int] = {}
         #: Süre sınırında cevap vermeyen (sağlayıcı, hesap, seçili model) üçlüleri.
         self._timed_out_choices: set[tuple[str, str, str]] = set()
+        #: Pasif seçenek yüzünden mevcut kiple sürülen (sağlayıcı, hesap, seçili model) →
+        #: bildirimin en son verildiği an. Aynı not her turda tekrarlanmaz.
+        self._mode_notice_at: dict[tuple[str, str, str], float] = {}
+        #: Bir sonraki tur sonucuna eklenecek kullanıcı notu (bkz. `take_mode_note`).
+        self._pending_mode_note: dict[tuple[str, str], str] = {}
         self._guard = asyncio.Lock()
 
-    def schedule_idle_release(self, provider: str, account: str) -> None:
-        """Oturum boşta kalırsa bu sürecin tarayıcı kirasını bırak (bkz. `IDLE_RELEASE_S`).
+    def _has_open_chatgpt_turn(self, key: tuple[str, str]) -> bool:
+        return key[0] == "chatgpt_web" and any(
+            conversation_key[:2] == key and not state.page.is_closed()
+            for conversation_key, state in self._conversations.items()
+        )
 
-        Her kullanım süreyi sıfırlar. Son kiracı da bırakınca paylaşılan Chrome kapanır.
-        """
+    def _cancel_idle_release(self, key: tuple[str, str]) -> None:
+        timer = self._idle_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+
+    def schedule_idle_release(self, provider: str, account: str) -> None:
+        """Başarılı ChatGPT oturumunu açık tut, diğer boşta kiraları zamanla bırak."""
         key = (provider, account)
-        eski = self._idle_timers.pop(key, None)
-        if eski is not None:
-            eski.cancel()
+        self._cancel_idle_release(key)
+        if self._has_open_chatgpt_turn(key):
+            return
         loop = asyncio.get_running_loop()
         self._idle_timers[key] = loop.call_later(
-            self._idle_release_s, lambda: loop.create_task(self._release_idle(key))
+            self._idle_release_s, lambda: self._start_idle_release(loop, key)
         )
+
+    def _start_idle_release(self, loop: asyncio.AbstractEventLoop, key: tuple[str, str]) -> None:
+        task = loop.create_task(self._release_idle(key))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _release_idle(self, key: tuple[str, str]) -> None:
         self._idle_timers.pop(key, None)
@@ -1177,26 +1303,76 @@ class BrowserSessionPool:
             # Tur sürüyor: bırakma, kullanım bitince süre yeniden başlar.
             self.schedule_idle_release(*key)
             return
-        await self.drop_account_conversations(*key)
-        await self.flush_closed()
-        await self._disconnect(key)
-        with contextlib.suppress(WebBrowserError, SharedBrowserError, OSError):
-            await _shared_profile_browser(self._playwright, browser_profile_dir(*key)).release(
-                force=False, timeout_s=MIN_BROWSER_TURN_S
-            )
+        # Bırakma boyunca hesap kilidi tutulur: `await`ler sırasında başka bir tur kilidi
+        # alıp bağlamı kullanırken `_disconnect` onu tur ortasında kapatmasın.
+        async with self.lock_for(*key):
+            if self._has_open_chatgpt_turn(key):
+                return
+            await self.drop_account_conversations(*key)
+            await self.flush_closed()
+            await self._disconnect(key)
+            with contextlib.suppress(WebBrowserError, SharedBrowserError, OSError):
+                await _shared_profile_browser(self._playwright, browser_profile_dir(*key)).release(
+                    force=False, timeout_s=MIN_BROWSER_TURN_S
+                )
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
 
     def model_choice(self, session: WebSessionConfig) -> str:
-        """Bu süreçte kullanılacak model: kalıp ret sonrası geçilen yedek ya da seçili olan."""
+        """Bu süreçte kullanılacak model: hatırlanan (süresi dolmamış) yedek ya da seçili olan."""
         key = (session.provider, session.account, session.selected_model)
-        return self._model_fallbacks.get(key, session.selected_model)
+        remembered = self._model_fallbacks.get(key)
+        if remembered is None:
+            return session.selected_model
+        choice, expires_at = remembered
+        if self._clock() < expires_at:
+            return choice
+        del self._model_fallbacks[key]
+        return session.selected_model
 
     def remember_model_choice(self, session: WebSessionConfig, choice: str) -> None:
         key = (session.provider, session.account, session.selected_model)
-        self._model_fallbacks[key] = choice
+        self._model_fallbacks[key] = (choice, self._clock() + MODEL_FALLBACK_TTL_S)
+        self._fallback_confirmations.pop(key, None)
         self._timed_out_choices.discard(key)
+
+    def note_mode_unavailable(self, session: WebSessionConfig, choice: str) -> None:
+        """Seçili mod pasif: bu turun sonucuna tek satırlık not düş (süre başına bir kez)."""
+        key = (session.provider, session.account, choice)
+        now = self._clock()
+        last = self._mode_notice_at.get(key)
+        if last is not None and now - last < MODEL_FALLBACK_TTL_S:
+            return
+        self._mode_notice_at[key] = now
+        self._pending_mode_note[(session.provider, session.account)] = (
+            f"{provider_definition(session.provider).name}: '{choice}' modu şu an "
+            "kullanılamıyor; sayfadaki mevcut modla devam ediliyor"
+        )
+
+    def take_mode_note(self, session: WebSessionConfig) -> str:
+        """Bekleyen mod notunu ver ve temizle; yoksa boş."""
+        return self._pending_mode_note.pop((session.provider, session.account), "")
+
+    def confirm_fallback(self, session: WebSessionConfig, candidate: str) -> bool:
+        """Komşunun kalıp reddi aştığını say; yeterince doğrulandıysa hatırla (P1-30).
+
+        Tek seferlik bir ret ya da geçici sağlayıcı hatası kullanıcının seçtiği modeli
+        süreç boyu bypass etmesin diye `MODEL_FALLBACK_CONFIRMATIONS` gözlem gerekir.
+        """
+        key = (session.provider, session.account, session.selected_model)
+        count = self._fallback_confirmations.get(key, 0) + 1
+        if count < MODEL_FALLBACK_CONFIRMATIONS:
+            self._fallback_confirmations[key] = count
+            return False
+        self.remember_model_choice(session, candidate)
+        return True
+
+    def forget_fallback_candidate(self, session: WebSessionConfig) -> None:
+        """Seçili model reddetmeden cevap verdi: bekleyen ret gözlemleri sıfırlanır."""
+        self._fallback_confirmations.pop(
+            (session.provider, session.account, session.selected_model), None
+        )
 
     def note_choice_timed_out(self, session: WebSessionConfig) -> None:
         """Seçili model süre sınırında cevap vermedi; sıradaki denemede komşusu denenir."""
@@ -1299,7 +1475,9 @@ class BrowserSessionPool:
         açmadan ya da headless ayarını değiştirmeden önce bunu çağırır; diğer
         sekmelerin bağlantıları kopar ve sonraki turlarında yeniden bağlanırlar.
         """
+        self._cancel_idle_release((provider, account))
         await self.drop_account_conversations(provider, account)
+        await self.flush_closed()
         await self._disconnect((provider, account))
         await _shared_profile_browser(
             self._playwright, browser_profile_dir(provider, account)
@@ -1314,6 +1492,8 @@ class BrowserSessionPool:
                 await browser.close()
 
     async def close(self) -> None:
+        for key in tuple(self._idle_timers):
+            self._cancel_idle_release(key)
         for provider, account, root in tuple(self._conversations):
             await self.drop_conversation(provider, account, root)
         await self.flush_closed()
@@ -1426,48 +1606,74 @@ def build_browser_transport(
     manager = pool or _POOL
 
     async def _transport(
-        credential: WebSessionCredential, messages: tuple[Message, ...], model: str
+        credential: WebSessionCredential,
+        messages: tuple[Message, ...],
+        model: str,
+        context: WebTurnContext | None = None,
     ) -> WebTurn:
         del model  # Model kimliği oturumu bulur; seçili web kipi aşağıda uygulanır.
         try:
-            return await _locked_transport(credential, messages)
+            return await _locked_transport(credential, messages, context or WebTurnContext())
         finally:
             manager.schedule_idle_release(session.provider, session.account)
 
     async def _locked_transport(
-        credential: WebSessionCredential, messages: tuple[Message, ...]
+        credential: WebSessionCredential,
+        messages: tuple[Message, ...],
+        turn: WebTurnContext,
     ) -> WebTurn:
+        root = conversation_root(messages, turn.conversation_id)
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
-            context = await manager.context_for(session, credential)
+            browser_context = await manager.context_for(session, credential)
             limit = browser_turn_budget(session, override_s=timeout_s)
             deadline = time.monotonic() + limit
             last_selector_error: WebBrowserSelectorError | None = None
 
-            for attempt in range(2):
+            for attempt in range(1 if turn.is_capture_probe else 2):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 try:
+                    # `limit_s` çağrı başına geçirilir: geçirilmezse 180 sn varsayılanı
+                    # devreye girer, `timeout_s` > 180 iken sahte "seçici hatası" üretir ve
+                    # AYNI istem yeni sohbetle ikinci kez gönderilirdi (P1-03).
                     return await asyncio.wait_for(
-                        _deliver_turn(manager, session, definition, context, messages, trace_dir),
+                        _deliver_turn(
+                            manager,
+                            session,
+                            definition,
+                            browser_context,
+                            messages,
+                            None if turn.is_capture_probe else trace_dir,
+                            limit_s=max(1.0, remaining),
+                            turn=turn,
+                        ),
                         timeout=max(1.0, remaining),
                     )
+                except WebBrowserModeUnavailableError:
+                    # Pasif mod ikinci denemede de pasiftir; 0,75 sn bekleyip sayfayı
+                    # yeniden açmak boşa gider. Zincir yedeğe geçsin.
+                    await manager.drop_conversation(session.provider, session.account, root)
+                    raise
                 except WebBrowserSelectorError as error:
                     last_selector_error = error
                     # Sohbet bilinmeyen bir duruma düştü: bırak, ikinci deneme
                     # sıfırdan başlasın. Aynı hesap, aynı profil — gizli yedek yok.
-                    await manager.drop_conversation(
-                        session.provider, session.account, conversation_digest(messages[:1])
-                    )
-                    if attempt == 0:
+                    await manager.drop_conversation(session.provider, session.account, root)
+                    if attempt == 0 and not turn.is_capture_probe:
                         await asyncio.sleep(0.75)
                         continue
                     raise
+                except asyncio.CancelledError:
+                    # Dış `wait_for` (zincir/adaptör) ya da kullanıcı iptali: mesaj
+                    # sağlayıcıya gitmiş olabilir ama `sent_count/last_answer` ilerlemedi.
+                    # Bayat sohbet bırakılır, yoksa sonraki tur aynı mesajı tekrar yazar.
+                    await manager.drop_conversation(session.provider, session.account, root)
+                    await manager.flush_closed()
+                    raise
                 except TimeoutError as error:
-                    await manager.drop_conversation(
-                        session.provider, session.account, conversation_digest(messages[:1])
-                    )
+                    await manager.drop_conversation(session.provider, session.account, root)
                     manager.note_choice_timed_out(session)
                     await manager.flush_closed()
                     raise WebBrowserError(
@@ -1510,6 +1716,8 @@ async def _apply_model_choice(
     session: WebSessionConfig,
     definition: BrowserProviderDefinition,
     page: Any,
+    *,
+    strict: bool = False,
 ) -> str:
     """Mesajdan önce modeli seç; önceki deneme süre aşımına uğradıysa komşusuna geç.
 
@@ -1530,8 +1738,32 @@ async def _apply_model_choice(
             )
             manager.remember_model_choice(session, komsu)
             return komsu
-    await ensure_model_choice(page, definition, choice)
+    try:
+        await ensure_model_choice(page, definition, choice)
+    except WebBrowserModeUnavailableError as error:
+        if strict:
+            # Kullanıcı bu modeli AÇIKÇA seçti: başka kiple sessizce sürmek seçimini düşürür.
+            # Oturum hatası sınıfı: devre açılır, zincir yedek modele geçer.
+            raise WebBrowserModeUnavailableError(
+                f"{definition.name.split(' (')[0]}: '{choice}' modu şu an kullanılamıyor"
+            ) from error
+        # Seçenek pasif: tıklama denenmez, tur sayfanın mevcut kipiyle sürer. Gözlenen
+        # kademe `served_by` olarak üst katmana ulaşır; seçili ad "doğrulanmış" SAYILMAZ.
+        _logger.warning(
+            "web modu pasif, mevcut kiple devam: saglayici=%s hesap=%s secili=%s (%s)",
+            session.provider,
+            session.account,
+            choice,
+            error,
+        )
+        manager.note_mode_unavailable(session, choice)
+        return ""
     return choice
+
+
+def _strict_kwargs(turn: WebTurnContext) -> dict[str, bool]:
+    """Katı seçimde `strict=True`; değilse hiç geçirilmez (eski imzalı yerine koyma kırılmasın)."""
+    return {"strict": True} if turn.strict else {}
 
 
 async def _retry_with_adjacent_model(
@@ -1543,6 +1775,10 @@ async def _retry_with_adjacent_model(
     refusal: str,
     choice: str,
     limit_s: float,
+    *,
+    measurement_sink: Callable[[PromptTransportMeasurement], None] | None = None,
+    observation_sink: Callable[[ObservedResponse], None] | None = None,
+    web_call_context: WebCallContext | None = None,
 ) -> tuple[str, str]:
     """Seçili model kalıp ret verdiyse aynı sohbette komşu modelle bir kez yeniden sor.
 
@@ -1551,9 +1787,10 @@ async def _retry_with_adjacent_model(
     sonra "Ben yalnızca bir dil modeliyim…" cevabı geldi; aynı soru "3.6 Flash" ile
     25 sn'de doğru cevaplandı. Öğretmen bu yüzden hiçbir plan veremiyordu.
 
-    Geçiş bu süreç boyunca hatırlanır (`remember_model_choice`): her yeni sohbette aynı
-    reddi dakikalarca beklemek yerine doğrudan çalışan modele gidilir. Dönen kademe
-    üst katmana `served_by` olarak ulaşır; kullanıcı seçtiği modelden sapmayı görür.
+    Geçiş, ret İKİ KEZ doğrulanınca hatırlanır ve `MODEL_FALLBACK_TTL_S` sonra unutulur
+    (`confirm_fallback`, P1-30): her yeni sohbette aynı reddi dakikalarca beklemek yerine
+    doğrudan çalışan modele gidilir, ama tek seferlik bir ret seçimi kalıcı değiştirmez.
+    Dönen kademe üst katmana `served_by` olarak ulaşır; kullanıcı seçtiği modelden sapmayı görür.
     """
     try:
         komsu = await switch_to_adjacent_model(page, definition, choice)
@@ -1566,7 +1803,15 @@ async def _retry_with_adjacent_model(
             choice,
             komsu,
         )
-        answer = await _send_turn(page, definition, prompt, previous=refusal, limit_s=limit_s)
+        answer = await _send_turn(
+            page,
+            definition,
+            prompt,
+            previous=refusal,
+            limit_s=limit_s,
+            measurement_sink=measurement_sink,
+            **observation_options(web_call_context, observation_sink),
+        )
     except WebBrowserError:
         return refusal, choice
     if looks_like_refusal(strip_role_headers(answer)):
@@ -1574,7 +1819,7 @@ async def _retry_with_adjacent_model(
         with contextlib.suppress(WebBrowserError):
             await ensure_model_choice(page, definition, choice)
         return answer, choice
-    manager.remember_model_choice(session, komsu)
+    manager.confirm_fallback(session, komsu)
     return answer, komsu
 
 
@@ -1596,19 +1841,12 @@ async def _open_past_human_verification(
     limit_s: float,
     step: Callable[[Any, BrowserProviderDefinition], Awaitable[None]],
 ) -> None:
-    """Adımı çalıştır; insan doğrulaması çıkarsa pencereyi kullanıcıya aç, çözülünce yinele.
-
-    Fusion captcha'yı AŞMAZ; kullanıcı çözer. Eskiden tur "fusion web-login çalıştır"
-    diyerek düşüyordu ve kullanıcı bunu her seferinde elle yapıyordu (ölçüldü: 2 Ekim
-    2026, ChatGPT oturumu günlerce doğrulama bekledi, öğretmen yedeği hiç çalışmadı).
-    Şimdi gizli pencere öne getirilir, panele not düşülür, sayfa temizlenene kadar
-    (tur bütçesi içinde) beklenir ve aynı adım bir kez daha denenir.
-    """
+    """Görünür tarayıcıda insan doğrulamasını bekle ve çözülünce adımı yinele."""
     try:
         await step(page, definition)
         return
     except WebBrowserAuthError as error:
-        if not _is_human_verification(error):
+        if WindowMode(session.headless) is WindowMode.HIDDEN or not _is_human_verification(error):
             raise
         hata = error
     browser = _shared_profile_browser(None, browser_profile_dir(session.provider, session.account))
@@ -1653,6 +1891,7 @@ async def _deliver_turn(
     messages: tuple[Message, ...],
     trace_dir: Path | None = None,
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
+    turn: WebTurnContext | None = None,
 ) -> WebTurn:
     """Turu AÇIK sohbete ilet; sohbet yoksa ya da kopmuşsa yeniden kur.
 
@@ -1660,10 +1899,13 @@ async def _deliver_turn(
     gönderilen önek DEĞİŞMEMİŞ olmalı. İkincisi olmadan, bağlam sıkıştırıldığında ya da
     yeni bir oturum başladığında model bambaşka bir konuşmanın ortasında cevap verirdi.
     """
-    # Konuşma kökü: İLK mesajın özeti. Ana agent turu hep aynı sistem promptuyla
-    # başlar; ders çıkarımı gibi yardımcı çağrılar başka bir kökle gelir ve kendi
-    # sohbetlerini alır. Böylece yardımcı bir çağrı ana sohbeti DÜŞÜRMEZ.
-    root = conversation_digest(messages[:1])
+    # Konuşma kökü: iş kimliği + İLK mesajın özeti. Ders çıkarımı gibi yardımcı çağrılar
+    # başka bir ilk mesajla gelir ve kendi sohbetlerini alır; aynı sistem istemli
+    # paralel işler (alt ajan, konsey) de kendi `conversation_id`'leriyle ayrılır.
+    turn = turn or WebTurnContext()
+    measurements: list[PromptTransportMeasurement] = []
+    observations: list[ObservedResponse] = []
+    root = conversation_root(messages, turn.conversation_id)
     state = manager.conversation(session.provider, session.account, root)
     resumable = (
         state is not None
@@ -1676,11 +1918,17 @@ async def _deliver_turn(
         await _open_past_human_verification(
             state.page, definition, session, limit_s, _raise_if_blocked_early
         )
-        choice = await _apply_model_choice(manager, session, definition, state.page)
+        choice = await _apply_model_choice(
+            manager, session, definition, state.page, **_strict_kwargs(turn)
+        )
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
         prompt = format_browser_prompt(
-            messages[state.sent_count :], continuation=True, full_history=messages, trim=False
+            messages[state.sent_count :],
+            continuation=True,
+            full_history=messages,
+            trim=False,
+            answer_contract=turn.answer_contract,
         )
         answer = await _send_turn(
             state.page,
@@ -1689,24 +1937,32 @@ async def _deliver_turn(
             previous=state.last_answer,
             limit_s=limit_s,
             images=pending_images(messages[state.sent_count :]),
+            measurement_sink=measurements.append,
+            **observation_options(turn.web_call_context, observations.append),
         )
     else:
         await _pace_new_conversation(manager, session)
         await manager.drop_conversation(session.provider, session.account, root)
-        page = await context.new_page()
-        # Yeni sekme gizli pencereyi öne getirir; kipine yeniden oturt.
-        await _shared_profile_browser(
-            None, browser_profile_dir(session.provider, session.account)
-        ).reassert_window(headless=session.headless)
+        page = await _new_conversation_page(context, session)
         state = ConversationState(page=page)
         try:
             await _open_past_human_verification(
                 page, definition, session, limit_s, _open_ready_conversation
             )
-            choice = await _apply_model_choice(manager, session, definition, page)
-            prompt = format_browser_prompt(messages, trim=False)
+            choice = await _apply_model_choice(
+                manager, session, definition, page, **_strict_kwargs(turn)
+            )
+            prompt = format_browser_prompt(
+                messages, trim=False, answer_contract=turn.answer_contract
+            )
             answer = await _send_turn(
-                page, definition, prompt, limit_s=limit_s, images=pending_images(messages)
+                page,
+                definition,
+                prompt,
+                limit_s=limit_s,
+                images=pending_images(messages),
+                measurement_sink=measurements.append,
+                **observation_options(turn.web_call_context, observations.append),
             )
         except BaseException:
             # Sohbet henüz havuza kaydedilmedi: sayfa burada bırakılmazsa açık kalır.
@@ -1715,10 +1971,22 @@ async def _deliver_turn(
             manager.discard_page(page)
             raise
 
-    if choice and looks_like_refusal(strip_role_headers(answer)):
+    if choice and not turn.is_capture_probe and looks_like_refusal(strip_role_headers(answer)):
+        observations.clear()
         answer, choice = await _retry_with_adjacent_model(
-            manager, session, definition, state.page, prompt, answer, choice, limit_s
+            manager,
+            session,
+            definition,
+            state.page,
+            prompt,
+            answer,
+            choice,
+            limit_s,
+            measurement_sink=measurements.append,
+            **observation_options(turn.web_call_context, observations.append),
         )
+    elif choice == session.selected_model:
+        manager.forget_fallback_candidate(session)
 
     # Çerçeve, cevaba sızmadan burada kesilir: aşağıdaki katmanların hiçbiri
     # taşıma biçimini tanımak zorunda değildir.
@@ -1726,9 +1994,16 @@ async def _deliver_turn(
 
     kademe = await observed_tier(state.page, definition)
     if choice and kademe and not _model_choice_matches_observed(choice, kademe):
-        raise WebBrowserError(
-            f"{definition.name} seçili modelden farklı bir kademeye geçti: {kademe}"
-        )
+        # Mesaj sağlayıcıda ve cevap alındı: durumu eski bırakıp fırlatmak, yeniden
+        # denemede aynı mesajı AYNI sohbete ikinci kez yazdırırdı (ölçüldü 30 Ekim).
+        # Kirlenmiş sohbet bırakılır; sonraki deneme temiz sohbette başlar.
+        if resumable:
+            await manager.drop_conversation(session.provider, session.account, root)
+        else:
+            manager.discard_page(state.page)
+        # Kısa tutulur: ayırt edici bilgi başta, sağlayıcı adı yok (ekranda satır kesiliyordu;
+        # ölçüldü 30 Ekim: "Gemini Web (Google AI Pro/Ultra) seçili…" kademeyi gizledi).
+        raise WebBrowserError(f"seçili model ({choice}) yerine {kademe} cevapladı")
     if not kademe and choice:
         kademe = choice
     if kademe and kademe != state.tier:
@@ -1753,7 +2028,15 @@ async def _deliver_turn(
         _append_trace(
             trace_dir, session, prompt=prompt, answer=answer, resumed=resumable, tier=kademe
         )
-    return WebTurn(answer, kademe)
+    return WebTurn(
+        answer,
+        kademe,
+        manager.take_mode_note(session),
+        prompt_measurement=measurements[-1] if measurements else None,
+        provenance=observations[-1].provenance
+        if observations and strip_role_headers(observations[-1].text) == answer
+        else None,
+    )
 
 
 def _native_login_executable() -> str | None:
@@ -1957,6 +2240,9 @@ async def _send_turn(
     previous: str = "",
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
     images: tuple[str, ...] = (),
+    measurement_sink: Callable[[PromptTransportMeasurement], None] | None = None,
+    observation_sink: Callable[[ObservedResponse], None] | None = None,
+    web_call_context: WebCallContext | None = None,
 ) -> str:
     """Açık bir sohbete tek mesaj gönder ve yanıtı bekle.
 
@@ -1984,11 +2270,23 @@ async def _send_turn(
     if await _strong_login_signal(page, definition):
         raise WebBrowserAuthError(_login_required_message(definition))
 
-    before = await _response_snapshot(page, definition.response_selectors)
+    before_observations: list[ObservedResponse] = []
+    before = (
+        await _response_snapshot(
+            page,
+            definition.response_selectors,
+            observation_sink=before_observations.extend,
+            provider_id=definition.id,
+        )
+        if observation_sink is not None
+        else await _response_snapshot(page, definition.response_selectors)
+    )
     composer_metni = await _prepare_prompt_for_composer(page, definition, prompt)
     eklenen = await _attach_images(page, definition, images)
-    if eklenen:
-        composer_metni += f"\n\n[{eklenen} görsel ekte; cevabını görsellere bakarak ver.]"
+    measurement = _prompt_transport_measurement(prompt, composer_metni)
+    composer_metni += image_upload_notice(eklenen, len(images))
+    if measurement_sink is not None:
+        measurement_sink(replace(measurement, sent_chars=len(composer_metni)))
     await _fill_editor(input_locator, composer_metni)
     send = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
     if send is not None:
@@ -1997,7 +2295,14 @@ async def _send_turn(
         await input_locator.press("Enter")
 
     return await _wait_for_response(
-        page, definition, before, previous=previous, sent_prompt=composer_metni, limit_s=limit_s
+        page,
+        definition,
+        before,
+        previous=previous,
+        sent_prompt=composer_metni,
+        limit_s=limit_s,
+        before_observations=tuple(before_observations),
+        **observation_options(web_call_context, observation_sink),
     )
 
 
@@ -2005,20 +2310,26 @@ async def _send_turn(
 #: analytics kodudur ve GÖRÜNTÜ METNİNDEN (dolayısıyla arayüz dilinden) BAĞIMSIZDIR
 #: — `aria-label` "Yükleme ve araçlar" gibi yerelleştirilmiş bir metinken bu değişmez.
 #: Ölçüldü (22 Eylül, gerçek Gemini web oturumu, TR arayüz).
-_GEMINI_UPLOAD_MENU_TRIGGER = "button[jslog^='300142']"
+_GEMINI_UPLOAD_MENU_TRIGGER = _SELECTORS.gemini_upload_menu_trigger
 #: Menüdeki "Dosya yükleyin" seçeneği. `data-test-id` Google'ın kendi test
 #: altyapısına ait, KARARLI bir öznitelik — `aria-label` metni (TR'de "Dosya
 #: yükleyin. Belgeler, veriler, kod dosyaları") yerelleştirilmiş, bu değil.
 #: Ölçüldü (22 Eylül); yalnız TR arayüzde doğrulandı, başka dillerde aynı
 #: `data-test-id`'nin kullanıldığı VARSAYILIR ama ölçülmedi.
-_GEMINI_UPLOAD_OPTION = "[data-test-id='local-images-files-uploader-button']"
+_GEMINI_UPLOAD_OPTION = _SELECTORS.gemini_upload_option
 #: Dosya seçildikten sonra sayfanın onu işlemesi için beklenen süre. Ölçüldü
 #: (105.032 karakterlik gerçek dosya, aynı oturum): 3 sn yeterliydi, modelin
 #: dosyayı GERÇEKTEN okuduğu aynı canlı turda doğrulandı.
 _UPLOAD_SETTLE_MS = 3_000
+#: Uzun istemin yüklendiği ekin adı. Ölçüldü (30 Ekim): `tmpXXXX.txt` adı ve "Dosyayı oku"
+#: cümlesi Gemini'ye proje dosyası gibi göründü; model `read_file(tmp….txt)` ile var
+#: olmayan dosyayı tek turda 15 kez aradı. Sabit, kendini anlatan ad ve açık not bunu keser.
+UPLOAD_FILE_NAME = "fusion-gorev-metni.txt"
+
 _UPLOAD_NOTICE = (
-    "Görev metni {chars} karakter olduğu için mesaj kutusuna sığmıyor; tam metin "
-    "ekli dosyada. Dosyayı oku, göreve ondan devam et."
+    "Görev metni {chars} karakter olduğu için mesaj kutusuna sığmıyor; tam metin bu "
+    f"mesaja ekli `{UPLOAD_FILE_NAME}` ekinde. Bu ek bir proje dosyası değil: read_file "
+    "ya da başka bir araçla açmaya çalışma, eki doğrudan oku ve göreve ondan devam et."
 )
 
 
@@ -2104,6 +2415,19 @@ def _data_uri_bytes(uri: str) -> tuple[bytes, str] | None:
         return None
 
 
+def image_upload_notice(attached: int, requested: int) -> str:
+    """Görsel yükleme sonucunu modele söyleyen not; yüklenemeyen görsel sessiz düşmez."""
+    notice = ""
+    if attached:
+        notice += f"\n\n[{attached} görsel ekte; cevabını görsellere bakarak ver.]"
+    if requested > attached:
+        notice += (
+            f"\n\n[{requested - attached} görsel yüklenemedi; o görseller İNCELENMEDİ, "
+            "görmüş gibi cevap verme.]"
+        )
+    return notice
+
+
 async def _attach_images(
     page: Any, definition: BrowserProviderDefinition, images: tuple[str, ...]
 ) -> int:
@@ -2112,7 +2436,7 @@ async def _attach_images(
     Eskiden görseller sessizce düşüyordu; görsel okuyamayan ana model için öğretmen
     "göz" olamıyordu. Yükleme isteğe bağlıdır: arıza turu düşürmez, sayı 0 döner.
     """
-    if not images or definition.id != "gemini_web":
+    if not images or definition.id not in WEB_IMAGE_UPLOAD_PROVIDERS:
         return 0
     eklenen = 0
     for uri in images:
@@ -2134,18 +2458,17 @@ async def _attach_images(
 
 async def _try_gemini_file_upload(page: Any, content: str) -> bool:
     """İçeriği Gemini web'e dosya olarak yükle; başarılıysa `True`."""
-    gecici_yol: str | None = None
+    gecici_dizin: str | None = None
     try:
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
-            tmp.write(content)
-            gecici_yol = tmp.name
-        return await gemini_attach_file(page, gecici_yol)
+        gecici_dizin = tempfile.mkdtemp(prefix="fusion-ek-")
+        yol = Path(gecici_dizin) / UPLOAD_FILE_NAME
+        yol.write_text(content, encoding="utf-8")
+        return await gemini_attach_file(page, str(yol))
     except OSError:
         return False
     finally:
-        if gecici_yol is not None:
-            with contextlib.suppress(OSError):
-                Path(gecici_yol).unlink()  # noqa: ASYNC240 - küçük geçici dosya, engellemez
+        if gecici_dizin is not None:
+            shutil.rmtree(gecici_dizin, ignore_errors=True)
 
 
 async def _editor_icerigi(locator: Any) -> str | None:
@@ -2367,7 +2690,13 @@ def _icerikten_metin(deger: object) -> str:
     return str(deger)
 
 
-async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, ...]:
+async def _response_snapshot(
+    page: Any,
+    selectors: Sequence[str],
+    *,
+    observation_sink: Callable[[tuple[ObservedResponse, ...]], None] | None = None,
+    provider_id: str = "",
+) -> tuple[str, ...]:
     """Sayfadaki yanıtları oku. Seçiciler BİRLİK değil TERCİH SIRASIDIR.
 
     Ölçüldü (Gemini web): cevaba "COGNOiSe.com - The IBM Cognos Community" gibi
@@ -2385,10 +2714,18 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
     seçiciden bir kez sayılıyordu ve "yeni yanıt geldi mi" ölçütü seçici sayısına
     göre kayıyordu.
     """
+    origin = _SELECTORS.providers.get(provider_id)
+    script = _SUSSUZ_ICERIK_BETIGI
+    if observation_sink is not None and origin is not None:
+        script = script.replace(
+            "text: kopya.innerText ?? ''",
+            "text: kopya.innerText ?? '', origin: "
+            + origin_script(origin.origin_roles, origin.origin_ids),
+        )
     for selector in selectors:
         locator = page.locator(selector)
         try:
-            values = await locator.evaluate_all(_SUSSUZ_ICERIK_BETIGI)
+            values = await locator.evaluate_all(script)
         except Exception:
             # Betik çalıştırılamıyorsa (eski Playwright, sahte sayfa) ham metne
             # düşülür: süslü metin, hiç metin olmamasından iyidir.
@@ -2396,9 +2733,22 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
                 values = await locator.all_inner_texts()
             except Exception:
                 continue
-        okunanlar = (_clean_text(_icerikten_metin(value)) for value in values)
-        texts = tuple(metin for metin in okunanlar if metin)
+        observations = tuple(
+            observed_response(
+                text,
+                value,
+                provider_id=provider_id,
+                selector=selector,
+                selector_version=_SELECTORS.schema_version,
+                selector_digest=_SELECTORS.bundle_digest,
+            )
+            for value in values
+            if (text := _clean_text(_icerikten_metin(value)))
+        )
+        texts = tuple(item.text for item in observations)
         if texts:
+            if observation_sink is not None:
+                observation_sink(observations)
             return texts
     return ()
 
@@ -2462,6 +2812,9 @@ async def _wait_for_response(
     previous: str = "",
     sent_prompt: str = "",
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
+    observation_sink: Callable[[ObservedResponse], None] | None = None,
+    web_call_context: WebCallContext | None = None,
+    before_observations: tuple[ObservedResponse, ...] = (),
 ) -> str:
     """Bu turun YENİ cevabını bekle. Doğrulanamazsa ESKİ cevabı döndürme.
 
@@ -2497,7 +2850,17 @@ async def _wait_for_response(
     checks = 0
     while time.monotonic() < deadline:
         checks += 1
-        current = await _response_snapshot(page, definition.response_selectors)
+        current_observations: list[ObservedResponse] = []
+        current = (
+            await _response_snapshot(
+                page,
+                definition.response_selectors,
+                observation_sink=current_observations.extend,
+                provider_id=definition.id,
+            )
+            if observation_sink is not None
+            else await _response_snapshot(page, definition.response_selectors)
+        )
         # Yeni yanıt ÖĞESİ oluştu mu? Sayının artması, metnin değişmesinden daha
         # güvenilir bir işarettir: aynı metin tekrar üretilebilir, ama öğe sayısı
         # yalnızca gerçekten yeni bir yanıt eklendiğinde artar.
@@ -2523,11 +2886,24 @@ async def _wait_for_response(
         if text_changed or generating:
             calm_since = time.monotonic()
         now = time.monotonic()
-        if latest and not generating:
-            if saw_new and now - stable_since >= RESPONSE_STABLE_S:
-                return latest
-            if changed and now - calm_since >= RESPONSE_QUIET_S:
-                return latest
+        if (
+            latest
+            and not generating
+            and (
+                (saw_new and now - stable_since >= RESPONSE_STABLE_S)
+                or (changed and now - calm_since >= RESPONSE_QUIET_S)
+            )
+        ):
+            if observation_sink is not None and current_observations:
+                observation_sink(
+                    accepted_snapshot(
+                        current_observations[-1],
+                        before_observations,
+                        has_new_node=saw_new,
+                        context=web_call_context,
+                    )
+                )
+            return latest
         if checks % 15 == 0:
             # BEKLERKEN yalnızca gerçekten ENGELLEYEN durumlar turu keser: oturum
             # kapalıysa ya da insan doğrulaması isteniyorsa cevap zaten gelmeyecek.
@@ -2558,9 +2934,8 @@ def _human_verification_message(definition: BrowserProviderDefinition, marker: s
     """İnsan doğrulaması. Bunu Fusion AŞAMAZ; kullanıcı bizzat tamamlamalıdır."""
     return (
         f"authentication: {definition.name} insan doğrulaması (captcha) istiyor. "
-        "Bunu otomatik aşmak mümkün değil — doğrulamayı görünür tarayıcıda KENDİN "
-        "tamamlaman gerekiyor. Oturum `hidden` (gizli) kipteyse Fusion pencereyi kendisi "
-        f"açıp bekler; `headless` kipte açamaz.\n{_cozum_adimlari(definition)}\n"
+        "Doğrulamayı görünür tarayıcıda kendin tamamlaman gerekiyor.\n"
+        f"{_cozum_adimlari(definition)}\n"
         f"[sayfa işareti: {marker}]"
     )
 
@@ -2592,12 +2967,7 @@ def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
 
 
 #: Gerçek insan-doğrulama sayfasının DOM kanıtı (Cloudflare Turnstile / ara sayfa).
-_CHALLENGE_DOM = (
-    'iframe[src*="challenges.cloudflare.com"]',
-    "#challenge-running",
-    "#challenge-stage",
-    'input[name="cf-turnstile-response"]',
-)
+_CHALLENGE_DOM = _SELECTORS.challenge_dom
 
 
 async def _challenge_dom_present(page: Any) -> bool:
@@ -2950,3 +3320,14 @@ def _clean_text(value: str) -> str:
 def _slug(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip()).strip("-._")
     return cleaned or "main"
+
+
+def _prompt_transport_measurement(prompt: str, composer: str) -> PromptTransportMeasurement:
+    """Gerçek composer çıktısında kaynak kaybını işaret metninden ayrı say."""
+    if composer == prompt:
+        return PromptTransportMeasurement(len(prompt), len(composer), 0)
+    if composer == _UPLOAD_NOTICE.format(chars=len(prompt)):
+        return PromptTransportMeasurement(len(prompt), len(composer), 0, len(prompt))
+    marker = _TRIM_MARK.format(atilan=len(prompt) - MAX_WEB_PROMPT_CHARS)
+    retained = len(composer) - len(marker) if marker in composer else len(composer)
+    return PromptTransportMeasurement(len(prompt), len(composer), max(0, len(prompt) - retained))

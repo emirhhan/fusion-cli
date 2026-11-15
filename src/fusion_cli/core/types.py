@@ -6,9 +6,17 @@ veri taşıması dict ile değil bu tiplerle yapılır (RULES.md "Katman Sınır
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import TYPE_CHECKING, Literal
+
+from .prompt_manifest import ContextProfile, PromptTransportMeasurement
+from .web_provenance import WebCallContext, WebResponseProvenance
+
+if TYPE_CHECKING:
+    from .provider_diagnostics import ProviderCallObserver
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +36,10 @@ class TokenUsage:
     prompt_measured: bool = False
     completion_measured: bool = False
     cost_known: bool = False
+    #: Sağlayıcının bildirdiği önbellek token'ları (Claude `cache_read_input_tokens`,
+    #: `cache_creation_input_tokens`); `prompt_tokens`'a ek bilgi, toplamı değiştirmez.
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
     @property
     def completeness(self) -> str:
@@ -48,6 +60,8 @@ class TokenUsage:
             prompt_measured=self.prompt_measured and other.prompt_measured,
             completion_measured=self.completion_measured and other.completion_measured,
             cost_known=self.cost_known and other.cost_known,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_creation_tokens=self.cache_creation_tokens + other.cache_creation_tokens,
         )
 
 
@@ -113,13 +127,20 @@ class ModelSpec:
     fallback: tuple[str, ...] = ()
     supported_reasoning_efforts: tuple[str, ...] = ()
     reasoning_efforts_verified: bool = False
+    context_profile: ContextProfile | None = None
+    recommended_edit_format: Literal["exact", "whole"] | None = None
 
     def with_identity(self, model: str) -> ModelSpec:
         """Başka model eski modelin doğrulanmış yetenek kaydını miras alamaz."""
         if model == self.model:
             return self
         return replace(
-            self, model=model, supported_reasoning_efforts=(), reasoning_efforts_verified=False
+            self,
+            model=model,
+            supported_reasoning_efforts=(),
+            reasoning_efforts_verified=False,
+            context_profile=None,
+            recommended_edit_format=None,
         )
 
     @property
@@ -139,6 +160,22 @@ class ModelSpec:
     def models(self) -> tuple[str, ...]:
         """Birincil + yedekler, sıra korunarak ve tekrarlar atılarak."""
         return tuple(dict.fromkeys([self.model, *self.fallback]))
+
+
+def _has_marker(lowered: str, markers: tuple[str, ...]) -> bool:
+    """Küçük harfli hata metninde işaretlerden biri var mı?
+
+    Sayısal durum kodları (`429`, `503`) SAYI SINIRIYLA aranır: düz alt-dize
+    eşlemesi `4290 tokens`ı kota, `15004`ü altyapı, `line 500`ü sunucu hatası sanıyordu.
+    Ölçüldü (30 Ekim). Sözcük işaretleri eskisi gibi alt-dize eşlemesidir.
+    """
+    for marker in markers:
+        if marker.isdigit():
+            if re.search(rf"(?<![\d.])(?<!line )(?<!satır ){marker}(?![\d])", lowered):
+                return True
+        elif marker in lowered:
+            return True
+    return False
 
 
 #: Sağlayıcıların kota/hız sınırını bildirirken kullandığı sözcükler.
@@ -177,7 +214,7 @@ def is_rate_limit_error(detail: str | None) -> bool:
     if not detail:
         return False
     lowered = detail.lower()
-    return any(marker in lowered for marker in _RATE_LIMIT_MARKERS)
+    return _has_marker(lowered, _RATE_LIMIT_MARKERS)
 
 
 #: Modelin HİÇ cevap veremediğini gösteren işaretler.
@@ -241,7 +278,7 @@ def is_infrastructure_error(detail: str | None) -> bool:
     if not detail:
         return False
     lowered = detail.lower()
-    return is_unavailable_error(detail) or any(marker in lowered for marker in _INFRA_MARKERS)
+    return is_unavailable_error(detail) or _has_marker(lowered, _INFRA_MARKERS)
 
 
 def is_authentication_error(detail: str | None) -> bool:
@@ -260,7 +297,7 @@ def is_unavailable_error(detail: str | None) -> bool:
     lowered = detail.lower()
     if is_rate_limit_error(detail) or is_daily_quota_error(detail):
         return True
-    return any(marker in lowered for marker in _UNAVAILABLE_MARKERS)
+    return _has_marker(lowered, _UNAVAILABLE_MARKERS)
 
 
 #: Beklemenin HİÇBİR ŞEYİ değiştirmeyeceği hataların işaretleri.
@@ -291,6 +328,33 @@ _PERMANENT_MARKERS = (
 )
 
 
+#: Web oturumu adaptörünün her hata sonucuna koyduğu önek (`providers.web_session`).
+WEB_SESSION_ERROR_PREFIX = "web oturumu hatası:"
+
+#: Önek taşısa da oturumun KENDİSİ bozuk olmayan, beklemekle geçebilen web hataları.
+#
+# Yavaş yanıt (süre aşımı) ve sağlayıcının "geçici hata" sayfası aynı modelle yeniden
+# denenince geçer; komşu modele geçiş de bu yeniden denemeye dayanır
+# (`providers.web_browser._apply_model_choice`). Kalıcı sayılırlarsa o yol kapanırdı.
+_WEB_TRANSIENT_MARKERS = ("saniyede tamamlanmadı", "geçici bir hata bildirdi")
+
+
+def is_web_session_error(detail: str | None) -> bool:
+    """Web oturumunun arayüzü/oturumu kullanılamıyor mu? (tıklanamayan menü, kapalı oturum…)
+
+    Bu sınıf yeniden denemekle düzelmez ve her denemede tarayıcıyı yeniden meşgul
+    eder. Ölçüldü (30 Ekim): pasif model seçeneğine tıklama zaman aşımı geçici sanıldı;
+    bir turda dokuz kez önce Gemini yeniden denendi, sonra yedeğe düşüldü. Devre kesici
+    bu hatada ilk seferde açılır; yeniden deneme katmanı beklemez.
+    """
+    if not detail:
+        return False
+    lowered = detail.lower()
+    if WEB_SESSION_ERROR_PREFIX not in lowered:
+        return False
+    return not any(marker in lowered for marker in _WEB_TRANSIENT_MARKERS)
+
+
 def is_permanent_error(detail: str | None) -> bool:
     """Hata beklemekle geçmeyecek türden mi? (olmayan model, geçersiz anahtar, günlük kota)
 
@@ -303,16 +367,20 @@ def is_permanent_error(detail: str | None) -> bool:
     """
     if not detail:
         return False
-    if is_daily_quota_error(detail):
+    if is_daily_quota_error(detail) or is_web_session_error(detail):
         return True
     lowered = detail.lower()
-    return any(marker in lowered for marker in _PERMANENT_MARKERS)
+    return _has_marker(lowered, _PERMANENT_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)
 class CompletionRequest:
     """Sağlayıcıya verilen çağrı isteği. Sağlayıcıdan bağımsızdır."""
 
+    #: Private observation only: never forwarded to SDK kwargs or serialized as an event.
+    provider_observer: ProviderCallObserver | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
     messages: tuple[Message, ...]
     temperature: float
     max_tokens: int
@@ -328,6 +396,35 @@ class CompletionRequest:
     #: düşünme anahtarı olan modeller için (NIM Nemotron). Ölçüldü (3 Ekim 2026): aynı
     #: `header.php` yazımı düşünmeyle 161 sn/4130 token, düşünme kapalı 29 sn/2973 token.
     disable_thinking: bool = False
+    #: Yalnız açıkça istenen yapılandırılmış iç denetim için; normal aktörde None.
+    response_schema: Mapping[str, object] | None = field(default=None, kw_only=True)
+    #: Açık yerel düşünme bütçesi; None normal aktör tercihlerini değiştirmez.
+    reasoning_budget: int | None = field(default=None, kw_only=True)
+    #: Bu isteği yapan işin (ana ajan, alt ajan…) kimliği. Durumlu taşımalar (tarayıcı
+    #: sohbeti) bunu sohbet anahtarına katar: aynı sistem istemli paralel işler aynı
+    #: sohbeti çekiştirmez (P1-31). Boşsa anahtar yalnız mesaj önekinden türer.
+    conversation_id: str = ""
+    #: Her araç turunda tekrarlanacak nihai cevap sözleşmesi metni. Üst katman (motor)
+    #: hangi araçların sunulduğunu bildiği için metni o üretir; taşıma yalnız
+    #: biçimlendirir (P1-33). Boşsa taşıma hiçbir sözleşme metni eklemez.
+    answer_contract: str = ""
+    edit_format: Literal["exact", "whole"] | None = None
+    emulation_protocol: Literal["v1", "v2"] = "v1"
+    web_call_context: WebCallContext | None = None
+    is_capture_probe: bool = False
+    #: Claude istem önbelleği süresi (`5m`/`1h`; ajan `experimental.cacheTtl`, #23). Boşsa
+    #: önbellek işareti gönderilmez; yalnız Claude modellerine uygulanır.
+    prompt_cache_ttl: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ParseWarning:
+    """Kurtarılan çağrıların yanında kaybolmadan taşınan protokol uyarısı."""
+
+    kind: str
+    message: str
+    call_index: int | None = None
+    blocks_mutation: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +447,7 @@ class ModelResult:
     #: Reasoning modellerinin düşünme metni. Nihai cevaba KARIŞTIRILMAZ; ayrı taşınır
     #: ki teşhis ve gösterim kararı üst katmanlara kalsın.
     reasoning: str = ""
+    parse_warnings: tuple[ParseWarning, ...] = ()
     #: Çıktı bütçesi dolduğu için yanıt yarıda mı kesildi? Metin gelmiş olabilir ama
     #: TAMAMLANMAMIŞTIR: JSON'a, talimata ya da koda güvenilmemelidir.
     truncated: bool = False
@@ -360,9 +458,15 @@ class ModelResult:
     # seçili kademesi yazar ve oturum düşerse bu anonim ücretsiz kademe olur.
     # Bilinmiyorsa boş kalır; boş olması "istenen kademe geldi" demek DEĞİLDİR.
     served_by: str = ""
+    prompt_measurement: PromptTransportMeasurement | None = field(default=None, kw_only=True)
     requested_effort: str | None = None
     applied_effort: str | None = None
     effort_reason: str = ""
+    #: Hız sınırı sonucunda çağrının YENİDEN denenebileceği en erken süre (sn).
+    #: Hız kapısı paylaşılan soğumayı bu alanla bildirir; yeniden deneme katmanı
+    #: kısa sabit gecikme yerine en az bu kadar bekler (P1-07). Bilinmiyorsa `None`.
+    retry_after_s: float | None = None
+    web_provenance: WebResponseProvenance | None = None
 
     @property
     def is_rate_limited(self) -> bool:

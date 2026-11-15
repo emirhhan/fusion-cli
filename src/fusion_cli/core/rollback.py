@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .changeset import ChangeSet
+from .changeset import ChangeSet, RollbackConflict
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +25,11 @@ class StepRollback:
 
     changes: ChangeSet
 
+    @property
+    def conflicts(self) -> tuple[RollbackConflict, ...]:
+        """Son geri almada korunan yollar; çağıran kullanıcıya bildirir."""
+        return self.changes.conflicts
+
     def keep(self) -> None:
         """Adım doğrulandı: çıktı kalıcıdır, geri alma kaydı kapanır."""
         self.changes.commit()
@@ -32,7 +37,7 @@ class StepRollback:
     def discard(self) -> tuple[Path, ...]:
         """Deneme düştü: bu adımda yazılanları ilk hâline döndür.
 
-        Geri alınan yolları döndürür. Kayıt boşaldığı için bir sonraki deneme kendi
-        yazmalarını temiz bir kayıtla tutar — iki denemenin kaydı birbirine karışmaz.
+        Geri alınan yolları döndürür. Çakışan yolların ilk hâli korunur; çağıran
+        `conflicts` üzerinden bildirip otomatik yeniden yazmayı durdurmalıdır.
         """
         return self.changes.restore()

@@ -174,5 +174,7 @@ async def test_run_agent_task_injects_home_digest_memory_and_history_tool(
         if isinstance(schema.get("function"), dict)
     }
     assert "devralınan künye işareti" in system_text
-    assert "harici bellek işareti" in system_text
+    # Claude Code (#149): talimat/bellek içeriği sistemden sonra kullanıcı mesajıdır.
+    context_text = "\n".join(m.content for m in provider.seen_messages[0][1:] if m.harness_note)
+    assert "harici bellek işareti" in context_text
     assert "read_session" in tool_names

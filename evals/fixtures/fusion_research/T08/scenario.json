@@ -1,0 +1,10 @@
+{
+  "kind": "stale_edit",
+  "split": "blind",
+  "request": "app.py değerini 2 yap; araya giren kullanıcı satırını koru.",
+  "checks": [],
+  "after_read": {
+    "path": "app.py",
+    "content": "def deger():\n    return 1\n# Kullanıcı satırı\n"
+  }
+}

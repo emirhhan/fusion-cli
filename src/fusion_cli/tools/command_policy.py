@@ -21,6 +21,11 @@ import shlex
 from pathlib import Path
 
 from .command_paths import escapes_project
+from .command_semantics import (
+    awk_reads_only,
+    git_reads_only,
+    sed_reads_only,
+)
 from .inline_python import is_inert_python
 
 #: Yan etkisi olmayan, yalnızca okuyan/gösteren komutlar.
@@ -122,6 +127,8 @@ _GODOT_VERIFY_FLAGS = frozenset(
 #: aynı işi `write_file` aracı zaten sormadan yapıyor. Proje dışına çıkan yol
 #: `escapes_project` ile önce elenir; `rm -rf` gibi yıkıcı kalıplar
 #: `safety.danger_reason` ile ayrıca sorulur.
+#: Ezilen/taşınan mevcut dosya sorulmaz ama `run_shell` çalışmadan önce
+#: `changes.record` ile yedekler (T1-18, bkz. `shell_overwrite`).
 _WORKSPACE_MUTATORS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "ln", "rmdir"})
 
 #: Kod biçimlendiriciler: yalnız proje dosyalarını yeniden yazar.
@@ -142,8 +149,17 @@ _SHELL_RUNNERS = frozenset({"bash", "sh", "zsh"})
 #: `curl`'ü okuyucu olmaktan çıkaran, veri GÖNDEREN bayraklar.
 CURL_SEND_FLAGS = frozenset(
     {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-F", "--form",
-     "-T", "--upload-file", "-X", "--request", "-K", "--config"}
+     "-T", "--upload-file", "-X", "--request", "-K", "--config", "--json"}
 )  # fmt: skip
+
+#: Uzun curl bayraklarının veri gönderen ön ekleri (`--data-raw`, `--form=f=@x`, `--request=POST`).
+_CURL_SEND_LONG_PREFIXES = (
+    "--data", "--json", "--form", "--upload", "--request", "--config", "--post",
+)  # fmt: skip
+#: Kısa curl bayrakları: veri/yükleme/yöntem/yapılandırma gönderenler ve ardındaki
+#: kümeyi DEĞER olarak yutanlar (`-ofile`, `-Hx:y`, `-uad:parola`).
+_CURL_SEND_SHORT = frozenset("dFTXK")
+_CURL_VALUE_SHORT = frozenset("oAbcCDeEHmPrtuUwxyYzQ") | _CURL_SEND_SHORT
 
 #: Otomatik kipte onaysız geçen, YEREL etkili git alt komutları. Uzak depoya
 #: yazan (`push`), geçmişi yeniden yazan (`rebase`) ve kaydedilmemiş işi silen
@@ -163,31 +179,10 @@ _LOCAL_GIT_SUBCOMMANDS = frozenset(
         "reset",
     }
 )
-_GIT_DESTRUCTIVE_FLAGS = frozenset({"--hard", "--force", "-f", "--amend"})
-
-#: Onaysız geçilen git alt komutları — TEK KAYNAK.
-#:
-#: Git iki ayrı yoldan gelebilir (`git` aracı ve `run_shell`) ve ikisinde de aynı
-#: kararın verilmesi gerekir. Liste eskiden `shell.py` içinde ikinci kez yazılıydı;
-#: iki kopya zamanla ayrışıp aynı komutun bir yoldan onaysız, öteki yoldan onaylı
-#: geçmesine yol açabilirdi. `shell` bu listeyi buradan alır.
-READONLY_GIT_SUBCOMMANDS = frozenset(
-    {
-        "status",
-        "diff",
-        "log",
-        "show",
-        "branch",
-        "ls-files",
-        "blame",
-        "remote",
-        "tag",
-        "rev-parse",
-        "ls-remote",
-        "symbolic-ref",
-        "rev-list",
-    }
-)
+_GIT_DESTRUCTIVE_FLAGS = frozenset({"--hard", "--force", "-f", "--amend", "--discard-changes"})
+#: `git restore|checkout <yol>` bütün çalışma ağacını gösteriyorsa kaydedilmemiş iş gider.
+_WHOLE_TREE_PATHSPECS = frozenset({".", "./", ":/", ":(top)", "*"})
+_STASH_DISCARDS = frozenset({"drop", "clear"})
 
 #: Komutu parçalara bölen iki karakterlik kabuk operatörleri. Zincirin HER parçası
 #: güvenli olmalı: `ls && rm -rf build` ilk parçasına bakılarak geçirilemez.
@@ -205,7 +200,36 @@ _EXPANSIONS = ("$(", "${", "`")
 
 #: `find` için silme/çalıştırma bayrakları — komutun kendisi okuyucu olsa da bunlar
 #: onu yıkıcı yapar.
-_FIND_UNSAFE = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint"})
+_FIND_UNSAFE = frozenset(
+    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint", "-fprint0", "-fprintf"}
+)
+
+#: Çalıştırıldığında ENGELLEYEN okuyucular: `tail -f`/`top` zaman aşımına kadar döner.
+_TAIL_FOLLOW = frozenset({"-f", "-F", "--follow"})
+
+#: `open` ile onaysız açılmaması gereken çalıştırılabilir/kurulabilir türler.
+_OPEN_EXECUTABLE_SUFFIXES = (".app", ".dmg", ".pkg", ".command", ".terminal", ".sh", ".jar")
+
+
+def _blocks_forever(name: str, arguments: list[str]) -> bool:
+    if name == "tail":
+        return any(a in _TAIL_FOLLOW or a.startswith("--follow") for a in arguments)
+    if name == "top":
+        # Etkileşimli; yalnız tek örnek alan biçim (`-l 1`, `-n 1`) döner.
+        return not any(a in {"-l", "-n"} for a in arguments)
+    return False
+
+
+def _open_safe(arguments: list[str]) -> bool:
+    """`open` yalnız zararsız bir hedefi (yerel belge/yerel adres) açıyorsa serbest."""
+    if not arguments or arguments[0].startswith("-"):
+        return False
+    for argument in arguments:
+        if argument.lower().rstrip("/").endswith(_OPEN_EXECUTABLE_SUFFIXES):
+            return False
+        if "://" in argument and not only_local_urls([argument]):
+            return False
+    return True
 
 
 def is_unattended_safe(command: str, root: Path | None = None) -> bool:
@@ -262,6 +286,17 @@ def _split(command: str, root: Path | None = None) -> list[str] | None:
             atla = _safe_redirect_length(command, index, root)
             if atla is None:
                 return None
+            # `2>&1` / `2>/dev/null`: `>`'a YAPIŞIK tanımlayıcı rakamı argüman değil
+            # yönlendirmenin parçasıdır. Eskiden segment sonundaki HER rakamlı argüman
+            # atılıyordu (`head -n 5`, `chmod 777`).
+            if (
+                char == ">"
+                and command[index - 1 : index].isdigit()
+                and current
+                and current[-1].isdigit()
+                and (len(current) == 1 or current[-2].isspace())
+            ):
+                current.pop()
             index += atla
             continue
         elif char in _UNQUOTED_UNSAFE:
@@ -313,9 +348,6 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
     if not parts:
         return False
 
-    # `2>&1` yönlendirmesinden geriye kalan tanımlayıcı rakamı argüman değildir.
-    if len(parts) > 1 and parts[-1].isdigit() and segment.rstrip().endswith(" " + parts[-1]):
-        parts = parts[:-1]
     if parts[0] == "sudo":
         return False
     name = parts[0].rsplit("/", 1)[-1]
@@ -349,22 +381,21 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
             and not is_outward_script(arguments[0])
         )
     if name in {"npx", "bunx"}:
-        return bool(arguments) and not any(a in _INLINE_CODE_FLAGS for a in arguments)
+        return _npx_safe(arguments)
     if name in {"pip", "pip3"} or (name == "uv" and arguments[:1] == ["pip"]):
         return _pip_safe(arguments[1:] if name == "uv" else arguments)
     if name == "curl":
-        sends = any(
-            argument in CURL_SEND_FLAGS or argument.startswith(("--data", "-d@"))
-            for argument in arguments
-        )
+        sends = curl_sends_data(arguments)
         # Kendi yerel sunucusunu sınamak (`curl -X POST localhost:5000/...`) dışa
         # veri göndermek değildir; Claude'un otomatik kipi de bunu sormaz.
         return not sends or only_local_urls(arguments)
+    if _blocks_forever(name, arguments):
+        return False
     if name in {"source", "."}:
         # Proje içindeki sanal ortamı etkinleştirmek; kök dışı yol yukarıda elendi.
         return len(arguments) == 1
     if name == "open":
-        return bool(arguments) and not arguments[0].startswith("-")
+        return _open_safe(arguments)
     if name == "find":
         return not any(argument in _FIND_UNSAFE for argument in arguments)
     if name in _PROJECT_TOOLING:
@@ -375,7 +406,44 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         if all(argument in _VERSION_FLAGS for argument in arguments) and arguments:
             return True
         return name in _SCRIPT_RUNNERS and _script_safe(name, arguments)
+    if name == "awk":
+        return awk_reads_only(arguments)
+    if name == "sed":
+        return sed_reads_only(arguments)
     return name in READ_ONLY_COMMANDS
+
+
+#: `npx`/`bunx` ile onaysız çalışan, projenin kendi `node_modules/.bin` araçları.
+_NPX_LOCAL_TOOLS = frozenset(
+    {
+        "tsc", "vue-tsc", "tsx", "vitest", "jest", "eslint", "prettier", "biome", "stylelint",
+        "playwright", "vite", "next", "astro", "nuxt", "svelte-check", "tailwindcss", "prisma",
+        "tsup", "esbuild", "nodemon", "remotion",
+    }
+)  # fmt: skip
+#: `npx` bayrakları: uzaktan paket seçer/kurar ya da satır içi kod verir.
+_NPX_REMOTE_FLAGS = ("-y", "--yes", "-p", "--package", "-c", "--call", "-e", "--eval")
+
+
+def _npx_safe(arguments: list[str]) -> bool:
+    """`npx <araç>` projenin tanınan yerel aracını mı çalıştırıyor?
+
+    Ölçüldü (29 Ekim): `npx evil-paket` ve `bunx evil-paket` koşulsuz geçiyordu; uzaktan
+    paket indirip çalıştırmak (postinstall dahil) yerel araç çalıştırmakla aynı değildir.
+    Serbest: tanınan yerel araçlar, `create-*` iskeleleri (26 Eylül kararı) ve
+    `--no-install` (indirmeyi kapatır). Araçtan SONRAKİ bayraklar aracındır, denetlenmez.
+    """
+    tool = next((a for a in arguments if not a.startswith("-")), None)
+    if tool is None:
+        return False
+    before = arguments[: arguments.index(tool)]
+    if any(a.split("=", 1)[0] in _NPX_REMOTE_FLAGS for a in before):
+        return False
+    if any(a in {"--no-install", "--no"} for a in before):
+        return True
+    base = tool.rsplit("/", 1)[-1]
+    base = base.rsplit("@", 1)[0] if "@" in base[1:] else base
+    return base in _NPX_LOCAL_TOOLS or base.startswith("create-")
 
 
 def _godot_verify_safe(arguments: list[str]) -> bool:
@@ -417,21 +485,50 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
     """Proje aracı onaysız geçebilir mi?
 
     Alt komut alan araçlarda (`npm`, `cargo`, `go`, `make`) yalnızca kalite/test
-    alt komutları geçer: `npm install` ağdan paket çeker, `cargo publish` yayınlar
-    ve ikisi de geri alınamaz sonuçlar doğurur.
+    alt komutları geçer; `cargo publish` yayınlar ve geri alınamaz.
+
+    KARAR (26 Eylül, kullanıcı şikâyeti "oto modda gereksiz izinler soruyor"): `npm
+    install`, `pnpm add`, `yarn add` proje İÇİNE kurar ve bilerek serbesttir (paketin
+    kurulum betiği çalışır; bu bilinen bir taviz). Global kurulum (`-g`) ve `pnpm dlx`
+    gibi uzaktan çalıştırma sorulur.
     """
     if name in _DIRECT_TOOLING:
         return True
+    if arguments and all(argument in _VERSION_FLAGS for argument in arguments):
+        # `npm --version`, `go version`, `cargo --version`: yalnız sürüm/yardım sorgusu.
+        # (Eskiden `_VERSION_ONLY` dalı bu satırın ARKASINDA kaldığı için ölüydü.)
+        return True
     if not arguments:
-        return name in {"npm", "pnpm", "yarn", "bun", "make"} and name != "npm"
+        return name in {"pnpm", "yarn", "bun", "make"}
     if name in {"npm", "pnpm", "yarn", "bun"} and arguments[0] in _JS_INSTALL_SUBCOMMANDS:
         return not any(argument in GLOBAL_INSTALL_FLAGS for argument in arguments)
-    if name == "pnpm" and arguments[0] == "dlx":
-        return True
+    if arguments[0] == "run" and len(arguments) > 1 and is_outward_script(arguments[1]):
+        # `npm run deploy`: paket betiğinin adı dışa dönük iş söylüyor (bkz. auto_policy).
+        return False
     return arguments[0] in _TOOLING_SUBCOMMANDS
 
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"})
+
+
+def curl_sends_data(arguments: list[str]) -> bool:
+    """curl çağrısı veri/dosya yolluyor ya da yöntem/yapılandırma dayatıyor mu?
+
+    Ölçüldü (29 Ekim): yalnız TAM `-d`/`-F`/`-T`/`-X` eşleşmesi görülüyordu; `-Tdosya`,
+    `-sd@f`, `-sfd x`, `-XPOST`, `--form=f=@x` sorulmadan geçiyordu. Kısa bayrak
+    kümesi soldan sağa okunur; değer alan bayraktan sonrası o bayrağın değeridir.
+    """
+    for argument in arguments:
+        if argument in CURL_SEND_FLAGS or argument.startswith(_CURL_SEND_LONG_PREFIXES):
+            return True
+        if argument.startswith("--") or not argument.startswith("-") or len(argument) < 2:
+            continue
+        for char in argument[1:]:
+            if char in _CURL_SEND_SHORT:
+                return True
+            if char in _CURL_VALUE_SHORT:
+                break
+    return False
 
 
 def only_local_urls(arguments: list[str]) -> bool:
@@ -465,8 +562,14 @@ def _git_safe(arguments: list[str]) -> bool:
     """Salt-okur ya da YEREL etkili git komutu mu? Push/rebase/clean/--hard sorulur."""
     if not arguments:
         return False
-    if arguments[0] in READONLY_GIT_SUBCOMMANDS:
+    if git_reads_only(arguments):
         return True
     if arguments[0] not in _LOCAL_GIT_SUBCOMMANDS:
+        return False
+    if arguments[0] == "stash" and _STASH_DISCARDS & set(arguments[1:2]):
+        # Saklanan iş başka yerde yoktur; atmak geri alınamaz.
+        return False
+    discards_tree = arguments[0] in {"restore", "checkout"} and "--staged" not in arguments
+    if discards_tree and any(argument in _WHOLE_TREE_PATHSPECS for argument in arguments[1:]):
         return False
     return not any(argument in _GIT_DESTRUCTIVE_FLAGS for argument in arguments[1:])

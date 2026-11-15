@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from fusion_cli.ui.text import format_model, segment, strip_thinking
 
 
@@ -75,3 +77,52 @@ def test_normal_metindeki_kapanis_etiketi_yoksa_metin_korunur():
 
     assert strip_thinking("Merhaba <b>dünya</b>") == "Merhaba <b>dünya</b>"
     assert strip_thinking("<think>plan</think>Cevap") == "Cevap"
+
+
+def test_kacisli_tirnak_iceren_json_aciklamasi_erken_kesilmez():
+    """Ölçüldü (30 Ekim): kaçışlı tırnaklı "message" ilk `\\"` işaretinde kesiliyordu (L1-42)."""
+    from fusion_cli.ui.text import summarize_error
+
+    ham = 'RateLimitError: {"error": {"message": "model \\"x\\" kotada", "code": 429}}'
+
+    assert 'model "x" kotada' in summarize_error(ham)
+
+
+# --- Düşünme etiketi kümesi ve kapanışsız açılış (L1-03) ------------------------ #
+
+
+@pytest.mark.parametrize(
+    "etiket", ["think", "thinking", "thought", "reasoning", "THINKING", "Think"]
+)
+def test_dusunme_etiket_kumesi_buyuk_kucuk_harf_duyarsiz_ayiklanir(etiket):
+    ham = f"<{etiket}>gizli plan</{etiket}>Cevap"
+
+    assert strip_thinking(ham) == "Cevap"
+
+
+def test_acilis_ve_kapanis_ayni_etiket_adini_kullanir():
+    """`<thinking>` açıp `</think>` ile kapatmak bloğu kapatmaz."""
+    ham = "A <thinking>gizli </think> hala gizli</thinking> B"
+
+    assert strip_thinking(ham) == "A  B"
+
+
+def test_kapanissiz_acilistan_sonra_cevap_metni_gosterilir():
+    """Cevapta etiket sözcük olarak geçerse kalan metin yutulmaz."""
+    ham = "Düşünme etiketi şöyle yazılır: <think> ve sonra cevap devam eder."
+
+    assert strip_thinking(ham) == ham
+
+
+def test_kapanissiz_acilis_akista_hala_tutulur():
+    assert strip_thinking("Merhaba <think>gizli", streaming=True) == "Merhaba "
+
+
+def test_dogrudan_kapanissiz_acilisla_baslayan_kesilmis_dusunme_gizli_kalir():
+    """Token sınırında kesilen düşünme cevap sayılmaz."""
+    assert strip_thinking("<think>uzun plan, kesildi") == ""
+
+
+def test_akista_thinking_etiketinin_yarisi_geri_tutulur():
+    assert strip_thinking("abc<thinki", streaming=True) == "abc"
+    assert strip_thinking("abc<thinki", streaming=False) == "abc<thinki"

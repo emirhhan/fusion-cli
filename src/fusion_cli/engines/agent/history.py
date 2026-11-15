@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from ...core.types import Message
+from .research_evidence import RESEARCH_TOOLS, bounded_evidence, is_research_result
 
 #: Geçmiş bu karakter sayısını aşınca sıkıştırma denenir.
 #:
@@ -43,12 +44,34 @@ COMPRESS_THRESHOLD_CHARS = 177_000
 KEEP_RECENT_MESSAGES = 20
 #: Oturum izinde tek bir mesajdan alınacak en fazla karakter.
 TRACE_MESSAGE_CHARS = 300
+#: Başarısız araç sonucuna tanınan pay çarpanı: hata ayrıntısı (neyin neden düştüğü)
+#: izin en değerli parçasıdır.
+TRACE_ERROR_FACTOR = 2
+#: Önceki bir ÖZET mesajının izde taşınacağı üst sınır. Özet zaten sıkıştırılmıştır;
+#: 300 karaktere kesmek ardışık sıkıştırmalarda ilk özeti silerdi (A1-02).
+TRACE_SUMMARY_CHARS = 10_000
+#: Sıkıştırmanın eklediği özet mesajlarının başlıkları (tur arası / tur içi).
+CONVERSATION_SUMMARY_PREFIX = "[önceki konuşmanın özeti]"
+STEPS_SUMMARY_PREFIX = "[önceki adımların özeti]"
 #: Oturum izinin toplam uzunluğu.
 TRACE_TOTAL_CHARS = 3_000
 
 
 #: Web oturumları için sıkıştırma eşiği (30.000 karakterlik web prompt bütçesinin altında).
 WEB_COMPRESS_THRESHOLD_CHARS = 24_000
+
+
+def is_summary_message(message: Message) -> bool:
+    """Mesaj, sıkıştırmanın eklediği bir özet mi? (kullanıcı görevi DEĞİLDİR)"""
+    return message.role == "user" and message.content.lstrip().startswith(
+        (CONVERSATION_SUMMARY_PREFIX, STEPS_SUMMARY_PREFIX)
+    )
+
+
+#: Bir görselin bağlama kabaca katkısı (karakter eşdeğeri). Data URI'nin ham uzunluğu
+#: (MB'larca) değil, görsel modelin harcadığı token'a yakın bir tahmin: ekran
+#: görüntüsü yüklü turlarda eşik gerçekte aşılırken sıkıştırma tetiklenmiyordu (A1-44).
+IMAGE_CHARS_ESTIMATE = 4_000
 
 
 def total_chars(messages: Sequence[Message]) -> int:
@@ -60,14 +83,30 @@ def total_chars(messages: Sequence[Message]) -> int:
     ~514 bin; sıkıştırma hiç tetiklenmedi ve istem 185 bin token'a çıktı.
     """
     return sum(
-        len(message.content) + sum(len(call.arguments) for call in message.tool_calls)
+        len(message.content)
+        + sum(len(call.arguments) for call in message.tool_calls)
+        + IMAGE_CHARS_ESTIMATE * len(message.images)
         for message in messages
     )
 
 
+def history_chars(messages: Sequence[Message]) -> int:
+    """Sıkıştırma eşiğiyle ölçülen büyüklük: baştaki sistem istemi HARİÇ geçmiş.
+
+    Eşik, pencereden sistem/araç payı düşüldükten sonra GEÇMİŞE ayrılan paydır
+    (`context_budget`). Ölçüldü (2 Kasım 2026, 64k pencereli yerel 9B): sistem istemi
+    52 bin karakterdi, eşik 65 bin; geçmiş 56 binken toplam 108 bin sayılıyor, özet
+    sistem istemine dokunamadığı için eşik hiç inmiyor ve tur iki çağrıda "bağlam her
+    sıkıştırmadan hemen sonra yeniden doldu" ile bitiyordu — model 40 bin token'lık
+    istemi sorunsuz işlerken.
+    """
+    start = 1 if messages and messages[0].role == "system" else 0
+    return total_chars(messages[start:])
+
+
 def needs_compression(messages: Sequence[Message], threshold_chars: int | None = None) -> bool:
     limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
-    return total_chars(messages) >= limit
+    return history_chars(messages) >= limit
 
 
 def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGES) -> int:
@@ -79,7 +118,20 @@ def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGE
     start = max(0, len(messages) - keep_recent)
     while start < len(messages) and messages[start].role != "user":
         start += 1
-    return 0 if start >= len(messages) else start
+    if start >= len(messages):
+        return 0
+    unseen = unseen_tool_indexes(messages)
+    if unseen:
+        group_start = max(
+            (
+                index
+                for index, message in enumerate(messages)
+                if message.role == "assistant" and message.tool_calls
+            ),
+            default=start,
+        )
+        start = min(start, group_start)
+    return start
 
 
 #: Temizlenen eski araç çıktısının yerine konan not. Model gerekirse yeniden okur.
@@ -88,8 +140,37 @@ CLEARED_TOOL_OUTPUT = (
 )
 
 
+PIN_MAX_CHARS = 1_500
+
+
+def pin_tool_output(message: Message, pin_chars: int = PIN_MAX_CHARS) -> Message:
+    """Eski kanıtın başını sınırlı tut; görseller karakter bütçesini aşmasın."""
+    limit = max(0, min(pin_chars, PIN_MAX_CHARS))
+    return replace(message, content=message.content[:limit], images=())
+
+
+def unseen_tool_indexes(messages: Sequence[Message]) -> set[int]:
+    """Son assistant araç grubundan sonraki tüm sonuçları koru."""
+    tool_indexes = [index for index, message in enumerate(messages) if message.role == "tool"]
+    last_call = max(
+        (
+            index
+            for index, message in enumerate(messages)
+            if message.role == "assistant" and message.tool_calls
+        ),
+        default=None,
+    )
+    if last_call is None:
+        return set(tool_indexes[-1:])
+    return {index for index in tool_indexes if index > last_call}
+
+
 def clear_old_tool_outputs(
-    messages: Sequence[Message], threshold_chars: int | None = None
+    messages: Sequence[Message],
+    threshold_chars: int | None = None,
+    *,
+    pinned_call_ids: frozenset[str] = frozenset(),
+    pin_chars: int = PIN_MAX_CHARS,
 ) -> list[Message]:
     """En ESKİ araç çıktılarından başlayarak geçmişi eşiğin altına indir.
 
@@ -106,17 +187,30 @@ def clear_old_tool_outputs(
     """
     limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
     sonuc = list(messages)
-    arac_indeksleri = [index for index, message in enumerate(sonuc) if message.role == "tool"]
-    toplam = total_chars(sonuc)
-    for index in arac_indeksleri[:-1]:
+    unseen = unseen_tool_indexes(sonuc)
+    if history_chars(sonuc) >= limit:
+        for index, evidence in bounded_evidence(sonuc).items():
+            if index not in unseen:
+                sonuc[index] = evidence
+    temizlenebilir = [
+        index
+        for index, message in enumerate(sonuc)
+        if message.role == "tool" and index not in unseen and not is_research_result(message)
+    ]
+    toplam = history_chars(sonuc)
+    for index in temizlenebilir:
         if toplam < limit:
             break
         message = sonuc[index]
-        not_metni = CLEARED_TOOL_OUTPUT.format(chars=len(message.content))
-        if len(message.content) <= len(not_metni):
-            continue
-        sonuc[index] = replace(message, content=not_metni)
-        toplam -= len(message.content) - len(not_metni)
+        if message.tool_call_id in pinned_call_ids:
+            replacement = pin_tool_output(message, pin_chars)
+        else:
+            note = CLEARED_TOOL_OUTPUT.format(chars=len(message.content))
+            if len(message.content) <= len(note):
+                continue
+            replacement = replace(message, content=note)
+        sonuc[index] = replacement
+        toplam -= total_chars([message]) - total_chars([replacement])
     if toplam >= limit:
         sonuc = _stub_old_tool_arguments(sonuc, toplam, limit)
     return sonuc
@@ -158,7 +252,10 @@ def _stub_old_tool_arguments(messages: list[Message], toplam: int, limit: int) -
             break
         message = messages[index]
         cagrilar = tuple(
-            replace(call, arguments=_stub_arguments(call.arguments)) for call in message.tool_calls
+            call
+            if call.name in RESEARCH_TOOLS
+            else replace(call, arguments=_stub_arguments(call.arguments))
+            for call in message.tool_calls
         )
         once = sum(len(call.arguments) for call in message.tool_calls)
         sonra = sum(len(call.arguments) for call in cagrilar)
@@ -192,7 +289,20 @@ def round_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAG
     start = max(0, len(messages) - keep_recent)
     while start < len(messages) and messages[start].role not in {"user", "assistant"}:
         start += 1
-    return 0 if start >= len(messages) else start
+    if start >= len(messages):
+        return 0
+    unseen = unseen_tool_indexes(messages)
+    if unseen:
+        group_start = max(
+            (
+                index
+                for index, message in enumerate(messages)
+                if message.role == "assistant" and message.tool_calls
+            ),
+            default=start,
+        )
+        start = min(start, group_start)
+    return start
 
 
 def root_anchor_length(messages: Sequence[Message]) -> int:
@@ -207,7 +317,8 @@ def root_anchor_length(messages: Sequence[Message]) -> int:
     kaderi paylaşıyor, `[önceki konuşmanın özeti]` diye bir `user` mesajıyla
     değiştiriliyordu.
 
-    İKİNCİ `user` mesajına kadarki her şey (sistem + ilk soru + o turun
+    Bağlam notları kullanıcı turu sayılmaz. İkinci gerçek kullanıcı mesajına
+    kadarki her şey (sistem + ilk soru + o turun
     asistan/araç mesajları) kök turdur ve özetleyiciye değil, olduğu gibi
     kalır. Hiç ikinci `user` yoksa (kısa konuşma) TÜM liste kök turdur.
 
@@ -220,7 +331,10 @@ def root_anchor_length(messages: Sequence[Message]) -> int:
         return 0
     kullanici_sayisi = 0
     for index, message in enumerate(messages):
-        if message.role == "user":
+        # Önceki özet yeni sıkıştırmaya katılır; ilk görev öncesi bağlam korunur.
+        if kullanici_sayisi and is_summary_message(message):
+            return index
+        if message.role == "user" and not message.harness_note:
             kullanici_sayisi += 1
             if kullanici_sayisi == 2:
                 return index
@@ -266,14 +380,31 @@ def transcript(
     return "\n".join([ELISION_NOTE, *tutulan])
 
 
+def _sample(text: str, limit: int) -> str:
+    """`limit`'i aşan metinde baştan VE sondan örnekle (ortası atlanır).
+
+    Araç çıktısında başlık/komut başta, sonuç/hata satırı sonda olur; yalnız baştan
+    kesmek ikincisini her zaman siliyordu.
+    """
+    if len(text) <= limit:
+        return text
+    bas = (limit * 2) // 3
+    son = limit - bas
+    return f"{text[:bas]} […] {text[-son:]}"
+
+
 def _describe(message: Message, message_chars: int = TRACE_MESSAGE_CHARS) -> list[str]:
     excerpt = message.content[:message_chars]
     if message.role == "user" and message.content:
-        return [f"[kullanıcı] {excerpt}"]
+        if is_summary_message(message):
+            # Önceki özet KESİLMEZ: ardışık sıkıştırmada özetin özeti ilk özeti silerdi.
+            return [f"[kullanıcı] {message.content[:TRACE_SUMMARY_CHARS]}"]
+        return [f"[kullanıcı] {_sample(message.content, message_chars)}"]
     if message.role == "tool":
         # Başarı bilgisi mesajın kendisinde taşınır; metinden tahmin edilmez.
         flag = " ⟵ HATA" if message.ok is False else ""
-        return [f"[sonuç {message.name or ''}{flag}] {excerpt}"]
+        pay = message_chars * TRACE_ERROR_FACTOR if message.ok is False else message_chars
+        return [f"[sonuç {message.name or ''}{flag}] {_sample(message.content, pay)}"]
     if message.role == "assistant":
         # Argüman kesme payı mesaj payıyla birlikte büyür: sabit 200 karakter,
         # denetçiye `write_file`'ın yalnızca yolunu gösterip ne yazdığını gizliyordu.

@@ -13,6 +13,7 @@ import sqlite3
 import uuid
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
+from functools import cache
 from pathlib import Path
 
 from ..core.accounts import Account, AccountCreation
@@ -43,6 +44,32 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 class AccountError(ValueError):
     """Kullanıcıya gösterilebilir hesap hatası."""
+
+
+@cache
+def _sahte_karma() -> str:
+    """Olmayan hesap için SABİT, bir kez üretilmiş karma.
+
+    Ölçüldü (30 Ekim): `verify_secret(p, hash_secret(...))` olmayan kullanıcıda İKİ scrypt
+    (~180 ms), var olanda BİR (~90 ms) çalıştırıyordu; süre farkı hesabın varlığını
+    ifşa ediyordu. Karma bir kez hesaplanır; her çağrıda yalnız TEK doğrulama yapılır.
+    """
+    return hash_secret("bulunmayan-hesap")
+
+
+def _dogrula_profil(username: str, email: str) -> tuple[str, str]:
+    """`create` ve `update_profile` için ortak kullanıcı adı/e-posta doğrulaması."""
+    ad = username.strip()
+    posta = email.strip()
+    if not ad:
+        raise AccountError("Kullanıcı adı boş olamaz.")
+    if "@" in ad:
+        # `_find` kullanıcı adı OR e-posta ile arar: `b@c.com` adlı bir hesap başka
+        # birinin e-postasıyla çakışıp girişi/sıfırlamayı karıştırırdı.
+        raise AccountError("Kullanıcı adı '@' içeremez.")
+    if "@" not in posta or posta.startswith("@") or posta.endswith("@") or " " in posta:
+        raise AccountError("Geçerli bir e-posta adresi yaz.")
+    return ad, posta
 
 
 def accounts_db_path() -> Path:
@@ -88,13 +115,20 @@ class SqliteAccountStore:
 
     def _find(self, connection: sqlite3.Connection, identifier: str) -> sqlite3.Row | None:
         with closing(connection.cursor()) as cursor:
-            cursor.execute(
-                "SELECT * FROM accounts WHERE username = ? COLLATE NOCASE "
-                "OR email = ? COLLATE NOCASE",
-                (identifier.strip(), identifier.strip()),
-            )
-            row: sqlite3.Row | None = cursor.fetchone()
-            return row
+            kimlik = identifier.strip()
+            # Belirgin sıra: `@` içeren girdide önce e-posta, yoksa önce kullanıcı adı.
+            # `OR` ile tek sorgu iki ayrı hesabı eşleştirebilir ve hangisinin döneceği
+            # belirsizdi (eski kayıtlarda kullanıcı adı `@` içerebilir).
+            sutunlar = ("email", "username") if "@" in kimlik else ("username", "email")
+            for sutun in sutunlar:
+                cursor.execute(
+                    f"SELECT * FROM accounts WHERE {sutun} = ? COLLATE NOCASE",
+                    (kimlik,),
+                )
+                row: sqlite3.Row | None = cursor.fetchone()
+                if row is not None:
+                    return row
+            return None
 
     # --- yazma ------------------------------------------------------------- #
 
@@ -102,12 +136,7 @@ class SqliteAccountStore:
         self, *, username: str, email: str, password: str, avatar: str = ""
     ) -> AccountCreation:
         """Yeni hesap aç ve kurtarma kodunu BİR KEZ döndür."""
-        ad = username.strip()
-        posta = email.strip()
-        if not ad:
-            raise AccountError("Kullanıcı adı boş olamaz.")
-        if "@" not in posta or posta.startswith("@") or posta.endswith("@"):
-            raise AccountError("Geçerli bir e-posta adresi yaz.")
+        ad, posta = _dogrula_profil(username, email)
         if len(password) < PASSWORD_MIN_CHARS:
             raise AccountError(f"Parola en az {PASSWORD_MIN_CHARS} karakter olmalı.")
         kod = generate_recovery_code()
@@ -140,6 +169,12 @@ class SqliteAccountStore:
             raise AccountError(f"{alan} zaten kullanılıyor.") from error
         return AccountCreation(account=hesap, recovery_code=kod)
 
+    def resolve_account_id(self, identifier: str) -> str | None:
+        """Kullanıcı adı/e-postadan hesap kimliği (parola doğrulamaz); yoksa None."""
+        with self._connect() as connection:
+            row = self._find(connection, identifier)
+        return str(row["id"]) if row is not None else None
+
     def authenticate(self, *, identifier: str, password: str) -> Account | None:
         """Kullanıcı adı ya da e-posta + parola ile giriş."""
         with self._connect() as connection:
@@ -147,9 +182,31 @@ class SqliteAccountStore:
         if row is None:
             # Parola yine de doğrulanır: var olmayan kullanıcıda hemen dönmek,
             # cevap süresinden hesabın varlığını sızdırır.
-            verify_secret(password, hash_secret("bulunmayan-hesap"))
+            verify_secret(password, _sahte_karma())
             return None
         return _account(row) if verify_secret(password, row["password_hash"]) else None
+
+    def verify_password(self, account_id: str, password: str) -> bool:
+        """Hesap kimliğiyle parolayı doğrula (yıkıcı işlemde yeniden doğrulama için)."""
+        with self._connect() as connection, closing(connection.cursor()) as cursor:
+            cursor.execute("SELECT password_hash FROM accounts WHERE id = ?", (account_id,))
+            row = cursor.fetchone()
+        if row is None:
+            # Süre sızıntısı: var olmayan hesapta da bir scrypt harcanır.
+            verify_secret(password, _sahte_karma())
+            return False
+        return verify_secret(password, row["password_hash"])
+
+    def verify_recovery_code(self, account_id: str, recovery_code: str) -> bool:
+        """Kurtarma kodunu doğrula; kodu TÜKETMEZ (yalnız `reset_password` tüketir)."""
+        with self._connect() as connection, closing(connection.cursor()) as cursor:
+            cursor.execute("SELECT recovery_hash FROM accounts WHERE id = ?", (account_id,))
+            row = cursor.fetchone()
+        code = normalize_recovery_code(recovery_code)
+        if row is None:
+            verify_secret(code, _sahte_karma())
+            return False
+        return verify_secret(code, row["recovery_hash"])
 
     def reset_password(self, *, identifier: str, recovery_code: str, new_password: str) -> bool:
         """Kurtarma koduyla parolayı değiştir; kod TEK KULLANIMLIKTIR."""
@@ -157,9 +214,11 @@ class SqliteAccountStore:
             raise AccountError(f"Parola en az {PASSWORD_MIN_CHARS} karakter olmalı.")
         with self._connect() as connection:
             row = self._find(connection, identifier)
-            if row is None or not verify_secret(
-                normalize_recovery_code(recovery_code), row["recovery_hash"]
-            ):
+            if row is None:
+                # Süre sızıntısı: var olmayan hesapta da bir scrypt harcanır.
+                verify_secret(normalize_recovery_code(recovery_code), _sahte_karma())
+                return False
+            if not verify_secret(normalize_recovery_code(recovery_code), row["recovery_hash"]):
                 return False
             # Kullanılan kod yenisiyle değişir: ele geçen bir kod ikinci kez
             # kullanılamamalı.
@@ -174,11 +233,12 @@ class SqliteAccountStore:
         return True
 
     def update_profile(self, account_id: str, *, username: str, email: str, avatar: str) -> Account:
+        ad, posta = _dogrula_profil(username, email)
         with self._connect() as connection:
             try:
                 connection.execute(
                     "UPDATE accounts SET username = ?, email = ?, avatar = ? WHERE id = ?",
-                    (username.strip(), email.strip(), avatar.strip(), account_id),
+                    (ad, posta, avatar.strip(), account_id),
                 )
             except sqlite3.IntegrityError as error:
                 alan = "E-posta" if "email" in str(error) else "Kullanıcı adı"

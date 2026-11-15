@@ -18,6 +18,7 @@ from typing import Protocol
 
 from ..core.protocols import Clock
 from .constants import (
+    SCREEN_CAPTURE_TIMEOUT_SECONDS,
     SCREEN_IDLE_TTL_SECONDS,
     SCREEN_JPEG_QUALITY,
     SCREEN_MAX_SESSION_SECONDS,
@@ -25,6 +26,9 @@ from .constants import (
     SCREEN_MIN_FRAME_INTERVAL_SECONDS,
     SCREEN_REQUEST_TTL_SECONDS,
 )
+
+# Modül düzeyinde adlandırılır: testler süreyi kısaltabilsin.
+CAPTURE_TIMEOUT_SECONDS = SCREEN_CAPTURE_TIMEOUT_SECONDS
 
 STATE_NONE = "none"
 STATE_PENDING = "pending"
@@ -47,6 +51,15 @@ class MacScreenCapture:
     async def frame(self) -> bytes:
         if platform.system() != "Darwin":
             raise ScreenUnavailableError("Canlı ekran şu an yalnız macOS'ta destekleniyor.")
+        try:
+            return await self._capture()
+        except ScreenUnavailableError:
+            raise
+        except (TimeoutError, OSError, ImportError, ValueError) as error:
+            # Pillow yok, dosya bozuk, süreç açılamadı: 500'e değil ekran hatasına döner.
+            raise ScreenUnavailableError(f"Ekran alınamadı: {error}") from error
+
+    async def _capture(self) -> bytes:
         with tempfile.TemporaryDirectory(prefix="fusion-screen-") as directory:
             target = Path(directory) / "frame.png"
             process = await asyncio.create_subprocess_exec(
@@ -58,12 +71,28 @@ class MacScreenCapture:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            await asyncio.wait_for(process.wait(), timeout=10)
+            try:
+                await asyncio.wait_for(process.wait(), timeout=CAPTURE_TIMEOUT_SECONDS)
+            except TimeoutError:
+                # Süreç öldürülmezse her kare yeni bir yetim `screencapture` bırakırdı.
+                await _kill(process)
+                raise ScreenUnavailableError(
+                    "Ekran alınamadı: yakalama zaman aşımına uğradı."
+                ) from None
             if process.returncode != 0 or not target.is_file():
                 raise ScreenUnavailableError(
                     "Ekran alınamadı. Sistem Ayarları → Gizlilik → Ekran Kaydı izni gerekebilir."
                 )
             return await asyncio.to_thread(_to_jpeg, target)
+
+
+async def _kill(process: asyncio.subprocess.Process) -> None:
+    """Süreci öldür ve zombi kalmasın diye topla; zaten bitmişse sessiz geç."""
+    try:
+        process.kill()
+    except ProcessLookupError:
+        return
+    await process.wait()
 
 
 def _to_jpeg(path: Path) -> bytes:

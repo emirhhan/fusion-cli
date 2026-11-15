@@ -84,11 +84,18 @@ class _FakeDeps:
     tool_context: ToolContext
     execution: object | None = None
     effect_recorder: object | None = None
+    context_step: object | None = None
+    invocation_budget: object | None = None
+    lesson_state: object | None = None
     budget: object | None = None
     verifier: object | None = None
     checkpoint_store: object | None = None
     conversation_id: str = ""
-    config: object | None = None
+    config: object | None = field(
+        default_factory=lambda: SimpleNamespace(
+            runtime=SimpleNamespace(verified_skill_proposals=False)
+        )
+    )
     publisher: object = field(default_factory=_Publisher)
 
 
@@ -654,3 +661,58 @@ async def test_reddedilen_adimdan_sonra_sonraki_adim_calistirilmaz(tmp_path):
     assert not any("after işini" in prompt for prompt in calls)
     assert result.ok is True
     assert "onaylamadınız" in result.final_text
+
+
+def _dar_zarf_ayari(step_calls: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        runtime=SimpleNamespace(
+            workflow_planning_calls=2,
+            workflow_step_calls=step_calls,
+            workflow_recovery_calls=1,
+            workflow_final_verification_calls=1,
+        )
+    )
+
+
+async def test_zarf_asiminda_dogru_is_geri_alinmaz_dogrulanip_duraklatilir(tmp_path):
+    """Ölçüldü (30 Ekim, A3-13): zarf aşımı yalnız MUHASEBE sorunudur.
+
+    Eski kod `charge` reddedilince alt turun diske yazdığı işi geri alıyor, adımı
+    BLOCKED yapıyordu; devamda zarf yine sıfır olduğundan aynı noktada tekrar
+    duraklıyordu. Şimdi iş korunur, adım doğrulanır, sonra "ek bütçe" için durur.
+    """
+    hedef = tmp_path / "cikti.txt"
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("yaz"), _step("sonra")))
+    deps = _FakeDeps(ToolContext(root=tmp_path), config=_dar_zarf_ayari(2))
+    cagrilan: list[str] = []
+
+    async def agent(task, turn_deps, **kwargs):
+        cagrilan.append(task)
+        turn_deps.tool_context.changes.record_created(hedef)
+        hedef.write_text("doğru iş", encoding="utf-8")
+        turn_deps.tool_context.touched.add(hedef)
+        # Zarf 2 iken 5 çağrı harcandı: muhasebe aşımı.
+        return AgentOutcome(
+            final_text="tamam", messages=[], model_calls_made=5, mutating_tool_calls_made=1
+        )
+
+    sonuc = await run_execution_plan("iş", deps, agent, plan=plan)
+
+    assert hedef.read_text(encoding="utf-8") == "doğru iş"
+    assert sonuc.ok is False and sonuc.budget_stopped is True
+    assert "ek bütçe" in sonuc.final_text
+    # Zarf aşımında sıradaki adım başlamaz: kullanıcı karar verir.
+    assert len(cagrilan) == 1
+    olaylar = [o for o in deps.publisher.events if isinstance(o, ExecutionStepVerified)]
+    assert olaylar and olaylar[0].ok is True
+
+
+async def test_adim_baslangic_olayi_adim_zarfini_tasir(tmp_path):
+    """A3-40: adım zarfı politikanın üstüne çıkabilir; kullanıcı görebilmeli."""
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    deps = _FakeDeps(ToolContext(root=tmp_path), config=_dar_zarf_ayari(7))
+
+    await run_execution_plan("iş", deps, _FakeAgent([]), plan=plan)
+
+    basladi = [o for o in deps.publisher.events if isinstance(o, ExecutionStepStarted)]
+    assert basladi and basladi[0].model_call_limit == 7

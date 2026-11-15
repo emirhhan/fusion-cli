@@ -13,6 +13,9 @@ import re
 import sys
 from pathlib import Path
 
+from ..core.constants import KITS_STATE_FILENAME
+from ..core.execution_context import PERSONAL_WORKSPACE, ExecutionContext, validate_identifier
+
 APP_NAME = "fusion-cli"
 
 #: Kullanıcı yapılandırmasının yolunu doğrudan belirleyen ortam değişkeni.
@@ -28,6 +31,12 @@ ENV_MEMORY_DIR = "FUSION_MEMORY_DIR"
 # hesaba özeldir. Ayrım TEK yerden yapılır — `user_config_dir` — çünkü bu
 # bilgilerin tamamı `config.yaml`'da durur ve tüm okuyucular oradan geçer.
 ENV_ACCOUNT = "FUSION_ACCOUNT"
+#: "1" ise kalıcı veri (bellek, sır deposu, tarayıcı profilleri, kayıtlar) hesaba göre
+#: ayrılır (WP02). Varsayılan KAPALI: açmadan önce eski ortak veri tek bir sahibe
+#: bağlanmalıdır (`accounts.data_migration`); aksi hâlde hesap boş başlar.
+ENV_WORKSPACE_ISOLATION = "FUSION_WORKSPACE_ISOLATION"
+#: Hesaba göre ayrılmış veri köklerinin toplandığı alt klasör.
+_TENANTS_DIR = "tenants"
 #: Hesap dizinlerinin toplandığı alt klasör adı.
 _ACCOUNTS_DIR = "accounts"
 
@@ -60,6 +69,25 @@ def base_data_dir() -> Path:
     return Path(base) / APP_NAME
 
 
+def mcp_tool_results_dir() -> Path:
+    """Büyük MCP çıktılarının kaydedildiği dizin (#240); kısıtlı kipte de okunabilir."""
+    return base_data_dir() / "tool-results"
+
+
+def kits_data_dir() -> Path:
+    """Masaüstünün başlattığı Fusion Kits yan sürecinin veri klasörü.
+
+    Tauri (`kits_process.rs`) aynı yolu `<veri kökü>/fusion-cli/kits` olarak kurar;
+    hesaptan bağımsızdır çünkü Kits süreci uygulama başına tektir.
+    """
+    return base_data_dir() / "kits"
+
+
+def kits_state_file() -> Path:
+    """Kits'in adres+pid duyurduğu durum dosyası (`tools/kits.py` okur)."""
+    return kits_data_dir() / KITS_STATE_FILENAME
+
+
 def account_config_dir(account_id: str) -> Path:
     """Belirli bir hesabın yapılandırma dizini."""
     return base_config_dir() / _ACCOUNTS_DIR / account_id
@@ -76,17 +104,34 @@ def user_config_dir() -> Path:
     return account_config_dir(account) if account else base_config_dir()
 
 
-def user_data_dir() -> Path:
-    """Kalıcı verinin (bellek, indeks, geçmiş) tutulduğu kullanıcı dizini.
+def workspace_isolation_enabled() -> bool:
+    return os.environ.get(ENV_WORKSPACE_ISOLATION, "").strip() == "1"
 
-    HESABA GÖRE DEĞİŞMEZ ve bu bilinçli bir karardır. Burada tarayıcı profilleri
-    duruyor ve bir Chrome profili yüzlerce megabayt olabilir; hesap başına
-    kopyalamak diski boşuna şişirir, taşımak ise kullanıcının giriş yapmış
-    oturumlarını riske atar.
-    Hesap ayrımı için gereken şey zaten `config.yaml`'dadır: hangi sağlayıcı
-    oturumunun etkin olduğunu, hangi MCP sunucularının bağlı olduğunu ve hangi
-    modelin kullanıldığını o dosya söyler ve o dosya hesaba özeldir.
+
+def tenant_data_dir(tenant_id: str) -> Path:
+    """Bir tenant'ın (pilotta: hesabın) veri kökü; kimlik yol kaçışı içeremez."""
+    return base_data_dir() / _TENANTS_DIR / validate_identifier(tenant_id, "tenant")
+
+
+def workspace_data_dir(context: ExecutionContext) -> Path:
+    """Bağlamın yetkili veri kökü: başka tenant/workspace'in kökünü asla göstermez."""
+    workspace = validate_identifier(context.workspace_id, "çalışma alanı")
+    return tenant_data_dir(context.tenant_id) / workspace
+
+
+def user_data_dir() -> Path:
+    """Kalıcı verinin (bellek, sır deposu, tarayıcı profilleri, kayıtlar) kökü.
+
+    Bayrak KAPALIYKEN hesaba göre değişmez (eski düzen). Ölçüldü (28 Ekim): bu düzende
+    bellek, `secrets.enc` ve yerel ana anahtar, tarayıcı oturumları ve gönderim
+    kayıtları bütün hesaplarda ORTAKTIR; hesap ayrımı yalnız `config.yaml`'daydı.
+    `FUSION_WORKSPACE_ISOLATION=1` ile hesabın kendi köküne geçilir; eski veri
+    oraya yalnız `accounts.data_migration` ile, seçilen TEK sahibe kopyalanır.
     """
+    account = active_account()
+    if account and workspace_isolation_enabled():
+        # Bayrak açıkken: hesabın kişisel çalışma alanı (bkz. `workspace_data_dir`).
+        return tenant_data_dir(account) / PERSONAL_WORKSPACE
     return base_data_dir()
 
 
@@ -97,7 +142,21 @@ def web_profile_dir(provider: str, account: str) -> Path:
     olmadığına bakarak `login_verified` bayrağını doğrular ve `providers`
     katmanına import edemez. Tarayıcı katmanı da aynı fonksiyonu kullanır.
     """
-    return user_data_dir() / "web_profiles" / _slug(provider) / _slug(account)
+    return web_profiles_root() / _slug(provider) / _slug(account)
+
+
+def web_profiles_root() -> Path:
+    """Web sağlayıcı tarayıcı profillerinin kökü (`web_profiles/<sağlayıcı>/<hesap>`)."""
+    return user_data_dir() / "web_profiles"
+
+
+def browser_profiles_dir() -> Path:
+    """Ajan tarayıcısına (`browser_*`) taşınan kullanıcı oturumlarının kökü (P-023).
+
+    `web_profiles/` ile karıştırılmaz: o dizin web MODEL sağlayıcılarının Chrome
+    kullanıcı-veri dizinleridir; burası ad başına şifreli `storage_state` tutar.
+    """
+    return user_data_dir() / "browser_profiles"
 
 
 def _slug(value: str) -> str:
@@ -110,6 +169,11 @@ def credentials_file() -> Path:
     if sys.platform == "darwin" and not os.environ.get("FUSION_SECRET_KEY", "").strip():
         return user_data_dir() / "vault" / "secrets.enc"
     return user_data_dir() / "secrets.enc"
+
+
+def gallery_dir() -> Path:
+    """Fusion'ın ürettiği görsellerin klasörü (uygulama içi galeri)."""
+    return user_data_dir() / "gallery"
 
 
 def capabilities_dir() -> Path:
@@ -130,9 +194,34 @@ def memory_dir() -> Path:
     return user_data_dir() / "memory"
 
 
+#: Kullanıcı düzenleyicisi bulunamazsa açılacak komut (macOS/Linux ve Windows).
+_FALLBACK_EDITOR = "notepad" if sys.platform == "win32" else "nano"
+
+
+def editor_command() -> tuple[str, ...]:
+    """`/memory edit` gibi yerlerde dosya açacak düzenleyici: `VISUAL`, sonra `EDITOR`.
+
+    Ortam erişimi yalnız bu katmanda yapılır (RULES). Değer boşluk içerebilir
+    (`code --wait`); parçalanmış komut döner.
+    """
+    raw = os.environ.get("VISUAL") or os.environ.get("EDITOR") or _FALLBACK_EDITOR
+    return tuple(raw.split()) or (_FALLBACK_EDITOR,)
+
+
+def loop_dir() -> Path:
+    """Kendini geliştirme döngüsünün kullanıcıya özel verisi (taslaklar, kullanıcı kümeleri,
+    öneriler, istem sürümleri, ölçüm izi). Gerçek konuşmadan türer; makineden çıkmaz."""
+    return user_data_dir() / "dongu"
+
+
 def bundled_roster_dir() -> Path:
-    """Pakete gömülü yerleşik ajan ekibi (kişilik dosyaları)."""
+    """Pakete gömülü yerleşik ajanlar (yalnız Claude Code'un yerleşikleri, #25)."""
     return Path(__file__).resolve().parent / "roster"
+
+
+def bundled_marketplace_dir() -> Path:
+    """Pakete gömülü `fusion` eklenti pazarı (isteğe bağlı `fusion-ekip` ajanları, #25)."""
+    return Path(__file__).resolve().parent / "eklentiler"
 
 
 def bundled_skills_dir() -> Path:
@@ -174,3 +263,25 @@ def env_file_candidates() -> tuple[Path, ...]:
     candidates.append(Path.cwd() / ".env")
     candidates.append(user_config_dir() / ".env")
     return tuple(candidates)
+
+
+def plans_dir() -> Path:
+    """Plan kipinde yazılan plan dosyaları (Claude Code'un `~/.claude/plans/` karşılığı).
+
+    Yapılandırma kökü altındadır: plan kullanıcının niyetidir, önbellek değil;
+    hesap ayrımı varsa hesabın kendi dizinine düşer.
+    """
+    return user_config_dir() / "plans"
+
+
+def preferred_editor() -> str | None:
+    """Kullanıcının metin editörü (`VISUAL`, yoksa `EDITOR`); tanımlı değilse None.
+
+    Ortam burada okunur (RULES "ortam erişimi config katmanındadır"); REPL `/plan ac`
+    sonucu yalnız kullanır.
+    """
+    for name in ("VISUAL", "EDITOR"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None

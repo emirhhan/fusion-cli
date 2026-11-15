@@ -1,0 +1,2 @@
+const {adetGuncelle} = require('./sepet.cjs');
+if (adetGuncelle([{id:1,adet:1}],1,2)[0].adet !== 2) process.exit(1);

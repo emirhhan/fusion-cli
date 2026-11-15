@@ -1,0 +1,35 @@
+/* Bu bilgisayar: reddedilen uygulamalar ve uygulama kademeleri listeleri (P-006). */
+/* Liste grup gövdesinin tam genişliğini kullanır; satırlar gövdenin iç boşluğuyla hizalı. */
+.computer-settings__list { display: grid; list-style: none; margin: 0; padding: 0; }
+.computer-settings__list li {
+  align-items: center;
+  display: flex;
+  font-size: var(--text-sm);
+  gap: var(--space-3);
+  justify-content: space-between;
+  min-width: 0;
+  padding: var(--space-3) var(--px-pad-x, 0);
+}
+.computer-settings__list li + li { border-top: 1px solid var(--settings-border); }
+.computer-settings__list li > span { min-width: 0; overflow-wrap: anywhere; }
+/* Giriş alanı + (seçim) + düğme aynı yükseklikte, aynı satırda hizalı. */
+.computer-settings__add { align-items: stretch; display: grid; gap: var(--space-2); grid-template-columns: minmax(0, 1fr) auto auto; }
+.computer-settings__add > * { min-height: 40px; }
+.computer-settings__add input,
+.computer-settings__add select {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+}
+.computer-settings__add input:focus-visible,
+.computer-settings__add select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 720px) { .computer-settings__add { grid-template-columns: 1fr; } }
+.computer-settings__tiers { border-collapse: collapse; width: 100%; font-size: 13px; }
+.computer-settings__tiers th, .computer-settings__tiers td { padding: 6px 8px; text-align: left; vertical-align: top; }
+.computer-settings__tiers tbody tr + tr { border-top: 1px solid var(--settings-border); }
+.computer-settings__tiers thead th { color: var(--settings-muted, inherit); font-weight: 500; }

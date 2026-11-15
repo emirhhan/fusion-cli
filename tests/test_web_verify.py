@@ -485,3 +485,90 @@ def test_olcekteki_rem_bildirilmez():
     assert not _bulgu_var(
         inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css}), "ölçek"
     )
+
+
+# --- A4-06: yalnız eşik/kargo vaadi JS'te aranır ------------------------------ #
+
+
+def test_urun_fiyati_js_de_gecmiyorsa_bulgu_uretilmez():
+    """Ölçüldü (29 Ekim): statik mağaza sayfasındaki her ≥1.000 TL ürün fiyatı JS'te
+    aranıp BLOCKING veriyordu (A4-06); yalnız eşik/kargo vaadi anlamlıdır."""
+    html = (
+        "<main><ul><li>Kask 2.499 TL</li><li>Eldiven 1.850 ₺</li></ul>"
+        "<p>1.250 TL üzeri ücretsiz kargo</p></main>"
+    )
+    js = "function sepeteEkle(id){ cart.push(id); } const KARGO_ESIGI = 1250;"
+
+    assert not _bulgu_var(inspect_web_output({"a.html": html, "a.js": js}), "2.499")
+    assert not _bulgu_var(inspect_web_output({"a.html": html, "a.js": js}), "1.850")
+    assert not _bulgu_var(inspect_web_output({"a.html": html, "a.js": js}), "1.250")
+
+
+def test_kargo_esigi_baska_satirda_olsa_bile_ayni_cumlede_yakalanir():
+    html = "<main><p>Ürün 2.499 TL</p><p>Siparişlerde 3.000 TL ve üzeri kargo bedava</p></main>"
+    js = "const esik = 300;"
+
+    bulgular = inspect_web_output({"a.html": html, "a.js": js})
+
+    assert _bulgu_var(bulgular, "3.000")
+    assert not _bulgu_var(bulgular, "2.499")
+
+
+# --- A4-07/A4-08: proje bağlamı ve yola göre eşleme ---------------------------- #
+
+_SAYFA = "<html><head></head><main>x</main></html>"
+
+
+def test_dokunulmayan_sayfanin_bagladigi_js_bagli_sayilir():
+    baglayan = "<html><head><script src='app.js'></script></head><main>x</main></html>"
+
+    tek = inspect_web_output_by_severity({"other.html": _SAYFA, "app.js": "x"})[0]
+    bagli = inspect_web_output_by_severity(
+        {"other.html": _SAYFA, "app.js": "x"}, context={"index.html": baglayan}
+    )[0]
+
+    assert _bulgu_var(tek, "bağlanmamış")
+    assert not _bulgu_var(bagli, "bağlanmamış")
+
+
+def test_ayni_adli_iki_js_yol_sonekiyle_ayrilir():
+    html = "<html><head><script src='a/app.js'></script></head><main>x</main></html>"
+
+    blocking = inspect_web_output_by_severity(
+        {"index.html": html, "a/app.js": "x", "b/app.js": "y"}
+    )[0]
+
+    assert any("b/app.js" in bulgu for bulgu in blocking)
+    assert not any("a/app.js" in bulgu for bulgu in blocking)
+
+
+_SINIFLI = '<html><head></head><main><div class="a b c d e f">x</div></main></html>'
+
+
+def test_baska_css_dosyasinda_tanimli_siniflar_stilsiz_sayilmaz():
+    context = {"base.css": ".a{} .b{} .c{} .d{} .e{} .f{}"}
+
+    tek = inspect_web_output_by_severity({"x.html": _SINIFLI, "p.css": ".a{}"})[0]
+    bagli = inspect_web_output_by_severity({"x.html": _SINIFLI, "p.css": ".a{}"}, context=context)[
+        0
+    ]
+
+    assert _bulgu_var(tek, "karşılığı yok")
+    assert not _bulgu_var(bagli, "karşılığı yok")
+
+
+def test_cdn_css_cercevesi_varsa_stilsiz_sinif_kurali_kapanir():
+    for cdn in (
+        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/b.css">',
+        '<script src="https://cdn.tailwindcss.com"></script>',
+    ):
+        html = _SINIFLI.replace("<head></head>", f"<head>{cdn}</head>")
+        blocking = inspect_web_output_by_severity({"x.html": html, "custom.css": ".a{}"})[0]
+        assert not _bulgu_var(blocking, "karşılığı yok"), cdn
+
+
+def test_tailwind_derleme_css_i_stilsiz_sinif_kurali_kapatir():
+    css = "@tailwind base; @tailwind utilities; .a{}"
+    blocking = inspect_web_output_by_severity({"x.html": _SINIFLI, "in.css": css})[0]
+
+    assert not _bulgu_var(blocking, "karşılığı yok")

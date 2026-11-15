@@ -10,7 +10,7 @@ export const INSPECTOR_MIN_HEIGHT = 160;
 export const INSPECTOR_MAX_HEIGHT = 620;
 export const INSPECTOR_DEFAULT_HEIGHT = 280;
 
-const inspectorTabs = new Set<InspectorTabId>(["agents", "files", "changes", "terminal", "preview"]);
+const inspectorTabs = new Set<InspectorTabId>(["agents", "files", "changes", "terminal", "preview", "browser"]);
 
 interface InspectorLayoutState {
   activeTab: InspectorTabId;

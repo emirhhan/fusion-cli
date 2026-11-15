@@ -97,11 +97,51 @@ def test_silinen_hesap_listeden_ve_etkinden_dusulur(servis):
     sonuc = _kayit(servis)
     kimlik = sonuc["hesap"]["kimlik"]
 
-    assert servis.remove({"kimlik": kimlik})["ok"] is True
+    assert servis.remove({"kimlik": kimlik, "parola": "parola1234"})["ok"] is True
 
     durum = servis.status()
     assert durum["hesaplar"] == []
     assert durum["etkin"] == ""
+
+
+def test_hesap_silme_parola_ya_da_kurtarma_kodu_ister(servis):
+    """U5-33: arayüzdeki 'kullanıcı adını yaz' onayı tek başına silmeye yetmez."""
+    sonuc = _kayit(servis)
+    kimlik = sonuc["hesap"]["kimlik"]
+
+    for istek in (
+        {"kimlik": kimlik},
+        {"kimlik": kimlik, "parola": ""},
+        {"kimlik": kimlik, "parola": "yanlisparola"},
+        {"kimlik": kimlik, "kurtarma_kodu": "YANLIS-KOD"},
+        {"kimlik": kimlik, "parola": 123},
+    ):
+        yanit = servis.remove(istek)
+        assert yanit["ok"] is False, istek
+    # Hiçbiri hesabı silmedi, oturum da kapanmadı.
+    assert [h["kimlik"] for h in servis.status()["hesaplar"]] == [kimlik]
+    assert servis.status()["etkin"] == kimlik
+
+
+def test_hesap_kurtarma_koduyla_silinir_ve_baska_hesabin_parolasi_gecmez(servis):
+    ilk = _kayit(servis)
+    ikinci = _kayit(servis, ad="ikinci", posta="i@ornek.com", parola="ikinciparola1")
+
+    # İkinci hesabın parolası birincisini silemez.
+    yanit = servis.remove({"kimlik": ilk["hesap"]["kimlik"], "parola": "ikinciparola1"})
+    assert yanit["ok"] is False
+    yanit = servis.remove(
+        {"kimlik": ikinci["hesap"]["kimlik"], "kurtarma_kodu": ikinci["kurtarma_kodu"]}
+    )
+    assert yanit["ok"] is True
+    assert [h["kimlik"] for h in servis.status()["hesaplar"]] == [ilk["hesap"]["kimlik"]]
+
+
+def test_hesap_silme_yanitlari_parola_veya_kod_tasimaz(servis):
+    sonuc = _kayit(servis)
+    yanit = servis.remove({"kimlik": sonuc["hesap"]["kimlik"], "parola": "yanlis"})
+    assert "yanlis" not in str(yanit)
+    assert sonuc["kurtarma_kodu"] not in str(yanit)
 
 
 def test_hatirlanan_hesap_silinmisse_acik_hesap_yok_sayilir(servis):

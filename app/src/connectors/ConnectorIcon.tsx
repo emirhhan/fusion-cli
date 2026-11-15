@@ -12,6 +12,9 @@ import { brandIcon } from "./brandIcons";
  * markası olmayan bağlantılar) monogram kalır — uydurma bir logo, yanlış bir
  * logodan beterdir.
  */
+/** Koyu temada kaybolan (neredeyse siyah) marka renkleri metin rengine düşer; GitHub #181717 dahil (U3-44). */
+const KOYU_MARKALAR = new Set(["#000000", "#181717"]);
+
 export function ConnectorIcon({ entry, size = 40 }: { entry: CatalogEntry; size?: number }) {
   const marka = brandIcon(entry.id);
 
@@ -40,7 +43,7 @@ export function ConnectorIcon({ entry, size = 40 }: { entry: CatalogEntry; size?
         >
           {/* Siyah logolar koyu temada kaybolur; tam siyah marka rengi metin
               rengine düşürülür. */}
-          <path d={marka.path} fill={marka.hex === "#000000" ? "currentColor" : marka.hex} />
+          <path d={marka.path} fill={KOYU_MARKALAR.has(marka.hex.toLowerCase()) ? "currentColor" : marka.hex} />
         </svg>
       </span>
     );

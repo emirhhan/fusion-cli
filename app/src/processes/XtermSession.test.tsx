@@ -1,9 +1,19 @@
 import { StrictMode } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-const { bridgeInvoke, bridgeListen } = vi.hoisted(() => ({ bridgeInvoke: vi.fn(), bridgeListen: vi.fn() }));
+const { bridgeInvoke, bridgeListen, bridgeChannels } = vi.hoisted(() => ({
+  bridgeInvoke: vi.fn(),
+  bridgeListen: vi.fn(),
+  bridgeChannels: [] as Array<{ onmessage: (message: unknown) => void }>,
+}));
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: bridgeInvoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: bridgeInvoke,
+  Channel: class {
+    onmessage: (message: unknown) => void = () => undefined;
+    constructor() { bridgeChannels.push(this); }
+  },
+}));
 vi.mock("@tauri-apps/api/event", () => ({ listen: bridgeListen }));
 
 import { createTerminalRuntime, type TerminalSession } from "./terminalBridge";
@@ -42,8 +52,8 @@ describe("XtermSession", () => {
       return vi.fn();
     });
     bridgeInvoke.mockImplementation(async (command: string) => {
-      if (command === "terminal_ac") {
-        handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-fast", data: [36, 32] } });
+      if (command === "terminal_ac_kanal") {
+        bridgeChannels.at(-1)!.onmessage(new Uint8Array([36, 32]).buffer);
         return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
       }
     });
@@ -167,5 +177,32 @@ describe("XtermSession", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(session.resize).not.toHaveBeenCalled();
+  });
+
+  // Ölçüldü (30 Ekim): yazma/pano hataları işlenmemiş reddedilmeydi, kapalı terminal girişi IPC'ye gidiyordu (U4-24).
+  it("yazma hatası durum çubuğuna düşer, kapanmış terminale giriş gönderilmez (U4-24)", async () => {
+    const value = setup();
+    vi.mocked(value.session.write).mockRejectedValueOnce(new Error("terminal yok"));
+    const view = render(<XtermSession active adapter={value.adapter} session={value.session} />);
+    value.data("a");
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("terminal yok"));
+
+    const kapali = setup();
+    render(<XtermSession active adapter={kapali.adapter} closed={{ reason: "bitti", exitCode: 0 }} session={kapali.session} />);
+    kapali.data("b");
+    expect(kapali.session.write).not.toHaveBeenCalled();
+  });
+
+  it("pano izni reddedilirse kopyala/yapıştır hata gösterir, fırlatmaz (U4-24)", async () => {
+    const value = setup();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: vi.fn(async () => { throw new Error("izin yok"); }), writeText: vi.fn(async () => { throw new Error("izin yok"); }) },
+    });
+    const view = render(<XtermSession active adapter={value.adapter} session={value.session} />);
+    fireEvent.click(view.getByRole("button", { name: "Seçimi kopyala" }));
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("kopyalanamadı"));
+    fireEvent.click(view.getByRole("button", { name: "Panodan yapıştır" }));
+    await waitFor(() => expect(view.getByRole("status").textContent).toContain("yapıştırılamadı"));
   });
 });

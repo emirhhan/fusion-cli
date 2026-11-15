@@ -3,6 +3,13 @@ import type { Soru } from "../protocol/types";
 import { DiffCard } from "../markdown/DiffCard";
 import "./Approval.css";
 
+/**
+ * Kart belirdikten sonra klavye kararlarının (rakam, metin kutusunda Enter)
+ * yok sayıldığı süre. Ölçüldü (29 Ekim): kart odağı kendine alıyordu ve kullanıcı
+ * composer'a yazarken sonraki rakam/Enter doğrudan karar sayılıyordu.
+ */
+export const KARAR_KORUMA_MS = 600;
+
 interface ApprovalProps {
   onCevap: (veri: Record<string, unknown>) => void | Promise<void>;
   soru: Soru;
@@ -21,11 +28,20 @@ interface Secenek {
   reddet: boolean;
 }
 
+/** Nesne değerler "[object Object]" yazmasın (U4-15). */
+function metinle(deger: unknown): string {
+  if (typeof deger === "string") return deger;
+  if (deger !== null && typeof deger === "object") {
+    try { return JSON.stringify(deger); } catch { /* döngüsel yapı: String'e düşer */ }
+  }
+  return String(deger);
+}
+
 /** Çekirdek argümanları `ad='değer'` listesi olarak gönderir; eski biçim sözlüktü. */
 function argumanSatirlari(argumanlar: Soru["argumanlar"]): string[] {
   if (!argumanlar) return [];
-  if (Array.isArray(argumanlar)) return argumanlar.map(String);
-  return Object.entries(argumanlar).map(([ad, deger]) => `${ad}=${String(deger)}`);
+  if (Array.isArray(argumanlar)) return argumanlar.map(deger => metinle(deger));
+  return Object.entries(argumanlar).map(([ad, deger]) => `${ad}=${metinle(deger)}`);
 }
 
 function secenekler(soru: Soru): Secenek[] {
@@ -39,8 +55,12 @@ function secenekler(soru: Soru): Secenek[] {
       reddet: false,
     }));
   }
-  const ilkOlumlu = (soru.secenekler ?? []).find((secenek) => secenek.deger !== "deny")?.deger;
-  return (soru.secenekler ?? []).map((secenek) => ({
+  // Seçenek gelmediyse kart kilitli kalmasın: çekirdeğin bilinen değerleriyle yerleşik çift.
+  const gelen = soru.secenekler?.length
+    ? soru.secenekler
+    : [{ deger: "once", etiket: "İzin ver" }, { deger: "deny", etiket: "Reddet" }];
+  const ilkOlumlu = gelen.find((secenek) => secenek.deger !== "deny")?.deger;
+  return gelen.map((secenek) => ({
     cevap: { secim: secenek.deger },
     etiket: secenek.etiket,
     aciklama: secenek.aciklama,
@@ -61,16 +81,23 @@ function secenekler(soru: Soru): Secenek[] {
  *   gidiyordu; çekirdek `metin` beklediği için model cevabı hiç alamıyordu.
  *
  * Klavye: 1-9 seçer, ↑/↓ gezinir, Enter onaylar, Esc reddeder / soruyu atlar.
+ * İzin kartında Tab "Not ekle" kutusunu açar (Claude Code'daki gibi): yazılan not
+ * kararla birlikte `not` alanında gider; ret notu modele gerekçe olarak iletilir (P-013).
  */
 export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: ApprovalProps) {
   const sending = useRef(false);
   const owner = useRef(soru);
+  const acilis = useRef(Date.now());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const kartRef = useRef<HTMLElement>(null);
   const digerRef = useRef<HTMLInputElement>(null);
   const [digerAcik, setDigerAcik] = useState(serbestCevap && soru.tur === "soru" && !(soru.secenekler ?? []).length);
   const [digerMetin, setDigerMetin] = useState("");
+  const notRef = useRef<HTMLInputElement>(null);
+  const [notAcik, setNotAcik] = useState(false);
+  const [notMetin, setNotMetin] = useState("");
+  const notAlinir = soru.tur === "onay" && soru.not_alinir === true;
   const liste = secenekler(soru);
   const soruMu = soru.tur === "soru";
   const baslik = soruMu ? soru.soru ?? "Fusion bir şey soruyor" : soru.baslik ?? "Bu işleme izin verilsin mi?";
@@ -88,12 +115,19 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
 
   useEffect(() => {
     owner.current = soru;
+    acilis.current = Date.now();
     sending.current = false;
     setPending(false);
     setError("");
     setDigerMetin("");
+    setNotMetin("");
+    setNotAcik(false);
     setDigerAcik(serbestCevap && soru.tur === "soru" && !(soru.secenekler ?? []).length);
   }, [soru, serbestCevap]);
+
+  useEffect(() => {
+    if (notAcik) notRef.current?.focus();
+  }, [notAcik]);
 
   useEffect(() => {
     if (digerAcik) digerRef.current?.focus();
@@ -119,10 +153,16 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
       setError("Cevap gönderilemedi. Tekrar deneyebilirsin.");
     }
   };
-  const sec = (secenek: Secenek) => submit(secenek.cevap);
+  // Not yalnız izin kartında ve doluysa cevaba eklenir; boş not alan yokmuş gibi gider.
+  const sec = (secenek: Secenek) => {
+    const not = notAlinir ? notMetin.trim() : "";
+    submit(not ? { ...secenek.cevap, not } : secenek.cevap);
+  };
   const digeriGonder = () => {
     if (digerMetin.trim()) submit({ metin: digerMetin.trim() });
   };
+  /** Kart henüz yeni mi? Yeniyse klavye "kararı" büyük olasılıkla başka yere yazılıyordu. */
+  const koruma = () => Date.now() - acilis.current < KARAR_KORUMA_MS;
   const vazgec = () => {
     if (soruMu) submit({ metin: "" });
     else if (reddet) sec(reddet);
@@ -132,13 +172,32 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
     if (sending.current) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      // Metin kutusundayken Esc yazmayı bırakmaktır: seçenek varsa yalnız kutu
+      // kapanır, boş cevap modele gitmez (seçeneksiz soruda önce yazı silinir).
+      if (event.target instanceof HTMLInputElement && (liste.length > 0 || digerMetin)) {
+        if (liste.length > 0) setDigerAcik(false);
+        else setDigerMetin("");
+        return;
+      }
       vazgec();
       return;
     }
-    if (event.target instanceof HTMLInputElement) return;
+    if (notAlinir && event.key === "Tab" && !event.shiftKey && !notAcik && !(event.target instanceof HTMLInputElement)) {
+      event.preventDefault();
+      setNotAcik(true);
+      return;
+    }
+    if (event.target instanceof HTMLInputElement) {
+      if (event.key === "Enter" && (event.repeat || koruma())) event.preventDefault();
+      // Not kutusunda Enter: karar seçilmişse değil, not yazılıyken Enter karta döner;
+      // kullanıcı ardından 1-9 ile kararı verir (not kararla birlikte gider).
+      if (event.key === "Enter" && event.target === notRef.current) { event.preventDefault(); kartRef.current?.focus(); }
+      return;
+    }
     const sira = Number(event.key);
     if (Number.isInteger(sira) && sira >= 1) {
       event.preventDefault();
+      if (event.repeat || koruma()) return;
       if (sira <= liste.length) sec(liste[sira - 1]);
       else if (soruMu && serbestCevap && sira === liste.length + 1) setDigerAcik(true);
       return;
@@ -164,11 +223,18 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         role="dialog"
         tabIndex={-1}
       >
-        <div className="prompt-card__eyebrow">{eyebrow ?? (soruMu ? "Fusion soruyor" : "İzin gerekiyor")}</div>
+        <div className="prompt-card__eyebrow">{eyebrow ?? (soru.ajan ? `Alt ajan izin istiyor: ${soru.ajan}` : soruMu ? "Fusion soruyor" : "İzin gerekiyor")}</div>
         <h2 className="prompt-card__title" id="prompt-card-title">{baslik}</h2>
         {!soruMu && soru.hedef && !soru.diff && <pre className="prompt-card__target">{soru.hedef}</pre>}
+        {!soruMu && soru.masaustu && (
+          <p className="prompt-card__app" data-level={soru.masaustu.kademe}>
+            <strong>{soru.masaustu.uygulama}</strong> · {soru.masaustu.kademe_etiket ?? soru.masaustu.kademe}
+            {soru.masaustu.oge && <> · {soru.masaustu.oge}</>}
+          </p>
+        )}
         {soru.tehlike && <p className="prompt-card__danger">Dikkat: {soru.tehlike}</p>}
         {!soru.tehlike && soru.neden && <p className="prompt-card__reason">{soru.neden}</p>}
+        {!soruMu && soru.kural && <p className="prompt-card__rule">İzin kuralı: <code>{soru.kural}</code></p>}
         {soru.diff && (
           <div className="prompt-card__diff">
             {/* Karar argümandan değil SONUCUNDAN verilir: ne değişecek, burada. */}
@@ -178,7 +244,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         {!soruMu && ayrintilar.length > 0 && (
           <details className="prompt-card__details">
             <summary>Ayrıntılar · {soru.arac}</summary>
-            <ul>{ayrintilar.map((satir) => <li key={satir}>{satir}</li>)}</ul>
+            <ul>{ayrintilar.map((satir, indeks) => <li key={`${indeks}:${satir}`}>{satir}</li>)}</ul>
           </details>
         )}
         <div className="prompt-card__options" role="group" aria-label="Seçenekler">
@@ -188,7 +254,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
               className="prompt-card__option"
               data-recommended={secenek.onerilen || undefined}
               data-deny={secenek.reddet || undefined}
-              key={secenek.etiket}
+              key={`${index}:${secenek.etiket}`}
               onClick={() => sec(secenek)}
               type="button"
             >
@@ -220,9 +286,30 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
             </form>
           )}
         </div>
+        {notAlinir && !notAcik && (
+          <button className="prompt-card__note-toggle" disabled={pending} onClick={() => setNotAcik(true)} type="button">
+            Not ekle<small>Reddedersen gerekçen modele gider</small>
+          </button>
+        )}
+        {notAlinir && notAcik && (
+          <div className="prompt-card__note">
+            <input
+              aria-label="Karar notu"
+              disabled={pending}
+              onChange={(event) => setNotMetin(event.target.value)}
+              placeholder="Örn. pytest yerine make test kullan"
+              ref={notRef}
+              value={notMetin}
+            />
+          </div>
+        )}
         {error && <p role="alert">{error}</p>}
         <p className="prompt-card__hint">
-          {soruMu ? "Sayıyla seç · Esc soruyu atla" : reddet ? "Sayıyla seç · Esc reddet" : "Devam etmek için bir karar seç"}
+          {soruMu
+            ? "Sayıyla seç · Esc soruyu atla"
+            : reddet
+              ? `Sayıyla seç · Esc reddet${notAlinir ? " · Tab not ekle" : ""}`
+              : "Devam etmek için bir karar seç"}
         </p>
       </section>
     </div>

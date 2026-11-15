@@ -10,6 +10,10 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 
+#: Ölçülecek en fazla genişlik koşulu. Her koşul 2 yeni yakalama + kararlılık tekrarı (~7 sn)
+#: demektir; sınırsız koşul dakikalar sürüyordu (ölçüldü, 30 Ekim).
+MAX_WIDTH_CONDITIONS = 6
+
 _WIDTH_QUERY = re.compile(r"^(?:screen\s+and\s+)?\((min|max)-width\s*:\s*(\d+)px\)$", re.I)
 
 
@@ -205,10 +209,17 @@ async def verify_variants(
             )
     queries = tuple(query for variant in variants for query in variant.media_conditions)
     conditions = width_conditions(queries)
+    problems = []
+    if len(conditions) > MAX_WIDTH_CONDITIONS:
+        problems.append(
+            f"Kaynak CSS'te {len(conditions)} genişlik koşulu var; süre için ilk "
+            f"{MAX_WIDTH_CONDITIONS} ölçüldü, kalan {len(conditions) - MAX_WIDTH_CONDITIONS} "
+            "koşul doğrulanmadı."
+        )
+        conditions = conditions[:MAX_WIDTH_CONDITIONS]
     validation = await _validated_transitions(wide, narrow, conditions, capture, repeat_capture)
     transitions = validation.transitions
     variants = _assign_legacy_query(variants, transitions)
-    problems = []
     if validation.has_unstable_capture:
         problems.append(
             "Aynı viewport bağımsız yakalamada kararsız; bu fark kaynak CSS geçişi sayılmadı."

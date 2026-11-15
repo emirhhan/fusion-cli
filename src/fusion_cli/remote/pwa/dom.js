@@ -61,5 +61,8 @@ export const STATE_LABEL = {
   done: "Bitti",
   failed: "Hata",
   cancelled: "İptal",
+  cancelling: "Durduruluyor",
+  // Bilgisayar yeniden başladı ve işin sonucu bilinmiyor; otomatik tekrar edilmez.
+  needs_reconciliation: "Sonuç belirsiz",
 };
-export const ACTIVE_STATES = ["queued", "running", "waiting_approval", "paused"];
+export const ACTIVE_STATES = ["queued", "running", "waiting_approval", "paused", "cancelling"];

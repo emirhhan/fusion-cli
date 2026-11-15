@@ -26,6 +26,12 @@ ASSET_INIT = """(() => {
     if(['src','srcset'].includes(String(name).toLowerCase())) images.add(this);
     return setAttribute.call(this,name,value);
   };
+  let canvas2d=false;
+  const getContext=HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext=function(type,...rest) {
+    if(String(type)==='2d') canvas2d=true;
+    return getContext.call(this,type,...rest);
+  };
   const original=CanvasRenderingContext2D.prototype.drawImage;
   CanvasRenderingContext2D.prototype.drawImage=function(img,...args) {
     const result=original.call(this,img,...args);
@@ -37,7 +43,8 @@ ASSET_INIT = """(() => {
   window.__fusionAssetUsage=() => ({
     loaded:[...new Set([...images,...document.images]
       .filter(img=>img.complete&&img.naturalWidth>0).map(path).filter(Boolean))].sort(),
-    drawn:[...drawn].sort()
+    drawn:[...drawn].sort(),
+    canvas2d
   });
 })();"""
 
@@ -52,6 +59,10 @@ class AssetUsage:
 
     loaded: tuple[str, ...] = ()
     drawn: tuple[str, ...] = ()
+    #: Sayfa hiç `getContext('2d')` çağırdı mı? WebGL (Phaser/Pixi/Three), DOM `<img>` ve
+    #: `createImageBitmap` oyunları `drawImage`'e uğramaz: orada "çizilmedi" ölçümü
+    #: UYGULANAMAZ (ölçüldü, 30 Ekim: yanlış "yedek şekil çiziyor" alarmı).
+    canvas2d: bool = True
 
     @property
     def unobserved(self) -> tuple[str, ...]:
@@ -65,6 +76,8 @@ class AssetUsage:
         ekranda düz daireydi (kod `chaser` anahtarını arıyor, görsel `enemy_chaser` adıyla
         kayıtlı). Az sayıda çizilmeyen görsel (boss, güçlendirme) kısa denemede normaldir.
         """
+        if not self.canvas2d:
+            return None
         cizilmeyen = self.unobserved
         if len(cizilmeyen) < MIN_UNDRAWN or len(cizilmeyen) * 2 <= len(self.loaded):
             return None
@@ -90,4 +103,6 @@ class AssetUsage:
 async def read_asset_usage(page: Page) -> AssetUsage:
     """Tarayıcıdaki ayrı yükleme ve gerçek Canvas2D çağrı kayıtlarını oku."""
     snapshot = await page.evaluate("window.__fusionAssetUsage()")
-    return AssetUsage(tuple(snapshot["loaded"]), tuple(snapshot["drawn"]))
+    return AssetUsage(
+        tuple(snapshot["loaded"]), tuple(snapshot["drawn"]), bool(snapshot.get("canvas2d", True))
+    )

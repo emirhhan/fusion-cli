@@ -1,0 +1,6 @@
+{
+  "name": "fusion-ekip",
+  "version": "1.0.0",
+  "description": "Fusion'ın Türkçe ekip ajanları (Claude Code'da yerleşik değildir; isteğe bağlı eklenti).",
+  "author": {"name": "Fusion"}
+}

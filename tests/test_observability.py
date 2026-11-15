@@ -362,3 +362,33 @@ def test_jsonl_explicit_correlation_korunur_diger_none_payload_atilmaz():
         "turn_id": "request:1",
         "schema_version": 1,
     }
+
+
+def test_olculmus_cagrilarin_toplami_bilinmiyor_gorunmez():
+    """Birim eleman `TokenUsage()` ölçüm bayraklarını düşürmemeli (C1-12)."""
+    tracker = CostTracker()
+    for role in ("agent", "hakem"):
+        tracker.handle(
+            ModelCallFinished(
+                role=role,
+                result=ModelResult(
+                    name=role,
+                    model=f"saglayici/{role}",
+                    text="cevap",
+                    latency_ms=100,
+                    ok=True,
+                    usage=TokenUsage(
+                        prompt_tokens=10,
+                        completion_tokens=5,
+                        cost_usd=0.001,
+                        prompt_measured=True,
+                        completion_measured=True,
+                        cost_known=True,
+                    ),
+                ),
+            )
+        )
+
+    assert tracker.total.completeness == "complete"
+    assert tracker.total.cost_known is True
+    assert tracker.by_role()[0][2].completeness == "complete"

@@ -50,15 +50,18 @@ def test_eklenti_kimligi_chrome_yontemiyle_hesaplanir():
     assert chrome_host.extension_id_for_path(yol) == "eigpikpghdhbbefejciokiinjcpiegjc"
 
 
-def test_yuklu_fusion_browser_kimligi_profil_ayarlarindan_bulunur(tmp_path):
+def test_yuklu_fusion_browser_kimligi_yalniz_guvenilir_klasorden_bulunur(tmp_path):
+    """Ad kimlik kanıtı değildir (bkz. test_native_host_identity)."""
     profil = tmp_path / "Library/Application Support/Google/Chrome/Default"
     profil.mkdir(parents=True)
+    guvenilir = str(chrome_host.trusted_extension_dirs()[0])
     (profil / "Preferences").write_text(
         json.dumps(
             {
                 "extensions": {
                     "settings": {
-                        "abc": {"manifest": {"name": "Fusion Browser"}},
+                        "abc": {"manifest": {"name": "Fusion Browser"}, "path": guvenilir},
+                        "adi-ayni": {"manifest": {"name": "Fusion Browser"}, "path": "/tmp/x"},
                         "xyz": {"manifest": {"name": "Başka"}},
                     }
                 }
@@ -73,3 +76,27 @@ def test_bilinmeyen_istek_reddedilir():
     cikti = io.BytesIO()
     chrome_host.serve(_ileti({"type": "başka"}), cikti)
     assert _cevap(cikti)["ok"] is False
+
+
+def test_bozuk_json_govdesi_sureci_cokertmez():
+    """Ölçüldü (30 Ekim, S1-53): geçersiz JSON `ValueError` ile host sürecini çökertiyordu."""
+    govde = b"{bozuk"
+    akis = io.BytesIO(struct.pack("<I", len(govde)) + govde)
+    cikti = io.BytesIO()
+
+    chrome_host.serve(akis, cikti)
+
+    assert cikti.getvalue() == b""
+
+
+def test_mevcut_gevsek_izinli_durum_dosyasi_yeniden_yazilirken_sikilasir():
+    """Ölçüldü (30 Ekim, S1-53): `os.open` modu yalnız oluşturmada uygulanıyordu."""
+    yol = chrome_host.bridge_state_file()
+    yol.parent.mkdir(parents=True, exist_ok=True)
+    yol.write_text("{}", encoding="utf-8")
+    yol.chmod(0o644)
+
+    chrome_host.write_bridge_state(1234, "gizli")
+
+    assert oct(yol.stat().st_mode & 0o777) == "0o600"
+    assert json.loads(yol.read_text(encoding="utf-8"))["port"] == 1234

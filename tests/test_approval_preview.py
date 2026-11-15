@@ -48,3 +48,144 @@ def test_okunamayan_dosya_turu_kesmez(tmp_path: Path) -> None:
     hedef.write_bytes(b"\x00\xff\x00")
 
     assert onizleme_diffi("write_file", {"path": "ikili.bin", "content": "metin"}, tmp_path) == ""
+
+
+def test_multi_edit_edits_listesi_diff_uretir(tmp_path: Path) -> None:
+    """Ölçüldü (30 Ekim, S1-13): gerçek `multi_edit` şeması `edits` listesidir;
+    önizleme üst düzey `old_string` aradığı için kart diffsiz çıkıyordu."""
+    (tmp_path / "a.py").write_text("bir\niki\nüç\n", encoding="utf-8")
+    args = {"path": "a.py", "edits": [{"old": "bir", "new": "BİR"}, {"old": "üç", "new": ""}]}
+
+    diff = onizleme_diffi("multi_edit", args, tmp_path)
+
+    assert "+BİR" in diff
+    assert "-üç" in diff
+
+
+def test_replace_all_onizlemede_tum_eslesmeleri_gosterir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x\nx\n", encoding="utf-8")
+
+    diff = onizleme_diffi(
+        "edit_file", {"path": "a.py", "old": "x", "new": "y", "replace_all": True}, tmp_path
+    )
+
+    assert diff.count("+y") == 2
+
+
+def test_bos_yeni_metin_silmeyi_diff_olarak_gosterir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir\niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "iki\n", "new": ""}, tmp_path)
+
+    assert "-iki" in diff
+
+
+def test_kok_disindaki_dosya_onizlenmez(tmp_path: Path) -> None:
+    """Kısıtlı kipte araç kök dışına yazmayı reddeder; önizleme de içeriği okumaz."""
+    kok = tmp_path / "kok"
+    kok.mkdir()
+    dis = tmp_path / "gizli.txt"
+    dis.write_text("sır\n", encoding="utf-8")
+
+    assert onizleme_diffi("write_file", {"path": str(dis), "content": "x\n"}, kok) == ""
+    assert onizleme_diffi("write_file", {"path": "../gizli.txt", "content": "x\n"}, kok) == ""
+
+
+def test_cok_buyuk_dosya_onizlenmez(tmp_path: Path) -> None:
+    (tmp_path / "buyuk.txt").write_text("a" * (2 * 1024 * 1024), encoding="utf-8")
+
+    assert onizleme_diffi("write_file", {"path": "buyuk.txt", "content": "b"}, tmp_path) == ""
+
+
+# --- Dalga 4 (T1-65) -----------------------------------------------------------------------
+
+
+def test_cok_buyuk_dosyada_difflib_yerine_ozet_verilir():
+    """`difflib.unified_diff` onbinlerce satırda ikinci derece yavaşlıyordu."""
+    from fusion_cli.tools import diffing
+
+    eski = "\n".join(f"satir {i}" for i in range(diffing.MAX_DIFF_LINES + 100))
+    yeni = eski.replace("satir 500\n", "DEGISTI\n", 1)
+
+    sonuc = diffing.bounded_diff(eski, yeni, "b.js")
+
+    assert "ayrıntılı fark gösterilmedi" in sonuc
+    assert "501" in sonuc  # ilk değişen satır (1 tabanlı)
+    assert len(sonuc.splitlines()) < 5
+
+
+def test_kucuk_dosyada_normal_diff_surer():
+    from fusion_cli.tools import diffing
+
+    sonuc = diffing.bounded_diff("a\nb\n", "a\nc\n", "x.txt")
+
+    assert "-b" in sonuc and "+c" in sonuc
+
+
+# --- Dalga 4 (T2-38) -----------------------------------------------------------------------
+
+
+def test_onizleme_replace_all_metin_true_ile_gercek_aracla_ayni(tmp_path):
+    """edit_file `replace_all: "true"` kabul eder; önizleme de aynısını göstermeli."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.preview import _preview_edit
+
+    (tmp_path / "a.txt").write_text("x x x\n", encoding="utf-8")
+    onizleme = _preview_edit(
+        {"path": "a.txt", "old": "x", "new": "y", "replace_all": "true"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert onizleme.count("+y y y") == 1
+
+
+# --- Esnek eşleşme (d8-duzenleme) ------------------------------------------------------------
+
+
+def test_esnek_eslesen_duzenleme_bos_degil_gercek_diffi_ve_notu_gosterir(tmp_path: Path) -> None:
+    """Ölçüldü (30 Ekim): araç esnek eşleşmeyle uygularken kart boş diff gösteriyordu."""
+    (tmp_path / "a.py").write_text("bir  \niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "bir\n", "new": "BİR\n"}, tmp_path)
+
+    assert "+BİR" in diff and "-bir" in diff
+    assert diff.startswith("# tam eşleşme yoktu; satır sonu boşluğu farkı tolere edildi, satır 1")
+
+
+def test_esnek_multi_edit_onizlemesi_adim_notunu_tasir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir  \niki\nüç\n", encoding="utf-8")
+    args = {"path": "a.py", "edits": [{"old": "bir\n", "new": "BİR\n"}, {"old": "üç", "new": "ÜÇ"}]}
+
+    diff = onizleme_diffi("multi_edit", args, tmp_path)
+
+    assert "+BİR" in diff and "+ÜÇ" in diff
+    assert "# 1. düzenleme: tam eşleşme yoktu" in diff
+
+
+def test_esnek_ayar_kapaliyken_onizleme_bos_kalir(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir  \niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi(
+        "edit_file",
+        {"path": "a.py", "old": "bir\n", "new": "BİR\n"},
+        tmp_path,
+        edit_fuzzy_match=False,
+    )
+
+    assert diff == ""
+
+
+def test_belirsiz_esnek_eslesme_onizlenmez(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a  \nb\nara\na\nb  \n", encoding="utf-8")
+
+    assert (
+        onizleme_diffi("edit_file", {"path": "a.py", "old": "a\nb\n", "new": "x\n"}, tmp_path) == ""
+    )
+
+
+def test_tam_eslesmede_not_eklenmez(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("bir\niki\n", encoding="utf-8")
+
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "iki", "new": "İKİ"}, tmp_path)
+
+    assert not diff.startswith("#")

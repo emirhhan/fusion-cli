@@ -8,8 +8,8 @@ eklenemez) bunu işin sonunda değil başında bilmek gerekir. Bu modül:
 2. `web_search` aracıyla YALNIZ o platformun resmi geliştirici sitesinde arar ve
    sonuçları çırağa "önce yapılabilirliği söyle" notuyla verir.
 3. Arama yapılamazsa bunu gizlemez: kısıtların doğrulanmadığı nota ve cevaba yazılır.
-4. Öğretmenin bildirdiği bir kısıt cevapta anılmadıysa tur sonunda cevaba eklenir;
-   yapılamayan iş yapılmış gibi görünemez.
+4. Doğrulanamayan platform bilgisini sonuçta açıklar. Öğretmen görüşleri
+   iç notlarda kalır; tek başına doğrulanmış dış platform kısıtı sayılmaz.
 """
 
 from __future__ import annotations
@@ -42,7 +42,11 @@ class Platform:
 _PLATFORMS: tuple[tuple[str, Platform], ...] = (
     (r"instagram", Platform("Instagram", "developers.facebook.com")),
     (r"whatsapp", Platform("WhatsApp", "developers.facebook.com")),
-    (r"facebook|\bmeta\b", Platform("Meta", "developers.facebook.com")),
+    # "meta etiketi / meta description" SEO görevlerinde Meta platformu sanılmasın (A3-29).
+    (
+        r"facebook|\bmeta\s+(?:ads|api|business|graph|platforms?|pixel|capi)\b",
+        Platform("Meta", "developers.facebook.com"),
+    ),
     (r"google\s+ads|adwords", Platform("Google Ads", "developers.google.com")),
     (r"youtube", Platform("YouTube", "developers.google.com")),
     (r"merchant\s+center", Platform("Google Merchant Center", "developers.google.com")),
@@ -74,8 +78,27 @@ def detect_platforms(task: str) -> tuple[Platform, ...]:
 
 
 def _query(platform: Platform, task: str) -> str:
-    kesit = " ".join(task.split())[:_QUERY_TASK_CHARS]
+    # Sorgu harici arama aracına gider: görev metnindeki sır oraya sızmasın (A3-29).
+    kesit = redact(" ".join(task.split())[:_QUERY_TASK_CHARS])
     return f"site:{platform.docs_domain} {platform.name} API {kesit}"
+
+
+async def _search(platform: Platform, task: str, deps: AgentDeps, registry: ToolRegistry) -> str:
+    """Tek platformun kaynak kesiti; bulunamadı/zaman aşımı/araç hatası için boş metin."""
+    try:
+        async with asyncio.timeout(deps.config.runtime.request_timeout_s):
+            result = await registry.execute(
+                "web_search", {"query": _query(platform, task)}, deps.tool_context
+            )
+    except TimeoutError:
+        return ""
+    except Exception:
+        return ""
+    if result.ok and result.output.strip() and "sonuç bulunamadı" not in result.output:
+        return (
+            f"[{platform.name} · {platform.docs_domain}]\n" + redact(result.output)[:_RESULT_CHARS]
+        )
+    return ""
 
 
 async def run_platform_check(
@@ -88,19 +111,10 @@ async def run_platform_check(
     names = tuple(platform.name for platform in platforms)
     sources: list[str] = []
     if registry.get("web_search") is not None:
-        for platform in platforms:
-            try:
-                async with asyncio.timeout(deps.config.runtime.request_timeout_s):
-                    result = await registry.execute(
-                        "web_search", {"query": _query(platform, task)}, deps.tool_context
-                    )
-            except TimeoutError:
-                continue
-            if result.ok and result.output.strip() and "sonuç bulunamadı" not in result.output:
-                sources.append(
-                    f"[{platform.name} · {platform.docs_domain}]\n"
-                    + redact(result.output)[:_RESULT_CHARS]
-                )
+        results = await asyncio.gather(
+            *(_search(platform, task, deps, registry) for platform in platforms)
+        )
+        sources = [item for item in results if item]
     deps.platform_check_verified = bool(sources)
     deps.platform_names = names
     if sources:
@@ -130,14 +144,12 @@ async def run_platform_check(
 
 
 def ensure_limitations_disclosed(outcome: AgentOutcome, deps: AgentDeps) -> None:
-    """Bildirilen kısıt cevapta yoksa cevaba ekle; doğrulanamayan platformu belirt."""
+    """Disclose missing platform verification without promoting teacher opinions."""
     lines: list[str] = []
     text = outcome.final_text.lower()
-    for part in deps.platform_limitations:
-        if part.topic.lower() not in text:
-            lines.append(
-                f"- Yapılamayan: {part.topic} — {part.reason}. Alternatif: {part.alternative}."
-            )
+    # platform_limitations contains raw teacher assessments, not source-backed
+    # platform facts. Keep them in plan/activity context; actual tool failures
+    # and verification evidence remain responsible for the final task outcome.
     unverified = " kısıtları resmi kaynaktan doğrulanamadı."
     if deps.platform_names and not deps.platform_check_verified and unverified not in text:
         lines.append("- " + ", ".join(deps.platform_names) + unverified)

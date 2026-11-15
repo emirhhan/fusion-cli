@@ -20,7 +20,7 @@ from pathlib import Path
 
 #: Sahnedeki script bağı: `[node ... type="X"]` bloğunda `script = ExtResource("id")`.
 _NODE = re.compile(
-    r'\[node name="(?P<ad>[^"]+)" type="(?P<tip>[^"]+)"[^\]]*\]\n(?P<govde>(?:(?!\[node)[\s\S])*)'
+    r'\[node name="(?P<ad>[^"]+)" type="(?P<tip>[^"]+)"[^\n]*\]\n(?P<govde>(?:(?!\[node)[\s\S])*)'
 )
 _EXT_RESOURCE = re.compile(
     r'\[ext_resource type="Script" path="(?P<path>[^"]+)" id="(?P<id>[^"]+)"'
@@ -317,7 +317,7 @@ def broken_resource_paths(root: Path) -> tuple[str, ...]:
         *([root / "project.godot"] if (root / "project.godot").is_file() else []),
     ]
     for kaynak in sorted(kaynaklar):
-        if any(part.startswith(".") for part in kaynak.parts):
+        if any(part.startswith(".") for part in kaynak.relative_to(root).parts):
             continue
         try:
             metin = kaynak.read_text(encoding="utf-8")
@@ -349,7 +349,7 @@ def scripts_without_base(root: Path) -> tuple[str, ...]:
     """
     bulgular: list[str] = []
     for kaynak in sorted(root.rglob("*.gd")):
-        if any(part.startswith(".") for part in kaynak.parts):
+        if any(part.startswith(".") for part in kaynak.relative_to(root).parts):
             continue
         try:
             metin = kaynak.read_text(encoding="utf-8")

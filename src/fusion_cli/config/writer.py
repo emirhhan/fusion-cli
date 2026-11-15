@@ -39,7 +39,7 @@ from ..core.constants import FILE_LOCK_POLL_S
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
-from .models import Config, McpTransport
+from .models import Config, McpScope, McpTransport
 from .paths import user_config_candidates, user_config_dir
 
 _fcntl: ModuleType | None
@@ -64,12 +64,12 @@ def write_model_section(config: Config, path: Path | None = None) -> Path:
     yapılandırma dizininde yeni bir `config.yaml` oluşturulur.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing.update(
             {
-                "agent": _spec_to_dict(config.agent),
-                "judge": _spec_to_dict(config.judge),
+                "agent": _spec_to_dict(config.agent, keep_empty=True),
+                "judge": _spec_to_dict(config.judge, keep_empty=True),
                 "candidates": [_spec_to_dict(spec) for spec in config.candidates],
                 "task_model_map": dict(config.task_model_map),
             }
@@ -82,12 +82,12 @@ def write_teacher(config: Config, path: Path | None = None) -> Path:
     """Öğretmen rolünü yaz. `config.teacher` None ise `teacher:` anahtarı silinir
     (otomatik seçime dönülür)."""
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         if config.teacher is None:
             existing.pop("teacher", None)
         else:
-            existing["teacher"] = _spec_to_dict(config.teacher)
+            existing["teacher"] = _spec_to_dict(config.teacher, keep_empty=True)
         _atomic_write(target, existing)
     return target
 
@@ -102,7 +102,7 @@ def write_verification_commands(
     onaylamak onları sıfırlamamalıdır.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -128,7 +128,7 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
     if theme not in THEME_VALUES:
         raise ValueError(f"Geçersiz tema: {theme}. Seçenekler: {', '.join(THEME_VALUES)}")
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -142,6 +142,7 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
 #: anahtarın yanlışlıkla ezilmesini önleyen beyaz liste — `write_theme`'deki
 #: `THEME_VALUES` denetimiyle aynı gerekçe.
 _BOOLEAN_RUNTIME_FLAGS = (
+    "auto_memory",
     "teacherless",
     "teacher_lesson_sync",
     "teacher_codex_fallback",
@@ -155,6 +156,9 @@ _BOOLEAN_RUNTIME_FLAGS = (
     "playbooks",
     "verified_synthesis",
     "synthesis",
+    # Kök-dışı engel anahtarları (P-002); Ayarlar › İzinler ve `fusion permissions` yazar.
+    "block_reads_outside_root",
+    "block_writes_outside_root",
 )
 
 #: `workflow_mode` için kabul edilen değerler (bkz. `core.execution_mode.ExecutionMode`).
@@ -173,7 +177,7 @@ def write_runtime_flag(config: Config, key: str, value: bool, path: Path | None 
             f"Bilinmeyen runtime bayrağı: {key}. Seçenekler: {', '.join(_BOOLEAN_RUNTIME_FLAGS)}"
         )
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -194,12 +198,42 @@ def write_workflow_mode(config: Config, mode: str, path: Path | None = None) -> 
             f"Geçersiz plan kipi: {mode}. Seçenekler: {', '.join(WORKFLOW_MODE_VALUES)}"
         )
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
         updated["workflow_mode"] = mode
         existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
+#: `browser:` bölümünde kalıcı yazılabilen anahtarlar (bkz. `BrowserConfig`, P-023).
+BROWSER_SETTING_KEYS = ("default_profile", "headless", "profiles_enabled", "panel_agent", "tools")
+
+
+def write_browser_setting(
+    config: Config, key: str, value: str | bool, path: Path | None = None
+) -> Path:
+    """Tek bir `browser:` ayarını yaz; diğer ayarlar KORUNUR.
+
+    `default_profile` metin, diğerleri boolean alır; tip uyuşmazlığı burada reddedilir
+    ki yüklemede `ConfigError` ile bütün yapılandırma düşmesin.
+    """
+    if key not in BROWSER_SETTING_KEYS:
+        raise ValueError(
+            f"Bilinmeyen tarayıcı ayarı: {key}. Seçenekler: {', '.join(BROWSER_SETTING_KEYS)}"
+        )
+    expects_text = key == "default_profile"
+    if expects_text != isinstance(value, str):
+        raise ValueError(f"browser.{key} için {'metin' if expects_text else 'boolean'} bekleniyor.")
+    target = path or _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        section = existing.get("browser")
+        updated = dict(section) if isinstance(section, dict) else {}
+        updated[key] = value
+        existing["browser"] = updated
         _atomic_write(target, existing)
     return target
 
@@ -211,12 +245,35 @@ APPROVAL_MODE_VALUES = ("auto", "edits", "security", "plan")
 
 def _write_runtime_value(config: Config, key: str, value: str, path: Path | None) -> Path:
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
         updated[key] = value
         existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
+def write_section_value(
+    config: Config, section: str, key: str, value: object, path: Path | None = None
+) -> Path:
+    """Bir bölümün (`runtime`, `embedding`) TEK anahtarını yaz; diğer ayarlar KORUNUR.
+
+    Genel yazıcı (P-029, `config/settings_access.py`): tip doğrulaması çağıranda
+    yapılır, burada yalnız dosya birleştirmesi vardır. `None` değer anahtarı siler
+    (yüklemede varsayılana dönülür).
+    """
+    target = path or _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        current = existing.get(section)
+        updated = dict(current) if isinstance(current, dict) else {}
+        if value is None:
+            updated.pop(key, None)
+        else:
+            updated[key] = value
+        existing[section] = updated
         _atomic_write(target, existing)
     return target
 
@@ -245,7 +302,7 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
     Yalnızca bu anahtar güncellenir; `runtime`ın diğer ayarları korunur.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         runtime = existing.get("runtime")
         updated = dict(runtime) if isinstance(runtime, dict) else {}
@@ -258,7 +315,7 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
 def write_web_sessions(config: Config, path: Path | None = None) -> Path:
     """Web sağlayıcı tanımlarını yaz; cookie/token değerlerini ASLA yazma."""
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing["web_sessions"] = [
             {
@@ -275,6 +332,11 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
                     # Ölçüm sonucu KALICI olmalı: gateway yeniden başladığında model
                     # yeniden ölçülmeden mutation iznini kaybetmemeli.
                     "tool_eval_passed": session.tool_eval_passed,
+                    # Ölçümün KİMLİĞİ de yazılır: kapsam boş dönerse `web_evaluation_matches`
+                    # kaydı "legacy" sayıp doğrulamayı atlardı (L2-11).
+                    "tool_evaluated_at": session.tool_evaluated_at,
+                    "tool_evaluation_scope": session.tool_evaluation_scope,
+                    "tool_evaluation_adapter_revision": session.tool_evaluation_adapter_revision,
                     "login_verified": session.login_verified,
                     # Kip metne/boolean'a normalize edilerek yazılır: eski iki kip
                     # boolean kalır, yalnız `hidden` metin olarak yazılır.
@@ -299,7 +361,7 @@ def write_hosted_connectors(config: Config, path: Path | None = None) -> Path:
     sağlayıcı oturumunda bağlı olduğu ve ölçümün geçip geçmediğidir.
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
         existing["hosted_connectors"] = [
             {
@@ -323,13 +385,16 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
     genel dosya araçlarına asla verilmez (§ güvenlik sınırı, docs/WEB_PROVIDERS.md).
     """
     target = path or _target_path(config)
-    with _config_lock(target):
+    with config_lock(target):
         existing = _read_existing(target)
-        existing["mcp_servers"] = [
+        # Proje kapsamlı kayıtlar (`.mcp.json`) kullanıcı dosyasına KOPYALANMAZ; onları
+        # `config.mcp_json` yazar (P-049).
+        user_entries = [
             {
                 key: value
                 for key, value in {
                     "name": server.name,
+                    "env_literals": [list(pair) for pair in server.env_literals],
                     "command": server.command,
                     "args": list(server.args),
                     "transport": server.transport.value,
@@ -340,6 +405,7 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "token_env": server.token_env,
                     "trust": server.trust.value,
                     "reviewed_source": server.reviewed_source,
+                    "reviewed_tools": server.reviewed_tools,
                     "connect_timeout_s": server.connect_timeout_s,
                     "list_timeout_s": server.list_timeout_s,
                     "call_timeout_s": server.call_timeout_s,
@@ -347,6 +413,14 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "retry_delays_s": list(server.retry_delays_s)
                     if server.retry_delays_s is not None
                     else None,
+                    "allowed_tools": list(server.allowed_tools),
+                    "max_tools": server.max_tools,
+                    "headers": [list(pair) for pair in server.headers],
+                    "headers_helper": server.headers_helper,
+                    "always_load": server.always_load,
+                    "timeout_ms": server.timeout_ms,
+                    "oauth_callback_port": server.oauth_callback_port,
+                    "oauth_metadata_url": server.oauth_metadata_url,
                 }.items()
                 if value is not None
                 and (value != [] or key == "retry_delays_s")
@@ -354,9 +428,38 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                 and not (key == "transport" and value == McpTransport.STDIO.value)
             }
             for server in config.mcp_servers
+            if server.scope is McpScope.USER
+        ]
+        existing["mcp_servers"] = [
+            *_shadowed_user_entries(existing.get("mcp_servers"), config),
+            *user_entries,
         ]
         _atomic_write(target, existing)
     return target
+
+
+def _shadowed_user_entries(raw: object, config: Config) -> list[dict[str, object]]:
+    """Dosyada duran ama bellekte proje kaydının gölgelediği kullanıcı kayıtları (ham hâliyle).
+
+    Ölçüldü (31 Ekim): yükleme aynı adlı kullanıcı kaydını listeden atıyor; kullanıcı kapsamlı
+    herhangi bir yazma (`mcp add other`) gölgelenen kaydı config.yaml'dan siliyordu.
+    Kullanıcının verisine dokunulmaz: yalnız bellekte adı HİÇ olmayan (kullanıcı kapsamında
+    yeniden tanımlanmamış) ve bir proje kaydıyla gölgelenen girdiler korunur.
+    """
+    if not isinstance(raw, list):
+        return []
+    shadowing = (McpScope.PROJECT, McpScope.LOCAL, McpScope.MANAGED)
+    project_names = {s.name for s in config.mcp_servers if s.scope in shadowing}
+    # Kuruluş politikasının (#274) gizlediği kullanıcı kayıtları da korunur.
+    project_names |= set(getattr(config, "mcp_policy_hidden", None) or ())
+    user_names = {s.name for s in config.mcp_servers if s.scope is McpScope.USER}
+    return [
+        entry
+        for entry in raw
+        if isinstance(entry, dict)
+        and entry.get("name") in project_names
+        and entry.get("name") not in user_names
+    ]
 
 
 def _target_path(config: Config) -> Path:
@@ -387,11 +490,24 @@ def _read_existing(path: Path) -> dict[str, object]:
     return raw
 
 
-def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
+#: `keep_empty=True` iken boş olsa da yazılan liste alanları ve bayrak.
+_SPEC_KEPT_FIELDS = (
+    "tags",
+    "fallback",
+    "supported_reasoning_efforts",
+    "reasoning_efforts_verified",
+)
+
+
+def _spec_to_dict(spec: ModelSpec, *, keep_empty: bool = False) -> dict[str, object]:
     """`ModelSpec`'i YAML'a yazılabilir sözlüğe çevir.
 
     Boş alanlar (etiketsiz model, yedeksiz model) yazılmaz: dosyada `tags: []`
-    satırları gürültüden başka bir şey değildir.
+    satırları gürültüden başka bir şey değildir. İSTİSNA `keep_empty=True`: `agent`/
+    `judge`/`teacher` bölümleri yüklemede `defaults.yaml` ile DERİN birleşir; yazılmayan
+    boş `fallback` varsayılan yedek zincirini geri getirirdi ("tek model, yedek yok"
+    seçimi sonraki açılışta eski zincirle çalışırdı — L2-09). Aday listesi tamamen
+    değiştiği için orada boşlar yazılmaz.
 
     Ölçüt "boş mu" DEĞİL "tanımsız mı": sayısal bir alanda `0` geçerli ve anlamlı
     bir değer olabilir. Doğruluk/yanlışlık ölçütü kullanılsaydı sessizce atılır,
@@ -401,20 +517,23 @@ def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
     return {
         key: (list(value) if isinstance(value, tuple) else value)
         for key, value in data.items()
-        if value is not None
-        and value != ()
-        and value != ""
-        and not (key == "reasoning_efforts_verified" and value is False)
+        if (keep_empty and key in _SPEC_KEPT_FIELDS)
+        or (
+            value is not None
+            and value != ()
+            and value != ""
+            and not (key == "reasoning_efforts_verified" and value is False)
+        )
     }
 
 
 @contextmanager
-def _config_lock(path: Path) -> Iterator[None]:
+def config_lock(path: Path) -> Iterator[None]:
     """Aynı config hedefindeki tüm read-modify-write işlemini süreçler arası kilitle."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(f".{path.name}.lock")
     if _fcntl is None:  # pragma: no cover - yalnız POSIX dışı güvenli fallback
-        with _fallback_config_lock(lock_path.with_suffix(f"{lock_path.suffix}.fallback")):
+        with _fallbackconfig_lock(lock_path.with_suffix(f"{lock_path.suffix}.fallback")):
             yield
         return
 
@@ -437,7 +556,7 @@ def _config_lock(path: Path) -> Iterator[None]:
 
 
 @contextmanager
-def _fallback_config_lock(lock_path: Path) -> Iterator[None]:
+def _fallbackconfig_lock(lock_path: Path) -> Iterator[None]:
     """`flock` yoksa atomik lock-file oluştur; belirsizlikte veri kaybı yerine hata ver."""
     deadline = time.monotonic() + 10.0
     descriptor: int | None = None
@@ -470,7 +589,31 @@ def _atomic_write(path: Path, data: dict[str, object]) -> None:
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
         temporary.replace(path)
     except OSError as exc:
         temporary.unlink(missing_ok=True)
         raise ConfigError(f"Yapılandırma yazılamadı ({path}): {exc}") from exc
+
+
+def read_user_mcp_entries(config: Config) -> list[dict[str, object]]:
+    """Kullanıcı `config.yaml`'ındaki ham `mcp_servers` girdileri (gölgelenenler dahil)."""
+    raw = _read_existing(_target_path(config)).get("mcp_servers")
+    return [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
+
+
+def remove_user_mcp_server(config: Config, name: str) -> Path:
+    """Kullanıcı kapsamındaki adı `config.yaml`'dan sil (gölgelenmiş olsa bile)."""
+    target = _target_path(config)
+    with config_lock(target):
+        existing = _read_existing(target)
+        raw = existing.get("mcp_servers")
+        entries = raw if isinstance(raw, list) else []
+        existing["mcp_servers"] = [
+            entry
+            for entry in entries
+            if not (isinstance(entry, dict) and entry.get("name") == name)
+        ]
+        _atomic_write(target, existing)
+    return target

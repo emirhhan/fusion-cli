@@ -1,0 +1,26 @@
+{
+  "kind": "lesson_wrong",
+  "split": "blind",
+  "request": "python dersindeki yanlış tavsiyeyi testle karşılaştır; deger() 2 dönmeli.",
+  "checks": [],
+  "lessons": [
+    {
+      "id": "current-python",
+      "text": "python değer için return 1 kullan. Yanlış ders.",
+      "version": "2",
+      "split": "blind"
+    },
+    {
+      "id": "irrelevant",
+      "text": "Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. Bahçe çiçekleri sulanır. ",
+      "version": "2",
+      "split": "blind"
+    }
+  ],
+  "reproduction": {
+    "input_path": "app.py",
+    "before_command": "python -B -c \"from app import deger; assert deger() == 2\"",
+    "after_command": "python -B -c \"from app import deger; assert deger() == 2\"",
+    "before_success": false
+  }
+}

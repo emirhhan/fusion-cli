@@ -67,3 +67,45 @@ describe("VoicePreferences", () => {
     expect(screen.queryByRole("button", { name: /model seç/i })).toBeNull();
   });
 });
+
+describe("VoicePreferences — dalga 4 (U2-45, U2-47)", () => {
+  it("kayıt sürerken sürgü devre dışı kalmaz (odak korunur) ve değişmeyen değer yeniden kaydedilmez", async () => {
+    let bitir: (() => void) | null = null;
+    const client = voiceClient();
+    const inner = vi.mocked(client.request).getMockImplementation()!;
+    vi.mocked(client.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+      if (name === "ses.ayar") await new Promise<void>((resolve) => { bitir = resolve; });
+      return inner(name, data);
+    });
+    render(<VoicePreferences client={client} />);
+    const speed = (await screen.findByLabelText("Hız")) as HTMLInputElement;
+    speed.focus();
+    fireEvent.input(speed, { target: { value: "1.35" } });
+    fireEvent.keyUp(speed, { key: "ArrowRight" });
+    await waitFor(() => expect(bitir).not.toBeNull());
+    expect(speed.disabled).toBe(false);
+    expect(document.activeElement).toBe(speed);
+    expect(speed.getAttribute("aria-valuetext")).toContain("1.35");
+    bitir!();
+    await waitFor(() => expect(screen.getByText("1.35×")).toBeTruthy());
+    // Tab bırakılınca (değer aynı) tekrar kayıt yapılmaz.
+    fireEvent.keyUp(speed, { key: "Tab" });
+    expect(vi.mocked(client.request).mock.calls.filter(([n]) => n === "ses.ayar")).toHaveLength(1);
+  });
+
+  it("okuma hatasında gerçek nedeni gösterir ve yeniden dene sunar", async () => {
+    const client = voiceClient();
+    const inner = vi.mocked(client.request).getMockImplementation()!;
+    let kir = true;
+    vi.mocked(client.request).mockImplementation(async (name: string, data: Record<string, unknown>) => {
+      if (name === "ses.durum" && kir) throw new Error("çekirdek ses hizmeti kapalı");
+      return inner(name, data);
+    });
+    render(<VoicePreferences client={client} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("çekirdek ses hizmeti kapalı");
+    kir = false;
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+    expect(await screen.findByLabelText("Hız")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

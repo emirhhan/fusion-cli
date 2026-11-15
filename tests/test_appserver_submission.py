@@ -451,3 +451,41 @@ async def test_move_collision_metadata_degistirmez_ve_unrelated_cleanup_yapmaz(t
     data["kaynak_kok"] = str(tmp_path / "olmayan")
     assert (await session._move_conversation(data))["ok"] is False
     assert await session._submission_store.lookup(source_key) is not None
+
+
+async def test_iptal_durumu_ekran_metninden_degil_acik_isaretten_cikar(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-54): makbuz durumu `result["metin"] == APP_TURN_CANCELLED`
+    eşitliğinden çıkarılıyordu; metin değişirse iptal 'failed' yazılırdı."""
+    session = AppSession(lambda line: None, root=tmp_path, home=tmp_path / "ev")
+
+    async def iptal(*_args, **_kwargs):
+        return {"ok": False, "metin": "Başka bir iptal metni", "_cancelled": True}
+
+    monkeypatch.setattr(session, "_run_turn", iptal)
+    sonuc = await session._dispatch(
+        Request(id="1", name="tur.calistir", data={"gorev": "iş", "gonderim_id": "iptal-1"})
+    )
+
+    assert sonuc["makbuz"]["durum"] == "cancelled"
+    assert "_cancelled" not in sonuc
+
+
+async def test_makbuz_olayi_kodlama_hatasi_kabul_edilmis_gorevi_dusurmez(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-55): makbuz olayı yazılırken OSError dışı istisna (ör.
+    UnicodeEncodeError) `async with` dışına sızıyor; görev çalışırken istemci hata alıyordu."""
+
+    async def execute(task, config, **kwargs):
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
+
+    def yazici(line: str) -> None:
+        if "GonderimMakbuzu" in line:
+            raise UnicodeEncodeError("utf-8", "x", 0, 1, "test")
+
+    session = AppSession(yazici, root=tmp_path, home=tmp_path / "ev")
+    sonuc = await session._dispatch(
+        Request(id="1", name="tur.calistir", data={"gorev": "iş", "gonderim_id": "m-1"})
+    )
+
+    assert sonuc["ok"] is True

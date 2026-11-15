@@ -6,7 +6,7 @@ export { LightSweep } from "./LightSweep";
 export { KineticText } from "./KineticText";
 export { CameraPush, Parallax } from "./CameraPush";
 export { LogoReveal } from "./LogoReveal";
-export { FeatureCard } from "./FeatureCard";
+export { FeatureCard, inlineCode } from "./FeatureCard";
 export { SceneFade } from "./Transition";
 
 export { LayoutAudit } from "./LayoutAudit";

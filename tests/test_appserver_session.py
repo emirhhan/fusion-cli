@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import json
 import subprocess
 import sys
@@ -51,7 +52,10 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert result == {"ok": True, "metin": "bitti"}
     assert kwargs_seen["chat_mode"] is False
     assert kwargs_seen["system_prompt"] is None
+    from fusion_cli.core.claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
+
     assert kwargs_seen["allowed_tools"] == {
+        *CLAUDE_CHROME_TOOL_NAMES,
         "chrome_page",
         "chrome_action",
         "chrome_click",
@@ -62,6 +66,33 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     # Panel görevi yerel dosyaya ve kabuğa dokunamaz.
     assert not {"run_shell", "write_file", "edit_file", "bash"} & kwargs_seen["allowed_tools"]
     assert oturum._workspace_mode == "sohbet"
+
+
+async def test_sesli_cografya_sorusu_kod_oturumunda_araclari_acmaz(tmp_path, monkeypatch):
+    from fusion_cli.appserver.voice_context import VoiceTurnContext
+    from fusion_cli.cli import session as cli_session
+
+    kwargs_seen = []
+
+    async def fake_run_agent_task(_task, _config, **kwargs):
+        kwargs_seen.append(kwargs)
+        return SimpleNamespace(ok=True, final_text="Ankara.", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    session = _session(tmp_path, [])
+    session._workspace_mode = "kod"
+    assert (await session._run_turn(
+        "Teşekkür ederim Türkiye'nin başkenti neresi?", voice_context=VoiceTurnContext()
+    ))["ok"]
+    assert (await session._run_turn(
+        "Projede kaç il var?", voice_context=VoiceTurnContext()
+    ))["ok"]
+
+    answer, work = kwargs_seen
+    assert answer["chat_mode"] and not answer["bootstrap_mcp"]
+    assert answer["allowed_tools"] == set()
+    assert not work["chat_mode"] and work["bootstrap_mcp"]
+    assert session._workspace_mode == "kod"
 
 
 async def test_chrome_paneli_kod_kipinde_proje_ve_ogretmen_araclarini_kisitlamaz(
@@ -115,7 +146,7 @@ async def test_masaustu_turu_oturumun_kalici_bellegini_ajana_verir(tmp_path, mon
 async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path, monkeypatch):
     oturum = _session(tmp_path, [])
 
-    async def fake_run_turn(_task, *, browser_only):
+    async def fake_run_turn(_task, *, browser_only, chrome_turn_id, scoped_chrome=None):
         assert browser_only
         return {"ok": True, "metin": "internal reasoning\n</think>\nİşlem tamamlandı."}
 
@@ -202,6 +233,50 @@ async def test_nim_secimi_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
     )
     assert accepted["ok"] is True
     assert "nvidia_nim/z-ai/glm-5.3" in accepted["metin"]
+
+
+async def test_kapanis_takili_nim_dogrulamasini_kisa_bekler(tmp_path, monkeypatch):
+    """S2-22 — Ölçüldü (30 Ekim): `close()` model seçim görevlerini sonuna dek bekliyordu;
+    NIM araç doğrulaması 90 sn'ye kadar sürebildiğinden kapanış (ve süreç çıkışı: executor
+    thread'i dahil) bu kadar gecikiyordu. Bekleme sınırlıdır ve doğrulama daemon thread'dedir."""
+    import threading
+    import time
+
+    from fusion_cli.appserver import session as oturum_modulu
+    from fusion_cli.cli.repl import model_flows
+
+    started, release = threading.Event(), threading.Event()
+    seen: list[bool] = []
+
+    def asili_probe(_model):
+        seen.append(threading.current_thread().daemon)
+        started.set()
+        release.wait(10)
+        return True, ""
+
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", asili_probe)
+    monkeypatch.setattr(oturum_modulu, "MODEL_SELECTION_CLOSE_WAIT_S", 0.2)
+    oturum = _session(tmp_path, [])
+    secim = asyncio.create_task(
+        oturum._run_command(
+            {"ad": "development", "arguman": "uygula nim-free nvidia_nim/z-ai/glm-5.3"}
+        )
+    )
+    for _ in range(100):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.01)
+    assert started.is_set()
+
+    baslangic = time.monotonic()
+    await oturum.close()
+    gecen = time.monotonic() - baslangic
+    release.set()
+    secim.cancel()
+    await asyncio.gather(secim, return_exceptions=True)
+
+    assert gecen < 3.0, gecen
+    assert seen == [True]
 
 
 async def test_bilinmeyen_istek_hata_sonucu_doner(tmp_path):
@@ -728,7 +803,8 @@ async def test_history_run_agent_task_a_gecirilir(tmp_path, monkeypatch):
     await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "ikinci iş"}))
 
     # C2: ikinci tur BİRİNCİ turun ürettiği geçmişi gördü — sıfırdan başlamadı.
-    assert gorulen_gecmisler[1] is ilk_turun_ciktisi
+    assert gorulen_gecmisler[1] == ilk_turun_ciktisi
+    assert gorulen_gecmisler[1] is not ilk_turun_ciktisi
 
 
 async def test_model_olayi_oturum_kullanimina_yansir(tmp_path, monkeypatch):
@@ -887,6 +963,9 @@ async def test_c4_security_komutu_calisan_tura_gecer(tmp_path, monkeypatch):
 
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
+    # Yerleşik varsayılan Manuel (#423); önce auto'ya geçilir, sonra /security.
+    assert oturum._state.approval is ApprovalMode.SECURITY
+    await oturum.handle(Request(id="0", name="komut.calistir", data={"ad": "auto", "arguman": ""}))
     assert oturum._state.approval is ApprovalMode.AUTO
 
     await oturum.handle(
@@ -1004,6 +1083,10 @@ async def test_masaustunde_shell_reddi_ucuncu_model_cagrisi_yapmadan_turu_durdur
     # Kod kipi: sohbet kipi mutasyonu hiç sormadan (BLOCKED) reddeder; masaüstü
     # uygulamasındaki "değişiklikleri sıfırla" senaryosu kod kipinde geçer.
     oturum._workspace_mode = "kod"
+    # Test Otomatik kipin tel akışını kilitler; yerleşik varsayılan artık Manuel (#423).
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    oturum._state.approval = ApprovalMode.AUTO
 
     gorev = asyncio.ensure_future(
         oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": "sıfırla"}))
@@ -1437,8 +1520,15 @@ async def test_goal_makrosu_gorevi_dondurur_ve_sonraki_tura_hedef_kipini_tasir(
     tmp_path, monkeypatch
 ):
     """`/goal` masaüstünde "çalıştırılıyor…" deyip hiçbir turu başlatmıyordu."""
-    from fusion_cli.cli.repl import macros
+    from fusion_cli.cli.repl import goal_flow, macros
+    from fusion_cli.core.session_goal import GoalVerdict
+    from fusion_cli.engines.agent.goal_judge import GoalJudgement
 
+    async def _karsilandi(*_args):
+        return GoalJudgement(GoalVerdict.MET, "bitti")
+
+    # Tur sonu hedef değerlendirmesi (P-058) gerçek hakem modeline gitmesin.
+    monkeypatch.setattr(goal_flow, "judge_goal", _karsilandi)
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
     olay = asyncio.Event()
@@ -1465,7 +1555,18 @@ async def test_goal_makrosu_gorevi_dondurur_ve_sonraki_tura_hedef_kipini_tasir(
     assert yakalanan["kwargs"]["step_limit"] is None
 
 
-async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar(tmp_path):
+async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar(
+    tmp_path, monkeypatch
+):
+    """Claude Code (#221): `/btw` tur başlatmaz (görev dönmez), araçsız yanıt metni döner."""
+    from fusion_cli.cli.repl import btw_command
+    from fusion_cli.core.types import ModelResult
+
+    class _Sahte:
+        async def complete(self, request):
+            return ModelResult(name="a", model="m/x", text="yan cevap", latency_ms=1, ok=True)
+
+    monkeypatch.setattr(btw_command, "_provider", lambda state: _Sahte())
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
 
@@ -1480,8 +1581,8 @@ async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar
     )
     yan_soru = _sonuc(satirlar, "2")
     assert yan_soru["ok"] is True
-    assert "Bu dosya ne yapıyor?" in yan_soru["gorev"]
-    assert "Ana görevi değiştirmeden" in yan_soru["gorev"]
+    assert "gorev" not in yan_soru
+    assert "Bu dosya ne yapıyor?" in yan_soru["metin"] and "yan cevap" in yan_soru["metin"]
 
 
 async def test_makro_olmayan_komut_gorev_dondurmez(tmp_path):
@@ -1627,30 +1728,90 @@ async def test_plan_yurut_turundan_sonra_kok_konusma_korunur(tmp_path, monkeypat
     )
 
 
-async def test_panel_ayarlari_modeli_komutla_degistirir_ve_kipi_ayarlar(tmp_path, monkeypatch):
+async def test_panel_ayarlari_modeli_yapisal_rpc_ile_degistirir_ve_kipi_ayarlar(
+    tmp_path, monkeypatch
+):
     """Claude in Chrome gibi: panel modeli ve 'Önce sor / Sormadan yap' kipini seçer."""
     from fusion_cli.appserver import session as oturum_modulu
 
     oturum = _session(tmp_path, [])
     komutlar: list[dict] = []
 
-    async def sahte_komut(data):
+    async def sahte_secim(data):
         komutlar.append(data)
         return {"ok": True}
 
     async def sahte_katalog(_config, *, workspace_mode):
         return {"ok": True, "modeller": [{"model": "m1", "kaynak": "nim-free", "etiket": "m1"}]}
 
-    monkeypatch.setattr(oturum, "_run_command", sahte_komut)
+    monkeypatch.setattr(oturum, "_select_model", sahte_secim)
     monkeypatch.setattr(oturum_modulu, "list_selectable_models", sahte_katalog)
 
     sonuc = await oturum._chrome_settings({"mod": "security"})
     assert sonuc["ok"] and sonuc["mod"] == "security" and sonuc["modeller"][0]["model"] == "m1"
     await oturum._chrome_settings({"model": "nvidia_nim/x", "kaynak": "nim-free"})
-    assert komutlar == [{"ad": "development", "arguman": "uygula nim-free nvidia_nim/x"}]
-    # Boşluklu değer komuta enjekte edilemez; bilinmeyen kip reddedilir.
+    assert komutlar == [{"kaynak": "nim-free", "model": "nvidia_nim/x"}]
+    # Boşluklu değer (panel sözleşmesi) hâlâ reddedilir; bilinmeyen kip reddedilir.
     assert not (await oturum._chrome_settings({"model": "a b", "kaynak": "x"}))["ok"]
     assert not (await oturum._chrome_settings({"mod": "herkes"}))["ok"]
+
+
+async def test_ilk_tur_30_gunden_eski_izleri_bir_kez_temizler(tmp_path):
+    """L1-30 — Ölçüldü (30 Ekim): iz dosyaları hiç silinmiyordu. Temizlik süreç başına bir kez
+    (ve günde bir damgayla) çalışır; taze iz ve Fusion dışı dosyalar kalır."""
+    import os
+    import time
+
+    oturum = _session(tmp_path, [])
+    memory = oturum._state.config.memory_dir
+    traces = memory / "traces"
+    traces.mkdir(parents=True, exist_ok=True)
+    eski, taze = traces / "eski.jsonl", traces / "taze.jsonl"
+    for yol, gun in ((eski, 45), (taze, 1)):
+        yol.write_text("{}\n", encoding="utf-8")
+        damga = time.time() - gun * 86_400
+        os.utime(yol, (damga, damga))
+
+    oturum._start_local_state_purge(memory)
+    await oturum._local_state_purge_task
+
+    assert not eski.exists() and taze.exists()
+    sonra = traces / "sonra.jsonl"
+    sonra.write_text("{}\n", encoding="utf-8")
+    os.utime(sonra, (0, 0))
+    oturum._start_local_state_purge(memory)  # aynı süreçte ikinci kez çalışmaz
+    await oturum._local_state_purge_task
+    assert sonra.exists()
+
+
+async def test_panel_bypass_kipi_ek_onay_ister(tmp_path, monkeypatch):
+    """R1-32 — Ölçüldü (30 Ekim): panelden tek `mod=bypass` isteği, hiçbir şey sorulmayan kipi
+    onaysız açıyordu (masaüstü arayüzü bunu zaten onaylatıyor). Panel onayı `bypass_onay`
+    ile açıkça taşımadıkça kip değişmez; bypass'tan çıkmak onay istemez."""
+    from fusion_cli.appserver import session as oturum_modulu
+
+    oturum = _session(tmp_path, [])
+
+    async def sahte_katalog(_config, *, workspace_mode):
+        return {"ok": True, "modeller": []}
+
+    monkeypatch.setattr(oturum_modulu, "list_selectable_models", sahte_katalog)
+    onceki = oturum._state.approval
+
+    reddedilen = await oturum._chrome_settings({"mod": "bypass"})
+    assert reddedilen["ok"] is False and reddedilen["onay_gerekli"] == "bypass"
+    assert oturum._state.approval is onceki
+
+    # Onay bayrağı yalnız `True` ise geçerlidir ("true" metni, 1 vb. sayılmaz).
+    assert (await oturum._chrome_settings({"mod": "bypass", "bypass_onay": "true"}))["ok"] is False
+    assert oturum._state.approval is onceki
+
+    onaylanan = await oturum._chrome_settings({"mod": "bypass", "bypass_onay": True})
+    assert onaylanan["ok"] and onaylanan["mod"] == "bypass"
+
+    # Bypass'tan güvenli kipe dönüş ve zaten bypass iken yeniden gönderim onay istemez.
+    assert (await oturum._chrome_settings({"mod": "bypass"}))["ok"] is True
+    assert (await oturum._chrome_settings({"mod": "security"}))["mod"] == "security"
 
 
 async def test_panel_konusmasi_uygulamanin_sohbetine_karismaz(tmp_path, monkeypatch):
@@ -1958,3 +2119,392 @@ async def test_gallery_and_library_asset_identity_roundtrip_is_profile_scoped(
     finally:
         await session.close()
         await other.close()
+
+
+async def test_oturum_baslat_gecersiz_kok_reddedilir_ve_durum_degismez(tmp_path):
+    """Var olmayan, dosya olan ya da göreli kök sessizce atanmamalı (S2-08)."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    kok_once = oturum._state.root
+    dosya = tmp_path / "dosya.txt"
+    dosya.write_text("x", encoding="utf-8")
+
+    for sira, kok in enumerate([str(tmp_path / "yok"), str(dosya), "goreli/klasor"]):
+        kimlik = f"k{sira}"
+        await oturum.handle(
+            Request(id=kimlik, name="oturum.baslat", data={"kok": kok, "sohbet_id": "yeni-sekme"})
+        )
+        assert _sonuc(satirlar, kimlik)["ok"] is False
+        assert oturum._state.root == kok_once
+        assert oturum._conversation_id != "yeni-sekme"  # yarım uygulama yok
+
+
+async def test_kok_degisince_ek_klasor_izinleri_ve_onay_hafizasi_sifirlanir(tmp_path):
+    """Bir projede verilen dizin izni sonraki projeye taşınmamalı (S2-08)."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    ikinci = tmp_path / "ikinci"
+    ikinci.mkdir()
+    oturum._state.extra_roots = (tmp_path / "baska-oturumun-klasoru",)
+    revoked: list[bool] = []
+    gercek = oturum._state.approval_memory.revoke
+    oturum._state.approval_memory.revoke = lambda: (revoked.append(True), gercek())[1]
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"kok": str(ikinci)}))
+
+    assert _sonuc(satirlar, "1")["ok"] is True
+    assert oturum._state.extra_roots == ()
+    assert revoked
+
+
+async def test_ayni_kok_tekrar_gonderilince_ek_izinler_korunur(tmp_path):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.extra_roots = (tmp_path / "izinli",)
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"kok": str(tmp_path)}))
+
+    assert _sonuc(satirlar, "1")["ok"] is True
+    assert oturum._state.extra_roots == (tmp_path / "izinli",)
+
+
+async def test_tur_surerken_kok_degistirilemez(tmp_path):
+    import asyncio
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    ikinci = tmp_path / "ikinci"
+    ikinci.mkdir()
+    oturum._turn = asyncio.get_running_loop().create_future()  # çalışan tur
+    try:
+        await oturum.handle(Request(id="1", name="oturum.baslat", data={"kok": str(ikinci)}))
+    finally:
+        oturum._turn = None
+
+    sonuc = _sonuc(satirlar, "1")
+    assert sonuc["ok"] is False and "tur" in sonuc["metin"].lower()
+    assert oturum._state.root != ikinci
+
+
+async def test_close_bir_adim_hata_verse_de_kalan_kapanis_adimlari_calisir(tmp_path, monkeypatch):
+    """Terminal kapanışı başarısız olunca tarayıcı/uzak sunucu yetim kalmamalı (S2-09)."""
+    import pytest
+
+    from fusion_cli.core.errors import CleanupFailedError
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    cagrilan: list[str] = []
+
+    async def terminal_basarisiz():
+        cagrilan.append("surecler")
+        raise CleanupFailedError("terminal süreci doğrulanamadı")
+
+    async def tarayicilar():
+        cagrilan.append("tarayicilar")
+
+    class SahteUzak:
+        async def aclose(self):
+            cagrilan.append("uzak")
+
+    monkeypatch.setattr(oturum._processes, "close", terminal_basarisiz)
+    monkeypatch.setattr("fusion_cli.providers.web_browser.close_all_browser_sessions", tarayicilar)
+    monkeypatch.setattr(
+        "fusion_cli.providers.web_control.stop_all_login_processes",
+        lambda: cagrilan.append("girisler"),
+    )
+    oturum._remote = SahteUzak()
+    iptal_oncesi = oturum.pending.cancel_all
+    monkeypatch.setattr(
+        oturum.pending, "cancel_all", lambda: (cagrilan.append("bekleyen"), iptal_oncesi())[1]
+    )
+
+    with pytest.raises(CleanupFailedError):
+        await oturum.close()
+
+    assert cagrilan == ["surecler", "tarayicilar", "girisler", "uzak", "bekleyen"]
+
+
+async def test_git_ve_degisiklik_sorgulari_olay_dongusunu_bloklamaz(tmp_path, monkeypatch):
+    """Senkron `git` çağrıları thread'de koşmalı; yoksa RPC ve onaylar donar (S2-03)."""
+    import asyncio
+    import threading
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    birakma = threading.Event()
+
+    def yavas(*_args, **_kwargs):
+        birakma.wait(5)
+        return {"ok": True, "degisiklikler": [], "git": False}
+
+    monkeypatch.setattr("fusion_cli.appserver.session.list_changes", yavas)
+    monkeypatch.setattr("fusion_cli.appserver.session.git_status", yavas)
+    for sira, ad in enumerate(["proje.degisiklikler", "proje.git_durum"]):
+        birakma.clear()
+        gorev = asyncio.create_task(oturum.handle(Request(id=f"g{sira}", name=ad, data={})))
+        await asyncio.sleep(0.05)
+        assert not gorev.done()
+        dongu_canli = False
+
+        async def isaretle():
+            nonlocal dongu_canli
+            dongu_canli = True
+
+        await asyncio.wait_for(isaretle(), 1)
+        assert dongu_canli  # döngü, bekleyen git işi sürerken çalışabiliyor
+        birakma.set()
+        await asyncio.wait_for(gorev, 5)
+
+
+async def test_komut_secenekleri_olay_dongusunu_bloklamaz(tmp_path, monkeypatch) -> None:
+    """Ölçüldü (30 Ekim, S1-22): `command_choices` (model kataloğu: ağ) olay döngüsünde
+    doğrudan çalışıyor, süresince tüm stdio döngüsü donuyordu."""
+    import time
+
+    from fusion_cli.appserver import session as modul
+
+    def yavas(_state, _ad, _arguman):
+        time.sleep(0.4)
+        return None
+
+    monkeypatch.setattr(modul, "command_choices", yavas)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    vuruslar: list[float] = []
+
+    async def kalp() -> None:
+        for _ in range(8):
+            vuruslar.append(time.monotonic())
+            await asyncio.sleep(0.05)
+
+    await asyncio.gather(
+        kalp(), oturum.handle(Request("1", "komut.secenekler", {"ad": "model", "arguman": ""}))
+    )
+
+    assert max(b - a for a, b in itertools.pairwise(vuruslar)) < 0.2
+
+
+async def test_komut_secenekleri_hatasi_genel_hataya_donusur(tmp_path, monkeypatch) -> None:
+    from fusion_cli.appserver import session as modul
+
+    def bozuk(_state, _ad, _arguman):
+        raise OSError("ag")
+
+    monkeypatch.setattr(modul, "command_choices", bozuk)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request("1", "komut.secenekler", {"ad": "model", "arguman": ""}))
+
+    assert _sonuc(satirlar, "1") == {"ok": False, "metin": messages.APP_COMMAND_FAILED}
+
+
+async def test_oturum_baslat_kalici_yazma_hatasini_uyari_olarak_tasir(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-13): `persist_*` hata metnini döndürüyor, çağrı yeri yok sayıyordu;
+    kayıt başarısızken kullanıcı 'kaydedildi' sanıyordu."""
+    from fusion_cli.appserver import session as modul
+
+    monkeypatch.setattr(modul, "persist_approval", lambda _c, _m: "İzin modu kaydedilemedi")
+    monkeypatch.setattr(modul, "persist_engine", lambda _c, _e: "Motor seçimi kaydedilemedi")
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="oturum.baslat", data={"mod": "plan", "motor": "agent"})
+    )
+    sonuc = _sonuc(satirlar, "1")
+
+    assert sonuc["ok"] is True
+    assert "İzin modu kaydedilemedi" in sonuc["uyari"] and "Motor seçimi" in sonuc["uyari"]
+
+    await oturum.handle(Request(id="2", name="oturum.baslat", data={}))
+    assert "uyari" not in _sonuc(satirlar, "2")
+
+
+async def test_oturum_baslat_gecici_mod_kalici_yazmaz(tmp_path, monkeypatch):
+    """U5-57: zamanlanmış görev oturumunu bypass'tan çıkarırken kullanıcının kalıcı varsayılan
+    izin modu config'e yazılmaz (`mod_kalici: false`); varsayılan davranış değişmez."""
+    from fusion_cli.appserver import session as modul
+
+    yazilan: list[str] = []
+    monkeypatch.setattr(modul, "persist_approval", lambda _c, mod: yazilan.append(mod.value))
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="oturum.baslat", data={"mod": "bypass", "mod_kalici": False})
+    )
+    assert _sonuc(satirlar, "1")["mod"] == "bypass"
+    assert yazilan == []
+
+    await oturum.handle(
+        Request(id="2", name="oturum.baslat", data={"mod": "auto", "mod_kalici": False})
+    )
+    assert _sonuc(satirlar, "2")["mod"] == "auto"
+    assert yazilan == []
+
+    await oturum.handle(Request(id="3", name="oturum.baslat", data={"mod": "plan"}))
+    assert yazilan == ["plan"]
+
+
+async def test_model_rol_ata_kabul_kilidini_paylasir(tmp_path):
+    """Ölçüldü (30 Ekim, S2-14): `model.rol_ata` kilitli RPC kümesinde değildi; `await` sırasında
+    başka bir RPC'nin config değişikliğini eziyordu (kayıp güncelleme)."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    async with oturum._admission_lock:
+        gorev = asyncio.create_task(
+            oturum.handle(Request("1", "model.rol_ata", {"rol": "", "deger": None}))
+        )
+        await asyncio.sleep(0.1)
+        assert not gorev.done()
+    await asyncio.wait_for(gorev, 5)
+    assert _sonuc(satirlar, "1")["ok"] is False
+
+
+async def test_istek_hatasi_maskelenir_ve_gunluge_yazilir(tmp_path, monkeypatch, caplog):
+    """Ölçüldü (30 Ekim, S2-17): `handle` ham `str(error)` döndürüyordu (token parçası/yol
+    UI'ya gidebilir) ve hiçbir iz bırakmıyordu."""
+
+    async def bozuk(_istek):
+        raise RuntimeError("Authorization: Bearer abcdef1234567890xyz reddedildi")
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    monkeypatch.setattr(oturum, "_dispatch", bozuk)
+
+    with caplog.at_level("ERROR"):
+        await oturum.handle(Request("1", "durum", {}))
+
+    sonuc = _sonuc(satirlar, "1")
+    assert sonuc["ok"] is False and "abcdef1234567890xyz" not in sonuc["metin"]
+    assert "RuntimeError" in caplog.text and "abcdef1234567890xyz" not in caplog.text
+
+
+async def test_gorsel_ekleri_olay_dongusunun_disinda_okunur(tmp_path, monkeypatch):
+    """Ölçüldü (30 Ekim, S2-21): `_attachment_images` (8 × 5 MiB okuma + base64) olay
+    döngüsünde senkron çalışıyordu."""
+    import threading
+
+    from fusion_cli.appserver import session as modul
+
+    thread_adlari: list[str] = []
+
+    def okuyucu(_ekler):
+        thread_adlari.append(threading.current_thread().name)
+        return ()
+
+    async def sahte_tur(*_a, **_k):
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(modul, "_attachment_images", okuyucu)
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", sahte_tur)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    resim = tmp_path / "a.png"
+    resim.write_bytes(b"\x89PNG")
+
+    await oturum.handle(
+        Request(
+            "1",
+            "tur.calistir",
+            {"gorev": "bak", "ekler": [{"kind": "image", "path": str(resim), "name": "a.png"}]},
+        )
+    )
+
+    assert thread_adlari and thread_adlari[0] != threading.main_thread().name
+
+
+async def test_sohbet_gecisinde_oturum_ajani_geri_yuklenir(tmp_path):
+    """#16: masaüstünde sohbet değişince o sohbetin ajanı geri gelir; kaydı yoksa kalkar."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="oturum.baslat", data={"sohbet_id": "a", "kisilik": "explore"})
+    )
+    assert _sonuc(satirlar, "1")["kisilik"]["ad"] == "explore"
+    await oturum.handle(Request(id="2", name="oturum.baslat", data={"sohbet_id": "b"}))
+    assert _sonuc(satirlar, "2")["kisilik"] is None
+    await oturum.handle(Request(id="3", name="oturum.baslat", data={"sohbet_id": "a"}))
+    assert _sonuc(satirlar, "3")["kisilik"]["ad"] == "explore"
+
+
+async def test_oturum_baslat_kisilik_kurar_ve_tur_kisiligi_uygular(tmp_path, monkeypatch):
+    """P-053: `oturum.baslat{kisilik}` → `oturum.durum.kisilik`; tur notu ve araç kısıtı."""
+    from fusion_cli.cli import session as cli_session
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request(id="1", name="oturum.baslat", data={"kisilik": "yok-boyle"}))
+    assert _sonuc(satirlar, "1")["ok"] is False
+
+    await oturum.handle(Request(id="2", name="oturum.baslat", data={"kisilik": "explore"}))
+    sonuc = _sonuc(satirlar, "2")
+    assert sonuc["ok"] is True and sonuc["kisilik"] == {"ad": "explore", "unvan": "Kâşif"}
+
+    gorulen: dict = {}
+
+    async def _sahte(_task, _config, **kwargs):
+        gorulen.update(kwargs)
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", _sahte)
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "ara"}))
+    assert "# Oturum kişiliği: Kâşif (explore)" in gorulen["extra_system"]
+    assert gorulen["allowed_tools"] is not None and "write_file" not in gorulen["allowed_tools"]
+
+    await oturum.handle(Request(id="4", name="oturum.baslat", data={"kisilik": ""}))
+    assert _sonuc(satirlar, "4")["kisilik"] is None
+    await oturum.handle(Request(id="5", name="oturum.durum", data={}))
+    assert _sonuc(satirlar, "5")["kisilik"] is None
+
+
+async def test_subtask_komutu_ve_fork_becerisi_turu_fork_kosucusuyla_calistirir(
+    tmp_path, monkeypatch
+):
+    """P-054: masaüstünde `/subtask` görevi döner, sonraki tur fork koşucusuyla koşar; `context:
+    fork` becerisi seçilince de aynı yol."""
+    from fusion_cli.cli import session as cli_session
+    from fusion_cli.engines.agent.team_fork import run_forked_turn
+
+    ev = tmp_path / "ev"
+    beceri = ev / ".claude" / "skills" / "derin-inceleme"
+    beceri.mkdir(parents=True)
+    (beceri / "SKILL.md").write_text(
+        "---\nname: derin-inceleme\ndescription: d\ncontext: fork\n---\nİncele.", encoding="utf-8"
+    )
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=ev)
+    gorulen: list[object] = []
+
+    async def _sahte(_task, _config, **kwargs):
+        gorulen.append(kwargs.get("turn_runner"))
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", _sahte)
+
+    await oturum.handle(
+        Request(id="1", name="komut.calistir", data={"ad": "subtask", "arguman": "testleri koştur"})
+    )
+    sonuc = _sonuc(satirlar, "1")
+    assert sonuc["gorev"] == "testleri koştur"
+    await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": sonuc["gorev"]}))
+    assert gorulen[-1] is run_forked_turn
+
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "sıradan"}))
+    assert gorulen[-1] is None
+
+    await oturum.handle(
+        Request(id="4", name="yetenek.kullan", data={"tur": "beceri", "ad": "derin-inceleme"})
+    )
+    # Masaüstü seçimde görsel gösterge için: `context: fork` beceri `fork: true` döner.
+    assert _sonuc(satirlar, "4")["fork"] is True
+    await oturum.handle(Request(id="5", name="tur.calistir", data={"gorev": "incele"}))
+    assert gorulen[-1] is run_forked_turn
+    await oturum.handle(Request(id="6", name="tur.calistir", data={"gorev": "sıradan 2"}))
+    assert gorulen[-1] is None
+    await oturum.close()

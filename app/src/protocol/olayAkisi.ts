@@ -1,6 +1,6 @@
 import type { GorevMaddesi, Mesaj, TakipOnerisi } from "../screens/Conversation";
-import { adimiEkle } from "./adimBirlestir";
-import { olayAdimi } from "./olayMetni";
+import { adimiEkle, ayniAracCagrisi, bitenAracAdimi } from "./adimBirlestir";
+import { olayAdimi, type OlayAdimi } from "./olayMetni";
 import { ekipOlayi } from "../team/ekipOlaylari";
 
 /**
@@ -53,8 +53,14 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const oneriSonuc = takipOnerileri(messages, event);
   if (oneriSonuc) return oneriSonuc;
 
+  const planSonuc = planKarti(messages, event);
+  if (planSonuc) return planSonuc;
+
   const adim = olayAdimi(event);
   if (!adim) return messages;
+
+  const eslesen = aracCagrisiniGuncelle(messages, adim);
+  if (eslesen) return eslesen;
 
   if (adim.sonuc) {
     return [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
@@ -88,6 +94,35 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const guncel = [...messages];
   guncel[sonIndeks] = { ...(son as Mesaj), adimlar, metin: adim.metin };
   return guncel;
+}
+
+/** Kartlar/anlatım araç çağrısını bölmez; eşleştirme yalnız mevcut kullanıcı turundadır. */
+function aracCagrisiniGuncelle(messages: Mesaj[], incoming: OlayAdimi): Mesaj[] | null {
+  if (!incoming.callId || !incoming.arac) return null;
+  let previousTurn = false;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.rol === "kullanici") {
+      if (!incoming.sessionId || !incoming.turnId || !incoming.attemptId) break;
+      previousTurn = true;
+      continue;
+    }
+    for (let stepIndex = 0; stepIndex < (message.adimlar?.length ?? 0); stepIndex++) {
+      const step = message.adimlar![stepIndex];
+      // A queued user message may follow a terminal turn's uncertain placeholder.
+      // Only that placeholder and a complete matching wire identity cross the boundary.
+      if (previousTurn && !step.sonucAlinamadi) continue;
+      if (!ayniAracCagrisi(step, incoming)) continue;
+      if (incoming.eventId && incoming.eventId === step.eventId) return messages;
+      if (incoming.basladi || (!step.basladi && !step.sonucAlinamadi)) continue;
+      const steps = [...message.adimlar!];
+      steps[stepIndex] = bitenAracAdimi(step, incoming);
+      const result = [...messages];
+      result[index] = {...message, adimlar: steps, metin: incoming.metin};
+      return result;
+    }
+  }
+  return null;
 }
 
 /** Sondaki görev listesi kartı atlanarak son mesajın konumu. */
@@ -129,6 +164,9 @@ const GOREV_DURUMU: Record<string, GorevMaddesi["durum"]> = {
 function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
   if (event.olay !== "ToolExecuted" || event.name !== "todo_write") return null;
   if (event.outcome !== undefined && event.outcome !== "ok") return null;
+  // `ToolStarted` bu aracın adımını açmıştı; olay burada tüketildiği için `adimiEkle` onu hiç
+  // kapatamaz ve satır sonsuza dek "sürüyor" kalırdı (U5-05). Başlayan adım burada bitirilir.
+  const bitmis = baslayanGorevAdiminiBitir(messages);
   const cikti = typeof event.output === "string" ? event.output : "";
   const gorevler: GorevMaddesi[] = [];
   for (const satir of cikti.split("\n")) {
@@ -138,9 +176,26 @@ function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[
     const metin = kirpik.slice(1).trim();
     if (metin) gorevler.push({ durum, metin });
   }
-  if (gorevler.length === 0) return messages;
-  const eskisiz = messages.filter((mesaj) => mesaj.rol !== "gorevler");
+  if (gorevler.length === 0) return bitmis;
+  // Yalnız BU turun kartı yenilenir; önceki turların planı sohbet geçmişinde kalır (U5-13).
+  let sinir = -1;
+  bitmis.forEach((mesaj, indeks) => { if (mesaj.rol === "kullanici") sinir = indeks; });
+  const eskisiz = bitmis.filter((mesaj, indeks) => !(mesaj.rol === "gorevler" && indeks > sinir));
   return [...eskisiz, { rol: "gorevler", metin: "Görevler", gorevler }];
+}
+
+/** Son çalışma bloğundaki hâlâ "başladı" durumundaki `todo_write` adımını biten adıma çevirir. */
+function baslayanGorevAdiminiBitir(messages: Mesaj[]): Mesaj[] {
+  const indeks = sonBlokIndeksi(messages);
+  const blok = indeks >= 0 ? messages[indeks] : undefined;
+  if (blok?.rol !== "olay" || !blok.adimlar?.some((adim) => adim.basladi && adim.arac === "todo_write")) return messages;
+  const guncel = [...messages];
+  guncel[indeks] = {
+    ...blok,
+    adimlar: blok.adimlar.map((adim) =>
+      adim.basladi && adim.arac === "todo_write" ? { ...adim, basladi: false, durum: "ok" } : adim),
+  };
+  return guncel;
 }
 
 /**
@@ -154,8 +209,21 @@ function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[
  * Akan balon GEÇİCİDİR: tur bitince kalkar, nihai cevabı uygulama ekler. Böylece
  * motorun kabul etmediği ara metin kalıcı cevap gibi durmaz.
  */
+/** `! komut` çıktısı komut sürerken akar (#219, Claude Code shell mode); `bitti` balonu kaldırır. */
+function kabukAkisi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+  const son = messages[messages.length - 1];
+  const surer = son?.rol === "asistan" && son.akan && son.kabuk ? son.kabuk : undefined;
+  if (event.bitti === true) return messages.filter((mesaj) => !(mesaj.akan && mesaj.kabuk));
+  const parca = typeof event.parca === "string" ? event.parca : "";
+  const komut = typeof event.komut === "string" ? event.komut : surer?.komut ?? "";
+  const kabuk = { komut, cikti: (surer?.cikti ?? "") + parca };
+  const balon: Mesaj = { rol: "asistan", akan: true, kabuk, metin: "```text\n$ " + komut + "\n" + kabuk.cikti.replace(/\n$/, "") + "\n```" };
+  return surer ? [...messages.slice(0, -1), balon] : [...messages, balon];
+}
+
 function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
   const olay = String(event.olay ?? "");
+  if (olay === "KabukCiktisi") return kabukAkisi(messages, event);
   if (olay === "TokenReceived") {
     // Arka plan çağrıları (ders çıkarımı, özet) kullanıcının cevabı değildir.
     if (event.channel !== undefined && event.channel !== "main") return messages;
@@ -169,6 +237,8 @@ function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] |
     return [...messages, { rol: "asistan", metin: parca, akan: true }];
   }
   if (olay === "ModelCallStarted" || olay === "TurnFinished" || olay === "TurnAnswered") {
+    // Arka plan çağrısı (hakem, öz-denetim, ders çıkarımı) ana modelin akan metnini silmez (U5-10).
+    if (olay === "ModelCallStarted" && event.background === true) return null;
     // Yeni çağrı yeni metin demektir; biten tur ise nihai cevaba yerini bırakır.
     const temiz = messages.filter((mesaj) => !(mesaj.rol === "asistan" && mesaj.akan));
     if (olay !== "ModelCallStarted") {
@@ -202,6 +272,17 @@ function takipOnerileri(messages: Mesaj[], event: Record<string, unknown>): Mesa
     .map(([etiket, gorev]) => ({ etiket, gorev }));
   if (oneriler.length === 0) return messages;
   return [...messages, { rol: "oneriler", metin: "", oneriler }];
+}
+
+/**
+ * Plan kipinde biten turun plan dosyası kartı (P-025). Aynı sohbetin planı tek
+ * dosyadır: aynı yol yeniden gelirse eski kart güncellenir, alt alta çoğalmaz.
+ */
+function planKarti(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "PlanDrafted" || typeof event.path !== "string" || !event.path) return null;
+  const baslik = typeof event.title === "string" && event.title ? event.title : "Plan";
+  const kart: Mesaj = { rol: "plan", metin: baslik, plan: { yol: event.path, baslik } };
+  return [...araAnlatimiSabitle(messages).filter((m) => !(m.rol === "plan" && m.plan?.yol === event.path)), kart];
 }
 
 /**

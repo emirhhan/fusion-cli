@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Inspector } from "./Inspector";
@@ -8,6 +9,7 @@ describe("Inspector", () => {
   it("bağlamsal araçları erişilebilir sekmeler olarak sunar", () => {
     render(<Inspector />);
     expect(screen.getByRole("tablist", { name: "Denetçi araçları" })).toBeTruthy();
+    // Dosyalar, Değişiklikler, Terminal, Tarayıcı (Önizleme + canlı, #439), Ajanlar.
     expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(screen.getByRole("tabpanel")).toBeTruthy();
   });
@@ -90,8 +92,23 @@ describe("Inspector", () => {
     const onActiveTabChange = vi.fn();
     render(<Inspector activeTab="terminal" onActiveTabChange={onActiveTabChange} />);
     expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("tab", { name: "Önizleme" }));
-    expect(onActiveTabChange).toHaveBeenCalledWith("preview");
+    fireEvent.click(screen.getByRole("tab", { name: "Tarayıcı" }));
+    expect(onActiveTabChange).toHaveBeenCalledWith("browser");
+  });
+
+  it("Önizleme ve canlı Tarayıcı tek sekmede, iç kip seçimiyle (#439)", () => {
+    const onActiveTabChange = vi.fn();
+    render(
+      <Inspector
+        activeTab="preview"
+        content={{ preview: <p>önizleme içeriği</p>, browser: <p>canlı içerik</p> }}
+        onActiveTabChange={onActiveTabChange}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Tarayıcı" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("önizleme içeriği")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Canlı" }));
+    expect(onActiveTabChange).toHaveBeenCalledWith("browser");
   });
 
 
@@ -104,5 +121,23 @@ describe("Inspector", () => {
     render(<Inspector activeTab="files" />);
     expect(screen.getByRole("tab", { name: "Dosyalar" }).getAttribute("aria-controls")).toBe("inspector-panel-files");
     expect(screen.getByRole("tab", { name: "Terminal" }).hasAttribute("aria-controls")).toBe(false);
+  });
+
+  // Ölçüldü (30 Ekim): içerik yalnız etkin sekme için çiziliyordu; terminal sekmesinden çıkmak
+  // bileşeni söküp tüm terminal oturumlarını kapatıyordu (U4-30).
+  it("terminal içeriği başka sekmeye geçilince sökülmez, yalnız gizlenir (U4-30)", () => {
+    let kurulum = 0;
+    function Terminal() {
+      useEffect(() => { kurulum += 1; }, []);
+      return <p>terminal içeriği</p>;
+    }
+    const content = { terminal: <Terminal />, files: <p>dosyalar</p> };
+    const view = render(<Inspector activeTab="terminal" content={content} />);
+    expect(screen.getByText("terminal içeriği").closest("[hidden]")).toBeNull();
+    view.rerender(<Inspector activeTab="files" content={content} />);
+    expect(screen.getByText("dosyalar")).toBeTruthy();
+    expect(screen.getByText("terminal içeriği", { selector: "p" }).closest("[hidden]")).not.toBeNull();
+    view.rerender(<Inspector activeTab="terminal" content={content} />);
+    expect(kurulum).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface TerminalSnapshot {
@@ -15,11 +15,11 @@ export interface TerminalClosedEvent {
 }
 
 export interface TerminalRuntime {
-  open(cwd: string, cols: number, rows: number): Promise<TerminalSnapshot>;
+  /** Çıktı ham bayt olarak `onOutput`'a akar (Tauri Channel); JSON sayı dizisi/olay yoktur (U4-25). */
+  open(cwd: string, cols: number, rows: number, onOutput: (data: Uint8Array) => void): Promise<TerminalSnapshot>;
   write(terminalId: string, data: Uint8Array): Promise<void>;
   resize(terminalId: string, cols: number, rows: number): Promise<void>;
   close(terminalId: string): Promise<void>;
-  onOutput(terminalId: string, handler: (data: Uint8Array) => void): Promise<UnlistenFn>;
   onClosed(terminalId: string, handler: (event: TerminalClosedEvent) => void): Promise<UnlistenFn>;
   openSession(cwd: string, cols: number, rows: number): Promise<TerminalSession>;
 }
@@ -35,7 +35,8 @@ export interface TerminalSession {
   dispose(): void;
 }
 
-interface OutputPayload { terminalId: string; data: number[] }
+/** Rust'ın girdi komutuna gövdedeki ham baytın hangi terminale gittiğini söyleyen başlık. */
+const TERMINAL_KIMLIK_BASLIGI = "x-terminal-id";
 interface ClosedPayload { terminalId: string; reason: string; exitCode: number | null }
 const TRANSCRIPT_LIMIT_BYTES = 256 * 1024;
 
@@ -144,15 +145,24 @@ function stringControlLength(bytes: number[], start: number, allowBell: boolean)
   return null;
 }
 
+/** Kanal iletisi normalde ArrayBuffer'dır; eski/yedek biçim (sayı dizisi) de baytlara çevrilir. */
+function kanalBaytlari(message: unknown): Uint8Array {
+  if (message instanceof ArrayBuffer) return new Uint8Array(message);
+  if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+  return Uint8Array.from(message as number[]);
+}
+
 export function createTerminalRuntime(): TerminalRuntime {
   const runtime: TerminalRuntime = {
-    open: (cwd, cols, rows) => invoke<TerminalSnapshot>("terminal_ac", { cwd, cols, rows }),
-    write: (terminalId, data) => invoke("terminal_yaz", { terminalId, data: Array.from(data) }),
+    open: (cwd, cols, rows, onOutput) => {
+      const output = new Channel<ArrayBuffer>();
+      output.onmessage = (message) => onOutput(kanalBaytlari(message));
+      return invoke<TerminalSnapshot>("terminal_ac_kanal", { cwd, cols, rows, output });
+    },
+    // Ham gövde: her bayt için JSON sayı dizisi üretmez/ayrıştırmaz. Kimlik başlıkta gider.
+    write: (terminalId, data) => invoke("terminal_yaz", data, { headers: { [TERMINAL_KIMLIK_BASLIGI]: terminalId } }),
     resize: (terminalId, cols, rows) => invoke("terminal_boyutla", { terminalId, cols, rows }),
     close: (terminalId) => invoke("terminal_kapat", { terminalId }),
-    onOutput: (terminalId, handler) => listen<OutputPayload>("terminal://cikti", ({ payload }) => {
-      if (payload.terminalId === terminalId) handler(Uint8Array.from(payload.data));
-    }),
     onClosed: (terminalId, handler) => listen<ClosedPayload>("terminal://kapandi", ({ payload }) => {
       if (payload.terminalId === terminalId) handler({ reason: payload.reason, exitCode: payload.exitCode });
     }),
@@ -165,12 +175,11 @@ export function createTerminalRuntime(): TerminalRuntime {
       const transcript = new SafeReplayRetention();
       const outputHandlers = new Set<(data: Uint8Array) => void>();
       const closedHandlers = new Set<(event: TerminalClosedEvent) => void>();
-      const pendingOutput: OutputPayload[] = [];
       const pendingClosed: ClosedPayload[] = [];
-      const routeOutput = (payload: OutputPayload) => {
-        if (!terminalId) { pendingOutput.push(payload); return; }
-        if (payload.terminalId !== terminalId) return;
-        const data = Uint8Array.from(payload.data);
+      // Kanal bu terminale özgüdür (terminal_ac_kanal): kimlik süzmesi gerekmez ve `terminal_ac`
+      // dönmeden gelen ilk çıktı da doğrudan dökümde tutulup sonradan abonelere tekrarlanır.
+      const routeOutput = (data: Uint8Array) => {
+        if (disposed) return;
         transcript.push(data);
         outputHandlers.forEach((handler) => handler(data));
       };
@@ -180,26 +189,15 @@ export function createTerminalRuntime(): TerminalRuntime {
         closed = { reason: payload.reason, exitCode: payload.exitCode };
         closedHandlers.forEach((handler) => handler(closed!));
       };
-      let stopOutput: UnlistenFn | undefined;
-      let stopClosed: UnlistenFn | undefined;
-      try {
-        stopOutput = await listen<OutputPayload>("terminal://cikti", ({ payload }) => routeOutput(payload));
-        stopClosed = await listen<ClosedPayload>("terminal://kapandi", ({ payload }) => routeClosed(payload));
-      } catch (error) {
-        stopClosed?.();
-        stopOutput?.();
-        throw error;
-      }
+      const stopClosed = await listen<ClosedPayload>("terminal://kapandi", ({ payload }) => routeClosed(payload));
       let snapshot: TerminalSnapshot;
       try {
-        snapshot = await runtime.open(cwd, cols, rows);
+        snapshot = await runtime.open(cwd, cols, rows, routeOutput);
       } catch (error) {
-        stopOutput();
         stopClosed();
         throw error;
       }
       terminalId = snapshot.terminalId;
-      pendingOutput.splice(0).forEach(routeOutput);
       pendingClosed.splice(0).forEach(routeClosed);
       return {
         snapshot,
@@ -233,7 +231,6 @@ export function createTerminalRuntime(): TerminalRuntime {
         dispose: () => {
           if (disposed) return;
           disposed = true;
-          stopOutput();
           stopClosed();
           outputHandlers.clear();
           closedHandlers.clear();

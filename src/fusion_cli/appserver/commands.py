@@ -26,19 +26,32 @@ reddedilir; `list_commands` bunları `destekleniyor: False` ile işaretler.
 from __future__ import annotations
 
 import io
+import logging
+import re
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from rich.console import Console
 
-from ..cli.repl import model_flows, profiles_flow, provider_flow
+from ..cli.repl import (
+    model_flows,
+    output_style_command,
+    profiles_flow,
+    provider_flow,
+    rewind,
+    settings_panel,
+)
 from ..cli.repl.commands import CommandRegistry, model_command_result
+from ..cli.repl.copy_blocks import WRITE_PREFIX
+from ..cli.repl.export_commands import copy_picker_choices, export_dialog_choices
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
 from ..core.constants import MAX_OUTPUT_CHARS
 from ..providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 from ..ui import messages
 from ..ui.picker import Choice
+
+_LOG = logging.getLogger(__name__)
 
 
 class WireChoice(TypedDict):
@@ -57,10 +70,16 @@ class Continuation(TypedDict):
 
 
 class FreeText(TypedDict):
-    """Metin adımının görünürlük ve yer tutucu bilgisi."""
+    """Metin adımının görünürlük ve yer tutucu bilgisi.
+
+    `saglayici` yalnız API anahtarı adımında gelir: uygulama değeri komut dizgesine
+    (`/providers add <id> <anahtar>`) KATMADAN `kontrol.anahtar_kaydet {saglayici, deger}` ile
+    gönderir (S1-24). Alanı bilmeyen eski istemci komut yoluna düşer; o yol çalışmaya devam eder.
+    """
 
     gizli: bool
     yer_tutucu: str
+    saglayici: NotRequired[str]
 
 
 class ChoicePayload(TypedDict):
@@ -80,13 +99,25 @@ PickerCall = Callable[..., str | None]
 #: Bu ÖN EKLE başlayan komutlar terminal dışında hiç köprülenmedi: dinamik
 #: `/resume<kaynak>` ailesi argümansız çağrıldığında düz REPL `pick()` açar
 #: (bkz. `cli/repl/commands.py::_resume`). Appserver'da terminal yok; bu yüzden
-#: bunlar `run_command`'a hiç girmeden açıkça reddedilir.
-_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume",)
+#: bunlar `run_command`'a hiç girmeden açıkça reddedilir. Fusion'ın kendi `/resume`
+#: ve `/branch` komutları da burada kalır: masaüstünün sekme modeli bunları kendi
+#: istekleriyle (`sohbet.listele`, `sohbet.dallan`) yapar; slash yolu sekmeyi şaşırtırdı.
+_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume", "branch")
+#: Yalnız terminale özgü komutlar: masaüstünde karşılığı yok (tema/görünüm/vim/durum
+#: satırı prompt_toolkit'e aittir). Ölçüldü (31 Ekim): "destekleniyor" görünüp kalıcı config
+#: yazıyor, masaüstünde hiçbir etkisi olmuyordu. `/keybindings` artık burada değil: aynı
+#: dosyanın `masaustu` bağlamı masaüstü kısayollarıdır ve uygulama komutu Ayarlar ›
+#: Kısayollar'a yönlendirir (P-046).
+_TERMINAL_ONLY = frozenset({"theme", "tui", "search", "vim", "statusline"})
 
 
 def _is_unsupported_interactive(name: str) -> bool:
     """Bu komut köprülenmemiş bir etkileşimli dal mı? (terminal işleyicisine düşer)"""
     return any(name.startswith(prefix) for prefix in _UNSUPPORTED_INTERACTIVE_PREFIXES)
+
+
+def _is_terminal_only(name: str) -> bool:
+    return name in _TERMINAL_ONLY
 
 
 def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
@@ -102,7 +133,9 @@ def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
             "aciklama": command.summary,
             "grup": command.group,
             "kullanim": command.usage,
-            "destekleniyor": not _is_unsupported_interactive(command.name),
+            "destekleniyor": not (
+                _is_unsupported_interactive(command.name) or _is_terminal_only(command.name)
+            ),
         }
         for command in registry.all()
     ]
@@ -113,7 +146,9 @@ def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
 RENDER_WIDTH = 100
 
 
-async def render_command_text(registry: CommandRegistry, state: ReplState, name: str) -> str:
+async def render_command_text(
+    registry: CommandRegistry, state: ReplState, name: str, argument: str = ""
+) -> str:
     """Kendi çıktısını basan komutu METİN olarak üret.
 
     `RENDERED_COMMANDS` kümesindeki komutlar (tips, help, models, cost, …)
@@ -134,7 +169,7 @@ async def render_command_text(registry: CommandRegistry, state: ReplState, name:
         record=True,
         width=RENDER_WIDTH,
     )
-    await help_view.render(name, state, registry, console)
+    await help_view.render(name, state, registry, console, argument)
     return _bounded(console.export_text().strip())
 
 
@@ -169,6 +204,8 @@ def run_command(
     canonical = command.name
     if _is_unsupported_interactive(canonical):
         return _error(messages.APP_COMMAND_UNSUPPORTED_INTERACTIVE)
+    if _is_terminal_only(canonical):
+        return _error(messages.APP_COMMAND_TERMINAL_ONLY)
     try:
         payload = command_choices(state, canonical, argument)
         if payload is not None:
@@ -177,7 +214,10 @@ def run_command(
         if special is not None:
             return special
         return {"ok": True, "metin": command.handler(state, argument)}
-    except Exception:  # araç sınırı: süreç ve hassas hata ayrıntıları korunur
+    except Exception as error:  # araç sınırı: süreç ve hassas hata ayrıntıları korunur
+        # Kullanıcıya genel mesaj; neden günlükte (yalnız tür adı — ayrıntı sır taşıyabilir).
+        # Ölçüldü (30 Ekim): hiç loglanmıyordu, ağ/config/katalog hatası iz bırakmıyordu.
+        _LOG.error("Komut çalıştırılamadı (%s): %s", canonical, type(error).__name__)
         return _error(messages.APP_COMMAND_FAILED)
 
 
@@ -190,12 +230,65 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
         return simple
     if canonical == "model":
         return _model_step(state, stripped)
+    if canonical in ("config", "settings"):
+        return _settings_step(state, stripped)
     if canonical == "development":
         return _development_choices(state, stripped)
     if canonical == "profiles":
         return _profiles_choices(state, stripped)
     if canonical == "providers":
         return _providers_choices(stripped)
+    if canonical in ("rewind", "checkpoint"):
+        return _rewind_choices(state, stripped)
+    if canonical == "copy":
+        # Claude Code `/copy` (#231): kod bloğu/alıntı varsa blok seçicisi.
+        rows = copy_picker_choices(state, stripped)
+        if rows:
+            prefix = f"{stripped or '1'} "
+            # Terminaldeki `w` tuşunun karşılığı: her satırın "dosyaya yaz" eşi (#231).
+            rows = (*rows, *(_write_row(row) for row in rows))
+            return _payload("blok", "secim", messages.COPY_PICK_TITLE_DESKTOP, rows, "copy", prefix)
+    return None
+
+
+def _settings_step(state: ReplState, argument: str) -> ChoicePayload | None:
+    """Claude Code Settings paneli (#210): ayar → değer; seçim `/config key=value` olur."""
+    if not argument:
+        rows = settings_panel.config_rows(state)
+        return _payload("ayar", "secim", messages.SETTINGS_DESKTOP_TITLE, rows, "config", "")
+    values = settings_panel.value_choices(state, argument)
+    if "=" in argument or not values:
+        return None
+    return _payload("deger", "secim", argument, values, "config", f"{argument}=")
+
+
+def _write_row(row: Choice) -> Choice:
+    label = messages.COPY_WRITE_ROW.format(label=row.label)
+    return Choice(f"{WRITE_PREFIX}{row.value}", label, messages.COPY_WRITE_ROW_HINT)
+
+
+def _rewind_choices(state: ReplState, argument: str) -> ChoicePayload | None:
+    """`/rewind` iki adımdır: tur → kapsam. Tam argüman (`3 kod`) seçici açmaz.
+
+    Masaüstü `komut.secenekler` ile aynı seçici deseni kullanır; sohbet geçmişi ve
+    dosyalar `rewind_command` üzerinden, terminalle AYNI defterden geri sarılır.
+    """
+    entries = state.checkpoints.entries()
+    if not entries:
+        return None
+    if not argument:
+        return _payload(
+            "tur", "secim", messages.REWIND_PICK_TURN, rewind.turn_choices(entries), "rewind", ""
+        )
+    if argument.isdigit() and state.checkpoints.find(int(argument)) is not None:
+        return _payload(
+            "kapsam",
+            "secim",
+            messages.REWIND_PICK_SCOPE,
+            rewind.scope_choices(entries, int(argument)),
+            "rewind",
+            f"{argument} ",
+        )
     return None
 
 
@@ -205,6 +298,15 @@ def _simple_choices(state: ReplState, name: str) -> ChoicePayload | None:
         "mode": ("profil", messages.MODE_TITLE, model_flows.mode_choices(state.config), ""),
         "effort": ("yogunluk", messages.EFFORT_TITLE, model_flows.effort_choices(), ""),
         "provider": ("saglayici", _provider_title(state), _provider_choices(state), ""),
+        # Claude Code `/export` (#206): argümansız Pano / Dosya diyaloğu.
+        "export": ("disa_aktar", messages.EXPORT_DIALOG_TITLE, export_dialog_choices(), ""),
+        # Çıktı stili (P-068): masaüstü aynı listeyi seçici olarak gösterir.
+        "output-style": (
+            "cikti_stili",
+            messages.OUTPUT_STYLE_TITLE,
+            output_style_command.style_choices(state),
+            "",
+        ),
     }
     found = builders.get(name)
     if found is None:
@@ -290,6 +392,7 @@ def _providers_choices(argument: str) -> ChoicePayload | None:
                 "providers",
                 f"add {provider.id} ",
                 secret=True,
+                provider_id=provider.id,
             )
     return None
 
@@ -329,11 +432,44 @@ def _apply_provider(state: ReplState, argument: str) -> CommandResult:
 def _apply_development(state: ReplState, argument: str) -> CommandResult:
     action, separator, rest = argument.strip().partition(" ")
     source_key, separator2, model_id = rest.partition(" ")
-    source = model_flows.source_by_key(state.config, source_key)
-    if action.casefold() != "uygula" or not separator or not separator2 or source is None:
+    if action.casefold() != "uygula" or not separator or not separator2:
+        return _error(messages.APP_COMMAND_INVALID_SELECTION)
+    return _apply_development_selection(state, source_key, model_id)
+
+
+#: Model kimliğinde kabul edilmeyen kontrol karakterleri (satır sonu, NUL…). Komut dizgesine
+#: gömülen kimlik satır sonuyla ikinci bir komuta bölünebiliyordu (U1-40).
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+#: Katalogdaki en uzun model kimliklerinin çok üstünde; yalnızca saçma girdiyi keser.
+_MAX_MODEL_ID_CHARS = 512
+
+
+def select_development_model(
+    state: ReplState, source_key: object, model_id: object
+) -> CommandResult:
+    """`model.sec {kaynak, model}`: seçimi komut dizgesi KURMADAN uygula (U1-40).
+
+    `/development uygula <kaynak> <model>` ile AYNI uygulayıcıyı (`apply_development_model`:
+    NIM araç doğrulaması, kalıcı yazım) kullanır; ikinci bir model yönetimi yolu açılmaz.
+    Girdi yapısaldır: kimlik tek bir alandır, boşlukta bölünmez; kontrol karakteri taşıyan
+    ya da bilinmeyen kaynaklı istek reddedilir. Eski komut yolu çalışmaya devam eder.
+    """
+    if not isinstance(source_key, str) or not isinstance(model_id, str):
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
     wanted = model_id.strip()
-    if not wanted:
+    if not wanted or len(wanted) > _MAX_MODEL_ID_CHARS or _CONTROL_CHARS.search(wanted):
+        return _error(messages.APP_COMMAND_INVALID_SELECTION)
+    try:
+        return _apply_development_selection(state, source_key, wanted)
+    except Exception as error:  # araç sınırı: `run_command` ile aynı hata sözleşmesi
+        _LOG.error("Model seçimi uygulanamadı: %s", type(error).__name__)
+        return _error(messages.APP_COMMAND_FAILED)
+
+
+def _apply_development_selection(state: ReplState, source_key: str, model_id: str) -> CommandResult:
+    source = model_flows.source_by_key(state.config, source_key)
+    wanted = model_id.strip()
+    if source is None or not wanted:
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
     onceki = state.config
     result = model_flows.apply_development_model(onceki, wanted, paid=source.paid)
@@ -413,11 +549,19 @@ def _payload(
 
 
 def _text_payload(
-    step: str, title: str, command: str, prefix: str, *, secret: bool = False
+    step: str,
+    title: str,
+    command: str,
+    prefix: str,
+    *,
+    secret: bool = False,
+    provider_id: str | None = None,
 ) -> ChoicePayload:
     kind: Literal["metin", "gizli_metin"] = "gizli_metin" if secret else "metin"
     placeholder = "API anahtarı" if secret else "<sağlayıcı>/<model>"
     metadata: FreeText = {"gizli": secret, "yer_tutucu": placeholder}
+    if provider_id is not None:
+        metadata["saglayici"] = provider_id
     return _payload(step, kind, title, (), command, prefix, free_text=metadata)
 
 

@@ -82,3 +82,29 @@ def test_tani_tek_satirlik_yonerge_uretir():
     assert "res://player.gd" in yonerge
     assert "12" in yonerge
     assert "velocity" in yonerge
+
+
+NODE_HATASI = (
+    "/proje/app.js:12\n"
+    "    const x = ;\n"
+    "              ^\n\n"
+    "SyntaxError: Unexpected token ';'\n"
+    "    at wrapSafe (node:internal/modules/cjs/loader:1281:20)\n"
+)
+
+
+def test_node_yigin_izi_tani_uretir():
+    tani = diagnose(NODE_HATASI)
+
+    assert tani is not None
+    assert (tani.path, tani.line) == ("/proje/app.js", 12)
+    assert "SyntaxError" in tani.symptom
+
+
+def test_grep_ciktisi_calisma_zamani_hatasi_sanilmaz():
+    """`grep -n` satırı (`dosya.js:12:metin`) tanı değildir (C1-32)."""
+    assert diagnose("src/app.js:12:const x = 1;\nsrc/b.js:3:let y;\n") is None
+
+
+def test_hata_belirtisi_olmayan_dosya_satir_cifti_tani_degildir():
+    assert diagnose("/proje/app.js:12\n    kod\n") is None

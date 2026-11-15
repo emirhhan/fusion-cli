@@ -1,14 +1,33 @@
+import { mergeAttachments } from "./screens/attachmentLimits";
 import { createVoicePlayback } from "./voice/voicePlayback";
-import { localVoiceReply } from "./voice/localVoice";
+import { recordScheduleRun, runNotice, runOutcome } from "./schedule/runHistory";
+import { dictationSendsOnFinal, isDictationCommand } from "./voice/dictationCommand";
+import { isSpokenWorkRequest, isVoiceListenerCue, localVoiceReply, normalizeSpokenNames, normalizeVoiceWords, spokenTeacherAnswer } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
+import { BackgroundAgentsPanel } from "./team/BackgroundAgentsPanel";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
+import { OrchestrationPanel } from "./team/OrchestrationPanel";
 import type { TeamCardsProps } from "./team/TeamCards";
 import { operationResult, errorMessage, type CommandResult } from "./protocol/result";
-import { submissionAccepted } from "./sessions/submission";
+import { submissionAccepted, type SubmissionResult } from "./sessions/submission";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
-import { ShareDialog } from "./dialogs/ShareDialog";
+import { DeepLinkConfirm } from "./dialogs/DeepLinkConfirm";
+import { closeDecision } from "./shortcuts/closeGuard";
+import { actionLabel, formatKey, isMacPlatform } from "./shortcuts/keys";
+import { useCommandCenter } from "./shortcuts/useCommandCenter";
+import { useKapatmaNabzi } from "./dialogs/closeHeartbeat";
+import { osBildirimiGonder } from "./notifications/osNotice";
+import { useTurnNotifications, useUnread } from "./notifications/useTurnNotifications";
+import { SplitPane } from "./windowing/SplitPane";
+import { useSplitView } from "./windowing/splitView";
+import { useTray } from "./windowing/tray";
+import {
+  DEEP_LINK_EVENT, DEEP_LINK_PULL_COMMAND, TRAY_NEW_CHAT_EVENT, deepLinkRootDecision, parseDeepLink, type DerinBaglanti,
+} from "./windowing/deepLink";
+import { ShareDialog, type ExportFetcher } from "./dialogs/ShareDialog";
+import { KitSendDialog } from "./kits/KitSendDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
@@ -22,9 +41,14 @@ import type { Soru } from "./protocol/types";
 import { useProjectRegistry } from "./sessions/useProjectRegistry";
 import { createAndOpenProject, openProjectChat, ProjectOpenError } from "./sessions/projectActions";
 import { useRemoteProjectSync } from "./remote/useRemoteProjectSync";
-import { useSessions, nextSessionId, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
+import { useRemoteStatus } from "./remote/useRemoteStatus";
+import { isSettingsSection, type SettingsSection } from "./settings/search";
+import { ComputerUseIndicator } from "./computer/ComputerUseIndicator";
+import { useSessions, nextSessionId, saveWorkspaceMode, tauriSessionTransport } from "./sessions/useSessions";
+import { usePrefsMirror } from "./platform/usePrefsMirror";
+import { useSessionModes } from "./sessions/useSessionModes";
 import type { SessionTransport } from "./sessions/types";
-import { AppHeader } from "./screens/AppHeader";
+import { AppHeader, BAGLANTI_KESILDI_DURUMU } from "./screens/AppHeader";
 import {
   Composer,
   type ApprovalMode,
@@ -32,8 +56,10 @@ import {
   type ComposerCommand,
   type DosyaOnerisi,
   type McpSunucusu,
+  type PersonaOption,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
+import type { ModelOption } from "./screens/ModelPicker";
 import { useModelCatalog } from "./screens/useModelCatalog";
 import { useActiveModel } from "./screens/useActiveModel";
 import { EmptyState } from "./screens/EmptyState";
@@ -53,6 +79,8 @@ import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
 import { TestsPanel } from "./workspace/TestsPanel";
 import { PreviewPanel } from "./workspace/PreviewPanel";
+import { BrowserPanel, type BrowserPick } from "./browser/BrowserPanel";
+import { useBrowserInspector } from "./browser/useBrowserInspector";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
@@ -62,16 +90,23 @@ import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { HelpScreen } from "./help/HelpScreen";
 import { Notification, insanDogrulamasiGerekiyor } from "./notify/Notification";
 import { Settings } from "./settings/Settings";
+import { useViewMode } from "./settings/viewMode";
+import { SideChat } from "./sidechat/SideChat";
+import { inTauriShell, openSessionWindow } from "./windowing/sessionWindowBridge";
+import { useSessionWindows } from "./windowing/useSessionWindows";
 import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
 import { DepoUyarisi } from "./workspace/DepoUyarisi";
+import { TrustProject } from "./dialogs/TrustProject";
+import { LinkedPullRequest } from "./sessions/LinkedPullRequest";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   kabukVar,
   onVoiceBargeIn,
+  onVoiceActivity,
   createVoiceMessageDeduper,
   onVoiceMessage,
   onVoiceAnswer,
@@ -82,33 +117,43 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { buildVoiceRequest, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { askVoiceQuestion, askVoiceResearch, buildVoiceRequest, followupVoiceResearch, incompleteVoiceRequest, needsVoiceResearch, voiceAnswerNeedsResearch, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
+import { AccountProfile } from "./account/AccountProfile";
 import { useAccount } from "./account/useAccount";
 import { ConnectedOnboarding } from "./onboarding/ConnectedOnboarding";
+import { clearProgress } from "./onboarding/persistence";
 import type { SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
+import { AutoReviewIndicator } from "./permissions/AutoReviewIndicator";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
 import { useDictation } from "./voice/useDictation";
-import type { PermissionBridge } from "./permissions/types";
+import { desktopPermissionKind, hasSettingsLink, type PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
-import { hydratePrefs, installPrefsMirror } from "./platform/prefsMirror";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
 import { ImageCreate } from "./imagecreate/ImageCreate";
 import { MainRail, type MainSection } from "./screens/MainRail";
 import { MainSurface, type SurfaceSection } from "./sections/MainSurface";
-import { MediaScreen } from "./sections/MediaScreen";
+import { isFullPage, type Page } from "./screens/pageLayout";
+import { normalizeNavigationDestination } from "./state/normalizeNavigationDestination";
 import { KitsScreen } from "./kits/KitsScreen";
+import { useKitsPrewarm } from "./kits/useKitsPrewarm";
 import type { ScheduleDeliveryClient } from "./schedule/types";
 import { LibraryScreen } from "./library/LibraryScreen";
 import { ScheduleScreen } from "./schedule/ScheduleScreen";
+import { pickScheduleClient } from "./schedule/pickScheduleClient";
+import { useSessionCron } from "./schedule/useSessionCron";
 import { useScheduleRunner } from "./schedule/useScheduleRunner";
+import { useSchedulerCore } from "./schedule/useSchedulerCore";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
-import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput } from "./screens/capabilityInput";
+import { DEFAULT_SKILL_TASK, isImageCommand, parseCapabilityInput, skillPrefixToSlash } from "./screens/capabilityInput";
+import { attachmentsFromDroppedFiles, isFolderCommand, startsWithFilePath } from "./slashRouting";
+import { readStorage, writeStorage } from "./platform/storage";
+import { planKartiOku, type PlanKarti } from "./plan/planCard";
 
 /** Sohbetin içinden çalışma klasörünü değiştiren komut. */
 const FOLDER_COMMAND = {
@@ -118,6 +163,13 @@ const FOLDER_COMMAND = {
   grup: "Çalışma alanı",
   kullanim: "/klasor",
 };
+
+const LAST_ROOT_KEY = "fusion.last-project-root";
+/** Webview deposu güvenilmez olabilir (özel pencere, kota): okuma hatası "kayıt yok" sayılır (U3-32). */
+function readLastRoot(): string | undefined {
+  const sonuc = readStorage(() => localStorage, LAST_ROOT_KEY);
+  return sonuc.ok ? sonuc.value ?? undefined : undefined;
+}
 
 function attachmentFromPath(path: string): ComposerAttachment {
   return {
@@ -177,7 +229,7 @@ function useConversation(client: ProtocolClient) {
         if (text) setMessages((current) => [...current, { rol: "asistan", metin: text }]);
       })
       .catch((error) =>
-        setMessages((current) => [...current, { rol: "asistan", metin: `Hata: ${String(error)}` }]),
+        setMessages((current) => [...current, { rol: "asistan", metin: `Hata: ${String(error)}`, hata: true }]),
       )
       .finally(() => setRunning(false));
   };
@@ -241,7 +293,9 @@ export function useAppTheme(client?: TemaIstemcisi) {
           saveThemePreference(tema);
         }
       } catch {
-        // Yapılandırma okunamazsa önbellekteki tercihle devam edilir.
+        // Yapılandırma okunamazsa önbellekteki tercihle devam edilir; bayrak açılır ki
+        // sonraki istemci (yeniden bağlanma) bir kez daha denesin (U3-33).
+        if (!iptal) yapilandirmaOkundu.current = false;
       }
     })();
     return () => {
@@ -277,18 +331,6 @@ function projectName(root: string): string {
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
 const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
 
-/** Ana uygulamanın gezinebileceği sayfalar; üst çubuktaki geri/ileri
- * düğmeleri bu sayfalar arasındaki geçmişi gezer (bkz. `useNavigationHistory`). */
-type Page =
-  | "chat"
-  | "skills"
-  | "control"
-  | "connectors"
-  | "help"
-  | "settings"
-  | "account"
-  | "image-create"
-  | "video-create";
 
 function ProjectInspector({
   activeTab,
@@ -306,10 +348,14 @@ function ProjectInspector({
   width,
   requestedPreview = null,
   agents,
+  onCommand,
+  onBrowserPick,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
   collapsed: boolean;
+  /** Değişiklikler panelindeki makro düğmeleri slash komutunu bununla gönderir. */
+  onCommand?: (line: string) => void;
   height: number;
   onActiveTabChange: (tab: InspectorTabId) => void;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -323,8 +369,12 @@ function ProjectInspector({
   width: number;
   requestedPreview?: { url: string; seq: number } | null;
   agents?: TeamCardsProps;
+  /** Tarayıcı panelinde seçilen öğe/görüntü sohbete eklenir (P-045). */
+  onBrowserPick?: (pick: BrowserPick) => void;
 }) {
   const [revision, setRevision] = useState(0);
+  const showBrowser = useCallback(() => onActiveTabChange("browser"), [onActiveTabChange]);
+  const browser = useBrowserInspector(client, showBrowser);
   const processes = useProcesses(client);
   const changed = () => setRevision((current) => current + 1);
   useEffect(() => client.onEvent((event) => {
@@ -347,21 +397,29 @@ function ProjectInspector({
       placement={placement}
       width={width}
       content={{
-        agents: <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />,
+        agents: (
+          <>
+            <OrchestrationPanel client={client} onCommand={onCommand} />
+            <AgentPanel ajanlar={agents?.ajanlar ?? []} canli={agents?.canli ?? false} onCancel={agents?.onCancel} />
+            {/* Turdan bağımsız arka plan görevleri + açık oturumlar (P-048/P-060). */}
+            <BackgroundAgentsPanel client={client} onCommand={onCommand} />
+          </>
+        ),
         files: <FileExplorer client={client} key={root} onChanged={changed} onSelected={onSelectPath} root={root} revision={revision} />,
         // Doğrulama komutları DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
         // "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı 'Testler' sekmesi git
         // durumunu ikinci kez gösteriyordu.
         changes: (
           <>
-            <ChangesPanel client={client} onChanged={changed} revision={revision} />
+            <ChangesPanel client={client} onChanged={changed} onCommand={onCommand} revision={revision} />
             <TestsPanel client={client} processes={processes} revision={revision} />
           </>
         ),
         terminal: <TerminalPanel cwd={root} />,
         preview: (
-          <PreviewPanel client={client} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
+          <PreviewPanel client={client} onOpenInBrowser={browser.openInBrowser} requestedUrl={requestedPreview} selectedPath={selectedPath} revision={revision} />
         ),
+        browser: <BrowserPanel client={client} onPick={onBrowserPick} request={browser.request} />,
       }}
     />
   );
@@ -476,11 +534,24 @@ export function SessionUygulama({
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [workspaceModes, setWorkspaceModes] = useState<Record<string, WorkspaceMode>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const addAttachments = useCallback((id: string, additions: ComposerAttachment[]) => {
+    try {
+      const merged = mergeAttachments(attachmentsRef.current[id] ?? [], additions);
+      const next = { ...attachmentsRef.current, [id]: merged };
+      attachmentsRef.current = next;
+      setAttachments(next);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "Ek sınırı aşıldı.");
+    }
+  }, []);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
   const [controlRevision, setControlRevision] = useState(0);
+  /** Beceri/MCP kataloğu değişmiş olabilir; slash menüsü listeleri yeniden okunur. */
+  const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
@@ -489,16 +560,22 @@ export function SessionUygulama({
   // `/beceri` ve `@mcp` girdileri için etkin katalog adları.
   const [skillNames, setSkillNames] = useState<string[]>([]);
   const [mcpServers, setMcpServers] = useState<McpSunucusu[]>([]);
+  const [personaOptions, setPersonaOptions] = useState<PersonaOption[]>([]);
   //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
   const fileQuerySeq = useRef(0);
+  /** Etkin sohbetin slash yönlendiricisi; zamanlanmış kullanıcı görevi komut olarak çalışsın (P-038). */
+  const cronCommandRef = useRef<((task: string) => boolean) | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  //: "Kit'e gönder" penceresine konan yanıt metni; `null` kapalı (P-063).
+  const [kitSendText, setKitSendText] = useState<string | null>(null);
   //: Açık rapor penceresi; `null` kapalı. Hata akışından gelirse ayrıntıyı taşır.
   const [feedback, setFeedback] = useState<Partial<ReportInput> | null>(null);
   const [crash, clearCrash] = useCrashReporter();
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
+  const folderPickVersion = useRef(0);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
   // Sayfa geçişleri bir geçmiş yığınında tutulur: üst çubuktaki geri/ileri
   // düğmeleri `setPage` çağıran TÜM mevcut yerlerle (aşağıda) değişmeden
@@ -507,73 +584,122 @@ export function SessionUygulama({
   const pageHistory = useNavigationHistory<Page>("chat");
   const page = pageHistory.current;
   const setPage = pageHistory.push;
-  // En soldaki ana menü. Home ve Görsel/Video kabuğun içindeki sayfalardır;
+  /** Tam sayfadaki "Kapat": önceki ekrana döner; geçmiş yoksa sohbete. */
+  const closePage = () => {
+    if (pageHistory.canGoBack) pageHistory.back();
+    else setPage("chat");
+  };
+  // En soldaki ana menü. Home ve Görsel oluştur kabuğun içindeki sayfalardır;
   // diğer üç bölüm tüm yüzeyi kaplar ve sayfa geçmişine girmez.
   const [surfaceSection, setSurfaceSection] = useState<SurfaceSection | null>(null);
-  const mediaPage = page === "image-create" || page === "video-create";
-  const mainSection: MainSection = surfaceSection ?? (mediaPage ? "media" : "home");
-  const [settingsSection, setSettingsSection] = useState<"genel" | "kisisellestirme">("genel");
+  const mediaPage = page === "image-create";
+  // Görsel oluştur raydan değil paletten açılır; o ekrandayken Home vurgulu kalır
+  // ve Home'a basmak sohbete döndürür (bkz. `selectMainSection`).
+  const mainSection: MainSection = surfaceSection ?? "home";
+  // Ayarlar'ı açma isteği: bölüm + (isteğe bağlı) odaklanacak satır + sıra numarası. Sıra
+  // numarası aynı bölüm yeniden istendiğinde de Ayarlar'ın oraya dönmesini sağlar; eskiden
+  // Ayarlar açıkken menüden "Dil" seçilince bölüm değeri değişmediği için hiçbir şey olmuyordu.
+  const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; focus?: string; seq: number }>({ section: "genel", seq: 0 });
+  const setSettingsSection = useCallback((section: SettingsSection, focus?: string) => {
+    setSettingsRequest((current) => ({ section, focus, seq: current.seq + 1 }));
+  }, []);
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
+  // Hesabım › "Sağlayıcıyla giriş yap" Kontrol Paneli'ni o sağlayıcı açık gelir (P-066).
+  const [controlProviderId, setControlProviderId] = useState<string | undefined>(undefined);
   // Seçili dosya BURADA durur: hem çalışma panelindeki ağaç hem sohbetteki
   // kod kartı aynı seçimi değiştirir.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // Ajanın çalıştırdığı site (`PreviewReady`): önizleme panelinde açılır.
   const [requestedPreview, setRequestedPreview] = useState<{ url: string; seq: number } | null>(null);
   const showSteps = useShowSteps();
+  const viewMode = useViewMode();
+  // Sohbet pencereleri (#443): durum buradan yayılır, eylemler buraya gelir.
+  useSessionWindows(controller.sessions, {
+    send: (id, task) => { void controller.send(id, task); },
+    answer: (id, data) => { void controller.answer(id, data); },
+    focus: (id) => {
+      setSurfaceSection(null); setPage("chat"); controller.select(id);
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFocus()).catch(() => undefined);
+    },
+  }, { enabled: inTauriShell() });
+  // Yan sohbet (#444, ⌘;): ana sohbete eklemeden soru sorma bölmesi.
+  const [sideChatOpen, setSideChatOpen] = useState(false);
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [busySubmissionMode, setBusySubmissionMode] = useState<"steer" | "queue">("steer");
-  const [approval, setApproval] = useState<ApprovalMode>("auto");
   const [closeAsked, setCloseAsked] = useState(false);
+  // `fusion://yeni?kok=…` ile gelen ve kullanıcının onayını bekleyen kök (P-064).
+  const [deepLinkRoot, setDeepLinkRoot] = useState<string | null>(null);
+  // Soru açıkken Rust'a nabız gider; arayüz donarsa kapanış onaysız sürer (R2-14).
+  useKapatmaNabzi(closeAsked && kabukVar());
   /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
   const [cekirdekGunlugu, setCekirdekGunlugu] = useState<string | null>(null);
   /** Çökme bildirimi kapatılan konuşma; aynı çökme bir daha gösterilmez. */
   const [cokmeKapatilan, setCokmeKapatilan] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const [voicePlaybackRevision, setVoicePlaybackRevision] = useState(0);
-  const voiceRequests = useRef<{
-    afterIndex: number;
-    requestId: string;
-    sawRunning: boolean;
-    sessionId: string;
-  }[]>([]);
+  const voiceRequests = useRef<{ requestId: string; sessionId: string }[]>([]);
+  const voiceReplies = useRef<{ text: string; sessionId: string; afterCue?: number; questionSignal?: AbortSignal }[]>([]);
+  const voiceQuestion = useRef<AbortController | null>(null);
+  const voiceResearchSubject = useRef<{ sessionId: string; text: string } | null>(null);
+  const voiceQuestionHistory = useRef<{ sessionId: string; turns: import("./sidechat/SideChat").SideTurn[] } | null>(null);
+  const voiceOccupied = useRef(false);
+  const voiceQuietTimer = useRef<number | undefined>(undefined);
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const manualVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const manualVoiceGeneration = useRef(0);
-  const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   useRemoteProjectSync(active?.client ?? null, projects.registry);
+  // Başlıktaki "Uzaktan kontrol" anahtarı (P-066); uzaktan erişim kurulmamışsa yoklamaz.
+  const remoteStatus = useRemoteStatus(active?.client ?? null);
+  // Bakılmayan sohbette tur bitince / onay gelince OS bildirimi, okunmamış işareti ve Dock rozeti (P-047).
+  useTurnNotifications(controller.state.sessions, active?.id ?? null);
+  const okunmamisSohbetler = useUnread();
+  // Bölünmüş görünüm ve sistem tepsisi (P-064).
+  const acikSohbetler = useMemo(() => new Set(Object.keys(controller.state.sessions)), [controller.state.sessions]);
+  const split = useSplitView(active?.id ?? null, acikSohbetler);
+  const splitSession = split.splitId ? controller.state.sessions[split.splitId] ?? null : null;
+  useTray(controller.sessions.filter((session) => session.running).length);
+  // Kullanıcı Kits'e girdiğinde sunucu hazır olsun: çekirdek oturumu kurulunca arka planda başlar.
+  useKitsPrewarm(active?.status === "ready");
   const activeSessionId = active?.id;
   const activeClient = active?.client;
+  const activeTitle = active?.title ?? "";
+  // Sabit kimlik: satır içi ok fonksiyonu her render'da ShareDialog efektini yeniden kuruyor ve
+  // `sohbet.disa_aktar` RPC'sini her üst render'da yeniden çağırıyordu (31 Ekim).
+  const exportTranscript = useCallback<ExportFetcher>(
+    (bicim) => {
+      if (!activeClient) return Promise.reject(new Error("Oturum yok."));
+      return activeClient.request("sohbet.disa_aktar", { bicim, baslik: activeTitle }).then((sonuc) => {
+        const result = sonuc as { ok?: boolean; metin?: string; dosya_adi?: string };
+        if (!result.ok || typeof result.metin !== "string") throw new Error("Dışa aktarım alınamadı.");
+        return { metin: result.metin, dosya_adi: result.dosya_adi };
+      });
+    },
+    [activeClient, activeTitle],
+  );
   useEffect(() => () => {
     manualVoiceGeneration.current += 1;
     void manualVoiceTurn.current?.cancel().catch(() => undefined);
   }, [activeSessionId]);
-  // Tercihler çekirdekte de yedeklenir (webview deposu güvenilmez). Çekirdek
-  // yerel depodan farklı bir değer getirdiyse açık ekranlar eski değeri
-  // okumuş olur; bu yüzden pencere bir kez yenilenir (oturumlar geri yüklenir).
-  const mirroredClient = useRef<typeof activeClient>(undefined);
-  const latestClient = useRef(activeClient);
-  latestClient.current = activeClient;
-  // Yazmalar her zaman GÜNCEL oturumun istemcisinden gider (ilki kapanmış olabilir).
-  const mirrorTarget = useRef({ request: (name: string, data: Record<string, unknown>) => latestClient.current!.request(name, data) }).current;
+  usePrefsMirror(activeClient);
+  // Bir masaüstü aracı izin yüzünden düşünce çekirdek `MasaustuIzinGerekli` yollar; izin kartı
+  // açılır ve sistem istemi (Erişilebilirlik / Ekran Kaydı) Fusion.app adına tetiklenir (P-005).
+  // Olay sidecar'ın gördüğü durumdur; Tauri önbelleği "granted" dese de kart yeniden açılır.
+  const ensurePermission = permissions.ensure;
+  const invalidatePermission = permissions.invalidate;
   useEffect(() => {
-    if (!activeClient || mirroredClient.current) return;
-    mirroredClient.current = activeClient;
-    let restore: (() => void) | undefined;
-    void hydratePrefs(activeClient).then((changed) => {
-      restore = installPrefsMirror(mirrorTarget);
-      let reloaded = false;
-      try { reloaded = sessionStorage.getItem("fusion.prefs-reloaded") === "1"; } catch { /* Depo yoksa tek yenileme riski. */ }
-      if (changed && !reloaded) {
-        try { sessionStorage.setItem("fusion.prefs-reloaded", "1"); } catch { return; }
-        window.location.reload();
-      }
-    }).catch((error: unknown) => console.error("Arayüz tercihleri çekirdekten okunamadı", error));
-    return () => restore?.();
-  }, [activeClient, mirrorTarget]);
+    if (!activeClient) return;
+    return activeClient.onEvent((event) => {
+      if (event.olay !== "MasaustuIzinGerekli") return;
+      const kind = desktopPermissionKind(event.tur);
+      if (!kind) return;
+      invalidatePermission(kind);
+      void ensurePermission(kind);
+    });
+  }, [activeClient, ensurePermission, invalidatePermission]);
   const requestKitsHost = useCallback((name: string, data: Record<string, unknown>) => {
     if (!activeClient || !activeSessionId) return Promise.reject(new Error("Fusion oturumu yok."));
     return activeClient.request(name, data) as Promise<Record<string, unknown>>;
@@ -587,14 +713,37 @@ export function SessionUygulama({
     setCommandBusy(false); setCommandError(null);
     return () => { commandOwner.current = generation + 1; };
   }, [activeSessionId]);
-  const workspaceMode = active
-    ? workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod"
-    : "kod";
-  const dictation = useDictation((id, text) =>
-    setDrafts((current) => ({ ...current, [id]: text })),
+  // İzin modu ve çalışma kipi sohbet başınadır; değişiklik çekirdek onaylayınca görünür.
+  const { approval, workspaceMode, persona, changeApproval, adoptApproval, changeWorkspace, changePersona } = useSessionModes(
+    active ? { id: active.id, client: active.client, root: active.root } : null,
+    setCommandError,
   );
+  // Kenar çubuğunun PR'a bağlı otomatik arşivi (#443): etkin çekirdeğe sorulur; kimlik sabit kalır.
+  const prDurumlari = useCallback(async (ids: string[]): Promise<Record<string, string>> => {
+    if (!activeClient) return {};
+    const result = await activeClient.request("sohbet.pr_durumlari", { sohbetler: ids });
+    const states = result?.ok === false ? null : result?.durumlar;
+    return states && typeof states === "object" ? states as Record<string, string> : {};
+  }, [activeClient]);
+  // `/voice gonder` (P-072): kesin metin gelince taslak gönderilir; gönderim taslak güncellendikten
+  // SONRA (efektte) yapılır ki composer temizlensin.
+  const dictationAutoSend = useRef<string | null>(null);
+  const [dictationSend, setDictationSend] = useState<{ id: string; text: string } | null>(null);
+  const sendRef = useRef<((task: string) => unknown) | null>(null);
+  const dictation = useDictation((id, text, final) => {
+    setDrafts((current) => ({ ...current, [id]: text }));
+    if (final && dictationAutoSend.current === id) {
+      dictationAutoSend.current = null;
+      setDictationSend({ id, text });
+    }
+  });
   const dictationRef = useRef(dictation);
   dictationRef.current = dictation;
+  useEffect(() => {
+    if (!dictationSend) return;
+    setDictationSend(null);
+    if (dictationSend.id === activeSessionId) void sendRef.current?.(dictationSend.text);
+  }, [dictationSend, activeSessionId]);
   useEffect(() => {
     if (dictationRef.current.listening) void dictationRef.current.stop();
   }, [activeSessionId]);
@@ -638,19 +787,21 @@ export function SessionUygulama({
     }
   };
   const history = useHistory(active?.client ?? null);
-  const navigateSidebar = async (destination: string) => {
+  const navigateSidebar = async (incomingDestination: string) => {
+    const destination = normalizeNavigationDestination(incomingDestination);
     setNewTaskError(null);
     if (destination !== "feedback") setSurfaceSection(null);
     if (destination === "feedback") {
-      // Rapor penceresi oturum gerektirmez; boş uygulamada da açılır.
+      // Geri bildirim sayfa DEĞİL, bulunulan ekranın üstünde açılan penceredir;
+      // oturum gerektirmez, boş uygulamada da açılır.
       setFeedback({ tur: "geri-bildirim" });
       return;
     }
     try {
-      if (!active && destination !== "video-create" && !destination.startsWith("project:") && !destination.startsWith("project-id:")) {
+      if (!active && !destination.startsWith("project:") && !destination.startsWith("project-id:")) {
         await controller.create({ root: await desktopDir() });
       }
-            if (destination === "image-create" || destination === "video-create") {
+            if (destination === "image-create") {
               setPage(destination);
             } else if (destination === "skills") {
               setPage("skills");
@@ -670,9 +821,8 @@ export function SessionUygulama({
             } else if (destination === "account") {
               setPage("account");
             } else if (destination === "language") {
-              // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
-              // kullanıcıya orada açıkça söylüyoruz.
-              setSettingsSection("genel");
+              // Dil tercihi Ayarlar › Genel › Görünüm'de yaşar; doğrudan dil seçimine odaklanılır.
+              setSettingsSection("genel", "settings-language");
               setPage("settings");
 
             } else if (destination === "new-project") {
@@ -711,32 +861,77 @@ export function SessionUygulama({
     [controller],
   );
   const [deliveryClient, setDeliveryClient] = useState<ScheduleDeliveryClient | null>(null);
+  // Zamanlanmış tur onay isteyen araçta askıda bekler; kullanıcı yoksa sessizce ilerlemez, bildirilir (U5-57).
+  const [scheduleNotice, setScheduleNotice] = useState<{ sessionId: string | null; kits?: boolean; baslik: string; metin: string } | null>(null);
+  // Kits kuyruğuna teslim edilen görev de gözetimsiz çalışır: onay isteyen araçta askıda bekler, haber verilir.
+  const notifyKitsApproval = useCallback(({ title, tool }: { title: string; tool: string }) => setScheduleNotice({
+    sessionId: null,
+    kits: true,
+    baslik: "Kits'teki zamanlanmış görev onay bekliyor",
+    metin: `"${title}" görevi "${tool}" için onay istiyor. Sen onaylayana kadar bekler; onaylamazsan ilerlemez.`,
+  }), []);
+  // Vade yoklaması hazır bir sohbetin çekirdeğini kullanır; hiç sohbet yoksa (son sekme kapatıldı,
+  // geri yükleme başarısız) görünmez bir zamanlayıcı çekirdeği açılır (U5-52).
+  const sessionScheduleClient = pickScheduleClient(active, controller.sessions);
+  const detachedScheduleClient = useSchedulerCore({
+    transport: transport ?? tauriSessionTransport,
+    needed: sessionScheduleClient === null,
+  });
+  const scheduleClient = sessionScheduleClient ?? detachedScheduleClient;
   const scheduleRunner = useScheduleRunner({
-    client: active?.client ?? null,
+    client: scheduleClient,
     deliveryClient,
     create: createScheduledSession,
     send: controller.send,
     sessions: controller.state.sessions,
+    onNeedsApproval: ({ task, sessionId, tool }) => {
+      const baslik = "Zamanlanmış görev onay bekliyor";
+      setScheduleNotice({
+        sessionId,
+        baslik,
+        metin: `"${task.baslik}" görevi "${tool}" için onay istiyor. Sen onaylayana kadar bekler; onaylamazsan ilerlemez.`,
+      });
+      // Kullanıcı başka uygulamadaysa şerit görünmez: işletim sistemi bildirimi de gider (U5-57).
+      void osBildirimiGonder(baslik, `"${task.baslik}" görevi "${tool}" için onay bekliyor.`);
+    },
+    onBlocked: (task, reason) => setScheduleNotice({
+      sessionId: null,
+      baslik: "Zamanlanmış görev başlatılmadı",
+      metin: `"${task.baslik}" güvenli biçimde başlatılamadı (${reason}). Görev gönderilmedi; yeniden dene.`,
+    }),
+    // Biten çalışma geçmişe yazılır ve sonucu bildirilir (P-038; Zamanlananlar kartında görünür).
+    onFinished: (task, sessionId) => {
+      const outcome = runOutcome(controller.state.sessions[sessionId]?.messages ?? []);
+      if (scheduleClient) void recordScheduleRun(scheduleClient, task, sessionId, outcome);
+      const notice = runNotice(task, outcome);
+      setScheduleNotice({ sessionId, ...notice });
+      void osBildirimiGonder(notice.baslik, notice.metin);
+    },
+  });
+  // Oturum zamanlayıcısı (/loop, cron_*): vadesi gelen görev sohbet boştayken normal tur olur (P-038).
+  // Kullanıcının `/loop 30m /verify` görevi komut olur; ajanın kurduğu satır her zaman düz turdur.
+  useSessionCron({
+    session: active ? { id: active.id, status: active.status, running: active.running, question: active.question, client: active.client } : null,
+    send: (id, task, source) =>
+      (source === "kullanici" && active?.id === id && cronCommandRef.current?.(task)) || controller.send(id, task),
   });
   const selectMainSection = (section: MainSection) => {
     if (section === "scheduled" || section === "library" || section === "kits") {
       setSurfaceSection(section);
       return;
     }
+    // Home (sol üstteki ev) her zaman sohbete döner: Ayarlar, Hesabım, Kontrol Paneli gibi
+    // tam sayfalardan da. Etkin sohbet varsa o, yoksa ana sohbet ekranı görünür.
     setSurfaceSection(null);
-    if (section === "media") {
-      if (!mediaPage) void navigateSidebar("image-create");
-    } else if (mediaPage) {
-      setPage("chat");
-    }
+    if (page !== "chat") setPage("chat");
   };
   const mainRail = <MainRail active={mainSection} onSelect={selectMainSection} accountHostRef={setAccountHost} />;
   const mainSurface = (
     <MainSurface
       section={surfaceSection}
-      scheduled={<ScheduleScreen client={active?.client ?? null} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} visible={surfaceSection === "scheduled"} />}
+      scheduled={<ScheduleScreen client={scheduleClient} defaultRoot={active?.root ?? ""} onRunNow={scheduleRunner.runNow} sessionClient={active?.status === "ready" ? active.client : null} visible={surfaceSection === "scheduled"} />}
       library={<LibraryScreen client={active?.client ?? null} visible={surfaceSection === "library"} />}
-      kits={<KitsScreen onDeliveryClient={setDeliveryClient} requestHost={activeClient ? requestKitsHost : undefined} />}
+      kits={<KitsScreen onDeliveryClient={setDeliveryClient} onScheduleApproval={notifyKitsApproval} requestHost={activeClient ? requestKitsHost : undefined} visible={surfaceSection === "kits"} />}
     />
   );
   /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */
@@ -778,6 +973,95 @@ export function SessionUygulama({
       destekleniyor: true,
     })),
   ], [commands, history.sources]);
+  // Global kısayollar (Claude Desktop tablosu, #444; eski ⌘K/⌘B/⌘J/⌘1-9 bir sürüm takma ad) ve komut paleti (P-046); gövde `shortcuts/` altında.
+  const commandRunner = useRef<(input: string) => void>(() => undefined);
+  const closeArmedAt = useRef<number | null>(null);
+  const komutPaleti = useCommandCenter({
+    onLegacyShortcut: (key, action) => setScheduleNotice({
+      sessionId: null,
+      baslik: "Kısayol tablosu değişti",
+      metin: `${formatKey(key, isMacPlatform())} (${actionLabel(action)}) artık varsayılan değil; bu sürümde çalışmaya devam ediyor. Kalıcı yapmak için Ayarlar › Kısayollar'dan ata.`,
+    }),
+    client: active?.client ?? null,
+    blocked: showOnboarding || Boolean(active && !account.yukleniyor && account.durum && (!account.durum.etkin || account.kurtarmaKodu)),
+    actions: {
+      newChat: () => { setSurfaceSection(null); void startDesktopChat(); },
+      openSettings: (section) => { setSurfaceSection(null); setSettingsSection(section ?? "genel"); setPage("settings"); },
+      toggleSidebar: layout.toggleSidebar,
+      toggleTerminal: () => {
+        const acik = page === "chat" && surfaceSection === null && layout.inspectorOpen && inspectorLayout.activeTab === "terminal";
+        if (acik) { layout.closeInspector(); return; }
+        setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("terminal"); inspectorLayout.setCollapsed(false); layout.openInspector();
+      },
+      openPreview: () => { setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("preview"); layout.openInspector(); },
+      toggleInspector: () => { setSurfaceSection(null); if (page !== "chat") { setPage("chat"); layout.openInspector(); } else layout.toggleInspector(); },
+      back: pageHistory.back,
+      forward: pageHistory.forward,
+      selectChat: (index) => {
+        const hedef = controller.sessions[index];
+        if (!hedef) return false;
+        setSurfaceSection(null); setPage("chat"); controller.select(hedef.id);
+        return true;
+      },
+      openHistory: () => { setSurfaceSection(null); setPage("chat"); setHistoryOpen(true); },
+      share: () => { if (active) { setSurfaceSection(null); setPage("chat"); setShareOpen(true); } },
+      help: () => void navigateSidebar("help"),
+      closeSplit: split.close,
+      // Claude Desktop kısayolları (#444): Ctrl+Tab oturum değiştir, ⌘W kapat, ⌘⇧D fark, ⌘\ panel.
+      cycleChat: (step) => {
+        const list = controller.sessions;
+        if (list.length < 2) return false;
+        const index = list.findIndex((item) => item.id === active?.id);
+        const hedef = list[(Math.max(index, 0) + step + list.length) % list.length];
+        setSurfaceSection(null); setPage("chat"); controller.select(hedef.id);
+        return true;
+      },
+      closeActiveSession: () => {
+        if (!active) return false;
+        const now = Date.now();
+        if (closeDecision(Boolean(active.running), now, closeArmedAt.current) === "arm") {
+          closeArmedAt.current = now;
+          setScheduleNotice({ sessionId: null, baslik: "Tur çalışıyor", metin: "Oturumu kapatırsan tur yarım kalır. Kapatmak için 3 sn içinde yeniden bas." });
+          return true;
+        }
+        closeArmedAt.current = null;
+        void controller.close(active.id).catch(() => undefined);
+        return true;
+      },
+      toggleDiff: () => {
+        const acik = page === "chat" && surfaceSection === null && layout.inspectorOpen && inspectorLayout.activeTab === "changes";
+        if (acik) { layout.closeInspector(); return; }
+        setSurfaceSection(null); setPage("chat"); inspectorLayout.setActiveTab("changes"); inspectorLayout.setCollapsed(false); layout.openInspector();
+      },
+      closePane: () => { if (layout.inspectorOpen) layout.closeInspector(); else split.close(); },
+      runCommand: (input) => commandRunner.current(input),
+      toggleSideChat: active?.status === "ready" ? () => setSideChatOpen((open) => !open) : undefined,
+    },
+    chats: [
+      ...controller.sessions.map((session) => ({ id: session.id, title: session.title, project: projectName(session.root) })),
+      ...controller.storedConversations.filter((item) => !controller.state.sessions[item.id])
+        .map((item) => ({ id: item.id, title: item.title, project: projectName(item.root) })),
+    ],
+    commands: active ? composerCommands : [],
+    openScreen: (id) => {
+      if (id === "main:home") { setSurfaceSection(null); setPage("chat"); }
+      else if (id.startsWith("main:")) selectMainSection(id.slice("main:".length) as MainSection);
+      else void navigateSidebar(id);
+    },
+    openChat: (id) => {
+      setSurfaceSection(null); setPage("chat");
+      if (controller.state.sessions[id]) controller.select(id);
+      else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root)
+        .catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene."));
+    },
+    openFile: active ? (path) => { setSurfaceSection(null); setPage("chat"); setSelectedPath(path); inspectorLayout.setActiveTab("preview"); layout.openInspector(); } : null,
+    insertCommand: active ? (name) => {
+      setSurfaceSection(null); setPage("chat");
+      setDrafts((current) => ({ ...current, [active.id]: `/${name} ` }));
+      requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mesaj"]')?.focus());
+    } : null,
+    openSettings: (section) => { setSurfaceSection(null); setSettingsSection(section); setPage("settings"); },
+  });
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -791,11 +1075,7 @@ export function SessionUygulama({
         return;
       }
       setAttachmentError(null);
-      setAttachments((current) => ({
-        ...current,
-        [activeSessionId]: [...(current[activeSessionId] ?? []), ...additions]
-          .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-      }));
+      addAttachments(activeSessionId, additions);
     }).then((stop) => {
       if (alive) unlisten = stop;
       else stop();
@@ -803,12 +1083,12 @@ export function SessionUygulama({
       if (alive) setAttachmentError("Sürükle-bırak dinleyicisi başlatılamadı. Uygulamayı yeniden dene.");
     });
     return () => { alive = false; unlisten?.(); };
-  }, [activeSessionId]);
+  }, [activeSessionId, addAttachments]);
 
   // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
   // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
   // composer'daki ad da tazelenmeli, yoksa eski model yazılı kalırdı.
-  const { model: activeModel, label: activeModelLabel } = useActiveModel(activeClient, activeSessionId, controlRevision);
+  const { model: activeModel, label: activeModelLabel, pending: activeModelPending, error: activeModelError, retry: retryActiveModel } = useActiveModel(activeClient, activeSessionId, controlRevision, active?.bootstrap);
 
   const modelCatalog = useModelCatalog(activeClient, activeSessionId, workspaceMode);
   const modelOptions = modelCatalog.options;
@@ -819,11 +1099,15 @@ export function SessionUygulama({
   useEffect(() => {
     if (!activeClient || !activeSessionId) return;
     let alive = true;
-    void Promise.all([
+    // `Promise.all` birinin reddinde TÜM slash menüsünü (yerel komutlar dahil) boşaltıyor ve beceri/MCP
+    // listesini eski oturumdan bayat bırakıyordu; her yarı bağımsız bozulur (U3-27).
+    void Promise.allSettled([
       activeClient.request("komut.listele", {}),
       activeClient.request("yetenek.katalog", {}),
-    ]).then(([commandPayload, capabilityPayload]) => {
+    ]).then(([commandResult, capabilityResult]) => {
       if (!alive) return;
+      const commandPayload: Record<string, unknown> = commandResult.status === "fulfilled" ? commandResult.value : {};
+      const capabilityPayload: Record<string, unknown> = capabilityResult.status === "fulfilled" ? capabilityResult.value : {};
       const listed = Array.isArray(commandPayload.komutlar) ? commandPayload.komutlar : [];
       const commandRows: ComposerCommand[] = listed.flatMap((raw) => {
         if (!raw || typeof raw !== "object") return [];
@@ -873,6 +1157,13 @@ export function SessionUygulama({
         destekleniyor: true,
       }];
       setSkillNames(skillRows.map((row) => row.ad));
+      // Kişilik seçici (P-053): katalogdaki etkin ajanlar; yerleşik explore/plan da buradan gelir.
+      setPersonaOptions((Array.isArray(capabilityPayload.ajanlar) ? capabilityPayload.ajanlar : []).flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const row = raw as Record<string, unknown>;
+        if (typeof row.ad !== "string" || row.etkin !== true) return [];
+        return [{ ad: row.ad, aciklama: typeof row.aciklama === "string" ? row.aciklama : undefined }];
+      }));
       setMcpServers((Array.isArray(capabilityPayload.mcp) ? capabilityPayload.mcp : []).flatMap((raw) => {
         if (!raw || typeof raw !== "object") return [];
         const row = raw as Record<string, unknown>;
@@ -882,7 +1173,17 @@ export function SessionUygulama({
       setCommands([...commandRows, ...imageRow, ...skillRows, ...mcpRows]);
     }).catch(() => { if (alive) setCommands([]); });
     return () => { alive = false; };
-  }, [activeClient, activeSessionId]);
+  }, [activeClient, activeSessionId, capabilityRevision]);
+
+  // Bağlantılar / Beceriler ekranından dönünce `@mcp` ve `/beceri` listeleri tazelenir (U3-27).
+  const oncekiSayfa = useRef(page);
+  useEffect(() => {
+    const onceki = oncekiSayfa.current;
+    oncekiSayfa.current = page;
+    if (onceki !== page && (onceki === "skills" || onceki === "connectors" || onceki === "control")) {
+      setCapabilityRevision((current) => current + 1);
+    }
+  }, [page]);
 
   // Kapatma isteği Rust'ta durdurulur ve karar burada sorulur.
   useEffect(() => {
@@ -897,80 +1198,214 @@ export function SessionUygulama({
   activeRef.current = active;
   const controllerRef = useRef(controller);
   controllerRef.current = controller;
+  // `fusion://` derin bağlantısı ve tepsi "Yeni sohbet" (P-064). İşleyici her çizimde tazelenir;
+  // dinleyici bir kez kurulur. Hedef burada yeniden doğrulanır (bkz. `parseDeepLink`).
+  const derinBaglantiRef = useRef<(hedef: DerinBaglanti) => void>(() => undefined);
+  derinBaglantiRef.current = (hedef) => {
+    const ctl = controllerRef.current;
+    setNewTaskError(null);
+    setSurfaceSection(null);
+    if (hedef.hedef === "sohbet") {
+      if (ctl.state.sessions[hedef.id]) ctl.select(hedef.id);
+      else if (ctl.storedConversations.some((item) => item.id === hedef.id)) {
+        void ctl.openStored(hedef.id).catch(() => setNewTaskError("Bağlantıdaki sohbet açılamadı. Yeniden dene."));
+      } else {
+        setNewTaskError("Bağlantıdaki sohbet bulunamadı.");
+      }
+      setPage("chat");
+    } else if (hedef.hedef === "yeni") {
+      if (hedef.kok) {
+        // Kök onaysız uygulanmaz: çok geniş/sistem klasörü reddedilir, kalanı sorulur.
+        if (deepLinkRootDecision(hedef.kok) === "reddet") {
+          setNewTaskError(`Bağlantıdaki klasör kabul edilmedi (${hedef.kok}): proje klasörü seçin.`);
+        } else {
+          setDeepLinkRoot(hedef.kok);
+        }
+        setPage("chat");
+      } else {
+        void startDesktopChat();
+      }
+    } else {
+      setSettingsSection(isSettingsSection(hedef.bolum) ? hedef.bolum : "genel");
+      setPage("settings");
+    }
+  };
+  useEffect(() => {
+    if (!kabukVar()) return;
+    const derin = listen<unknown>(DEEP_LINK_EVENT, (event) => {
+      const hedef = parseDeepLink(event.payload);
+      if (hedef) derinBaglantiRef.current(hedef);
+    });
+    const yeni = listen(TRAY_NEW_CHAT_EVENT, () => derinBaglantiRef.current({ hedef: "yeni", kok: null }));
+    // Soğuk açılış: uygulama bir bağlantıyla açıldıysa hedef Rust'ta bekler; dinleyici kurulunca çekilir.
+    void invoke<unknown>(DEEP_LINK_PULL_COMMAND)
+      .then((yuk) => { const hedef = parseDeepLink(yuk); if (hedef) derinBaglantiRef.current(hedef); })
+      .catch(() => undefined);
+    return () => {
+      void derin.then((f) => f()).catch(() => undefined);
+      void yeni.then((f) => f()).catch(() => undefined);
+    };
+  }, []);
 
-  // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
-  // kullanıcı yazışmış gibi tam dökümü görür.
+  // Talk soruları yan sohbet yolundan, açık eylem istekleri ana oturumdan geçer.
   useEffect(() => {
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
       const current = activeRef.current;
       if (!current) return;
       if (!firstTimeVoiceMessage.current(mesaj.id)) return;
-      const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
-      const requestId = nextSessionId();
-      const accepted = controllerRef.current.send(current.id, gorev.text, [], true, gorev.voice, requestId);
-      if (!accepted) {
-        void publishVoiceRuntimeState({
-          durum: "error",
-          metin: "Bu konuşmada bir görev zaten çalışıyor. Bitmesini bekleyip yeniden konuş.",
-        });
+      if (isVoiceListenerCue(mesaj.metin)) return;
+      if (/^(?:dur|sus|bekle)$/u.test(normalizeVoiceWords(mesaj.metin))) {
+        voiceQuestion.current?.abort();
+        void publishVoiceRuntimeState({ durum: "listening", pending: voiceRequests.current.length > 0 });
         return;
       }
-      voiceRequests.current.push({
-        afterIndex: current.messages.length,
-        requestId,
-        sawRunning: false,
-        sessionId: current.id,
-      });
-      void publishVoiceRuntimeState({ durum: localVoiceReply(mesaj.metin) ? "transcribing" : "thinking" });
+      const local = localVoiceReply(mesaj.metin, voiceRequests.current.length > 0 || current.running);
+      if (local) {
+        voiceReplies.current.push({ text: local, sessionId: current.id });
+        setVoicePlaybackRevision(value => value + 1);
+        return;
+      }
+      voiceQuestion.current?.abort();
+      voiceQuestion.current = null;
+      if (incompleteVoiceRequest(mesaj.metin)) {
+        voiceReplies.current.push({ text: "Cümlenin sonunu duyamadım. Baştan söyler misin?", sessionId: current.id });
+        setVoicePlaybackRevision(value => value + 1);
+        return;
+      }
+      const sendToFusion = () => {
+        const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
+        const requestId = nextSessionId();
+        const accepted = controllerRef.current.send(current.id, gorev.text, [], true, gorev.voice, requestId);
+        if (!accepted) {
+          const metin = current.status === "ready"
+            ? "Sesli mesaj kaydedilemedi. Ana penceredeki bildirimi kontrol et."
+            : "Fusion sohbetinin bağlantısı kapalı. Ana pencereden sohbeti yeniden aç.";
+          void publishVoiceRuntimeState({ durum: "error", metin });
+          return;
+        }
+        if (!voiceRequests.current.length) {
+          voiceReplies.current.push({
+            text: "Bir saniye, Fusion’a sorayım.",
+            sessionId: current.id,
+            afterCue: Date.now() + 1_050,
+          });
+        }
+        voiceRequests.current.push({ requestId, sessionId: current.id });
+        if (!activeVoiceTurn.current) void publishVoiceRuntimeState({ durum: "thinking", pending: true });
+        setVoicePlaybackRevision(value => value + 1);
+      };
+      const priorResearch = voiceResearchSubject.current?.sessionId === current.id
+        ? voiceResearchSubject.current.text : undefined;
+      const followup = followupVoiceResearch(mesaj.metin, priorResearch);
+      const isWork = isSpokenWorkRequest(mesaj.metin);
+      const research = !isWork && (!!followup || needsVoiceResearch(mesaj.metin));
+      if (!research) voiceResearchSubject.current = null;
+      if (!isWork) {
+        const question = new AbortController();
+        voiceQuestion.current = question;
+        const history = voiceQuestionHistory.current?.sessionId === current.id
+          ? voiceQuestionHistory.current.turns : [];
+        const context = mesaj.kesilen
+          ? [...history, { rol: "asistan" as const, metin: mesaj.kesilen.slice(0, 1_200) }]
+          : history;
+        const answer = (text: string) => {
+          if (question.signal.aborted) return;
+          voiceReplies.current.push({ text, sessionId: current.id, questionSignal: question.signal });
+          setVoicePlaybackRevision(value => value + 1);
+        };
+        const rememberAndSpeak = (text: string) => {
+          if (question.signal.aborted) return;
+          voiceQuestionHistory.current = { sessionId: current.id, turns: [
+            ...history.slice(-6), { rol: "kullanici", metin: mesaj.metin }, { rol: "asistan", metin: text },
+          ] };
+          answer(spokenTeacherAnswer(text, false));
+        };
+        const researchInBackground = async () => {
+          answer("Bir saniye, Fusion arka planda kaynaklara bakıyor.");
+          const subject = followup ?? normalizeSpokenNames(mesaj.metin);
+          voiceResearchSubject.current = { sessionId: current.id, text: followup && priorResearch ? priorResearch : subject };
+          rememberAndSpeak(await askVoiceResearch(current.client, subject, question.signal, !!followup));
+        };
+        const pending = research ? researchInBackground()
+          : askVoiceQuestion(current.client, mesaj.metin, context, question.signal).then(text => {
+            if (question.signal.aborted) return;
+            if (voiceAnswerNeedsResearch(text)) return researchInBackground();
+            rememberAndSpeak(text);
+          });
+        void pending.catch(() => answer("Şu an soruna yanıt alamadım."));
+        return;
+      }
+      sendToFusion();
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const remove = onVoiceBargeIn(() => {
-      pendingBargeIn.current = true;
+    const removeBargeIn = onVoiceBargeIn(() => {
       const turn = activeVoiceTurn.current;
       if (turn) void turn.cancel().catch(() => undefined);
     });
+    const removeActivity = onVoiceActivity((activity) => {
+      window.clearTimeout(voiceQuietTimer.current);
+      if (activity === "closed") {
+        voiceOccupied.current = false;
+        voiceQuestion.current?.abort();
+        voiceQuestion.current = null;
+        voiceQuestionHistory.current = null;
+        voiceResearchSubject.current = null;
+        voiceRequests.current = [];
+        voiceReplies.current = [];
+        void activeVoiceTurn.current?.cancel().catch(() => undefined);
+      } else {
+        voiceOccupied.current = true;
+        if (activity === "silent") {
+          // Tanıma sonu ve yeni sözün ana pencereye ulaşması için kısa boşluk.
+          voiceQuietTimer.current = window.setTimeout(() => {
+            voiceOccupied.current = false;
+            setVoicePlaybackRevision(value => value + 1);
+          }, 140);
+        }
+      }
+    });
     return () => {
-      void remove.then((unlisten) => unlisten()).catch(() => undefined);
+      for (const listener of [removeBargeIn, removeActivity])
+        void listener.then((unlisten) => unlisten()).catch(() => undefined);
+      window.clearTimeout(voiceQuietTimer.current);
+      voiceQuestion.current?.abort();
       void activeVoiceTurn.current?.cancel().catch(() => undefined);
     };
   }, []);
 
-  // Yalnız Talk'tan başlayan turun nihai cevabı seslendirilir. Kullanıcının
-  // normal yazışmaları sessiz kalır; sohbet değişse bile istek başladığı
-  // oturumun kendi çekirdeği kullanılır. Tur kimliği hemen alınır; gerçek
-  // bitiş ayrı `ses.bekle` isteğiyle izlenir ve zaman tahmini kullanılmaz.
+  // Ses, görev sırasından bağımsızdır. İstek kimliği yalnız Talk'tan
+  // gelen sonuçları seçer. Yazılı sohbet ve arka plan turları kendi yolunda ilerler.
   useEffect(() => {
-    if (activeVoiceTurn.current) return;
-    const pending = voiceRequests.current[0];
-    if (!pending) return;
-    const session = controller.state.sessions[pending.sessionId];
-    if (!session) {
+    if (activeVoiceTurn.current || voiceOccupied.current) return;
+    while (voiceReplies.current[0]?.questionSignal?.aborted) voiceReplies.current.shift();
+    const cueWait = (voiceReplies.current[0]?.afterCue ?? 0) - Date.now();
+    if (cueWait > 0) {
+      const timer = window.setTimeout(() => setVoicePlaybackRevision(value => value + 1), cueWait);
+      return () => window.clearTimeout(timer);
+    }
+    let next = voiceReplies.current.shift();
+    while (!next && voiceRequests.current.length) {
+      const pending = voiceRequests.current[0];
+      const session = controller.state.sessions[pending.sessionId];
+      const response = session?.messages.find(message => message.id === `${pending.requestId}:assistant`);
+      if (session && !response && !session.completedRequestIds?.includes(pending.requestId)) return;
       voiceRequests.current.shift();
+      if (session) next = { sessionId: session.id, text: response?.metin.trim() ? spokenTeacherAnswer(response.metin) : "Fusion’dan yanıt gelmedi." };
+    }
+    if (!next) return;
+    const session = controller.state.sessions[next.sessionId];
+    if (!session) {
       setVoicePlaybackRevision(value => value + 1);
       return;
     }
-    const response = session.messages.find(message => message.id === `${pending.requestId}:assistant`);
-    if (!response && !session.completedRequestIds?.includes(pending.requestId) && session.running) {
-      pending.sawRunning = true;
-      return;
-    }
-    if (!response && !session.completedRequestIds?.includes(pending.requestId)) return;
-    voiceRequests.current.shift();
-    const answer = response?.metin.trim();
-    if (!answer) {
-      void publishVoiceRuntimeState({ durum: "error", metin: "Fusion yanıt üretmedi." });
-      setVoicePlaybackRevision(value => value + 1);
-      return;
-    }
-    pendingBargeIn.current = false;
-    // Cevap cümle cümle seslendirilir: ilk cümle hazır olur olmaz ses başlar.
-    const turn = createVoicePlayback(session.client, answer, publishVoiceRuntimeState);
+    const turn = createVoicePlayback(session.client, next.text, state =>
+      publishVoiceRuntimeState({ ...state, pending: voiceRequests.current.length > 0 }),
+    );
     activeVoiceTurn.current = turn;
-    if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);
     void turn.finished.finally(() => {
       if (activeVoiceTurn.current === turn) {
         activeVoiceTurn.current = null;
@@ -1029,17 +1464,28 @@ export function SessionUygulama({
   // öteki eskirdi.
   // Plan kipi: tur bitince Claude'daki gibi "planı uygula?" kartı. Kart yalnız
   // plan kipinde, turun GERÇEKTEN bittiği anda ve son yanıt hata değilse çıkar.
+  // Seçenekler çekirdekten gelir (`plan.kart`, #325): REPL/TUI ile aynı kaynak — otomatik kip
+  // kullanılamıyorsa "düzenlemeleri otomatik kabul et", bypass açık başladıysa "İZİNLERİ ATLA",
+  // `showClearContextOnPlanAccept` açıksa "bağlamı temizle ve …". Kart yalnız plan sunulduysa.
   const [planHazir, setPlanHazir] = useState<string | null>(null);
+  const [planKarti, setPlanKarti] = useState<PlanKarti | null>(null);
   const oncekiCalisiyor = useRef(false);
   useEffect(() => {
     if (!activeMessages || !activeSessionId) return;
     const bitti = oncekiCalisiyor.current && !Boolean(activeRunning);
     oncekiCalisiyor.current = Boolean(activeRunning);
     const son = activeMessages[activeMessages.length - 1];
-    if (bitti && approval === "plan" && son?.rol === "asistan" && !son.hata && son.metin.trim()) {
-      setPlanHazir(activeSessionId);
+    const client = active?.client;
+    if (bitti && approval === "plan" && son?.rol === "asistan" && !son.hata && client) {
+      const sekme = activeSessionId;
+      void client.request("plan.kart", {}).then((kart) => {
+        const okunan = planKartiOku(kart);
+        if (!okunan) return;
+        setPlanKarti(okunan);
+        setPlanHazir(sekme);
+      }).catch(() => undefined);
     }
-  }, [activeRunning, activeSessionId, activeMessages, approval]);
+  }, [activeRunning, activeSessionId, activeMessages, approval, active?.client]);
   // Chrome eklentisi Fusion'ı yerel mesajlaşmayla kendisi bulur; köprü ETKİN sohbet
   // sekmesinde açık tutulur. Sekme değişince önceki köprü kapanır, eklenti yeni
   // sekmenin köprüsüne kendiliğinden geçer (bkz. chrome_host.py, offscreen.js).
@@ -1109,10 +1555,26 @@ export function SessionUygulama({
   // Kapatma Rust'ta DURDURULUR ve onay burada sorulur; bu yüzden onay HER ekranda
   // çizilmelidir. Ölçüldü (28 Eylül, Windows): hata/hazırlanıyor/hesap/rehber
   // ekranlarında onay hiç çizilmiyordu ve uygulama kapanmıyordu.
+  const derinKokOnayi = deepLinkRoot ? (
+    <DeepLinkConfirm
+      kok={deepLinkRoot}
+      onCancel={() => setDeepLinkRoot(null)}
+      onConfirm={() => {
+        const kok = deepLinkRoot;
+        setDeepLinkRoot(null);
+        void controllerRef.current.create({ root: kok, mode: "kod" }).then(() => setPage("chat"))
+          .catch((reason: unknown) => setNewTaskError(`Yeni sohbet açılamadı: ${errorMessage(reason)}`));
+      }}
+    />
+  ) : null;
   const kapatmaOnayi = closeAsked ? (
     <CloseConfirm
-      onCancel={() => setCloseAsked(false)}
-      onConfirm={() => void invoke("kapatmayi_onayla")}
+      onCancel={() => {
+        setCloseAsked(false);
+        // Rust bekleyen isteği ve bekçisini temizlesin; yoksa nabız kesilince uygulama kapanırdı.
+        if (kabukVar()) void invoke("kapatma_vazgec").catch(() => undefined);
+      }}
+      onConfirm={() => void invoke("kapatmayi_onayla").catch((reason: unknown) => setNewTaskError(`Uygulama kapatılamadı: ${errorMessage(reason)}`))}
       running={active?.running}
     />
   ) : null;
@@ -1146,7 +1608,7 @@ export function SessionUygulama({
   }
   const chooseProjectFolder = async () => {
     if (!(await permissions.ensure("workspace"))) return null;
-    const root = await selectFolder(localStorage.getItem("fusion.last-project-root") ?? undefined);
+    const root = await selectFolder(readLastRoot());
     return root && root !== "/" ? root : null;
   };
   const recordRoots = new Set(projects.registry.projects.flatMap((record) => record.root ? [record.root] : []));
@@ -1180,7 +1642,9 @@ export function SessionUygulama({
       })),
     ],
   };
-  const sectionOwnsSidebar = surfaceSection !== null || page === "settings";
+  // Tam sayfa kuralı TEK yerde (`screens/pageLayout.ts`): sohbetle ilgisi olmayan her
+  // yönetim ekranı sohbet kenar çubuğunu (Fusion başlığı, Yeni sohbet, Projeler) gizler.
+  const sectionOwnsSidebar = isFullPage(page, surfaceSection);
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…{kapatmaOnayi}</div>;
     return <><Shell
@@ -1190,16 +1654,16 @@ export function SessionUygulama({
       surfaceFullBleed={surfaceSection !== null}
       sidebarHidden={sectionOwnsSidebar}
       header={<AppHeader canNavigateBack={pageHistory.canGoBack} canNavigateForward={pageHistory.canGoForward} onNavigateBack={pageHistory.back} onNavigateForward={pageHistory.forward} title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
-      content={<>{mediaPage ? <MediaScreen active={page} image={<ImageCreate client={null} />} onSelect={setPage} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
+      content={<>{mediaPage ? <ImageCreate client={null} /> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}{!mediaPage && <button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button>}</>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
       sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} {...projectSidebarProps} onMove={(id, root) => controller.move(id, root)} onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }} onSec={(id) => { setSurfaceSection(null); void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, projectId: projects.registry.chats[conversation.id], updated_at: conversation.updatedAt * 1000 }))} />}
-    />{kapatmaOnayi}</>;
+    />{komutPaleti}{kapatmaOnayi}</>;
   }
 
   // Fusion hesapsız açılmaz. Kapı, çekirdek bağlandıktan sonra çizilir:
   // hesap bilgisi oradan okunuyor.
-  if (active && !account.yukleniyor && account.durum && !account.durum.etkin) {
+  if (active && !account.yukleniyor && account.durum && (!account.durum.etkin || account.kurtarmaKodu)) {
     return <><AccountGate account={account} />{kapatmaOnayi}</>;
   }
 
@@ -1238,26 +1702,28 @@ export function SessionUygulama({
     : SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
     ? activeProjectName
     : page === "image-create" ? "Görsel oluştur"
-      : page === "video-create" ? "Video oluştur"
-        : page === "skills" ? "Beceriler ve Ajanlar"
-          : page === "help" ? "Yardım"
-            : active.title;
+      : page === "skills" ? "Beceriler ve Ajanlar"
+        : page === "help" ? "Yardım"
+          : active.title;
 
   const draft = drafts[active.id] ?? controller.submissionDraft(active.id);
   const activeAttachments = attachments[active.id] ?? controller.submissionAttachments(active.id);
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
-  const executeCommand = async (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> => {
+  /** Komut ve model seçimi AYNI meşgul/hata/sürüm durumunu paylaşır; yalnız taşıma (`run`) değişir. */
+  const trackCommand = async (run: () => Promise<Record<string, unknown>>): Promise<CommandResult> => {
     const generation = commandOwner.current, sequence = ++commandSequence.current;
     const isCurrent = () => generation === commandOwner.current && sequence === commandSequence.current;
     setCommandBusy(true);
     setCommandError(null);
     try {
-      const result = await controller.runCommand(active.id, input, recordInput, recordOutput);
+      const result = await run();
       if (!isCurrent()) return { ok: false, message: "Komut sonucu önceki oturuma ait." };
       const next = commandSelectorFrom(result.secici);
       setCommandSelector(next);
       // Çekirdek `/clear` için EKRAN temizleme sinyali döner; afiş basmaz.
       if (result.temizle === true) controller.clear(active.id);
+      // `/rewind` konuşmayı sardıysa hedef turun istemi giriş kutusuna döner (#200).
+      if (typeof result.girdi === "string" && result.girdi) setDraft(result.girdi);
       // Komut yapılandırmayı değiştirmiş olabilir; panel eski değeri göstermesin.
       if (next === null) setControlRevision((current) => current + 1);
       const outcome = operationResult(result, "Komut tamamlanamadı.", true);
@@ -1271,22 +1737,59 @@ export function SessionUygulama({
       if (isCurrent()) setCommandBusy(false);
     }
   };
+  const toggleDictation = (sendOnFinal = false) => {
+    dictationAutoSend.current = null;
+    if (dictation.listening) { void dictation.stop(); return; }
+    if (sendOnFinal) dictationAutoSend.current = active.id;
+    void (async () => {
+      if (!(await permissions.ensure("microphone"))) return;
+      if (!(await permissions.ensure("speech"))) return;
+      await dictation.start(active.id, draft);
+    })();
+  };
+  const executeCommand = (input: string, recordInput = true, recordOutput = true): Promise<CommandResult> => {
+    // `/voice` (P-072) terminalde yerel dikte; masaüstünde sohbet kutusunun mikrofonunu açar.
+    if (isDictationCommand(input)) {
+      toggleDictation(dictationSendsOnFinal(input));
+      return Promise.resolve({ ok: true, message: "" });
+    }
+    return trackCommand(() => controller.runCommand(active.id, input, recordInput, recordOutput));
+  };
+  commandRunner.current = (input) => { void executeCommand(input); };
+  // Yapısal seçim (U1-40); kaynak/kimlik taşımayan seçenek (eski biçim) komut yoluna düşer.
+  const selectModelOption = (option: ModelOption): Promise<CommandResult> => {
+    const { kaynak, modelId } = option;
+    return kaynak && modelId
+      ? trackCommand(() => controller.selectModel(active.id, kaynak, modelId))
+      : executeCommand(option.deger, false, false);
+  };
   const capabilityNames = () => ({
     skills: skillNames,
     mcp: mcpServers.map((server) => server.ad),
     commands: commands.map((command) => command.ad),
   });
   const skillFrom = (task: string) => parseCapabilityInput(task, capabilityNames()).skill;
-  const send = (task: string) => {
+  cronCommandRef.current = (task: string) => {
+    if (!task.startsWith("/") || startsWithFilePath(task) || isImageCommand(task) || skillFrom(task)) return false;
+    void executeCommand(task);
+    return true;
+  };
+  const send = (rawTask: string) => {
+    // `$beceri` (Codex yazımı) bilinen bir beceri/komutsa slash yoluna çevrilir (P-052).
+    const task = skillPrefixToSlash(rawTask, [...skillNames, ...commands.map((command) => command.ad)]);
     const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
       void history.openSource(resumeSource);
-    } else if (task.trim().toLocaleLowerCase("tr") === `/${FOLDER_COMMAND.ad}`) {
+    } else if (isFolderCommand(task, "keybindings")) {
+      // Masaüstünde tuş bağları Ayarlar › Kısayollar'da düzenlenir (P-046); dosya aynıdır.
+      setSettingsSection("kisayollar");
+      setPage("settings");
+    } else if (isFolderCommand(task, FOLDER_COMMAND.ad)) {
       // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
       // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
       void requestTaskFolder();
-    } else if (task.startsWith("/") && !isImageCommand(task) && !skillFrom(task)) void executeCommand(task);
+    } else if (task.startsWith("/") && !startsWithFilePath(task) && !isImageCommand(task) && !skillFrom(task)) void executeCommand(task);
     else {
       if (active.running && busySubmissionMode === "steer" && !active.stopping && !active.stopError) {
         if (activeAttachments.length) {
@@ -1310,7 +1813,12 @@ export function SessionUygulama({
         ? Promise.resolve()
         : Promise.all(selections.map(([tur, ad]) => activeClient.request("yetenek.kullan", { tur, ad })))
             .then(() => undefined);
-      return prepare.then(() => controller.submit(active.id, taskText, snapshot)).then((receipt) => {
+      // Yetenek hazırlığı reddedilirse işlenmemiş söz reddi kalmaz; hata gösterilir, taslak korunur (U3-34).
+      const prepared = prepare.then(() => true, (reason: unknown) => {
+        setCommandError(`Yetenek hazırlanamadı: ${errorMessage(reason)}`);
+        return false;
+      });
+      return prepared.then<SubmissionResult>((ok) => ok ? controller.submit(active.id, taskText, snapshot) : false).then((receipt) => {
         if (submissionAccepted(receipt)) {
           setAttachments((current) => current[active.id] === snapshot || current[active.id] === undefined
             ? { ...current, [active.id]: [] } : current);
@@ -1321,11 +1829,14 @@ export function SessionUygulama({
       });
     }
   };
+  sendRef.current = send;
   const conversationContent = active.messages.length > 0 ? (
     <Conversation
+      key={active.id}
       mesajlar={active.messages}
       running={active.running}
       showSteps={showSteps}
+      viewMode={viewMode}
       onReadAloud={async (text) => {
         const generation = ++manualVoiceGeneration.current;
         await manualVoiceTurn.current?.cancel();
@@ -1352,6 +1863,7 @@ export function SessionUygulama({
         setSurfaceSection(null);
         setPage("chat");
       }}
+      onSendToKit={setKitSendText}
       onOneriSec={(gorev) => send(gorev)}
       onRetrySubmission={(requestId) => { controller.retrySubmission(active.id, requestId); }}
       onHataBildir={(metin) => setFeedback({ tur: "hata", mesaj: "Bir görev hatayla bitti.", ayrinti: metin })}
@@ -1367,75 +1879,104 @@ export function SessionUygulama({
   ) : (
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={activeProjectName} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
+  // Hesabım sayfası ve Ayarlar › Hesap AYNI hesap içeriğini (AccountProfile) gösterir.
+  const accountProfileProps = {
+    account,
+    client: active.client,
+    onOpenProviders: (providerId: string) => {
+      setControlProviderId(providerId);
+      setControlTitle("Sağlayıcı hesapları");
+      setPage("control");
+    },
+    onPickAvatarFile: async () => {
+      // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
+      // dosya sistemine yazmaz ve avatar hesabın kendi dizininde durur.
+      const secilen = await selectFiles(active.root).catch(() => []);
+      const yol = secilen[0];
+      const kimlik = account.durum?.etkin;
+      if (!yol || !kimlik) return null;
+      const sonuc = await active.client
+        .request("hesap.avatar_yukle", { kimlik, yol })
+        .catch(() => null);
+      return sonuc?.ok === true && typeof sonuc.avatar === "string" ? sonuc.avatar : null;
+    },
+  };
   const content = mediaPage
-    ? <MediaScreen active={page} image={<ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />} onSelect={setPage} />
+    ? <ImageCreate client={active.client} jobScope={JSON.stringify([active.root, active.id])} />
     : page === "skills"
-    ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
+    ? <SkillsCatalog client={active.client} onClose={closePage} />
     : page === "control"
       ? (
         <ControlPanel
           client={active.client}
+          initialProviderId={controlProviderId}
           title={controlTitle}
-          onClose={() => setPage("chat")}
+          onClose={() => { setControlProviderId(undefined); closePage(); }}
           revision={controlRevision}
           onProvidersChanged={() => setControlRevision((value) => value + 1)}
         />
       )
       : page === "connectors"
-        ? <ConnectorsScreen client={active.client} onClose={() => setPage("chat")} />
+        ? <ConnectorsScreen client={active.client} onClose={closePage} />
       : page === "account"
-        ? (
-          <AccountScreen
-            account={account}
-            client={active.client}
-            onClose={() => setPage("chat")}
-            onPickAvatarFile={async () => {
-              // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
-              // dosya sistemine yazmaz ve avatar hesabın kendi dizininde durur.
-              const secilen = await selectFiles(active.root).catch(() => []);
-              const yol = secilen[0];
-              const kimlik = account.durum?.etkin;
-              if (!yol || !kimlik) return null;
-              const sonuc = await active.client
-                .request("hesap.avatar_yukle", { kimlik, yol })
-                .catch(() => null);
-              return sonuc?.ok === true && typeof sonuc.avatar === "string" ? sonuc.avatar : null;
-            }}
-          />
-        )
+        ? <AccountScreen {...accountProfileProps} onClose={closePage} />
       : page === "settings"
         ? (
           <Settings
             client={active.client}
-            initialSection={settingsSection}
+            initialSection={settingsRequest.section}
+            initialFocus={settingsRequest.focus}
+            requestKey={settingsRequest.seq}
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}
+            accountContent={<AccountProfile {...accountProfileProps} layout="embedded" />}
+            onReopenSetup={() => { clearProgress(); setPage("chat"); setShowOnboarding(true); }}
             onRunCommand={(command) => executeCommand(command, false)}
             onThemeChange={changeTheme}
             themePreference={themePreference}
+            turnRunning={Boolean(active.running)}
+            availableUpdateVersion={guncellemeSurumu}
           />
         )
       : page === "help"
         ? (
           <HelpScreen
-            onClose={() => setPage("chat")}
+            onClose={closePage}
             onOpenSettings={() => setPage("settings")}
             surum={runtimeVersion}
           />
         )
-        : conversationContent;
+        : splitSession
+          ? (
+            <div className="split-view">
+              <div className="split-view__primary">{conversationContent}</div>
+              <SplitPane
+                onAnswer={(answer) => controller.answer(splitSession.id, answer)}
+                onClose={split.close}
+                onFocus={() => { controller.select(splitSession.id); }}
+                onSend={(task) => { controller.send(splitSession.id, task); }}
+                session={splitSession}
+                showSteps={showSteps}
+              />
+            </div>
+          )
+          : conversationContent;
   const status = active.status === "crashed"
-    ? "Bağlantı kesildi"
+    ? BAGLANTI_KESILDI_DURUMU
     : active.running
       ? "Çalışıyor"
       : "Hazır";
   const chooseTaskFolder = async () => {
+    // Sürüm sayacı: Vazgeç (ya da yeni bir seçim) sonrası gelen eski seçici sonucu yok sayılır (U4-20).
+    const pick = ++folderPickVersion.current;
+    const isCurrentPick = () => folderPickVersion.current === pick;
     setNewTaskBusy(true);
     setNewTaskError(null);
     try {
-      const storedRoot = localStorage.getItem("fusion.last-project-root") ?? undefined;
+      const storedRoot = readLastRoot();
       const root = await selectFolder(storedRoot === "/" ? undefined : storedRoot);
+      if (!isCurrentPick()) return;
       if (!root) {
         setNewTaskOpen(false);
         return;
@@ -1445,13 +1986,15 @@ export function SessionUygulama({
         return;
       }
       await controller.create({ root, mode: "kod" });
-      localStorage.setItem("fusion.last-project-root", root);
+      if (!isCurrentPick()) return;
+      // Depo yazılamazsa klasör yine açıldı; "Klasör açılamadı" demek yanıltıcı olurdu (U3-32).
+      writeStorage(() => localStorage, LAST_ROOT_KEY, root);
       setPage("chat");
       setNewTaskOpen(false);
     } catch (reason) {
-      setNewTaskError(`Klasör açılamadı: ${errorMessage(reason)}`);
+      if (isCurrentPick()) setNewTaskError(`Klasör açılamadı: ${errorMessage(reason)}`);
     } finally {
-      setNewTaskBusy(false);
+      if (isCurrentPick()) setNewTaskBusy(false);
     }
   };
   function requestTaskFolder() {
@@ -1472,6 +2015,9 @@ export function SessionUygulama({
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} name={activeProjectName} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
+        {/* Güvenilmeyen proje kartı (P-012): proje kendi ayarını taşıyorsa ve düşürüldüyse sorulur. */}
+        <TrustProject client={active.client} kok={active.root} running={Boolean(active.running)} onTrusted={() => setControlRevision((value) => value + 1)} />
+        <LinkedPullRequest client={active.client} running={Boolean(active.running)} sohbetId={active.id} />
         <Composer
           stopping={active.stopping}
           busySubmissionMode={active.stopping || active.stopError ? "queue" : busySubmissionMode}
@@ -1479,34 +2025,33 @@ export function SessionUygulama({
           onBusySubmissionModeChange={setBusySubmissionMode}
           key={active.id}
           workspaceMode={workspaceMode}
-          onWorkspaceModeChange={(mode) => {
-            void active.client.request("oturum.baslat", { kip: mode }).then((result) => {
-              if (result.ok === false) throw new Error(String(result.metin ?? "Kip değiştirilemedi."));
-              saveWorkspaceMode(active.id, mode);
-              setWorkspaceModes((current) => ({ ...current, [active.id]: mode }));
-              setCommandError(null);
-            }).catch(() => setCommandError("Sohbet kipi değiştirilemedi. Yeniden dene."));
-          }}
+          onWorkspaceModeChange={(mode) => void changeWorkspace(mode)}
           activeModel={activeModel}
           activeModelLabel={activeModelLabel}
+          activeModelPending={activeModelPending}
+          activeModelError={activeModelError}
+          onActiveModelRetry={retryActiveModel}
           modelOptions={modelOptions}
           modelsError={modelsError}
           modelSelectionPending={commandBusy}
           onModelConnect={() => { setControlTitle("Sağlayıcılar"); setPage("control"); }}
           modelsBusy={modelsBusy}
           onModelMenuOpen={() => void loadModelOptions()}
-          onModelSelect={(komut) => void executeCommand(komut, false, false)}
+          onModelSelect={(option) => void selectModelOption(option)}
           approval={approval}
-          onApprovalChange={(next) => {
-            setApproval(next);
-            void active.client.request("oturum.baslat", { mod: next });
-          }}
+          onApprovalChange={(next) => void changeApproval(next)}
+          approvalExtra={<AutoReviewIndicator approval={approval} client={active.client} onResumed={() => adoptApproval("auto")} />}
+          persona={persona?.ad ?? null}
+          personaOptions={personaOptions}
+          personaLocked={active.messages.length > 0}
+          onPersonaChange={(next) => void changePersona(next)}
           attachments={activeAttachments}
           attachmentError={attachmentError ?? controller.submissionRecoveryError(active.id)}
           commandError={active.stopError ?? commandError}
           commands={composerCommands}
           fileSuggestions={fileSuggestions}
           mcpServers={mcpServers}
+          agentOptions={personaOptions}
           onFileQuery={searchProjectFiles}
           context={active.baglam}
           costUsd={active.maliyetUsd}
@@ -1518,38 +2063,24 @@ export function SessionUygulama({
                 setAttachmentError("Seçimde geçerli bir dosya yolu bulunamadı.");
                 return;
               }
-              setAttachments((current) => ({
-                ...current,
-                [active.id]: [...(current[active.id] ?? []), ...additions]
-                  .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-              }));
+              addAttachments(active.id, additions);
             }).catch(() => setAttachmentError("Dosya seçici açılamadı. Erişimi kontrol edip yeniden dene."));
           }}
           onDropFiles={(files) => {
             setAttachmentError(null);
-            const additions = files.flatMap((file): ComposerAttachment[] => {
-              const localPath = (file as File & { path?: string }).path || file.webkitRelativePath || file.name;
-              if (!localPath.trim()) return [];
-              return [{ kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, path: localPath }];
-            });
-            if (files.length > 0 && additions.length === 0) {
-              setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı.");
+            const { additions, unresolved } = attachmentsFromDroppedFiles(files, attachments[active.id] ?? []);
+            if (files.length > 0 && additions.length === 0 && unresolved > 0) {
+              setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı. Dosyayı Ekle düğmesiyle seç.");
               return;
             }
-            setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
+            if (unresolved > 0) setAttachmentError(`${unresolved} öğenin yolu çözülemedi; Ekle düğmesiyle seçebilirsin.`);
+            addAttachments(active.id, additions);
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}
           dictating={dictation.listening}
           dictationError={dictation.error}
-          onDictation={() => {
-            if (dictation.listening) { void dictation.stop(); return; }
-            void (async () => {
-              if (!(await permissions.ensure("microphone"))) return;
-              if (!(await permissions.ensure("speech"))) return;
-              await dictation.start(active.id, draft);
-            })();
-          }}
+          onDictation={() => toggleDictation()}
           onRemoveAttachment={(path) => setAttachments((current) => ({
             ...current,
             [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),
@@ -1562,11 +2093,33 @@ export function SessionUygulama({
       ) : undefined}
       notices={
         <>
+          {/* "Fusion bilgisayarı kullanıyor · Esc ile durdur" (P-033). */}
+          {active && activeClient && (
+            <ComputerUseIndicator client={activeClient} onStop={() => controller.stop(active.id)} running={active.running} />
+          )}
           {gizliDegerSayisi > 0 && (
             <Notification
               baslik="Konuşma devralındı"
               metin={`${gizliDegerSayisi} hassas değer fark edildi. Fusion bunları ekranda göstermedi; uygun olduğunda ilgili anahtarları yenilemeniz iyi olur.`}
               onDismiss={() => setGizliDegerSayisi(0)}
+            />
+          )}
+          {scheduleNotice && (
+            <Notification
+              baslik={scheduleNotice.baslik}
+              metin={scheduleNotice.metin}
+              eylem={scheduleNotice.sessionId ? {
+                etiket: "Sohbeti aç",
+                onSelect: () => {
+                  const sessionId = scheduleNotice.sessionId;
+                  setScheduleNotice(null);
+                  if (sessionId) { controller.select(sessionId); setPage("chat"); }
+                },
+              } : scheduleNotice.kits ? {
+                etiket: "Kits'i aç",
+                onSelect: () => { setScheduleNotice(null); setSurfaceSection("kits"); },
+              } : undefined}
+              onDismiss={() => setScheduleNotice(null)}
             />
           )}
           {dogrulamaUyarisi && (
@@ -1621,41 +2174,50 @@ export function SessionUygulama({
         <>
           {content}
           {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {derinKokOnayi}
           {kapatmaOnayi}
           {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
+          {kitSendText !== null && (
+            <KitSendDialog
+              initialText={kitSendText}
+              onClose={() => setKitSendText(null)}
+              request={requestKitsHost}
+            />
+          )}
+          {sideChatOpen && active.status === "ready" && (
+            <SideChat client={active.client} key={active.id} onClose={() => setSideChatOpen(false)} />
+          )}
           {shareOpen && (
             <ShareDialog
               messages={active.messages}
               onClose={() => setShareOpen(false)}
+              onExport={activeClient ? exportTranscript : undefined}
               title={active.title}
             />
           )}
-          {planHazir === active.id && !active.question && !active.running && (
+          {planHazir === active.id && planKarti && !active.question && !active.running && (
             <Approval
               eyebrow="Plan hazır"
               serbestCevap={false}
               soru={{
                 tur: "soru",
                 soru: "Bu plan uygulansın mı?",
-                secenekler: [
-                  { etiket: "Evet, otomatik kipte uygula", aciklama: "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar." },
-                  { etiket: "Evet, düzenlemeleri kabul ederek uygula", aciklama: "Dosya düzenlemeleri sorulmaz; komutlar için izin ister." },
-                  { etiket: "Evet, her adımda sor", aciklama: "Manuel kipte uygular; her yazma ve komut için izin ister." },
-                  { etiket: "Hayır, planlamaya devam et", aciklama: "Plan kipinde kalır; planı birlikte düzeltebilirsiniz." },
-                ],
-                onerilen: "Evet, otomatik kipte uygula",
+                secenekler: planKarti.secenekler.map(({ etiket, aciklama }) => ({ etiket, aciklama })),
+                onerilen: planKarti.onerilen,
               }}
               onCevap={(cevap) => {
                 setPlanHazir(null);
                 const metin = String(cevap.metin ?? "");
-                const yeniKip: ApprovalMode | null = metin.startsWith("Evet, otomatik") ? "auto"
-                  : metin.startsWith("Evet, düzenlemeleri") ? "edits"
-                  : metin.startsWith("Evet, her") ? "security" : null;
-                if (!yeniKip) return;
-                setApproval(yeniKip);
-                void active.client.request("oturum.baslat", { mod: yeniKip }).then(() => {
-                  send("Planı onaylıyorum. Şimdi bu planı adım adım uygula ve her adımdan sonra doğrula.");
-                });
+                const secim = planKarti.secenekler.find((item) => item.etiket === metin);
+                const client = active.client;
+                if (!secim || !client) return;
+                // Kip çekirdekte `plan.kabul` ile değişir; sonra arayüz aynı kipi benimser.
+                void client.request("plan.kabul", { deger: secim.deger }).then((sonuc) => {
+                  if (sonuc.ok !== true || typeof sonuc.kip !== "string") return;
+                  adoptApproval(sonuc.kip as ApprovalMode);
+                  if (sonuc.temizle === true) controller.clear(active.id);
+                  if (typeof sonuc.gorev === "string") send(sonuc.gorev);
+                }).catch(() => undefined);
               }}
             />
           )}
@@ -1686,7 +2248,13 @@ export function SessionUygulama({
           <NewTaskDialog
             busy={newTaskBusy}
             error={newTaskError}
-            onCancel={() => { setNewTaskError(null); setNewTaskOpen(false); }}
+            onCancel={() => {
+              // Seçici asılı kalsa bile çıkış var; sonradan dönen sonuç sürüm sayacıyla yok sayılır (U4-20).
+              folderPickVersion.current += 1;
+              setNewTaskBusy(false);
+              setNewTaskError(null);
+              setNewTaskOpen(false);
+            }}
             onChat={() => {
               setNewTaskOpen(false);
               setNewTaskError(null);
@@ -1698,7 +2266,7 @@ export function SessionUygulama({
           />
           {permissions.activeKind && (
             <PermissionPrompt
-              canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+              canOpenSettings={hasSettingsLink(permissions.activeKind)}
               error={permissions.error}
               isRequesting={permissions.isRequesting}
               kind={permissions.activeKind}
@@ -1719,6 +2287,7 @@ export function SessionUygulama({
                 setCommandSelector(null);
               }}
               onSelect={(input) => void executeCommand(input, false)}
+              onSecret={(saglayici, deger) => void trackCommand(() => controller.saveProviderSecret(active.id, saglayici, deger))}
               open
               selector={commandSelector}
             />
@@ -1735,8 +2304,15 @@ export function SessionUygulama({
           onNavigateBack={pageHistory.back}
           onNavigateForward={pageHistory.forward}
           onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
+          onRename={page === "chat" && active.status === "ready" ? (name) => controller.rename(active.id, name) : undefined}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
+          remote={page === "chat" && surfaceSection === null ? {
+            listening: remoteStatus.listening,
+            deviceCount: remoteStatus.deviceCount,
+            pendingApprovals: remoteStatus.pendingApprovals,
+            onOpen: () => { setSettingsSection("uzak"); setPage("settings"); },
+          } : undefined}
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           title={headerTitle}
@@ -1756,6 +2332,21 @@ export function SessionUygulama({
           onActiveTabChange={inspectorLayout.setActiveTab}
           onCollapsedChange={inspectorLayout.setCollapsed}
           onHeightChange={inspectorLayout.setHeight}
+          onCommand={(line) => void executeCommand(line)}
+          onBrowserPick={(pick) => {
+            // Görüntü proje köküne göreli yazılır; ek mutlak yol ister (dosya seçiciyle aynı).
+            if (pick.yol) {
+              setAttachmentError(null);
+              const image = attachmentFromPath(`${active.root.replace(/\/$/, "")}/${pick.yol}`);
+              addAttachments(active.id, [image]);
+            }
+            if (pick.metin) {
+              setDrafts((current) => {
+                const before = current[active.id] ?? "";
+                return { ...current, [active.id]: before ? `${before}\n${pick.metin}` : pick.metin };
+              });
+            }
+          }}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           placement={inspectorPlacement}
@@ -1788,6 +2379,28 @@ export function SessionUygulama({
             else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root);
           }}
           onYeni={() => { setSurfaceSection(null); void startDesktopChat(); }}
+          onSplit={async (id) => {
+            // Tıklanan sohbet yan bölmeye gider; aktif sohbet yerinde kalır (P-064).
+            setSurfaceSection(null);
+            setPage("chat");
+            const onceki = active.id;
+            if (!controller.state.sessions[id]) {
+              await controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active.root);
+              controller.select(onceki);
+            }
+            split.open(id);
+          }}
+          onNewWindow={inTauriShell() ? async (id) => {
+            // Cmd-tık / Yeni pencerede aç (#443): sohbet açık değilse önce açılır; çekirdek burada kalır.
+            const onceki = active.id;
+            if (!controller.state.sessions[id]) {
+              await controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active.root);
+              controller.select(onceki);
+            }
+            const title = controller.sessions.find((item) => item.id === id)?.title
+              ?? controller.storedConversations.find((item) => item.id === id)?.title ?? "Fusion";
+            await openSessionWindow(id, title);
+          } : undefined}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,
@@ -1797,6 +2410,8 @@ export function SessionUygulama({
               projectRoot: session.root,
               projectId: projects.registry.chats[session.id],
               updated_at: session.updatedAt,
+              okunmamis: okunmamisSohbetler.has(session.id),
+              calisiyor: Boolean(session.running),
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
             // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.
@@ -1813,7 +2428,8 @@ export function SessionUygulama({
               })),
           ]}
           guncellemeSurumu={guncellemeSurumu}
-          onGuncellemeAc={() => setPage("settings")}
+          prDurumlari={prDurumlari}
+          onGuncellemeAc={() => { setSettingsSection("guncellemeler"); setPage("settings"); }}
           hesap={etkinHesap}
           onCikis={() => {
             // Çıkış sonrası pencere yeniden yüklenir: hesabın yapılandırması
@@ -1825,6 +2441,7 @@ export function SessionUygulama({
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
     />
+    {komutPaleti}
     </>
   );
 }

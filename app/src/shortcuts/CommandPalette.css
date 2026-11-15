@@ -1,0 +1,148 @@
+/* Komut paleti (P-046): üstten açılan tek sütun; liste satırı = tür etiketi + ad + ayrıntı + tuş. */
+.command-palette {
+  align-items: flex-start;
+  background: var(--surface-overlay);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: max(12vh, var(--space-6)) var(--space-4) var(--space-4);
+  position: fixed;
+  z-index: var(--z-dialog);
+}
+
+.command-palette__panel {
+  animation: command-palette-in var(--duration-fast) ease-out;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 72px rgb(0 0 0 / 26%), 0 2px 8px rgb(0 0 0 / 10%);
+  display: flex;
+  flex-direction: column;
+  max-height: min(560px, 76vh);
+  overflow: hidden;
+  width: min(640px, 100%);
+}
+
+.command-palette__field {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.command-palette__glyph {
+  color: var(--text-tertiary);
+  font-size: var(--text-lg);
+}
+
+.command-palette__input {
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  flex: 1;
+  font: inherit;
+  font-size: var(--text-md);
+  min-width: 0;
+  outline: 0;
+  padding: var(--space-2) 0;
+}
+
+.command-palette__input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.command-palette__heading {
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  margin: var(--space-3) var(--space-4) var(--space-1);
+  text-transform: uppercase;
+}
+
+.command-palette__list {
+  list-style: none;
+  margin: 0;
+  overflow-y: auto;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.command-palette__option {
+  align-items: center;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 76px minmax(0, auto) minmax(0, 1fr) auto;
+  padding: var(--space-2) var(--space-3);
+}
+
+.command-palette__option[aria-selected="true"] {
+  background: var(--surface-selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.command-palette__kind {
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.command-palette__kind[data-kind="eylem"] { color: var(--accent-text); }
+
+.command-palette__label {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette__detail {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette__kbd,
+.command-palette__footer kbd {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.command-palette__empty {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: var(--space-4);
+}
+
+.command-palette__footer {
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  display: flex;
+  font-size: var(--text-2xs);
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+}
+
+.command-palette__footer kbd { margin-right: 2px; }
+
+@keyframes command-palette-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-palette__panel { animation: none; }
+}

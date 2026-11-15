@@ -16,6 +16,7 @@ sebep bildirilir ve kullanıcı komutu elle çalıştırabilir.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
@@ -47,7 +48,7 @@ def ensure_on_path(*, bin_dir: PurePath, config_file: Path, approved: bool) -> P
 
     # İdempotanlık: yol zaten geçiyorsa dosyaya dokunulmaz. Satırın birebir aynı
     # olması beklenmez — kullanıcı elle eklemiş olabilir ve onu çoğaltmak yanlış.
-    if str(bin_dir) in mevcut:
+    if _dir_on_active_line(mevcut, str(bin_dir)):
         return PathSetupResult(changed=False, config_file=config_file, line=satir)
 
     blok = f"\n{FUSION_MARKER}\n{satir}\n"
@@ -58,6 +59,19 @@ def ensure_on_path(*, bin_dir: PurePath, config_file: Path, approved: bool) -> P
     except OSError as hata:
         return PathSetupResult(changed=False, config_file=config_file, error=str(hata))
     return PathSetupResult(changed=True, config_file=config_file, line=satir)
+
+
+def _dir_on_active_line(text: str, directory: str) -> bool:
+    """Dizin AKTİF (yorumsuz) bir satırda, tam yol öğesi olarak geçiyor mu?
+
+    Düz alt dizge denetimi yanlıştı: yorum satırında ya da daha uzun bir yolun öneki
+    olarak (`~/.local/bin2`) geçen dizin "zaten ekli" sayılıyor, satır eklenmiyor ve
+    kullanıcı komutun neden bulunmadığını anlayamıyordu (E1-35).
+    """
+    desen = re.compile(rf"(?<![\w/.\-]){re.escape(directory)}(?![\w/.\-])")
+    return any(
+        desen.search(satir) for satir in text.splitlines() if not satir.lstrip().startswith("#")
+    )
 
 
 def _line_for(config_file: Path, bin_dir: PurePath) -> str:

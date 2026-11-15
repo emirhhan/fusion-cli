@@ -1,4 +1,4 @@
-"""Geri alınabilir silme — Fusion hiçbir klasörü kalıcı olarak silmez.
+"""Geri alınabilir silme — Fusion kullanıcının klasörünü kalıcı silmez (çöpte 30 gün durur).
 
 Ölçülen zarar (1 Ekim 2026): kullanıcının "bu projeyi sil" isteğinde Fusion
 `~/Desktop/01-Projeler` altındaki projelerin neredeyse tamamını sildi. Çöp boştu,
@@ -33,7 +33,7 @@ from ..core.errors import FusionError
 
 #: Kök komutu `rm` olan, özyinelemeli silme içeren ama sade olmayan komutlar.
 _RECURSIVE_DELETE = re.compile(
-    r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]|\bfind\b.*\s-delete\b|\bfind\b.*-exec\s+rm\b|"
+    r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]|\brm\b[^;&|\n]*\s--recursive\b|\bfind\b.*\s-delete\b|\bfind\b.*-exec\s+rm\b|"
     r"\bxargs\b.*\brm\b|\brmtree\b|\bgit\s+clean\s+-[a-zA-Z]*[fdx]"
 )
 #: Sade komutta bulunmaması gereken kabuk işleçleri. Joker (`*?[]`) burada YOK:
@@ -42,7 +42,13 @@ _SHELL_META = re.compile(r"[;&|<>`$()\n{}]")
 #: Kabuğun genişleteceği joker karakterleri.
 _GLOB_CHARS = frozenset("*?[")
 #: `rm`'in kabul edilen seçenek harfleri.
-_RM_FLAGS = frozenset("rRfvid")
+_RM_FLAGS = frozenset("rRfvidIx")
+#: `rm`'in kabul edilen uzun seçenekleri (T2-05). `--no-preserve-root` YOK: kök
+#: korumasını kapatan silme sade sayılmaz, çöpe gitmez ve her kipte sorulur.
+_RM_LONG_FLAGS = frozenset(
+    {"--recursive", "--force", "--verbose", "--dir", "--one-file-system", "--preserve-root",
+     "--interactive"}
+)  # fmt: skip
 #: Ev dizini altında hiçbir zaman silinmeyen standart klasörler.
 _PROTECTED_HOME_DIRS = (
     "Desktop", "Documents", "Downloads", "Library", "Pictures", "Movies", "Music",
@@ -88,6 +94,9 @@ def simple_rm_targets(command: str) -> tuple[str, ...] | None:
     for part in parts[1:]:
         if not options_done and part == "--":
             options_done = True
+        elif not options_done and part.startswith("--"):
+            if part.split("=", 1)[0] not in _RM_LONG_FLAGS:
+                return None
         elif not options_done and part.startswith("-") and len(part) > 1:
             if not set(part[1:]) <= _RM_FLAGS:
                 return None
@@ -132,9 +141,20 @@ def is_complex_recursive_delete(command: str) -> bool:
     return bool(_RECURSIVE_DELETE.search(command)) and simple_rm_targets(command) is None
 
 
+def _effective(path: Path) -> Path:
+    """Silinecek nesnenin kendisi: sembolik bağ ise bağın KENDİ yolu, değilse çözümlenmiş yol.
+
+    `rm link` bağı siler, hedefini değil. Eskiden `resolve()` bağı hedefine çevirdiği için
+    ev dizinine/köke işaret eden bir bağı silmek yanlışlıkla reddediliyordu.
+    """
+    if path.is_symlink():
+        return Path(posixpath.normpath(path.absolute()))
+    return path.resolve()
+
+
 def forbidden_reason(path: Path, home: Path, trash_root: Path | None = None) -> str | None:
     """Bu yol HİÇBİR koşulda silinemez mi? Yalnız kök, ev dizini ve çöpün kendisi."""
-    target = path.resolve()
+    target = _effective(path)
     if target == Path(target.anchor) or target == home.resolve():
         return "dosya sisteminin kökü ya da ev dizininin kendisi"
     if trash_root is not None and trash_root.resolve().is_relative_to(target):
@@ -147,7 +167,7 @@ def caution_reason(path: Path, root: Path, home: Path) -> str | None:
 
     Bu bir RET değildir: onay kartında DİKKAT notu olur ve otomatik kip sorar.
     """
-    target = path.resolve()
+    target = _effective(path)
     home = home.resolve()
     resolved_root = root.resolve()
     if target.parent == home and target.name in _PROTECTED_HOME_DIRS:
@@ -241,8 +261,10 @@ def move_to_trash(
         folder = trash_root / entry_id
         folder.mkdir(parents=True, exist_ok=True)
         stored = folder / path.name
-        shutil.move(str(path), str(stored))
-        entry = TrashEntry(entry_id, path.resolve(strict=False), stored, time.time())
+        # Asıl yol bağı ÇÖZMEDEN kaydedilir (bağ silinirse geri konacak şey bağın kendisidir).
+        entry = TrashEntry(entry_id, _effective(path), stored, time.time())
+        # Manifest TAŞIMADAN ÖNCE yazılır: taşıma sonrası çökme manifestsiz, görünmeyen ve
+        # hiç temizlenmeyen bir klasör bırakıyordu (ölçüldü, 30 Ekim).
         (folder / _MANIFEST).write_text(
             json.dumps(
                 {"asil_yol": str(entry.original), "silinme": entry.deleted_at},
@@ -250,6 +272,8 @@ def move_to_trash(
             ),
             encoding="utf-8",
         )
+        # NOT: farklı diskte `shutil.move` kopyala+sil olur (anlık/atomik değildir).
+        shutil.move(str(path), str(stored))
         moved.append(entry)
     return moved, missing
 
@@ -262,14 +286,14 @@ def list_trash(trash_root: Path) -> list[TrashEntry]:
         manifest = folder / _MANIFEST
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            original, deleted_at = Path(data["asil_yol"]), float(data["silinme"])
+            stored = next((item for item in folder.iterdir() if item.name != _MANIFEST), None)
+        except (OSError, ValueError, KeyError, TypeError):
+            # Bozuk/eksik manifest tek girdiyi atlar; tüm silme ve `fusion cop` çökmez.
             continue
-        stored = next((item for item in folder.iterdir() if item.name != _MANIFEST), None)
         if stored is None:
             continue
-        entries.append(
-            TrashEntry(folder.name, Path(data["asil_yol"]), stored, float(data["silinme"]))
-        )
+        entries.append(TrashEntry(folder.name, original, stored, deleted_at))
     return entries
 
 
@@ -288,9 +312,21 @@ def restore(trash_root: Path, entry_id: str) -> Path:
 
 def _purge_expired(trash_root: Path) -> None:
     limit = time.time() - TRASH_RETENTION_DAYS * 86_400
+    valid = set()
     for entry in list_trash(trash_root):
+        valid.add(entry.id)
         if entry.deleted_at < limit:
             shutil.rmtree(trash_root / entry.id, ignore_errors=True)
+    # Geçerli manifesti olmayan YETİM klasörler (taşıma yarıda kesildi, manifest bozuk):
+    # süresi dolunca (klasör mtime'ı) temizlenir; aksi hâlde kalıcı sızıntı olurdu.
+    if not trash_root.is_dir():
+        return
+    for folder in trash_root.iterdir():
+        try:
+            if folder.is_dir() and folder.name not in valid and folder.stat().st_mtime < limit:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            continue
 
 
 #: Önizlemede sayılacak en fazla dosya; daha büyük klasör "N+ öğe" diye gösterilir.

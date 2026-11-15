@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { olayEkle } from "../protocol/olayAkisi";
 import type { Mesaj } from "../screens/Conversation";
-import { TeamCards } from "./TeamCards";
+import { CANCEL_RETRY_MS, TeamCards } from "./TeamCards";
 
 afterEach(cleanup);
 
@@ -155,6 +155,24 @@ it("tek ajan iptalini bir kez gönderir ve terminal olaya kadar bekler", async (
   expect(screen.queryByRole("button", { name: "Durduruluyor…" })).toBeNull();
 });
 
+it("iptal kabul edilip ajan durmazsa düğme süre sonunda yeniden denemeye açılır (U6-26)", async () => {
+  // Ölçüldü (30 Ekim): başarılı ama etkisiz iptalde düğme sonsuza dek 'Durduruluyor…' kalıyordu.
+  vi.useFakeTimers();
+  try {
+    const cards = akit([BASLA_TASARIMCI])[0].ajanlar!;
+    const onCancel = vi.fn(async () => undefined);
+    render(<TeamCards ajanlar={cards} canli onCancel={onCancel} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ajanı durdur" })); });
+    expect(screen.getByRole("button", { name: "Durduruluyor…" })).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(CANCEL_RETRY_MS + 10); });
+    expect(screen.getByRole("alert").textContent).toContain("hâlâ çalışıyor");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ajanı durdur" })); });
+    expect(onCancel).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("başlangıçtan önce gelen terminal sonuç sonraki başlangıçta korunur", () => {
   const messages = akit([
     { olay: "SubAgentFinished", sub_id: "late", ok: false, status: "cancelled", summary: "İptal edildi" },
@@ -165,4 +183,35 @@ it("başlangıçtan önce gelen terminal sonuç sonraki başlangıçta korunur",
   expect(cards[0].durum).toBe("iptal");
   expect(cards[0].gorev).toBe("araştır");
   expect(cards[0].baslangic).toBe(123000);
+});
+
+describe("alt ajan ağacı (P-035)", () => {
+  it("alt ajanın açtığı ajan üstünün kartı altında çizilir, ayrı mesaj açmaz", () => {
+    const mesajlar = akit([
+      { ...BASLA_TASARIMCI, group_size: 1, depth: 1 },
+      {
+        olay: "SubAgentStarted",
+        task: "ikon paletini araştır",
+        sub_id: "arastirmaci-9",
+        persona: "arastirmaci",
+        title: "Araştırmacı",
+        avatar: "arastirmaci",
+        color: "turuncu",
+        group_size: 1,
+        depth: 2,
+        agent_id: "tasarimci-1",
+      },
+    ]);
+
+    expect(mesajlar.filter((mesaj) => mesaj.rol === "ekip")).toHaveLength(1);
+    const kartlar = mesajlar[0].ajanlar ?? [];
+    expect(kartlar.map((kart) => kart.id)).toEqual(["tasarimci-1", "arastirmaci-9"]);
+    expect(kartlar[1].ust).toBe("tasarimci-1");
+    expect(kartlar[1].derinlik).toBe(2);
+
+    render(<TeamCards ajanlar={kartlar} canli />);
+    const grup = screen.getByRole("group", { name: "Arayüz Tasarımcısı alt ajanları" });
+    expect(grup.querySelector("[data-depth='2']")).not.toBeNull();
+    expect(screen.getByLabelText("Alt ajan")).toBeTruthy();
+  });
 });

@@ -77,6 +77,8 @@ pub fn install(
         .open(&paths.lock_file)
         .map_err(RuntimeError::Io)?;
     _lock.lock_exclusive().map_err(RuntimeError::Io)?;
+    // Kilit altında (eşzamanlı kurulum yok): önceki çökmelerden kalan artıkları süpür.
+    sweep_orphans(&paths.root);
 
     let manifest = RuntimeManifest::read(&resources.manifest_path)?;
     manifest.validate(expected_target)?;
@@ -381,10 +383,42 @@ fn replace_version_atomically(
         }
         return Err(RuntimeError::Io(error));
     }
+    // Yeni sürüm yerinde: eski sürümün silinememesi (Windows dosya kilidi, antivirüs) kurulumu
+    // BAŞARISIZ saymaz. Eskiden `?` hata döndürüp `prepare`'ı özetsiz kayda düşürüyor ve her
+    // açılışta yeniden kurulum döngüsüne sokuyordu (R2-11). Artık bir sonraki kurulumda süpürülür.
     if quarantine.exists() {
-        std::fs::remove_dir_all(&quarantine).map_err(RuntimeError::Io)?;
+        if let Err(error) = std::fs::remove_dir_all(&quarantine) {
+            eprintln!(
+                "Fusion: eski çalışma zamanı karantinası silinemedi, sonra süpürülecek: {error}"
+            );
+        }
     }
     Ok(())
+}
+
+/// Çökme/kilit yüzünden kalmış `.install-*` evrelemelerini ve `.replaced-*` karantinalarını
+/// temizler. Rename'ler arasında çökmüşse hedef sürüm dizini YOKTUR ve karantina tek sağlam
+/// kopyadır: bu durumda silinmez, geri taşınır. En iyi çabadır; hata kurulumu durdurmaz.
+fn sweep_orphans(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if name.starts_with(".install-") {
+            let _ = std::fs::remove_dir_all(&path);
+        } else if let Some(rest) = name.strip_prefix(".replaced-") {
+            let version = rest
+                .rsplit_once('-')
+                .map_or(rest, |(version, _pid)| version);
+            let destination = root.join(version);
+            if !destination.exists() && std::fs::rename(&path, &destination).is_ok() {
+                continue;
+            }
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -631,5 +665,71 @@ mod tests {
                 .file_name()
                 .to_string_lossy()
                 .starts_with(".install-")));
+    }
+
+    #[test]
+    fn sweep_yetim_evrelemeyi_siler_ve_hedefsiz_karantinayi_geri_tasir() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join(".install-1.0-111")).unwrap();
+        std::fs::write(root.join(".install-1.0-111/dosya"), "x").unwrap();
+        // Hedef sürüm dizini YOK: karantina tek sağlam kopya, geri taşınmalı.
+        std::fs::create_dir_all(root.join(".replaced-1.0-222")).unwrap();
+        std::fs::write(root.join(".replaced-1.0-222/fusion"), "eski").unwrap();
+        // Hedef var: karantina artıktır, silinmeli.
+        std::fs::create_dir_all(root.join("2.0")).unwrap();
+        std::fs::create_dir_all(root.join(".replaced-2.0-333")).unwrap();
+
+        sweep_orphans(root);
+
+        assert!(!root.join(".install-1.0-111").exists());
+        assert_eq!(std::fs::read(root.join("1.0/fusion")).unwrap(), b"eski");
+        assert!(!root.join(".replaced-1.0-222").exists());
+        assert!(root.join("2.0").exists() && !root.join(".replaced-2.0-333").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn eski_surum_silinemese_bile_kurulum_basarili_sayilir() {
+        use std::os::unix::fs::PermissionsExt;
+        // Ölçüldü (30 Ekim): karantina silme hatası `?` ile kurulumu Err yapıyordu.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // root her şeyi siler; izin tuzağı kurulamaz
+        }
+        let fixture = RuntimeFixture::valid();
+        install(
+            &fixture.resources,
+            &fixture.paths,
+            TEST_TARGET,
+            |_| Ok(()),
+            |_| {},
+        )
+        .unwrap();
+        let kilitli = fixture.paths.version_dir(TEST_VERSION).join("kilitli");
+        std::fs::create_dir_all(&kilitli).unwrap();
+        std::fs::write(kilitli.join("dosya"), "x").unwrap();
+        std::fs::set_permissions(&kilitli, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        let sonuc = install(
+            &fixture.resources,
+            &fixture.paths,
+            TEST_TARGET,
+            |_| Ok(()),
+            |_| {},
+        );
+
+        // Test temizliği: karantinadaki kilitli dizini yeniden yazılabilir yap.
+        for item in std::fs::read_dir(&fixture.paths.root).unwrap().flatten() {
+            let ic = item.path().join("kilitli");
+            if ic.exists() {
+                std::fs::set_permissions(&ic, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        }
+        assert!(sonuc.is_ok(), "{sonuc:?}");
+        assert!(fixture
+            .paths
+            .version_dir(TEST_VERSION)
+            .join("fusion")
+            .exists());
     }
 }

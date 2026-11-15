@@ -7,6 +7,7 @@ kılardı — soyutlamanın var olma sebebi budur.
 
 from __future__ import annotations
 
+from fusion_cli.core.constants import RETRY_AFTER_MAX_WAIT_S
 from fusion_cli.core.types import CompletionRequest, Message, ModelResult, StreamDone, TextChunk
 from fusion_cli.providers.retrying import RetryingProvider, wrap
 
@@ -296,3 +297,71 @@ def test_zincirde_yalniz_son_halka_429da_bekler():
     sarilmis = wrap([birinci, ikinci], delays_s=GECIKMELER)
 
     assert [item._yield_on_rate_limit for item in sarilmis] == [True, False]
+
+
+async def test_butce_dolan_kesik_sonuc_ayni_butceyle_yeniden_denenmez():
+    """Ölçüldü (30 Ekim): `ok=False, truncated=True` sonucu kalıcı hata sayılmıyor,
+    aynı bütçeyle aynı sonuç `len(delays)` kez daha bekleniyordu (P1-49)."""
+    kesik = ModelResult(
+        name="m",
+        model="m",
+        text="",
+        latency_ms=1,
+        ok=False,
+        error="Model çıktı bütçesi dolduğu için cevabı üretemedi",
+        truncated=True,
+    )
+    inner = ScriptliProvider(kesik)
+    uyutucu = SahteUyutucu()
+    saglayici = RetryingProvider(inner, delays_s=GECIKMELER, sleeper=uyutucu)
+
+    sonuc = await saglayici.complete(_istek())
+
+    assert sonuc.truncated and inner.cagri_sayisi == 1
+    assert uyutucu.beklemeler == []
+
+
+def _hiz_siniri(retry_after_s: float) -> ModelResult:
+    return ModelResult(
+        name="r", model="test-model", text="", latency_ms=1, ok=False,
+        error="rate limit (paylaşılan hız defteri): soğumada", retry_after_s=retry_after_s,
+    )  # fmt: skip
+
+
+async def test_retry_after_gecikmeden_uzunsa_o_kadar_beklenir():
+    inner = ScriptliProvider(_hiz_siniri(50.0), _basarili())
+    uyutucu = SahteUyutucu()
+
+    sonuc = await RetryingProvider(inner, delays_s=GECIKMELER, sleeper=uyutucu).complete(_istek())
+
+    assert sonuc.ok
+    assert uyutucu.beklemeler == [50.0]
+
+
+async def test_retry_after_gecikmeden_kisaysa_gecikme_korunur():
+    inner = ScriptliProvider(_hiz_siniri(5.0), _basarili())
+    uyutucu = SahteUyutucu()
+
+    await RetryingProvider(inner, delays_s=GECIKMELER, sleeper=uyutucu).complete(_istek())
+
+    assert uyutucu.beklemeler == [34.0]
+
+
+async def test_retry_after_ust_sinirla_kirpilir():
+    inner = ScriptliProvider(_hiz_siniri(9_999.0), _basarili())
+    uyutucu = SahteUyutucu()
+
+    await RetryingProvider(inner, delays_s=GECIKMELER, sleeper=uyutucu).complete(_istek())
+
+    assert uyutucu.beklemeler == [RETRY_AFTER_MAX_WAIT_S]
+
+
+async def test_stream_retry_after_kadar_bekler():
+    inner = ScriptliProvider(_hiz_siniri(50.0), _basarili())
+    uyutucu = SahteUyutucu()
+    saglayici = RetryingProvider(inner, delays_s=GECIKMELER, sleeper=uyutucu)
+
+    ogeler = [item async for item in saglayici.stream(_istek())]
+
+    assert isinstance(ogeler[-1], StreamDone) and ogeler[-1].result.ok
+    assert uyutucu.beklemeler == [50.0]

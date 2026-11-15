@@ -239,3 +239,46 @@ def test_env_ornegi_openrouter_i_zorunlu_diye_yazmaz():
     ornek = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
 
     assert "en az birini" in ornek.lower()
+
+
+# --- Dalga 4: iptal / yazma hatası / dosya izni (L1-08, L1-09) ----------------- #
+
+
+def test_iptalde_sirada_adimi_ve_tohumlama_yok(kurulum_dizini, monkeypatch, capsys):
+    """Ölçüldü (30 Ekim): iptalde de 'fusion yaz' önerilip ders tohumlanıyordu (L1-08)."""
+    tohumlandi = []
+    monkeypatch.setattr(setup_command, "_seed_lessons", lambda console: tohumlandi.append(1))
+
+    def _iptal(prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    setup_command.run_setup(Console(force_terminal=False, width=200), ask=_iptal)
+
+    cikti = capsys.readouterr().out
+    assert "iptal edildi" in cikti
+    assert "hiçbir dosya değiştirilmedi" not in cikti
+    assert "fusion` yaz" not in cikti
+    assert tohumlandi == []
+
+
+def test_yazma_hatasinda_anahtar_alindi_denmez(kurulum_dizini, monkeypatch, capsys):
+    from pathlib import Path
+
+    def _patlat(self, hedef):
+        raise OSError("disk doldu")
+
+    monkeypatch.setattr(Path, "replace", _patlat)
+
+    setup_command.run_setup(Console(force_terminal=False, width=200), ask=_asker("sk-x", ""))
+
+    assert "anahtarlarını gir" in capsys.readouterr().out
+
+
+def test_env_sablonu_ilk_andan_yalniz_sahibine_acik(kurulum_dizini, monkeypatch):
+    """Etkileşimsiz kurulumda bırakılan şablon da 0o600 olmalı (L1-09)."""
+    monkeypatch.setattr(setup_command.sys.stdin, "isatty", lambda: False)
+
+    setup_command.run_setup(Console(quiet=True))
+
+    kip = (kurulum_dizini / ".env").stat().st_mode & 0o777
+    assert kip == 0o600, f"şablon izni geniş: {oct(kip)}"

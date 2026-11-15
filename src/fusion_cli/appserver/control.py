@@ -84,7 +84,7 @@ def web_login_state(pid: object) -> dict[str, Any]:
     Panel bunu yoklar; pencere kapandığı anda doğrulamayı KENDİLİĞİNDEN çalıştırır,
     kullanıcı elle çerez kopyalamak zorunda kalmaz.
     """
-    from ..providers.web_control import login_exit_code, process_alive
+    from ..providers.web_control import login_error_text, login_exit_code, process_alive
 
     if not isinstance(pid, (int, str)):
         return {"ok": False, "metin": "Geçersiz süreç kimliği."}
@@ -95,10 +95,15 @@ def web_login_state(pid: object) -> dict[str, Any]:
     alive = process_alive(numeric)
     code = login_exit_code(numeric)
     if not alive and code not in (None, 0):
+        sebep = login_error_text(numeric)
         return {
             "ok": False,
             "acik": False,
-            "metin": "Chrome giriş penceresi hata ile kapandı. Yeniden dene.",
+            "metin": (
+                f"Chrome giriş penceresi hata ile kapandı: {sebep}"
+                if sebep
+                else "Chrome giriş penceresi hata ile kapandı. Yeniden dene."
+            ),
         }
     return {"ok": True, "acik": alive}
 
@@ -242,6 +247,9 @@ def snapshot(
         "izin": {
             "mod": approval,
             "kokle_sinirli": config.runtime.restrict_to_root,
+            # Tek yönlü kök sınırı (P-002) ve proje güveni (P-012); Ayarlar › İzinler okur.
+            "kok_disi_okuma_engeli": config.runtime.block_reads_outside_root,
+            "kok_disi_yazma_engeli": config.runtime.block_writes_outside_root,
         },
         "mcp": [{"ad": server.name, "komut": server.command} for server in config.mcp_servers],
         "saglayicilar": provider_rows(store),
@@ -249,6 +257,9 @@ def snapshot(
         "sir_deposu_hatasi": secret_store_error(store),
         "gateway": gateway,
     }
+
+
+_STORE_FAILED = "Sistem anahtarlığına erişilemedi; işlem yapılmadı."
 
 
 def save_secret(store: SecretStore, provider_id: str, value: object) -> dict[str, Any]:
@@ -260,7 +271,12 @@ def save_secret(store: SecretStore, provider_id: str, value: object) -> dict[str
         return {"ok": False, "metin": "Anahtar boş ya da izin verilen boyuttan büyük."}
     if not store.available:
         return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor."}
-    store.set(definition.auth_env or "", secret)
+    try:
+        store.set(definition.auth_env or "", secret)
+    except (ConfigError, OSError):
+        # Ölçüldü (30 Ekim): kilitli/yazılamayan anahtarlıkta istisna RPC sınırına sızıyor,
+        # kullanıcı ham hata (dosya yolu dahil) görüyordu.
+        return {"ok": False, "metin": _STORE_FAILED}
     # Çalışan oturum yeni anahtarı hemen kullanabilsin; değer yanıta/loga girmez.
     os.environ[definition.auth_env or ""] = secret
     return {"ok": True, "saglayici": definition.id, "kurulu": True}
@@ -277,7 +293,10 @@ def reveal_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:
         return {"ok": False, "metin": "Sağlayıcı bulunamadı veya anahtar kabul etmiyor."}
     if not store.available:
         return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor."}
-    value = store.get(definition.auth_env)
+    try:
+        value = store.get(definition.auth_env)
+    except (ConfigError, OSError):
+        return {"ok": False, "metin": _STORE_FAILED}
     return {"ok": True, "saglayici": definition.id, "deger": value or ""}
 
 
@@ -285,8 +304,14 @@ def delete_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:
     definition = _provider(provider_id)
     if definition is None:
         return {"ok": False, "metin": "Sağlayıcı bulunamadı veya anahtar kabul etmiyor."}
-    if store.available:
+    if not store.available:
+        # Ölçüldü (30 Ekim): depo yokken silme atlanıyor ama `kurulu: False` dönüyordu;
+        # anahtar diskte kalabilirdi.
+        return {"ok": False, "metin": "Sistem anahtarlığı kullanılamıyor; anahtar silinemedi."}
+    try:
         store.delete(definition.auth_env or "")
+    except (ConfigError, OSError):
+        return {"ok": False, "metin": _STORE_FAILED}
     os.environ.pop(definition.auth_env or "", None)
     return {"ok": True, "saglayici": definition.id, "kurulu": False}
 

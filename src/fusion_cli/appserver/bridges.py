@@ -10,22 +10,39 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
+from dataclasses import replace
 from hashlib import sha256
 from itertools import count
 from pathlib import Path
 from uuid import uuid4
 
-from ..core.constants import QUESTION_RECEIPT_HISTORY_LIMIT
-from ..core.events import Event
+from ..core.constants import APPROVAL_UNANSWERED_TIMEOUT_S, QUESTION_RECEIPT_HISTORY_LIMIT
+from ..core.events import (
+    AutomaticRecallDiagnostic,
+    Event,
+    McpDiscoveryDiagnostic,
+    ProviderCallDiagnostic,
+    ToolCallRepaired,
+    ToolExecuted,
+    ToolStarted,
+)
+from ..core.redaction import redact
 from ..core.submission import SubmissionReceipt
-from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalReply, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
+from ..engines.agent.permission_persist import always_description
 from ..ui import messages
+from ..ui.chrome_site_labels import site_options
 from .approval_preview import onizleme_diffi
 from .approval_summary import approval_summary
 from .protocol import encode_error, encode_event, encode_question
 from .serialize import event_to_dict
+
+#: Onay kartında tek argüman değerinin en çok karakteri; kalanı "… N karakter daha".
+APPROVAL_ARG_PREVIEW_MAX_CHARS = 2_000
+#: Kullanıcının onay cevabına eklediği notun en çok karakteri (P-013).
+APPROVAL_NOTE_MAX_CHARS = 1_000
 
 #: Tek satır yazan taraf. Testte listeye, üretimde stdout'a yazar.
 Writer = Callable[[str], None]
@@ -45,26 +62,61 @@ class ProtocolSink:
         self._receipt = receipt
         self._sequence = sequence if sequence is not None else count(1)
 
+    def correlate(self, event: Event) -> Event:
+        """Makbuzun tek sıra otoritesini fanout öncesinde ve legacy çağrıda kullan."""
+        if self._receipt is None:
+            return event
+        attempt_id = self._receipt.attempt_id
+        session_id = self._receipt.key.conversation_id
+        prefix = f"{attempt_id}:"
+        has_receipt_id = (
+            event.event_id is not None
+            and event.event_id.startswith(prefix)
+            and event.event_id[len(prefix) :].isdecimal()
+            and event.session_id == session_id
+            and event.turn_id == attempt_id
+        )
+        event = replace(
+            event,
+            event_id=event.event_id if has_receipt_id else f"{prefix}{next(self._sequence)}",
+            session_id=session_id,
+            turn_id=attempt_id,
+            schema_version=1,
+        )
+        if isinstance(event, (ToolStarted, ToolExecuted, ToolCallRepaired)):
+            event = replace(event, attempt_id=attempt_id)
+        return event
+
     def handle(self, event: Event) -> None:
         """Olayı tek bir protokol satırı olarak ilet.
 
-        `event_to_dict` desteklenmeyen bir alan tipinde `TypeError` fırlatabilir
-        (bkz. `serialize.py::_plain`). `EventBus._dispatch` bu istisnayı yakalayıp
-        kimsenin okumadığı `failures` listesine yazar — olay sessizce kaybolurdu.
+        `event_to_dict` desteklenmeyen bir alan tipinde `TypeError`, `encode_event`
+        dairesel yapıda `ValueError` fırlatabilir (bkz. `serialize.py::_plain`).
+        `EventBus._dispatch` bu istisnayı yakalayıp kimsenin okumadığı
+        `failures` listesine yazar — olay sessizce kaybolurdu.
         Burada yakalanıp `ProtocolError` olayına çevrilir: uygulama en azından
         BİR olayın iletilemediğini görür.
         """
+        if isinstance(
+            event, (ProviderCallDiagnostic, AutomaticRecallDiagnostic, McpDiscoveryDiagnostic)
+        ):
+            return
         try:
-            payload = event_to_dict(event)
+            correlated = self.correlate(event)
+            payload = event_to_dict(correlated)
             if self._receipt is not None:
+                # FusionCompleted özet serileştiricisi üst alanları düşürür; kimlik
+                # yeniden üretilmez, ortak sınırın verdiği alanlar aynen taşınır.
                 payload.update(
-                    event_id=f"{self._receipt.attempt_id}:{next(self._sequence)}",
-                    session_id=self._receipt.key.conversation_id,
-                    turn_id=self._receipt.attempt_id,
-                    schema_version=1,
+                    event_id=correlated.event_id,
+                    session_id=correlated.session_id,
+                    turn_id=correlated.turn_id,
+                    schema_version=correlated.schema_version,
                 )
             self._writer(encode_event(payload))
-        except TypeError:
+        except (TypeError, ValueError):
+            # `ValueError`: dairesel yapı / kodlanamayan değer (`json.dumps`). Yazar tarafı
+            # kopmuşsa (`BrokenPipeError`) `server._stdout_writer` süreci zaten sonlandırır.
             self._writer(
                 encode_error(messages.APP_EVENT_SERIALIZE_FAILED.format(olay=type(event).__name__))
             )
@@ -140,8 +192,19 @@ class ProtocolPrompter:
         element_name: Callable[[object], str | None] | None = None,
         namespace: str = "",
         on_closed: Callable[[str], None] | None = None,
+        approval_timeout_s: float = APPROVAL_UNANSWERED_TIMEOUT_S,
+        edit_fuzzy_match: bool = True,
+        on_app_denied: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
+        self._edit_fuzzy_match = edit_fuzzy_match
+        #: Masaüstü kartında "Her zaman reddet" (P-007): uygulamayı `desktop.denied_apps`'e yazar.
+        self._on_app_denied = on_app_denied
+        #: Bu turda "Her zaman reddet" denen uygulamalar (hedef anahtarı). Turun ayarı tur başında
+        #: alınmış bir kopyadır; gerekçeli ret turu sürdürdüğü için aynı uygulamanın sonraki
+        #: çağrısı kart açmadan reddedilir (ölçüldü, 31 Ekim: kart yeniden açılıyordu).
+        self._denied_apps: set[str] = set()
         self._writer = writer
+        self._approval_timeout_s = approval_timeout_s
         self._pending = pending
         self._namespace = namespace
         self._on_closed = on_closed
@@ -151,41 +214,79 @@ class ProtocolPrompter:
         #: onay akışı bundan bağımsız çalışır.
         self._root = root
 
-    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
-        """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür."""
+    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer | ApprovalReply:
+        """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür.
+
+        Cevaptaki `not` alanı (P-013) kararla birlikte taşınır: ret gerekçesi modele gider.
+        """
+        target = request.desktop_target
+        if target is not None and target.key in self._denied_apps:
+            return ApprovalReply(
+                ApprovalAnswer.DENY, messages.BILGISAYAR_DENIED_IN_TURN.format(app=target.app)
+            )
         element = (
             self._element_name(request.args.get("ref")) if self._element_name is not None else None
         )
         baslik, hedef = approval_summary(request.tool.name, request.args, element=element or "")
-        data = await self._ask_wire(
-            {
-                "tur": "onay",
-                "arac": request.tool.name,
-                "baslik": baslik,
-                "hedef": hedef,
-                "argumanlar": _preview_args(request),
-                "tehlike": request.danger,
-                # Neden soruluyor / silme hedefi (tehlike değil, bilgi).
-                "neden": None if request.danger else request.note,
-                # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
-                # okumalı (bkz. `approval_preview`).
-                "diff": self._onizleme(request),
-                "secenekler": _approval_options(request),
-            }
-        )
+        payload: dict[str, object] = {
+            "tur": "onay",
+            "arac": request.tool.name,
+            "baslik": baslik,
+            "hedef": hedef,
+            "argumanlar": _preview_args(request),
+            "tehlike": request.danger,
+            # Neden soruluyor / silme hedefi (tehlike değil, bilgi).
+            "neden": None if request.danger else request.note,
+            # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
+            # okumalı (bkz. `approval_preview`).
+            "diff": self._onizleme(request),
+            "secenekler": _approval_options(request, self._root),
+            # İsteyen alt ajan (P-034): kart "Alt ajan X izin istiyor" der; ana ajanda None.
+            "ajan": request.agent_label or None,
+            # Eşleşen izin kuralı ve "not ekle" desteği (P-001, P-013).
+            "kural": request.rule,
+            "not_alinir": True,
+            # Masaüstü hedefi (P-007): uygulama adı, kademe, kategori uyarısı, tıklanan öğe.
+            "masaustu": _desktop_payload(request),
+        }
+        data = await self._ask_approval(payload, request)
         choice = data.get("secim")
+        raw_note = data.get("not")
+        note = raw_note.strip()[:APPROVAL_NOTE_MAX_CHARS] if isinstance(raw_note, str) else ""
         if choice == "once":
-            return ApprovalAnswer.ONCE
-        if choice == "session" and request.can_remember:
-            return ApprovalAnswer.SESSION
-        return ApprovalAnswer.DENY
+            answer: ApprovalAnswer = ApprovalAnswer.ONCE
+        elif choice == "session" and request.can_remember:
+            answer = ApprovalAnswer.SESSION
+        elif choice == "always" and request.can_persist:
+            answer = ApprovalAnswer.ALWAYS
+        elif choice == "auto" and request.offers_auto:
+            answer = ApprovalAnswer.AUTO
+        else:
+            answer = ApprovalAnswer.DENY
+            if choice == "never":
+                await self._deny_app(request)
+        return ApprovalReply(answer, note) if note else answer
+
+    async def _deny_app(self, request: ApprovalRequest) -> None:
+        """Uygulamayı kalıcı ret listesine yaz (sahip oturum yazar ve canlı ayarı günceller)."""
+        target = request.desktop_target
+        if target is None:
+            return
+        self._denied_apps.add(target.key)
+        if self._on_app_denied is not None:
+            await self._on_app_denied(target.app)
 
     def _onizleme(self, request: ApprovalRequest) -> str:
         """Düzenleme onaylarında değişiklik önizlemesi; üretilemezse boş metin."""
         if self._root is None:
             return ""
         try:
-            return onizleme_diffi(request.tool.name, dict(request.args), self._root)
+            return onizleme_diffi(
+                request.tool.name,
+                dict(request.args),
+                self._root,
+                edit_fuzzy_match=self._edit_fuzzy_match,
+            )
         except Exception:  # pragma: no cover - önizleme onayı ASLA engellemez
             return ""
 
@@ -209,9 +310,44 @@ class ProtocolPrompter:
         answer = data.get("metin")
         return answer if isinstance(answer, str) else ""
 
-    async def _ask_wire(self, payload: dict[str, object]) -> dict[str, object]:
+    async def _ask_approval(
+        self, payload: dict[str, object], request: ApprovalRequest
+    ) -> dict[str, object]:
+        """Onayı sor; süre dolana dek cevap gelmezse boş cevap (= RED) döndür ve olay yay.
+
+        Ölçüldü (30 Ekim): zaman aşımı yoktu; kullanıcı yokken tur ve turu tutan kilit sonsuza
+        dek açık kalıyordu. İptal `_ask_wire`'ın `finally`'sine ulaşır: bekleyen kayıt
+        silinir, `SoruKapandi` yayılır, geç gelen cevap hiçbir soruyla eşleşmez.
+        """
+        asked: list[str] = []
+        try:
+            # `asyncio.timeout` aynı görevde çalışır (`wait_for` gibi ikinci görev açmaz): soru
+            # tele, çağıran ilk `await`te yazılmış olur.
+            async with asyncio.timeout(self._approval_timeout_s):
+                return await self._ask_wire(payload, on_asked=asked.append)
+        except TimeoutError:
+            self._writer(
+                encode_event(
+                    {
+                        "olay": "OnayZamanAsimi",
+                        "id": asked[0] if asked else "",
+                        "arac": request.tool.name,
+                        "sure_s": self._approval_timeout_s,
+                        "mesaj": messages.APPROVAL_TIMED_OUT.format(
+                            arac=request.tool.name, dakika=round(self._approval_timeout_s / 60)
+                        ),
+                    }
+                )
+            )
+            return {}
+
+    async def _ask_wire(
+        self, payload: dict[str, object], on_asked: Callable[[str], None] | None = None
+    ) -> dict[str, object]:
         """Soruyu ilet, eş kimlikli cevabı bekle; kapanışta boş cevap döndür."""
         identifier, future = self._pending.new_question(self._namespace)
+        if on_asked is not None:
+            on_asked(identifier)
         try:
             self._writer(encode_question(identifier, payload))
             return await future
@@ -234,17 +370,77 @@ def _preview_args(request: ApprovalRequest) -> list[str]:
     Değerler terminaldeki gibi `repr()` ile taşınır — JSON'a çevrilemeyen bir tip
     (Path, dataclass, …) gelse bile tel bozulmaz.
     """
-    return [f"{name}={value!r}" for name, value in sorted(request.args.items())]
+    return [f"{name}={_preview_value(value)}" for name, value in sorted(request.args.items())]
 
 
-def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:
-    """Yıkıcı istekte oturum izni olmadan onay seçeneklerini üret."""
+def _preview_value(value: object) -> str:
+    """Tek argüman değerinin onay kartı gösterimi: sırlar maskeli, uzunluk sınırlı.
+
+    Ölçüldü (30 Ekim): `write_file(content=<2 MB>)` tüm içeriği onay isteğine ve
+    Chrome akışına basıyordu; `history_view` aynı değeri `redact` ediyordu, burası etmiyordu.
+    """
+    raw = repr(value)
+    # Önce kes, sonra maskele: `redact` çok uzun, boşluksuz bir gövdede (base64) çok yavaşlıyor.
+    if len(raw) <= APPROVAL_ARG_PREVIEW_MAX_CHARS:
+        return redact(raw)
+    hidden = len(raw) - APPROVAL_ARG_PREVIEW_MAX_CHARS
+    return f"{redact(raw[:APPROVAL_ARG_PREVIEW_MAX_CHARS])}… {hidden} karakter daha"
+
+
+def _approval_options(request: ApprovalRequest, root: Path | None = None) -> list[dict[str, str]]:
+    """Yıkıcı istekte oturum izni olmadan onay seçeneklerini üret.
+
+    `can_persist` istekte "bir daha sorma" (kalıcı kural, P-003) de sunulur; açıklama
+    yazılacak kuralı gösterir ki kullanıcı neye izin verdiğini görsün.
+    """
+    target = request.desktop_target
+    if target is not None and request.consent_key is not None:
+        # Uygulama onayı (#426): Claude'daki gibi yalnız "Allow for this session / Deny";
+        # tek çağrılık "Evet" ve "Her zaman reddet" yok (ret listesi Ayarlar'dan yönetilir).
+        session = {
+            "deger": "session",
+            "etiket": messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app),
+        }
+        if request.remembered_scope_description:
+            session["aciklama"] = request.remembered_scope_description
+        return [session, {"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY}]
+    site = site_options(request)
+    if site is not None:
+        # Chrome site izni (#435): Allow this action / Always allow… / Decline.
+        return site
     options = [{"deger": "once", "etiket": messages.TUI_APPROVAL_ONCE}]
-    if request.can_remember:
-        session = {"deger": "session", "etiket": messages.TUI_APPROVAL_SESSION}
+    if request.offers_session:
+        label = (
+            messages.BILGISAYAR_APPROVAL_SESSION.format(app=target.app)
+            if target is not None and request.consent_key is not None
+            else request.session_label or messages.TUI_APPROVAL_SESSION
+        )
+        session = {"deger": "session", "etiket": label}
         description = request.remembered_scope_description
         if description:
             session["aciklama"] = description
         options.append(session)
+    if request.can_persist:
+        options.append(
+            {
+                "deger": "always",
+                "etiket": messages.TUI_APPROVAL_ALWAYS,
+                # Kapsamı da söyler: kullanıcı dosyasına düşüyorsa "TÜM PROJELER" (P-003).
+                "aciklama": always_description(request, root),
+            }
+        )
+    if request.offers_auto:
+        options.append(
+            {
+                "deger": "auto",
+                "etiket": messages.APPROVAL_AUTO_SWITCH,
+                "aciklama": messages.APPROVAL_AUTO_SWITCH_DESC,
+            }
+        )
     options.append({"deger": "deny", "etiket": messages.TUI_APPROVAL_DENY})
     return options
+
+
+def _desktop_payload(request: ApprovalRequest) -> dict[str, object] | None:
+    target = request.desktop_target
+    return target.payload() if target is not None else None

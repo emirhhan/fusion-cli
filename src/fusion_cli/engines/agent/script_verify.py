@@ -17,6 +17,7 @@ bağlayan bir mega-app'te yanlış yol, en sık ve en sessiz hata sınıfıdır.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from pathlib import Path
 
@@ -24,10 +25,101 @@ from ...core.verification import VerificationResult
 
 #: `npm --prefix <yol> run <betik>` biçimi.
 _PREFIX_RUN = re.compile(r"--prefix\s+(?P<path>[^\s'\"]+)(?:\s+run\s+(?P<script>[\w:.-]+))?")
-#: `cd <yol> && … npm run <betik>` biçimi.
-_CD_RUN = re.compile(r"cd\s+(?P<path>[^\s'\"&;]+)(?P<rest>.*)")
-#: `npm run <betik>` — `cd`'den sonraki kısımda aranır.
-_NPM_RUN = re.compile(r"npm\s+(?:run\s+)?(?P<script>[\w:.-]+)")
+#: Komut ayırıcıları: her parça kendi `cd`/`npm` çağrısını taşır.
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\||\n")
+#: Parçadaki `cd <yol>`.
+_CD = re.compile(r"(?:^|[\s'\"(])cd\s+(?P<path>[^\s'\"&;|)]+)")
+#: `npm [run|run-script] <ad>` — `run` yoksa ad npm alt komutu da olabilir.
+_NPM_RUN = re.compile(r"\bnpm\s+(?P<run>run-script\s+|run\s+)?(?P<script>[\w:.-]+)")
+#: `run` olmadan yazılan npm alt komutları betik adı DEĞİLDİR (ölçüldü: `npm i`,
+#: `npm audit`, `npm exec` "betik yok" bulgusu üretiyordu).
+_NPM_SUBCOMMANDS = frozenset(
+    [
+        "i",
+        "install",
+        "add",
+        "update",
+        "up",
+        "upgrade",
+        "audit",
+        "exec",
+        "x",
+        "pack",
+        "publish",
+        "link",
+        "ln",
+        "unlink",
+        "rebuild",
+        "rb",
+        "uninstall",
+        "remove",
+        "rm",
+        "un",
+        "r",
+        "outdated",
+        "prune",
+        "dedupe",
+        "ddp",
+        "ls",
+        "list",
+        "ll",
+        "la",
+        "config",
+        "c",
+        "cache",
+        "whoami",
+        "login",
+        "logout",
+        "adduser",
+        "version",
+        "view",
+        "info",
+        "show",
+        "search",
+        "find",
+        "help",
+        "init",
+        "create",
+        "explore",
+        "doctor",
+        "fund",
+        "diff",
+        "pkg",
+        "prefix",
+        "root",
+        "bin",
+        "set-script",
+        "star",
+        "unstar",
+        "team",
+        "token",
+        "access",
+        "owner",
+        "deprecate",
+        "dist-tag",
+        "ping",
+        "profile",
+        "repo",
+        "bugs",
+        "docs",
+        "home",
+        "org",
+        "shrinkwrap",
+        "sbom",
+        "query",
+        "restart",
+        "stop",
+        "completion",
+        "hook",
+        "edit",
+        "get",
+        "set",
+        "install-test",
+        "it",
+        "cit",
+        "install-ci-test",
+    ]
+)
 
 
 class ScriptPathVerifier:
@@ -69,21 +161,33 @@ def _load_scripts(paket: Path) -> dict[str, str]:
 
 
 def _check(ad: str, komut: str, root: Path) -> list[str]:
-    """Tek bir betiğin gösterdiği hedefleri denetle."""
+    """Tek bir betiğin gösterdiği hedefleri denetle.
+
+    Komut `&&`/`;`/`|` ile parçalanır ve `cd` durumu sırayla taşınır: her `cd` yalnız
+    kendinden sonraki parçaları (bir sonraki `cd`'ye dek) etkiler, göreli `cd`'ler
+    önceki dizine göre çözülür. Ölçüldü (29 Ekim): `cd web && npm run build && cd ../api
+    && npm run start:dev` içinde `start:dev` `web/`te aranıp yanlış bulgu veriyordu.
+    """
     bulgular: list[str] = []
     for eslesme in _PREFIX_RUN.finditer(komut):
         bulgular.extend(_check_target(ad, root, eslesme.group("path"), eslesme.group("script")))
-    for eslesme in _CD_RUN.finditer(komut):
-        yol = eslesme.group("path")
+    mevcut: str | None = None
+    for parca in _SEGMENT_SPLIT.split(komut):
+        cd = _CD.search(parca)
+        if cd is not None:
+            mevcut = posixpath.normpath(posixpath.join(mevcut or ".", cd.group("path")))
+            bulgular.extend(_check_target(ad, root, mevcut, None))
+        if mevcut is None:
+            continue
         # TÜM npm çağrıları denetlenir, yalnızca ilki değil: "npm install && npm
         # run dev" zincirinde ilk eşleşme `install` olur, atlanır ve asıl hatalı
         # olan `run dev` hiç görülmezdi (ölçüldü).
-        betikler = [m.group("script") for m in _NPM_RUN.finditer(eslesme.group("rest"))]
-        if not betikler:
-            bulgular.extend(_check_target(ad, root, yol, None))
-        for betik in betikler:
-            bulgular.extend(_check_target(ad, root, yol, betik))
-    return bulgular
+        for npm in _NPM_RUN.finditer(parca):
+            betik = npm.group("script")
+            if npm.group("run") is None and betik in _NPM_SUBCOMMANDS:
+                continue
+            bulgular.extend(_check_target(ad, root, mevcut, betik))
+    return list(dict.fromkeys(bulgular))
 
 
 def _check_target(ad: str, root: Path, ham_yol: str, betik: str | None) -> list[str]:

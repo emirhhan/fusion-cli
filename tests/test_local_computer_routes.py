@@ -153,3 +153,40 @@ async def test_uygulama_oturumu_enjekte_edilmemisse_yerel_macos_gozlemini_kurar(
     assert cagrilar == ["desktop_screenshot", "desktop_accessibility"]
     # Geçici ekran dosyası temizlenir; proje kökünde iz kalmaz.
     assert not list((tmp_path / ".fusion" / "local-computer").glob("*.png"))
+
+
+async def test_ekran_metnindeki_sir_maskelenir_ve_boyut_sinirlidir(tmp_path):
+    """Ölçüldü (30 Ekim, S2-59): `text` ekran/erişilebilirlik içeriğini redaksiyon ve boyut
+    sınırı olmadan UI'ya dönüyordu."""
+    from fusion_cli.appserver.local_computer_routes import MAX_TEXT_CHARS
+
+    async def execute(name, args, context):
+        icerik = "Authorization: Bearer abcdef1234567890xyz\n" + "x" * 200_000
+        return ToolResult(
+            icerik,
+            content=(ToolContent.image("image/png", "fixture"),)
+            if name == "desktop_screenshot"
+            else (),
+        )
+
+    async def clean(*args):
+        pass
+
+    computer = LocalComputer(
+        LocalHost("native", "thread", "darwin"),
+        ToolContext(tmp_path),
+        execute,
+        lambda: True,
+        lambda: 1,
+        clean,
+    )
+    lines = []
+    session = AppSession(
+        lines.append, root=tmp_path, home=tmp_path / "home", local_computer=computer
+    )
+    session._conversation_id = "thread"
+    await session.handle(Request("1", "bilgisayar.snapshot", {}))
+    result = json.loads(lines[-1])["veri"]
+
+    assert "abcdef1234567890xyz" not in result["text"]
+    assert len(result["text"]) <= MAX_TEXT_CHARS

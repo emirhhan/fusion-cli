@@ -275,3 +275,68 @@ describe("olayEkle — tur token sayacı", () => {
  expect(result[0].bitisZamani).toBe(10);expect(result[2].bitisZamani).toBe(20000);
  vi.useRealTimers();
  });
+
+// Ölçüldü (30 Ekim): todo_write'ın ToolExecuted'ı gorevListesi'nde tüketilip ToolStarted adımı
+// "başladı" kalıyordu; arka plan ModelCallStarted akan balonu siliyordu; yeni tur eski turların
+// görev kartlarını da siliyordu (U5-05, U5-10, U5-13).
+describe("olay akışı kenar durumları (30 Ekim)", () => {
+  it("todo_write bitince başlayan adım kapanır, 'başladı' kalmaz (U5-05)", () => {
+    let mesajlar = olayEkle([], { olay: "ToolStarted", name: "todo_write", args: {}, metin: "görev listesi güncelleniyor" });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "todo_write", outcome: "ok", output: "▶ Oku\n☐ Yaz" });
+
+    const blok = mesajlar.find((mesaj) => mesaj.rol === "olay");
+    expect(blok?.adimlar?.some((adim) => adim.basladi)).toBe(false);
+    expect(blok?.adimlar?.[0].durum).toBe("ok");
+  });
+
+  it("arka plan model çağrısı ana modelin akan metnini silmez (U5-10)", () => {
+    let mesajlar = olayEkle([], { olay: "TokenReceived", channel: "main", text: "Yazıyorum" });
+    mesajlar = olayEkle(mesajlar, { olay: "ModelCallStarted", background: true, role: "judge", model: "m" });
+
+    expect(mesajlar).toHaveLength(1);
+    expect(mesajlar[0]).toMatchObject({ rol: "asistan", akan: true, metin: "Yazıyorum" });
+  });
+
+  it("yeni görev listesi yalnız bu turun eski kartını yeniler, önceki turunkini silmez (U5-13)", () => {
+    const eskiTur: Mesaj[] = [
+      { rol: "kullanici", metin: "ilk" },
+      { rol: "gorevler", metin: "Görevler", gorevler: [{ durum: "bitti", metin: "Eski plan" }] },
+      { rol: "kullanici", metin: "ikinci" },
+    ];
+    const mesajlar = olayEkle(eskiTur, { olay: "ToolExecuted", name: "todo_write", outcome: "ok", output: "☐ Yeni plan" });
+
+    const kartlar = mesajlar.filter((mesaj) => mesaj.rol === "gorevler");
+    expect(kartlar).toHaveLength(2);
+    expect(kartlar[0].gorevler?.[0].metin).toBe("Eski plan");
+    expect(kartlar[1].gorevler?.[0].metin).toBe("Yeni plan");
+  });
+});
+
+// P-025: plan kipinde biten tur plan dosyasını yazar; sohbette tek kart durur.
+describe("PlanDrafted", () => {
+  it("plan kartı ekler ve aynı yol yeniden gelirse çoğaltmaz", () => {
+    let mesajlar: Mesaj[] = [{ rol: "asistan", metin: "# Plan\n1. a" }];
+    mesajlar = olayEkle(mesajlar, { olay: "PlanDrafted", path: "/p/s-1.md", title: "Plan" });
+    mesajlar = olayEkle(mesajlar, { olay: "PlanDrafted", path: "/p/s-1.md", title: "Plan v2" });
+
+    const kartlar = mesajlar.filter((m) => m.rol === "plan");
+    expect(kartlar).toHaveLength(1);
+    expect(kartlar[0].plan).toEqual({ yol: "/p/s-1.md", baslik: "Plan v2" });
+    expect(mesajlar[0].rol).toBe("asistan");
+  });
+
+  it("yolsuz olay kart açmaz", () => {
+    expect(olayEkle([], { olay: "PlanDrafted", title: "Plan" })).toEqual([]);
+  });
+});
+
+describe("kabuk canlı çıktısı (#219)", () => {
+  it("parçalar tek balonda birikir, bitti olayı balonu kaldırır", () => {
+    let mesajlar = olayEkle([], { olay: "KabukCiktisi", komut: "npm test", parca: "ilk\n" });
+    mesajlar = olayEkle(mesajlar, { olay: "KabukCiktisi", komut: "npm test", parca: "son\n" });
+    expect(mesajlar).toHaveLength(1);
+    expect(mesajlar[0].akan).toBe(true);
+    expect(mesajlar[0].metin).toBe("```text\n$ npm test\nilk\nson\n```");
+    expect(olayEkle(mesajlar, { olay: "KabukCiktisi", bitti: true })).toEqual([]);
+  });
+});

@@ -16,10 +16,13 @@ olmasa da (ör. tarayıcıdan kazınan web modelleri) çalışır.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import re
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.errors import ConfigError, ProviderError
 from ...core.types import CompletionRequest, Message
 from ...providers.web_registry import web_registry_for
 
@@ -50,7 +53,28 @@ DEFAULT_QUESTION = (
 #: Görsel modeli yanıt sınırı. Kısa tutulur: ölçüldü, 11b model uzun bütçede
 #: aynı cümleyi tekrarlayarak döngüye giriyor.
 VISION_MAX_TOKENS = 200
+#: Yalnız yapılandırılmış `truncated` sonucundan sonra bir kez genişletilir.
+#: Reasoning token'ları da aynı bütçeyi tüketir; bu sınır yeterlilik garantisi değil,
+#: kısa görsel açıklaması için sınırlı bir kurtarma bütçesidir.
+VISION_RECOVERY_MAX_TOKENS = 4096
 VISION_TIMEOUT_S = 60.0
+
+# The focus question may contain an expected answer. It must not become visual
+# evidence. Keep this instruction above the caller's question, including recovery.
+VISION_GROUNDING_PROMPT = (
+    "You are a visual observer. Report only what is visibly present in the image. "
+    "The user's question specifies a focus, not evidence of image contents. "
+    "Never calculate an expression, complete missing input, or substitute an expected result "
+    "for text actually visible. Preserve every visible digit and operator, including trailing "
+    "operators. If text is unclear say so rather than guessing. Return three short labeled "
+    "fields: visible_text (literal transcription of relevant display text), "
+    "description (visible objects/state only), uncertainty (unclear details or none). "
+    "Do not claim that an action succeeded or that a task was verified."
+)
+VISION_OBSERVATION_LABEL = "Görsel modelinin gözlemi; bağımsız doğrulama değildir: "
+
+
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
 
 def collapse_repeats(text: str) -> str:
@@ -62,16 +86,20 @@ def collapse_repeats(text: str) -> str:
     """
     gorulen: set[str] = set()
     tutulan: list[str] = []
-    for parca in text.replace("\n", " ").split("."):
+    # Cümle sınırı yalnız noktalama + BOŞLUKTUR (`(?<=[.!?])\s+`). Eskiden metin her
+    # "." karakterinde bölünüp ". " ile birleştiriliyordu: "player.png" -> "player. png",
+    # "v1.2", "3.5", "example.com" bozuluyordu (A2-08, ölçüldü 29 Ekim). Bu çıktı
+    # agent'ın "karakter mi ikon mu" kararının tek kanıtıdır.
+    for parca in _SENTENCE_BOUNDARY.split(text.replace("\n", " ")):
         cumle = parca.strip()
         if not cumle:
             continue
-        anahtar = cumle.casefold()
+        anahtar = cumle.rstrip(".!?").strip().casefold()
         if anahtar in gorulen:
             continue
         gorulen.add(anahtar)
         tutulan.append(cumle)
-    return ". ".join(tutulan) + ("." if tutulan else "")
+    return " ".join(tutulan)
 
 
 def load_image_data_uri(path: Path) -> tuple[str, str | None]:
@@ -92,35 +120,90 @@ def load_image_data_uri(path: Path) -> tuple[str, str | None]:
             f"{MAX_IMAGE_BYTES // 1024} KB. Küçültülmüş bir kopyasına bak."
         )
     ham = path.read_bytes()
+    # Uzantıya değil İÇERİĞE bakılır (A2-39): uzantısı `.png` olan SVG/ikon/bozuk dosya
+    # sağlayıcıda sert hata veriyordu; burada anlaşılır bir mesajla elenir.
+    if not any(ham.startswith(imza) for imza in _MAGIC.get(mime, ())) and not _is_webp(ham, mime):
+        return "", (
+            f"Dosya uzantısı {path.suffix} ama içeriği bu biçimde bir görsel değil "
+            "(SVG, bozuk ya da yanlış adlandırılmış olabilir)."
+        )
     return f"data:{mime};base64," + base64.b64encode(ham).decode(), None
+
+
+#: MIME -> dosya başı imzaları. WebP ayrıca `_is_webp` ile doğrulanır.
+_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    "image/bmp": (b"BM",),
+}
+
+
+def _is_webp(ham: bytes, mime: str) -> bool:
+    return mime == "image/webp" and ham[:4] == b"RIFF" and ham[8:12] == b"WEBP"
 
 
 async def describe_image(config: Config, path: Path, question: str) -> tuple[str, str | None]:
     """Görseli yapılandırılmış görsel modeline sor. (açıklama, hata) döndürür."""
+    if config.vision is None:
+        return "", "Görsel modeli yapılandırılmamış."
+    data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
+    if sorun is not None:
+        return "", sorun
+    return await describe_image_data(config, data_uri, question)
+
+
+async def describe_image_data(
+    config: Config, data_uri: str, question: str
+) -> tuple[str, str | None]:
+    """Describe the already-authorized immutable image snapshot."""
+    from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
 
     spec = config.vision
     if spec is None:  # pragma: no cover - araç yalnızca spec varken kaydedilir
         return "", "Görsel modeli yapılandırılmamış."
-    data_uri, sorun = load_image_data_uri(path)
-    if sorun is not None:
-        return "", sorun
-    provider = build_provider(
-        spec,
-        publisher=None,
-        retry_delays_s=config.runtime.retry_delays_s,
-        background=True,
-        web_sessions=web_registry_for(config),
-    )
-    result = await provider.complete(
-        CompletionRequest(
-            messages=(Message("user", question, images=(data_uri,)),),
-            temperature=config.runtime.utility_temperature,
-            max_tokens=VISION_MAX_TOKENS,
-            timeout_s=VISION_TIMEOUT_S,
-            max_retries=0,
+    try:
+        provider = build_provider(
+            spec,
+            publisher=None,
+            retry_delays_s=config.runtime.retry_delays_s,
+            background=True,
+            web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
-    )
+        # Kısa, başarılı çağrının eski bütçesi korunur. Bütçe düşünme sırasında
+        # dolarsa AYNI 200 token isteği tekrarlanmaz; tek kurtarma da ilk çağrının
+        # kalan süresini paylaşır. Kesilmiş metin görsel kanıt diye kullanılmaz.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + VISION_TIMEOUT_S
+        async with asyncio.timeout_at(deadline):
+            for max_tokens in (VISION_MAX_TOKENS, VISION_RECOVERY_MAX_TOKENS):
+                result = await provider.complete(
+                    CompletionRequest(
+                        messages=(
+                            Message("system", VISION_GROUNDING_PROMPT),
+                            Message("user", question, images=(data_uri,)),
+                        ),
+                        temperature=config.runtime.utility_temperature,
+                        max_tokens=max_tokens,
+                        timeout_s=max(0.001, deadline - loop.time()),
+                        max_retries=0,
+                    )
+                )
+                if not result.truncated:
+                    break
+            else:
+                return "", (
+                    f"Görsel modeli ({spec.model}) {VISION_RECOVERY_MAX_TOKENS} tokenlık "
+                    "görsel açıklama bütçesinde de tamamlanmadı. "
+                    "Görseli veya soruyu daralt ya da başka bir görsel modeli seç."
+                )
+    except TimeoutError:
+        return "", f"Görsel modeli ({spec.model}) için süre sınırı aşıldı."
+    except (ConfigError, ProviderError) as error:
+        # Kurulamayan görsel sağlayıcısı aracı düşürmez, açıklayıcı hata döner.
+        return "", f"Görsel modeli ({spec.model}) kullanılamıyor: {error}"
     if not result.ok:
         # Asıl sebep YUTULMAZ. Ölçüldü: yapılandırılmış görsel modeli EOL olup
         # 410 Gone dönüyordu; "yanıt vermedi" demek hem modeli hem kullanıcıyı
@@ -128,4 +211,4 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
         return "", f"Görsel modeli ({spec.model}) başarısız: {result.error or 'bilinmeyen hata'}"
     if not result.text.strip():
         return "", f"Görsel modeli ({spec.model}) boş yanıt döndürdü."
-    return collapse_repeats(result.text.strip()), None
+    return VISION_OBSERVATION_LABEL + collapse_repeats(result.text.strip()), None

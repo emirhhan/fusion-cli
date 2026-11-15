@@ -43,11 +43,15 @@ def is_editable(config: Config) -> bool:
 
 
 def active_tier_name(config: Config) -> str:
-    """Etkin kademe: agent modelini taşıyan kademe. Eşleşme yoksa ilk kademe."""
+    """Etkin kademe: agent modelini taşıyan kademe. Eşleşme yoksa boş ("elle seçilmiş model").
+
+    Ölçüldü (30 Ekim): eşleşme yokken ilk kademe "etkin" raporlanıyordu; kullanıcı modeli
+    elle seçtiyse arayüz yanlış kademeyi etkin gösteriyordu.
+    """
     for tier in config.tiers:
         if tier.agent.model == config.agent.model:
             return tier.name
-    return config.tiers[0].name if config.tiers else ""
+    return ""
 
 
 def list_tiers(config: Config) -> dict[str, Any]:

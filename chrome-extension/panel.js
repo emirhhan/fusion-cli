@@ -2,10 +2,15 @@
 // Kullanıcı görevi yazar; Fusion sayfayı okur, kaydırır, tıklar ve her adımı
 // burada canlı gösterir. İzin ve sorular panelin içinde kart olarak çıkar.
 
-import { clearSelected, execute, selectActiveTab } from "./core.js";
+import { answerPermission, clearSelected, currentPermission, execute, selectActiveTab } from "./core.js";
 import { setGlow } from "./pageGlow.js";
-import { PERMISSION_KEY } from "./core.js";
-import { controlSummary, renderAsk, renderMessage, renderSites } from "./panelView.js";
+import { MONITOR_KEY, PERMISSION_KEY, SHORTCUTS_KEY, monitorEnabled } from "./core.js";
+import { controlSummary, renderAsk, renderMessage, renderShortcuts, renderSites } from "./panelView.js";
+import { handleRecord } from "./recorder.js";
+import { deviceIdentity } from "./device.js";
+import { SHORTCUT_NAME, expandShortcut as expandShortcutText } from "./shortcuts.js";
+import { PROGRESS_REQUEST_TIMEOUT_MS } from "./permissionWait.js";
+import { TASK_SCOPE_VERSION } from "./taskScope.js";
 
 const $ = (id) => document.getElementById(id);
 const THREAD_KEY = "fusionThread";
@@ -13,16 +18,38 @@ const THREAD_KEY = "fusionThread";
 const MAX_MESSAGES = 60;
 /** Akış koparsa yeniden deneme aralığı. */
 const RETRY_MS = 2000;
+const MAX_RETRY_MS = 60_000;
 
 // Elle eşleştirme bağlantısı; otomatik bağlantı arka plandaki belgede yaşar.
 let manual = null;
 let polling = false;
 let listening = false;
+let listenFailures = 0;
 /** Bu panelin kendi gönderdiği ve cevabını beklediği tur var mı? */
 let inflight = false;
+let preparingPrompt = false;
 let thread = { mesajlar: [], seq: null, soru: null };
 
-function error(message = "") { $("error").textContent = message; }
+let errorKind = "";
+let lastConnectionCheck = null;
+
+function error(message = "", kind = "task") { $("error").textContent = message; errorKind = message ? kind : ""; }
+function reportError(cause) { error(cause.message || String(cause), cause.connectionState ? "connection" : "task"); }
+
+function drawConnectionState(state) {
+  $("status").dataset.state = state;
+  $("status").lastChild.textContent = state === "online" ? "Bağlı" :
+    state === "unauthorized" ? "Eşleştirme gerekli" : state === "connecting" ? "Bağlanıyor…" : "Bağlı değil";
+}
+
+function markConnectionChecked(state, message = "") {
+  lastConnectionCheck = {state, at: Date.now()};
+  drawConnectionState(state);
+  $("pairing").hidden = state === "online" && !manual;
+  $("connection-checked").textContent = `Son kontrol: ${new Date(lastConnectionCheck.at).toLocaleTimeString("tr-TR")}`;
+  if (message) error(message, "connection");
+  else if (errorKind === "connection") error();
+}
 
 async function autoStatus() {
   return (await chrome.storage.session.get("fusionAuto")).fusionAuto || { bagli: false };
@@ -37,13 +64,31 @@ async function connection() {
 async function request(path, data = {}) {
   const conn = await connection();
   if (!conn) throw new Error("Fusion bağlantısı yok. Fusion masaüstü uygulamasını aç.");
-  const response = await fetch(`http://127.0.0.1:${conn.port}${path}`, {
-    method: path === "/status" ? "GET" : "POST",
-    headers: { Authorization: `Bearer ${conn.token}`, "Content-Type": "application/json" },
-    body: path === "/status" ? undefined : JSON.stringify(data),
-  });
+  let response;
+  try {
+    response = await fetch(`http://127.0.0.1:${conn.port}${path}`, {
+      method: path === "/status" ? "GET" : "POST",
+      signal: path === "/progress" ? AbortSignal.timeout(PROGRESS_REQUEST_TIMEOUT_MS) : undefined,
+      headers: { Authorization: `Bearer ${conn.token}`, "Content-Type": "application/json" },
+      body: path === "/status" ? undefined : JSON.stringify(data),
+    });
+  } catch (cause) {
+    const failure = new Error(`Fusion bağlantısı koptu: ${cause.message || cause}`);
+    failure.connectionState = "offline";
+    markConnectionChecked("offline", failure.message);
+    throw failure;
+  }
   const result = await response.json();
-  if (!response.ok) throw new Error(result.hata || `Fusion yanıtı: ${response.status}`);
+  if (!response.ok) {
+    const message = result.hata || `Fusion yanıtı: ${response.status}`;
+    const failure = new Error(message);
+    if ([401, 403].includes(response.status)) {
+      failure.connectionState = "unauthorized";
+      markConnectionChecked("unauthorized", `${message}. Bağlantı ayarlarından yeniden eşleştir.`);
+    }
+    throw failure;
+  }
+  markConnectionChecked("online");
   return result;
 }
 
@@ -81,18 +126,21 @@ function renderThread() {
   $("new-chat").disabled = busy;
   $("model").disabled = busy;
   renderControl();
-  if (thread.soru) renderAsk($("ask"), thread.soru, answer);
+  if (thread.soru) renderAsk($("ask"), thread.soru, guard(answer));
   else { $("ask").hidden = true; $("ask").replaceChildren(); }
   $("thread").scrollTop = $("thread").scrollHeight;
 }
 
 /** Mod seçimine göre "güvenli mi" satırı: kullanıcı hangi işlemin sorulduğunu görür. */
+/** Panelin Claude in Chrome modları (#434): Manually approve, Automatically approve, Skip all approvals. */
+const PANEL_MODES = ["security", "auto", "bypass"];
+
 const GUARD_TEXT = {
-  auto: "Gönderme, silme ve satın alma sana sorulur.",
+  auto: "Gönderme ve silme sana sorulur; satın alma ve hesap oluşturma hiç yapılmaz.",
   security: "Her tıklama ve yazma önce sana sorulur.",
   edits: "Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.",
   plan: "Yalnız okur; tıklamaz, yazmaz.",
-  bypass: "Dikkat: hiçbir şey sorulmaz.",
+  bypass: "Dikkat: neredeyse hiçbir şey sorulmaz (yetki verme ve hassas bilgi hariç).",
 };
 
 function renderControl() {
@@ -115,34 +163,51 @@ function renderControl() {
 
 // --- Site izni (Claude eklentisi gibi: ilk kullanımda tek tık, geri alınabilir) ---
 
-/** Sabit izinler (yerel köprü, tüm siteler/ekran görüntüsü) site listesinde görünmez. */
-const FIXED_ORIGINS = new Set(["http://127.0.0.1/*", "<all_urls>", "https://*/*", "http://*/*"]);
+/** Yerel köprünün zorunlu adresi kullanıcı site izni değildir. */
+const FIXED_ORIGINS = new Set(["http://127.0.0.1/*"]);
 
 async function renderPermission() {
-  const pending = (await chrome.storage.session.get(PERMISSION_KEY))[PERMISSION_KEY];
+  const pending = await currentPermission();
   const card = $("perm");
-  card.hidden = !pending;
-  if (pending) {
+  const isPending = pending && pending.state === "pending" && pending.expiresAt > Date.now();
+  card.hidden = !isPending;
+  if (isPending) {
     $("perm-title").textContent = `Fusion ${new URL(pending.origin).hostname} sitesine girmek istiyor`;
     card.dataset.origin = pending.origin;
+    card.dataset.permissionId = pending.id;
   }
 }
 
 async function renderSiteList() {
   const all = (await chrome.permissions.getAll?.())?.origins || [];
-  renderSites($("sites"), $("sites-empty"), all.filter((origin) => !FIXED_ORIGINS.has(origin)), async (origin) => {
-    await chrome.permissions.remove({ origins: [origin] });
-    await renderSiteList();
-    await renderTab();
+  const rows = all.filter((origin) => !FIXED_ORIGINS.has(origin));
+  if (await connection()) {
+    const settings = await request("/settings", { izinler: true });
+    if (!settings.ok) throw new Error(settings.metin || "Motor site izinleri okunamadı.");
+    rows.push(...(settings.izinler || []).map((item) => ({
+      id: `motor:${item.anahtar}`, label: item.site, scope: item.kapsam,
+    })));
+  }
+  renderSites($("sites"), $("sites-empty"), rows, async (identifier) => {
+    try {
+      if (identifier.startsWith("motor:")) {
+        const result = await request("/settings", { izin_sil: identifier.slice("motor:".length) });
+        if (!result.ok) throw new Error(result.metin || "Motor izni geri alınamadı.");
+      } else if (!await chrome.permissions.remove({ origins: [identifier] })) {
+        throw new Error("Chrome izni geri alınamadı. Chrome eklenti ayarlarını kontrol et.");
+      }
+      await renderSiteList();
+      await renderTab();
+    } catch (cause) { reportError(cause); }
   });
 }
 
 async function renderStatus() {
   const auto = await autoStatus();
   const bagli = Boolean(manual) || auto.bagli;
-  $("status").dataset.state = bagli ? "online" : "offline";
-  $("status").lastChild.textContent = bagli ? "Bağlı" : "Bağlı değil";
-  $("pairing").hidden = auto.bagli && !manual;
+  const state = !bagli ? "offline" : lastConnectionCheck?.state || "connecting";
+  drawConnectionState(state);
+  $("pairing").hidden = state === "online" && auto.bagli && !manual;
   if (bagli) {
     void listen();
     loadSettings().catch(() => undefined);
@@ -163,9 +228,11 @@ async function renderTab() {
 // --- Canlı akış ---------------------------------------------------------------
 
 async function applyItem(item) {
-  if (item.tur === "basladi" && !running()) {
-    return { ...thread, mesajlar: [...thread.mesajlar, { rol: "asistan", adimlar: [], durum: "calisiyor" }] };
+  if (item.tur === "basladi") {
+    if (!item.turnId || thread.mesajlar.some((message) => message.turnId === item.turnId) || running()) return thread;
+    return { ...thread, mesajlar: [...thread.mesajlar, { rol: "asistan", turnId: item.turnId, adimlar: [], durum: "calisiyor" }] };
   }
+  if (item.turnId && thread.mesajlar.at(-1)?.turnId !== item.turnId) return thread;
   if (item.tur === "dusunuyor") return withLastAssistant(() => ({ etiket: "Düşünüyor…" }));
   if (item.tur === "adim" || item.tur === "hata") {
     if (running()) void setGlow(true);
@@ -175,10 +242,11 @@ async function applyItem(item) {
     return withLastAssistant((last) => ({ adimlar: [...(last.adimlar || []), step], etiket: step.metin || "Çalışıyor…" }));
   }
   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
+  if (item.tur === "tarayici_sec") return { ...thread, soru: {id: item.id, veri: item.veri} };
   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;
-  if (item.tur === "bitti" && !inflight) {
+  if (item.tur === "bitti" && typeof item.turnId === "string" && item.turnId === thread.mesajlar.at(-1)?.turnId) {
     void setGlow(false);
-    return { ...withLastAssistant(() => ({ metin: item.metin || "", durum: item.ok ? "bitti" : "hata" })), soru: null };
+    return { ...withLastAssistant((last) => ({ metin: item.metin || "", durum: item.ok ? "bitti" : last.durum === "iptal" ? "iptal" : "hata" })), soru: null };
   }
   return thread;
 }
@@ -191,20 +259,27 @@ async function listen() {
     if (thread.seq === null) {
       // İlk açılış: eski turları baştan oynatma, akışın ucundan başla.
       const status = await request("/status");
-      await saveThread({ ...thread, seq: status.son ?? 0 });
+      await saveThread({ ...thread, seq: status.son ?? 0, soru: status.sorular?.at(-1) ?? null });
     }
     while (await connection()) {
       const result = await request("/events", { after: thread.seq });
+      listenFailures = 0; // bağlantı döndü: yalnız eski bağlantı hatası temizlenir
+      markConnectionChecked("online");
       let next = thread;
       for (const item of result.olaylar || []) {
         thread = next;
         next = { ...(await applyItem(item)), seq: item.seq };
       }
-      await saveThread({ ...next, seq: result.son ?? next.seq });
+      const soru = Array.isArray(result.sorular) ? result.sorular.at(-1) ?? null : next.soru;
+      await saveThread({ ...next, soru, seq: result.son ?? next.seq });
     }
   } catch (cause) {
-    error(`Fusion bağlantısı koptu: ${cause.message || cause}`);
-    await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+    // Kopuk bağlantıda her 2 sn'de hata yazıp sonsuz denemek yerine üstel bekleme (en çok 1 dk);
+    // hata metni yalnız ilk kopuşta yazılır.
+    if (listenFailures === 0 && lastConnectionCheck?.state !== "unauthorized") error(`Fusion bağlantısı koptu: ${cause.message || cause}`, "connection");
+    const wait = Math.min(RETRY_MS * 2 ** listenFailures, MAX_RETRY_MS);
+    listenFailures += 1;
+    await new Promise((resolve) => setTimeout(resolve, wait));
   } finally {
     listening = false;
   }
@@ -240,7 +315,8 @@ async function autoUpdate(version) {
 
 function renderSettings(settings) {
   if (!settings?.ok) return;
-  const mode = settings.mod || "auto";
+  // Eski kayıtlı kipler (edits/plan) üç moddan birine gösterilir; Manuel en sıkı karşılıktır (#434).
+  const mode = PANEL_MODES.includes(settings.mod) ? settings.mod : settings.mod ? "security" : "auto";
   const chip = $("mode");
   chip.value = mode;
   chip.dataset.mode = mode;
@@ -273,35 +349,58 @@ async function loadSettings(change = {}) {
 // --- Eylemler -----------------------------------------------------------------
 
 async function sendPrompt(text) {
-  const prompt = (text ?? $("prompt").value).trim();
-  if (!prompt || running()) return;
+  const typed = (text ?? $("prompt").value).trim();
+  if (!typed || running() || preparingPrompt) return;
+  preparingPrompt = true;
+  const manualSubmission = Boolean(manual);
+  let target, cihaz, prompt;
+  try {
+    // Start the trusted tab lookup before shortcut expansion, storage or transport awaits.
+    const initialTab = chrome.tabs?.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+    const [tab] = await (initialTab || Promise.resolve([]));
+    target = tab ? {tabId: tab.id, url: tab.url} : {};
+    const capability = manualSubmission ? {version: TASK_SCOPE_VERSION}
+      : await chrome.runtime?.sendMessage({type: "fusion.taskScopeCapability"}).catch(() => null);
+    target.scopeVersion = capability?.version;
+    // Manual poll/result/progress use the legacy local-device channel together.
+    cihaz = manualSubmission ? undefined : await deviceIdentity();
+    prompt = await expandShortcut(typed);
+  } finally {
+    preparingPrompt = false;
+  }
   error();
   $("prompt").value = "";
   autoGrow();
-  inflight = true;
+  const turnId = crypto.randomUUID();
+  inflight = turnId;
   await saveThread({
     ...thread,
-    mesajlar: [...thread.mesajlar, { rol: "kullanici", metin: prompt }, { rol: "asistan", adimlar: [], durum: "calisiyor" }],
+    mesajlar: [...thread.mesajlar, { rol: "kullanici", metin: prompt }, { rol: "asistan", turnId, adimlar: [], durum: "calisiyor" }],
   });
   void setGlow(true);
   try {
-    const result = await request("/turn", { prompt });
+    const result = await request("/turn", { prompt, turnId, target, cihaz });
+    if (thread.mesajlar.at(-1)?.turnId !== turnId) return;
     const durum = result.ok ? "bitti" : thread.mesajlar.at(-1)?.durum === "iptal" ? "iptal" : "hata";
     await saveThread({ ...withLastAssistant(() => ({ metin: result.metin || "", durum })), soru: null });
   } catch (cause) {
-    await saveThread({ ...withLastAssistant(() => ({ metin: "", durum: "hata" })), soru: null });
+    if (thread.mesajlar.at(-1)?.turnId === turnId && running()) await saveThread({ ...withLastAssistant(() => ({ metin: "", durum: "hata" })), soru: null });
     throw cause;
   } finally {
-    inflight = false;
-    void setGlow(false);
+    if (inflight === turnId) inflight = false;
+    if (!running()) void setGlow(false);
   }
 }
 
 async function cancel() {
   $("cancel").disabled = true;
   try {
-    await request("/cancel");
-    await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
+    const turnId = thread.mesajlar.at(-1)?.turnId;
+    const result = await request("/cancel", { turnId });
+    if (!result.ok) throw new Error(result.metin || "Durdurma kabul edilmedi.");
+    if (thread.mesajlar.at(-1)?.turnId === turnId && thread.mesajlar.at(-1)?.durum !== "bitti") {
+      await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
+    }
   } finally {
     $("cancel").disabled = false;
   }
@@ -310,14 +409,13 @@ async function cancel() {
 async function answer(veri) {
   const soru = thread.soru;
   if (!soru) return;
-  await saveThread({ ...thread, soru: null });
-  try {
-    await request("/answer", { id: soru.id, veri });
-  } catch (cause) {
-    // Cevap gitmediyse kart geri gelir; kullanıcı yeniden seçebilir.
-    await saveThread({ ...thread, soru });
-    throw cause;
-  }
+  // Taşıma tamamlanması, cevabın sunucu tarafından kabul edildiği anlamına gelmez.
+  const result = soru.veri?.tarayici_sec === true
+    ? veri?.metin ? await request("/select", { cihaz: await deviceIdentity(), soru_id: soru.id }) : { ok: true }
+    : await request("/answer", { id: soru.id, veri });
+  if (!result.ok) throw new Error(result.hata || "Cevap kabul edilmedi. Güncel soruyu kontrol et.");
+  // Cevap beklerken başka yüzey yeni bir soru açmış olabilir.
+  if (thread.soru?.id === soru.id) await saveThread({ ...thread, soru: null });
 }
 
 async function connect() {
@@ -340,11 +438,11 @@ async function poll() {
   polling = true;
   while (manual) {
     try {
-      const command = await request("/poll");
+      const command = await request("/poll", {taskScopeVersion: TASK_SCOPE_VERSION});
       if (!command.id) continue;
       let reply;
-      try { reply = { id: command.id, ok: true, veri: await execute(command) }; } catch (cause) {
-        reply = { id: command.id, ok: false, hata: String(cause.message || cause) };
+      try { reply = { id: command.id, ok: true, veri: await runManual(command) }; } catch (cause) {
+        reply = { id: command.id, ok: false, hata: String(cause.message || cause), neden_kodu: cause?.code || "" };
       }
       await request("/result", reply);
     } catch (cause) {
@@ -356,6 +454,52 @@ async function poll() {
   polling = false;
 }
 
+/** Elle bağlantıda ekran kaydı kareleri panelde toplanır (bkz. recorder.js). */
+function runManual(command) {
+  const options = {onPermissionProgress: (progress) => request("/progress", progress)};
+  const run = (part) => execute({id: command.id, ...part}, options);
+  if (command.islem !== "record" || "taskScope" in command) return run(command);
+  return handleRecord(
+    command.veri || {},
+    (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 65 }),
+    () => run({ islem: "record_target", veri: {} }),
+    (target) => run({ islem: "record_check", veri: { tabId: target.tabId, windowId: target.windowId } })
+      .catch((cause) => ({ ok: false, reason: String(cause?.message || cause) })),
+  );
+}
+
+// --- Kısayollar (Claude in Chrome shortcuts gibi: kayıtlı görev, "/ad" ile çağrılır) ---
+
+async function loadShortcuts() {
+  const stored = (await chrome.storage.local.get(SHORTCUTS_KEY))[SHORTCUTS_KEY];
+  return Array.isArray(stored) ? stored.filter((item) => item && item.ad && item.metin) : [];
+}
+
+async function saveShortcuts(list) {
+  await chrome.storage.local.set({ [SHORTCUTS_KEY]: list });
+  await renderShortcutList();
+}
+
+async function renderShortcutList() {
+  const list = await loadShortcuts();
+  renderShortcuts($("shortcuts"), $("shortcuts-empty"), list, async (ad) => {
+    await saveShortcuts(list.filter((item) => item.ad !== ad));
+  });
+}
+
+/** `/ad kalan metin` → kayıtlı görev (+ kalan metin); kısayol değilse metin olduğu gibi gider
+ * (bkz. shortcuts.js). Yalnız "/ad" yazılmış ve o ad yoksa yazım hatası olabilir: sorulur. */
+async function expandShortcut(prompt) {
+  if (!prompt.startsWith("/")) return prompt;
+  const list = await loadShortcuts();
+  const result = expandShortcutText(prompt, list);
+  if (result.unknown) {
+    const names = list.map((item) => `/${item.ad}`).join(", ");
+    throw new Error(`“/${result.unknown}” adlı kısayol yok. Kısayollar: ${names}. Metni göndermek için başına boşluk koy.`);
+  }
+  return result.prompt;
+}
+
 function autoGrow() {
   const box = $("prompt");
   box.style.height = "auto";
@@ -364,7 +508,7 @@ function autoGrow() {
 
 const guard = (handler) => (event) => {
   event?.preventDefault?.();
-  handler(event).catch((cause) => error(cause.message || String(cause)));
+  handler(event).catch(reportError);
 };
 
 $("composer").addEventListener("submit", guard(() => sendPrompt()));
@@ -377,8 +521,16 @@ $("prompt").addEventListener("keydown", (event) => {
 document.querySelectorAll(".suggestion").forEach((button) =>
   button.addEventListener("click", guard(() => sendPrompt(button.dataset.prompt))));
 $("cancel").addEventListener("click", guard(cancel));
+const BYPASS_CONFIRM_TEXT =
+  "\"İzinleri atla\" kipinde Fusion gönderme ve silmeyi sormaz. Satın alma, hesap " +
+  "oluşturma ve CAPTCHA her kipte yasaktır; yetki verme ve hassas bilgi girme yine sorulur. " +
+  "Açılsın mı?";
 $("mode").addEventListener("change", guard(async () => {
-  await loadSettings({ mod: $("mode").value });
+  const mod = $("mode").value;
+  if (mod !== "bypass") return loadSettings({ mod });
+  // Sormadan çalışan kip yanlışlıkla açılmasın: onay verilmezse seçim eski kipe döner.
+  if (window.confirm(BYPASS_CONFIRM_TEXT)) return loadSettings({ mod, bypass_onay: true });
+  return loadSettings();
 }));
 $("model").addEventListener("change", guard(async () => {
   const [kaynak, model] = $("model").value.split("|");
@@ -391,7 +543,12 @@ $("new-chat").addEventListener("click", guard(async () => {
   await saveThread({ ...thread, mesajlar: [], soru: null });
 }));
 $("open-settings").addEventListener("click", () => {
-  void renderSiteList();
+  void renderSiteList().catch(reportError);
+  void renderShortcutList();
+  void monitorEnabled().then((enabled) => { $("monitor-toggle").checked = enabled; });
+  // Son görev kısayol adayıdır: alan boşsa onunla doldurulur.
+  const lastPrompt = [...thread.mesajlar].reverse().find((message) => message.rol === "kullanici")?.metin;
+  if (lastPrompt && !$("shortcut-text").value) $("shortcut-text").value = lastPrompt;
   const sheet = $("settings");
   if (typeof sheet.showModal === "function") sheet.showModal();
   else sheet.setAttribute("open", "");
@@ -401,26 +558,28 @@ $("reload-extension").addEventListener("click", () => chrome.runtime.reload());
 $("perm-allow").addEventListener("click", guard(async () => {
   const origin = $("perm").dataset.origin;
   // Tıklama kullanıcı hareketidir: Chrome izin penceresini ancak böyle açar.
-  if (origin && await chrome.permissions.request({ origins: [`${origin}/*`] })) {
-    await chrome.storage.session.remove(PERMISSION_KEY);
+  const identifier = $("perm").dataset.permissionId;
+  if (origin) {
+    const allowed = await chrome.permissions.request({ origins: [`${origin}/*`] });
+    await answerPermission(identifier, allowed ? "granted" : "denied");
   }
   await renderPermission();
   await renderTab();
 }));
 $("perm-all").addEventListener("click", guard(async () => {
   // Ekran görüntüsü izniyle aynı kapsam: tüm siteler. Riskli adımlar yine onay ister.
-  if (await chrome.permissions.request({ origins: ["<all_urls>"] })) {
-    await chrome.storage.session.remove(PERMISSION_KEY);
-  }
+  const identifier = $("perm").dataset.permissionId;
+  const allowed = await chrome.permissions.request({ origins: ["<all_urls>"] });
+  await answerPermission(identifier, allowed ? "granted" : "denied");
   await renderPermission();
   await renderTab();
 }));
 $("perm-deny").addEventListener("click", guard(async () => {
-  await chrome.storage.session.remove(PERMISSION_KEY);
+  await answerPermission($("perm").dataset.permissionId, "denied");
   await renderPermission();
 }));
 chrome.storage.onChanged?.addListener((changes, area) => {
-  if (area === "session" && PERMISSION_KEY in changes) void renderPermission();
+  if (area === "session" && Object.keys(changes).some((key) => key.startsWith(`${PERMISSION_KEY}:`))) void renderPermission();
 });
 
 $("select-tab").addEventListener("click", guard(async () => { await selectActiveTab(); error(); await renderTab(); }));
@@ -428,6 +587,19 @@ $("grant-capture").addEventListener("click", guard(async () => {
   const allowed = await chrome.permissions.request({ origins: ["<all_urls>"] });
   if (!allowed) throw new Error("Chrome izni verilmedi.");
   error();
+}));
+$("monitor-toggle").addEventListener("change", guard(async () => {
+  await chrome.storage.local.set({ [MONITOR_KEY]: $("monitor-toggle").checked });
+}));
+$("shortcut-form").addEventListener("submit", guard(async () => {
+  const ad = $("shortcut-name").value.trim().replace(/^\//, "");
+  const metin = $("shortcut-text").value.trim();
+  if (!SHORTCUT_NAME.test(ad)) throw new Error("Kısayol adı boşluksuz, en çok 40 karakter olmalı (ör. ozet).");
+  if (!metin) throw new Error("Kısayolun görev metnini yaz.");
+  const others = (await loadShortcuts()).filter((item) => item.ad.toLocaleLowerCase("tr") !== ad.toLocaleLowerCase("tr"));
+  await saveShortcuts([...others, { ad, metin }]);
+  $("shortcut-name").value = "";
+  $("shortcut-text").value = "";
 }));
 $("disconnect").addEventListener("click", guard(async () => {
   try { await request("/disconnect"); } catch { /* Fusion zaten kapalı olabilir. */ }
@@ -443,7 +615,7 @@ chrome.tabs.onActivated?.addListener(() => void renderTab());
 chrome.tabs.onUpdated?.addListener(() => void renderTab());
 // Sayfadaki "Durdur" hapı (bkz. pageGlow.js) buraya ulaşır.
 chrome.runtime.onMessage?.addListener((message) => {
-  if (message?.type === "fusion.stop" && running()) void cancel().catch((cause) => error(cause.message));
+  if (message?.type === "fusion.stop" && running()) void cancel().catch(reportError);
 });
 
 await loadThread();

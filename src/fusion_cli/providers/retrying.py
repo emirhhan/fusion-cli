@@ -11,6 +11,11 @@ Davranış:
 - Kalıcı hatada (olmayan model, geçersiz anahtar, günlük kota) hiç beklenmez.
 - Hız sınırında (429), zincirde bu modelden sonra bir yedek varsa beklenmez; iş
   yedekle hemen sürer. Yedeksiz modelde aşağıdaki "aynı model" gerekçesi geçerlidir.
+- Sonuç `retry_after_s` taşıyorsa (hız kapısının paylaşılan soğuması) bekleme
+  `max(gecikme, retry_after_s)` olur: kapı soğuma bitene dek her denemeyi anında
+  reddedeceği için daha kısa bekleme gecikmeleri boşa tüketirdi (P1-07; ölçüldü
+  30 Ekim: 1,5 + 4 sn gecikme 60 sn'lik soğumanın içinde kalıyor, gerçek yeniden
+  deneme hiç yapılmıyordu).
 
 Neden aynı model: sağlayıcının hız sınırı MODEL BAŞINADIR (NVIDIA NIM'de ölçüldü)
 ve 60 saniyede 40 isteğe izin verir. Dakikalık sınıra takılan bir çağrı, kısa bir
@@ -27,7 +32,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 
 from ..core.clock import SystemSleeper
+from ..core.constants import RETRY_AFTER_MAX_WAIT_S
 from ..core.protocols import LlmProvider, Sleeper
+from ..core.provider_diagnostics import observe_phase
 from ..core.types import (
     CompletionRequest,
     ModelResult,
@@ -35,7 +42,8 @@ from ..core.types import (
     StreamItem,
     is_permanent_error,
 )
-from .stream_opening import first_meaningful
+from .stream_cleanup import closing_stream
+from .stream_opening import is_liveness_chunk, is_provisional
 
 
 class RetryingProvider:
@@ -68,7 +76,10 @@ class RetryingProvider:
         for delay in self._delays_s:
             if not self._should_retry(result):
                 return result
-            await self._sleeper.sleep(delay)
+            wait_s = _wait_s(delay, result)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
             result = await self._inner.complete(request)
         return result
 
@@ -76,24 +87,32 @@ class RetryingProvider:
         # Son tur `None` gecikmesiyle işaretlenir: "artık bekleme, sonucu ne olursa
         # olsun ver". Deneme sayısı yine gecikme listesinden türer, ayrı sayaç yok.
         for delay in (*self._delays_s, None):
-            stream = self._inner.stream(request)
-            first = await first_meaningful(stream)
-            # Metin akmadan gelen sonuç: hata da olabilir, araç çağrısından ibaret
-            # başarılı bir cevap da. Ayrımı `_should_retry` yapar.
-            erken = _opening_result(first, self._inner.label)
-            if erken is None:
-                # Akış çıktı üretti; ekrana yazılmış metni tekrar denemek onu ikinci
-                # kez baştan yazdırırdı. Kalanı olduğu gibi geçiririz.
-                assert first is not None  # `erken is None` bunu garanti eder
-                yield first
-                async for item in stream:
-                    yield item
-                return
-            await _close(stream)
+            async with closing_stream(self._inner.stream(request)) as stream:
+                first = await anext(stream, None)
+                while is_provisional(first):
+                    # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını görmeli (P1-05).
+                    if is_liveness_chunk(first):
+                        assert first is not None
+                        yield first
+                    first = await anext(stream, None)
+                # Metin akmadan gelen sonuç: hata da olabilir, araç çağrısından ibaret
+                # başarılı bir cevap da. Ayrımı `_should_retry` yapar.
+                erken = _opening_result(first, self._inner.label)
+                if erken is None:
+                    # Akış çıktı üretti; ekrana yazılmış metni tekrar denemek onu ikinci
+                    # kez baştan yazdırırdı. Kalanı olduğu gibi geçiririz.
+                    assert first is not None  # `erken is None` bunu garanti eder
+                    yield first
+                    async for item in stream:
+                        yield item
+                    return
             if delay is None or not self._should_retry(erken):
                 yield StreamDone(erken)
                 return
-            await self._sleeper.sleep(delay)
+            wait_s = _wait_s(delay, erken)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
 
     # ----------------------------------------------------------------------- #
 
@@ -106,7 +125,18 @@ class RetryingProvider:
         """
         if self._yield_on_rate_limit and result.is_rate_limited:
             return False
+        if result.truncated and not result.is_usable:
+            # Çıktı bütçesi doldu: aynı istek aynı bütçeyle aynı sonucu verir; beklemek
+            # gecikme ve maliyet harcar (ölçüldü 30 Ekim). Kurtarma üst katmanda.
+            return False
         return not result.is_usable and not is_permanent_error(result.error)
+
+
+def _wait_s(delay_s: float, result: ModelResult) -> float:
+    """Gecikme ile sonucun bildirdiği `retry_after_s`'in büyüğü (üst sınırlı)."""
+    if result.retry_after_s is None:
+        return delay_s
+    return max(delay_s, min(result.retry_after_s, RETRY_AFTER_MAX_WAIT_S))
 
 
 def _opening_result(first: StreamItem | None, label: str) -> ModelResult | None:
@@ -129,18 +159,6 @@ def _opening_result(first: StreamItem | None, label: str) -> ModelResult | None:
     if isinstance(first, StreamDone):
         return first.result
     return None
-
-
-async def _close(stream: AsyncIterator[StreamItem]) -> None:
-    """Yeniden denemeden önce kaybeden akışı kapat; arkada açık bağlantı bırakma."""
-    closer = getattr(stream, "aclose", None)
-    if closer is None:
-        return
-    # Kapanış hatası turu etkilemez; bilinçli olarak yutulur.
-    try:
-        await closer()
-    except Exception:
-        return
 
 
 def wrap(

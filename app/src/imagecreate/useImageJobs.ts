@@ -45,5 +45,8 @@ export function useImageJobs(client: Client | null, enabled: boolean, scope: str
       if (owner.current === controller) recovered.current(result);
     } catch { /* Controller hatayı iş kartında saklar; yeni üretim engeli korunur. */ }
   };
-  return { state, blocked, start, recover, retry: () => { void owner.current?.initialize(); } };
+  const forget = async (jobId: string) => {
+    try { await owner.current?.forget(jobId); } catch { /* Doğrulanmamış iş unutulmaz; engel korunur. */ }
+  };
+  return { state, blocked, start, recover, forget, retry: () => { void owner.current?.initialize(); } };
 }

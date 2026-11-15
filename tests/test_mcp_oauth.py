@@ -5,7 +5,11 @@ import pytest
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from fusion_cli.config.models import McpServerConfig, McpTransport
-from fusion_cli.mcp_bridge.oauth import LoopbackOAuthCallback, validate_remote_mcp_url
+from fusion_cli.mcp_bridge.oauth import (
+    LoopbackOAuthCallback,
+    McpBrowserOpenError,
+    validate_remote_mcp_url,
+)
 from fusion_cli.mcp_bridge.tokens import KeyringTokenStorage
 
 
@@ -86,3 +90,56 @@ def test_oauth_yapilandirmasinda_token_alani_yoktur() -> None:
 
     assert not hasattr(config, "access_token")
     assert not hasattr(config, "refresh_token")
+
+
+async def _get(url: str) -> httpx.Response:
+    async with httpx.AsyncClient() as client:
+        return await client.get(url)
+
+
+async def test_yabanci_istek_giris_akisini_dusurmez() -> None:
+    """Ölçüldü (30 Ekim): `/` ya da `code`suz herhangi bir istek (başka sekme, tarayıcı
+    ön-yükleyicisi, kötü niyetli `fetch`) akışı `RuntimeError` ile bitiriyordu."""
+    callback = LoopbackOAuthCallback(timeout_seconds=5)
+    await callback.start()
+    base = callback.redirect_uri.removesuffix("/oauth/callback")
+
+    stray = await _get(f"{base}/")
+    no_code = await _get(f"{base}/oauth/callback")
+    real = await _get(f"{callback.redirect_uri}?code=abc&state=s")
+    code, state = await callback.wait_for_code()
+
+    assert stray.status_code == 404
+    assert no_code.status_code == 404
+    assert real.status_code == 200
+    assert (code, state) == ("abc", "s")
+
+
+async def test_beklenen_state_ile_eslesmeyen_donus_yok_sayilir(monkeypatch) -> None:
+    callback = LoopbackOAuthCallback(timeout_seconds=5)
+    monkeypatch.setattr("fusion_cli.mcp_bridge.oauth.webbrowser.open", lambda *a, **k: True)
+    await callback.open_redirect("https://auth.example.com/authorize?state=dogru&x=1")
+
+    sahte = await _get(f"{callback.redirect_uri}?code=sahte&state=yanlis")
+    hata = await _get(f"{callback.redirect_uri}?error=access_denied&state=yanlis")
+    gercek = await _get(f"{callback.redirect_uri}?code=iyi&state=dogru")
+    code, state = await callback.wait_for_code()
+
+    assert sahte.status_code == 400
+    assert hata.status_code == 400
+    assert gercek.status_code == 200
+    assert (code, state) == ("iyi", "dogru")
+
+
+async def test_tarayici_acilamazsa_bekleme_yerine_adresli_hata_verir(monkeypatch) -> None:
+    """Ölçüldü (30 Ekim): `webbrowser.open` False dönse de bağlantı süresi askıya
+    alınıp 300 sn beklenir, yetkilendirme adresi hiçbir yerde görünmezdi."""
+    waiting: list[bool] = []
+    callback = LoopbackOAuthCallback(timeout_seconds=5, on_waiting=waiting.append)
+    monkeypatch.setattr("fusion_cli.mcp_bridge.oauth.webbrowser.open", lambda *a, **k: False)
+
+    with pytest.raises(McpBrowserOpenError, match=r"https://auth\.example\.com/authorize"):
+        await callback.open_redirect("https://auth.example.com/authorize?state=s")
+
+    assert waiting == []
+    assert callback._server is None  # dinleyici sızdırılmaz

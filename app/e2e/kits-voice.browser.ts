@@ -43,3 +43,27 @@ test('mikrofon susturulduktan sonra eski final sözü gönderilmez', async ({ pa
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   expect(await page.evaluate(() => (window as unknown as { voiceFixture: { utterances: number } }).voiceFixture.utterances)).toBe(0);
 });
+
+test('geciken Fusion işi sırasında sohbet yanıtlanır, söz kesilince iş sürer', async ({ page }) => {
+  await page.goto('/tests/browser/voice.html?delay');
+  await page.getByRole('button', { name: 'Başlat', exact: true }).click();
+  await fixture(page, 'ready');
+  await expect(page.getByLabel('Ses durumu')).toHaveText('active');
+  await fixture(page, 'utter');
+  const invoke = (action: string) => page.evaluate(action => {
+    const live = (window as unknown as { voiceFixture: Record<string, () => void> }).voiceFixture;
+    live[action]();
+  }, action);
+  const played = () => page.evaluate(() => (window as unknown as { voiceFixture: Fixture }).voiceFixture.spoken);
+  await expect.poll(played).toEqual(['Bir saniye, Fusion’a sorayım.']);
+  await invoke('barge');
+  await expect(page.getByLabel('Kullanıcı sözü')).toHaveText('Dur perşembe demek istedim');
+  await invoke('talk');
+  await expect.poll(played).toEqual(['Bir saniye, Fusion’a sorayım.', 'İyiyim, teşekkür ederim.']);
+  await invoke('finishSpeech');
+  await expect.poll(async () => (await played()).at(-1)).toBe('Sen nasılsın?');
+  await invoke('finishSpeech');
+  await invoke('finishAnswer');
+  await expect.poll(async () => (await played()).at(-1)).toBe('Birinci cümle.');
+  expect(await page.evaluate(() => (window as unknown as { voiceFixture: { utterances: number } }).voiceFixture.utterances)).toBe(1);
+});

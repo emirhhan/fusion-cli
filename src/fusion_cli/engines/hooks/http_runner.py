@@ -1,0 +1,99 @@
+"""`type: "http"` kancası (P-009): olay JSON'unu POST eder, yanıtı komut çıktısı gibi okur.
+
+Claude Code'un HTTP kancası sözleşmesi:
+
+    2xx         boş gövde = karar yok; JSON nesnesi = karar alanları; başka her gövde (düz
+                metin) engellemeyen hatadır ve bağlama EKLENMEZ
+    diğer       engellemeyen hata (3xx yönlendirme izlenmez); engellemek için 2xx + JSON
+    bağlantı    hatası / zaman aşımı → engellemeyen hata
+
+Başlık değerlerindeki `$AD` / `${AD}` yalnız `allowedEnvVars` listesindeki adlardan
+doldurulur; listede olmayan ad boş metne döner (sır sızmasın). Claude Code gibi adres
+kısıtı yoktur (belgenin örneği `http://localhost:8080/...`); kısıt yalnız ayarlardaki
+`allowedHttpHookUrls` listesiyle konur (bkz. `config/hooks.py`). Adres bir kez çözülür ve
+o IP'ye bağlanılır (`pinned_http`, DNS rebinding'e karşı).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping
+
+import httpx
+
+from ...core.hooks.events import HookCommand, HookRun
+from ...tools.pinned_http import AsyncPinnedTransport, BlockedAddressError
+from .runner import HOOK_STREAM_CHARS
+
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+#: 2xx dışı yanıtta hata metnine eklenen gövde kuyruğu.
+_ERROR_BODY_CHARS = 300
+
+
+def expand_header(value: str, allowed: tuple[str, ...], environment: Mapping[str, str]) -> str:
+    """`$AD`/`${AD}` yerine izinli ortam değeri; izinsiz ya da tanımsız ad boş metin."""
+
+    def _value(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        return environment.get(name, "") if name in allowed else ""
+
+    return _ENV_REFERENCE.sub(_value, value)
+
+
+async def run_http_hook(
+    command: HookCommand,
+    payload: Mapping[str, object],
+    *,
+    environment: Mapping[str, str],
+    allow_private: bool = True,
+) -> HookRun:
+    """İsteği gönder; sonuç hiçbir zaman istisna olarak fırlatılmaz (iptal hariç)."""
+    headers = {
+        name: expand_header(value, command.allowed_env_vars, environment)
+        for name, value in command.headers
+    }
+    headers.setdefault("Content-Type", "application/json")
+    body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    transport = AsyncPinnedTransport(allows_private=lambda _url: allow_private)
+    try:
+        async with (
+            httpx.AsyncClient(
+                transport=transport,
+                timeout=httpx.Timeout(command.timeout_s),
+                follow_redirects=False,
+            ) as client,
+            client.stream("POST", command.command, content=body, headers=headers) as response,
+        ):
+            text = await _read_capped(response)
+    except httpx.TimeoutException:
+        return HookRun(command, None, timed_out=True)
+    except BlockedAddressError as error:
+        return HookRun(command, None, error=str(error))
+    except httpx.HTTPError as error:
+        return HookRun(command, None, error=f"{type(error).__name__}: {error}"[:_ERROR_BODY_CHARS])
+    if not response.is_success:
+        tail = f": {text.strip()[:_ERROR_BODY_CHARS]}" if text.strip() else ""
+        return HookRun(command, None, error=f"HTTP {response.status_code}{tail}")
+    body_text = text.strip()
+    if body_text and not (body_text.startswith("{") and body_text.endswith("}")):
+        return HookRun(command, None, error=f"2xx yanıt gövdesi JSON değil: {body_text[:80]}")
+    return HookRun(command, 0, text)
+
+
+async def _read_capped(response: httpx.Response) -> str:
+    """Gövdeyi en çok `HOOK_STREAM_CHARS` karakterlik bayta kadar oku (dev yanıt belleği şişirmez).
+
+    Ölçüldü (1 Kasım): `response.text` gövdenin tamamını belleğe alıyordu; sınır yalnız
+    sonradan kırpıyordu.
+    """
+    limit = HOOK_STREAM_CHARS * 4  # UTF-8'de karakter başına en çok 4 bayt
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in response.aiter_bytes():
+        chunks.append(chunk)
+        size += len(chunk)
+        if size >= limit:
+            break
+    encoding = response.encoding or "utf-8"
+    return b"".join(chunks)[:limit].decode(encoding, errors="replace")[:HOOK_STREAM_CHARS]

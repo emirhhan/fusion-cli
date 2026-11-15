@@ -108,3 +108,63 @@ def test_failed_owner_registration_cleans_spawned_process(tmp_path, monkeypatch)
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=3)
+
+
+# --- Dalga 4 (T1-61) -----------------------------------------------------------------------
+
+
+def test_surec_kimligi_okunamazsa_verified_owner_value_error_verir(tmp_path, monkeypatch):
+    """`process_identity` TimeoutExpired/OSError atınca `job_status` ham istisnayla çöküyordu."""
+    import json
+    import subprocess
+
+    import pytest
+
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import job_owner
+
+    context = ToolContext(root=tmp_path)
+    (tmp_path / "j.owner.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "root": str(tmp_path.resolve()),
+                "scope": context.job_scope,
+                "pid": 4242,
+                "token": "t",
+                "identity": "kimlik",
+            }
+        )
+    )
+    (tmp_path / "j.pid").write_text("4242")
+
+    def _zaman_asimi(pid, token):
+        raise subprocess.TimeoutExpired("ps", 5)
+
+    monkeypatch.setattr(job_owner, "process_identity", _zaman_asimi)
+
+    with pytest.raises(ValueError, match="okunamadı"):
+        job_owner.verified_owner(tmp_path, "j", context)
+
+
+def test_job_current_manifest_yoksa_assert_degil_value_error(monkeypatch, tmp_path):
+    from fusion_cli.core.job_evidence import JobCompletion, JobPhase
+    from fusion_cli.tools import job_current
+
+    monkeypatch.setattr(job_current, "prepare_manifest", lambda *a: None)
+    is_ = JobCompletion("j", "cmd", JobPhase.COMPLETED, 0, source_scopes=("src",))
+
+    sonuc = job_current._snapshot(tmp_path, is_)
+
+    assert sonuc.problem  # assert -O ile kalkardı; ValueError → kontrollü problem
+
+
+def test_alt_ajan_baglami_kok_disi_engelleri_devralir(tmp_path):
+    """Birleştirmede ölçüldü (31 Ekim): `block_reads/writes_outside_root` (P-002) alt ajan
+    bağlamına kopyalanmıyordu; üye kullanıcının kök dışı engelini aşıyordu (çalışma ağacı dahil)."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.team_scope import derive_sub_context
+
+    ana = ToolContext(root=tmp_path, block_reads_outside_root=True, block_writes_outside_root=True)
+    for alt in (derive_sub_context(ana), derive_sub_context(ana, root=tmp_path / "agac")):
+        assert alt.block_reads_outside_root and alt.block_writes_outside_root

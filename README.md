@@ -39,7 +39,7 @@ kart alanlarına yazma engellenir. Chrome'un kendi özel sayfaları bağlanmaz.
 
 Aşağıdaki komutlar masaüstünden bağımsız terminal sürümünü kurar.
 
-**Sürüm: 0.7.18.** Değişiklikler: [CHANGELOG.md](CHANGELOG.md).
+**Sürüm: 0.8.1.** Değişiklikler: [CHANGELOG.md](CHANGELOG.md).
 Desteklenen özellikler ve sınırlar aşağıda açıklanmıştır.
 
 ## Kurulum
@@ -160,7 +160,8 @@ kendisi hiçbir çıktıda gösterilmez** — en fazla "ayarlı".
 ### Güncelleme ve kaldırma
 
 ```bash
-fusion update      # kurulum yöntemini tespit edip doğru komutu gösterir
+fusion update      # kurulum yöntemine göre (uv/pipx) en son sürüme günceller
+fusion install 0.8.0   # belirli sürümü kurar (stable/latest da olur)
 fusion uninstall   # aynı şekilde; yapılandırma ve dersler KORUNUR
 fusion uninstall --purge   # anahtarlar ve bellek dahil her şeyi sil
 ```
@@ -283,7 +284,8 @@ Alttaki durum çubuğu ekrana sabittir ve onay modu değişince kendiliğinden g
 İpucu çalışma dizinine göre seçilir: aynı projede hep aynı, farklı projede farklı.
 Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte taşma olmaz.
 
-**shift-tab** onay modunu döndürür · **Ctrl-C** çalışan turu durdurur (oturumdan
+**shift-tab** onay modunu döndürür (Claude sırası: auto → default → acceptEdits → plan →
+bypass yalnız bu oturumda `/bypass` ile seçildiyse ya da `defaultMode` bypass ise) · **Ctrl-C** çalışan turu durdurur (oturumdan
 çıkmaz) · **Ctrl-D** çıkar. Komut listesi için `/help`.
 
 | Grup | Komutlar |
@@ -398,10 +400,18 @@ Kütüphanede içerik yoksa bu araçlar modele hiç sunulmaz.
 ### Agent modu
 
 ```bash
-.venv/bin/fusion agent "hesap.py'daki hatayi bul ve duzelt, sonra testleri calistir"
-.venv/bin/fusion agent "..." --mode plan       # yalnız planla, hiçbir şeyi değiştirme
-.venv/bin/fusion agent "..." --mode security   # her değişikliği tek tek sor
+.venv/bin/fusion -p "hesap.py'daki hatayi bul ve duzelt, sonra testleri calistir" --permission-mode acceptEdits
+.venv/bin/fusion -p "..." --permission-mode plan   # yalnız planla, hiçbir şeyi değiştirme
+.venv/bin/fusion -p "..." --output-format json     # Claude Code SDK sonuç nesnesi
+.venv/bin/fusion "merhaba"                         # etkileşimli oturum bu istemle açılır
 ```
+
+`fusion -p` Claude Code `claude -p` ile aynı bayrakları ve çıktı alanlarını kullanır (bkz.
+`docs/HEADLESS.md`). Eski `fusion agent "..." --mode …` bir sürüm daha çalışır.
+
+Claude Code'daki `claude -p` gibi kip verilmezse `fusion agent` **Manual** (`default`) başlar:
+onay gerektiren çağrı sorulmadan reddedilir; izin kuralı (`allow`) ya da kanca onaylarsa
+çalışır, `--permission-prompt-tool stdin` verilirse sorulur. `--mode` eski addır.
 
 Agent dosya okur/yazar, komut çalıştırır, web'de arar, görev listesi tutar, zor
 kararlarda çoklu modele danışır (`council`) ve büyük işleri alt-ajana devreder.

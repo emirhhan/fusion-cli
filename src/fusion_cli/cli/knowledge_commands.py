@@ -11,6 +11,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from ..config.loader import load_config
 from ..knowledge import KnowledgeManifest, read_manifest, status, sync
@@ -26,7 +27,11 @@ _DEFAULT_PACKAGE = Path("knowledge/manifest.json")
 
 #: Kullanıcıya görünen metinler tek yerde.
 _STATE_FILENAME = "knowledge_state.json"
-_MSG_NO_PACKAGE = "Bilgi paketi bulunamadı: {path}"
+_MSG_NO_PACKAGE = (
+    "Bilgi paketi bulunamadı: {path} (varsayılan yol çalışma dizinine göredir; "
+    "manifest yolunu argüman olarak ver)"
+)
+_MSG_BAD_PACKAGE = "Bilgi paketi okunamadı: {path} ({error})"
 _MSG_STATUS = "Bilgi paketi v{version}: {added} yeni, {updated} değişen, {unchanged} güncel."
 _MSG_SYNC_OK = "Senkronize edildi: {added} yeni, {updated} değişen ders uygulandı."
 _MSG_SYNC_FAIL = "Paket reddedildi (uygulanmadı):"
@@ -60,7 +65,7 @@ def knowledge_sync(
     if not report.ok:
         console.print(f"[{theme.ERROR}]{_MSG_SYNC_FAIL}[/{theme.ERROR}]")
         for problem in report.problems:
-            console.print(f"[{theme.WARN}]  - {problem}[/{theme.WARN}]")
+            console.print(f"[{theme.WARN}]  - {escape(problem)}[/{theme.WARN}]")
         raise typer.Exit(1)
     console.print(_MSG_SYNC_OK.format(added=report.added, updated=report.updated))
 
@@ -70,9 +75,20 @@ def knowledge_sync(
 
 def _read_or_exit(package: Path) -> KnowledgeManifest:
     if not package.exists():
-        console.print(f"[{theme.ERROR}]{_MSG_NO_PACKAGE.format(path=package)}[/{theme.ERROR}]")
+        console.print(
+            f"[{theme.ERROR}]{escape(_MSG_NO_PACKAGE.format(path=package))}[/{theme.ERROR}]"
+        )
         raise typer.Exit(1)
-    return read_manifest(package)
+    try:
+        return read_manifest(package)
+    except (OSError, ValueError) as error:
+        # Bozuk JSON (`JSONDecodeError` ValueError'dır) ya da eksik alan çıplak traceback
+        # vermesin (L1-32).
+        console.print(
+            f"[{theme.ERROR}]{escape(_MSG_BAD_PACKAGE.format(path=package, error=error))}"
+            f"[/{theme.ERROR}]"
+        )
+        raise typer.Exit(1) from error
 
 
 def _state_path() -> Path:
