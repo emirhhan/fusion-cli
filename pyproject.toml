@@ -32,7 +32,7 @@ dependencies = [
     # Ajanın ürettiği görseli tam ölçüye getirme ve srcset kopyaları (WebP/AVIF).
     # macOS `sips` Windows'ta yok; Pillow iki platformda aynı. 11.3 AVIF yazabilen
     # ilk sürüm; 12.3 ile WebP+AVIF doğrulandı (1 Ekim 2026).
-    "pillow>=11.3,<13",
+    "pillow>=13.0.0,<14",
 ]
 
 [project.optional-dependencies]
