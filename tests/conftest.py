@@ -67,6 +67,42 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 _IZ_ANAHTARI = pytest.StashKey[tuple[tuple[str, int, int], ...]]()
 
 
+@pytest.fixture
+def guard_socket_connect(monkeypatch):
+    """Dış bağlantıları keserken Windows asyncio'nun kendi socketpair'ine izin ver."""
+    import socket
+    from contextvars import ContextVar
+
+    creating_pair = ContextVar("creating_test_socketpair", default=False)
+    original_socketpair = socket.socketpair
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def create_pair(*args, **kwargs):
+        token = creating_pair.set(True)
+        try:
+            return original_socketpair(*args, **kwargs)
+        finally:
+            creating_pair.reset(token)
+
+    def install(forbidden):
+        def connect(sock, address):
+            if creating_pair.get():
+                return original_connect(sock, address)
+            return forbidden(sock, address)
+
+        def connect_ex(sock, address):
+            if creating_pair.get():
+                return original_connect_ex(sock, address)
+            return forbidden(sock, address)
+
+        monkeypatch.setattr(socket, "socketpair", create_pair)
+        monkeypatch.setattr(socket.socket, "connect", connect)
+        monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+
+    return install
+
+
 @pytest.fixture(autouse=True)
 def test_yorumlayicisi_pathte(monkeypatch):
     """Kabukta koşan test komutları (`python`, `pytest`) testi koşan ortamı bulsun.

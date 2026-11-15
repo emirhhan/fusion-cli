@@ -507,10 +507,7 @@ async def test_giris_penceresi_yasayan_sureci_calisiyor_bildirir(tmp_path):
 
 
 async def test_giris_penceresi_kapandiginda_bitti_bildirir(tmp_path, monkeypatch):
-    def _yok(pid, signal):
-        raise ProcessLookupError
-
-    monkeypatch.setattr(gateway_app.os, "kill", _yok)
+    monkeypatch.setattr(gateway_app, "process_alive", lambda _pid: False)
     async with _client(_app(tmp_path)) as client:
         resp = await client.post("/api/web_sessions/login_state", json={"pid": 424242})
 

@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 from collections.abc import Callable, Mapping
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Protocol
 
 from evals.acceptance_command import AcceptanceCommand, plan_acceptance
+from evals.acceptance_windows import run_windows_acceptance
 from evals.execution import ModelCallIdentity, TaskExecution
 from evals.interactions import InteractionMetrics
 from evals.research_evidence import prepare_acceptance_evidence
@@ -242,6 +244,19 @@ class AgentTaskExecutor:
                 workspace, b"", (acceptance.unavailable_reason or "").encode("utf-8")
             )
             return EXIT_VERIFICATION_UNAVAILABLE
+        if sys.platform == "win32" and acceptance.chain is not None:
+            try:
+                result = await run_windows_acceptance(
+                    acceptance.chain, workspace, _verification_env(), SHELL_TIMEOUT_S
+                )
+            except TimeoutError:
+                _write_acceptance_evidence(workspace, b"", b"Acceptance command timed out")
+                return EXIT_VERIFICATION_TIMEOUT
+            except OSError as error:
+                _write_acceptance_evidence(workspace, b"", str(error).encode("utf-8"))
+                return EXIT_VERIFICATION_UNAVAILABLE
+            _write_acceptance_evidence(workspace, result.stdout, result.stderr)
+            return result.returncode
         try:
             process = await asyncio.create_subprocess_shell(
                 acceptance.command,
@@ -314,7 +329,7 @@ def _snapshot(root: Path) -> dict[str, str]:
     """Dizindeki tüm dosyaların göreli yol → içerik özeti eşlemesi."""
     snapshot: dict[str, str] = {}
     for path in root.rglob("*"):
-        if path.is_symlink():
+        if _link_or_reparse(path):
             raise EvalError("Değerlendirme çalışma dizini sembolik bağlantı içeremez.")
         if not path.is_file():
             continue
@@ -340,7 +355,7 @@ def _hash_file(path: Path) -> str:
 
 def _is_acceptance_asset(relative: str) -> bool:
     """Tohumdaki test ve test çalıştırma ayarları adaydan bağımsız kalır."""
-    path = Path(relative)
+    path = Path(relative.casefold() if sys.platform == "win32" else relative)
     return (
         any(part in {"tests", "test", ".pytest_cache", "__pycache__"} for part in path.parts)
         or path.name.startswith(("test_", "test."))
@@ -355,9 +370,11 @@ def _apply_candidate(
     workspace: Path, clean: Path, changed: set[str], frozen_inputs: frozenset[str]
 ) -> None:
     """Aday ürün farkını temiz tohumu bozmadan uygula; test farkını aktarma."""
+    frozen_paths = frozenset(Path(name) for name in frozen_inputs)
     for relative in sorted(changed):
+        relative_path = Path(relative)
         if _is_acceptance_asset(relative) or any(
-            relative == name or Path(name) in Path(relative).parents for name in frozen_inputs
+            path in frozen_paths for path in (relative_path, *relative_path.parents)
         ):
             continue
         source = workspace / relative
@@ -366,10 +383,21 @@ def _apply_candidate(
             workspace.joinpath(*Path(relative).parts[:index])
             for index in range(1, len(Path(relative).parts) + 1)
         ]
-        if any(part.is_symlink() for part in parts):
+        if any(_link_or_reparse(part) for part in parts):
             raise EvalError(f"Aday farkı sembolik bağlantı içeremez: {relative}")
         if source.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
         elif target.is_file():
             target.unlink()
+
+
+def _link_or_reparse(path: Path) -> bool:
+    if sys.platform == "win32":
+        try:
+            attributes = path.lstat().st_file_attributes
+        except FileNotFoundError:
+            return False
+        return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    else:
+        return path.is_symlink()

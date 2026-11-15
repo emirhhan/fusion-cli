@@ -254,8 +254,9 @@ def test_workflows_ve_mods_desteklenmiyor_diye_raporlanir(tmp_path):
         json.dumps({"hooks": {}, "modules": ["./mod.js"]}), encoding="utf-8"
     )
     result = runner.invoke(app, ["validate", str(root)])
-    assert "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor" in result.output
-    assert "'modules' (Claude mod'ları) Fusion'da desteklenmiyor" in result.output
+    output = " ".join(result.output.split())
+    assert "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor" in output
+    assert "'modules' (Claude mod'ları) Fusion'da desteklenmiyor" in output
 
 
 def test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir(tmp_path):
@@ -272,8 +273,9 @@ def test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir(tmp_path):
     )
     result = runner.invoke(app, ["validate", str(market)])
     assert result.exit_code == 0, result.output
-    assert 'Entry declares version "2.0.0" but' in result.output
-    assert 'plugin.json says "1.0.0". At install time, plugin.json wins' in result.output
+    output = " ".join(result.output.split())
+    assert 'Entry declares version "2.0.0" but' in output
+    assert 'plugin.json says "1.0.0". At install time, plugin.json wins' in output
 
 
 def _two_plugin_market(tmp_path):

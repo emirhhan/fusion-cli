@@ -11,8 +11,10 @@ görevler aynı kapıda açıkça listelenir.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -408,10 +410,10 @@ async def test_olcut_dogru_cozumu_kabul_eder(case, tmp_path: Path, monkeypatch):
         solution = {
             "large.py": case.task.setup["large.py"].replace("TARGET = 1\n", "TARGET = 42\n")
         }
-    _check_file_reference(case.task, solution, tmp_path)
+    await _check_file_reference(case.task, solution, tmp_path)
 
 
-def _check_file_reference(task, solution, root: Path):
+async def _check_file_reference(task, solution, root: Path):
     for path, content in {**task.setup, **solution}.items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -420,20 +422,25 @@ def _check_file_reference(task, solution, root: Path):
         else:
             target.write_text(content, encoding="utf-8")
     from evals.acceptance_command import plan_acceptance
+    from evals.acceptance_windows import run_windows_acceptance
     from evals.executor import _verification_env
 
     acceptance = plan_acceptance(task.criterion.command or "")
     assert acceptance.command is not None, acceptance.unavailable_reason
     command = acceptance.command
-    result = subprocess.run(
-        command,
-        shell=True,
-        cwd=root,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=_verification_env(),
-    )
+    if sys.platform == "win32":
+        assert acceptance.chain is not None
+        result = await run_windows_acceptance(acceptance.chain, root, _verification_env(), 120)
+    else:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            command,
+            shell=True,
+            cwd=root,
+            capture_output=True,
+            timeout=120,
+            env=_verification_env(),
+        )
     assert result.returncode == task.criterion.expected_exit_code, (
         task.id,
         command,

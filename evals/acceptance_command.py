@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 import sys
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 
 _SHELL_OPERATORS = frozenset({"&&", "||", ";"})
 _CONFIG_OPTIONS = frozenset({"-c", "--config", "--config-file", "--inifile", "--rcfile"})
@@ -39,6 +39,7 @@ class AcceptanceCommand:
     command: str | None
     frozen_inputs: frozenset[str] = frozenset()
     unavailable_reason: str | None = None
+    chain: CommandChain | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +57,7 @@ def plan_acceptance(command: str) -> AcceptanceCommand:
         has_cd = any(arguments[0] == "cd" for arguments in chain.commands)
         if has_cd and any(operator != "&&" for operator in chain.operators):
             raise ValueError("Dizin değiştiren kabul zinciri yalnız && içerebilir.")
-        rewritten = []
+        rewritten: list[tuple[str, ...]] = []
         frozen: set[str] = set()
         cwd = "."
         for arguments in chain.commands:
@@ -64,14 +65,15 @@ def plan_acceptance(command: str) -> AcceptanceCommand:
                 if len(arguments) != 2 or arguments[1].startswith("-"):
                     raise ValueError("Kabul dizini tek bir göreli tohum yolu olmalı.")
                 cwd = _relative_input(arguments[1], cwd)
-                rewritten.append(shlex.join(arguments))
+                rewritten.append(arguments)
             else:
                 frozen.update(_command_inputs(list(arguments), cwd))
-                rewritten.append(shlex.join(_trusted_python(list(arguments))))
-        joined = rewritten[0]
+                rewritten.append(tuple(_trusted_python(list(arguments))))
+        command_chain = CommandChain(tuple(rewritten), chain.operators)
+        joined = shlex.join(rewritten[0])
         for operator, part in zip(chain.operators, rewritten[1:], strict=True):
-            joined += f" {operator} {part}"
-        return AcceptanceCommand(joined, frozenset(frozen))
+            joined += f" {operator} {shlex.join(part)}"
+        return AcceptanceCommand(joined, frozenset(frozen), chain=command_chain)
     except ValueError as error:
         return AcceptanceCommand(None, unavailable_reason=str(error))
 
@@ -149,6 +151,7 @@ def _relative_input(value: str, cwd: str) -> str:
     if (
         not value
         or path.is_absolute()
+        or PureWindowsPath(value).anchor
         or ".." in path.parts
         or any(marker in value for marker in _INPUT_EXPANSIONS)
     ):

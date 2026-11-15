@@ -62,7 +62,9 @@ async def test_accepted_target_survives_await_and_scope_clears(tmp_path, monkeyp
 
     async def executor(identifier, future):
         queue = session._chrome._devices.target().queue
-        packets.append(queue.get_nowait())
+        packet = queue.get_nowait()
+        assert packet["id"] == identifier
+        packets.append(packet)
         return {"ok": True, "veri": {}}
 
     monkeypatch.setattr(session._chrome, "_await_command", executor)
@@ -70,7 +72,8 @@ async def test_accepted_target_survives_await_and_scope_clears(tmp_path, monkeyp
     async def run(_task, _config, **kwargs):
         entered.set()
         await release.wait()
-        await kwargs["chrome_bridge"].invoke("snapshot", {})
+        response = await kwargs["chrome_bridge"].invoke("snapshot", {})
+        assert response["ok"] is True, response
         return SimpleNamespace(ok=True, final_text="ok", messages=[])
 
     monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
@@ -86,12 +89,15 @@ async def test_accepted_target_survives_await_and_scope_clears(tmp_path, monkeyp
         # suite can exceed the real device TTL; this test is not a disconnect test.
         session._chrome._mark_command_channel_alive()
         release.set()
-        await asyncio.wait_for(pending, 5)
-        assert packets[0]["taskScope"]["tabId"] == 7
-        assert packets[0]["taskScope"]["origin"] == "https://example.com"
+        response = await asyncio.wait_for(pending, 5)
+        assert response["ok"] is True, response
+        (snapshot,) = [packet for packet in packets if packet["islem"] == "snapshot"]
+        assert snapshot["taskScope"]["tabId"] == 7
+        assert snapshot["taskScope"]["origin"] == "https://example.com"
         # An unrelated unrestricted/manual command does not inherit finished work.
         await session._chrome.invoke("navigate", {"url": "https://foreign.test/"})
-        assert "taskScope" not in packets[1]
+        (navigation,) = [packet for packet in packets if packet["islem"] == "navigate"]
+        assert "taskScope" not in navigation
     finally:
         release.set()
         await asyncio.gather(pending, return_exceptions=True)

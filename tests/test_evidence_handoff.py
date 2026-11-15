@@ -148,10 +148,9 @@ async def test_gercek_alt_ajan_girisi_kisitlari_ve_ortak_butceyi_korur(
 
 
 @pytest.fixture
-def scripted_teacher_runtime(monkeypatch):
+def scripted_teacher_runtime(monkeypatch, guard_socket_connect):
     """Yardımcı model ve ağ sınırları da çevrimdışı kalır."""
     import importlib
-    import socket
 
     import litellm
 
@@ -177,7 +176,7 @@ def scripted_teacher_runtime(monkeypatch):
     async def async_forbidden(*args, **kwargs):
         return forbidden(*args, **kwargs)
 
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    guard_socket_connect(forbidden)
     monkeypatch.setattr(litellm, "completion", forbidden)
     monkeypatch.setattr(litellm, "acompletion", async_forbidden)
     yield

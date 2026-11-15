@@ -23,15 +23,14 @@ TASK = (
 
 
 @pytest.fixture(autouse=True)
-def no_external_network(monkeypatch):
+def no_external_network(monkeypatch, guard_socket_connect):
     import socket
 
     def forbidden(*args, **kwargs):
         raise AssertionError("source coverage tests must not contact external services")
 
     monkeypatch.setattr(socket, "create_connection", forbidden)
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
-    monkeypatch.setattr(socket.socket, "connect_ex", forbidden)
+    guard_socket_connect(forbidden)
 
 
 class ChromeReply:

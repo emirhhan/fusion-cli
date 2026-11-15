@@ -13,6 +13,45 @@ from evals.executor import AgentRunObservation, AgentTaskExecutor
 from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
 
 
+async def test_windows_kabul_argv_zincirini_kabuksuz_calistirir(tmp_path):
+    from evals.acceptance_command import plan_acceptance
+    from evals.acceptance_windows import run_windows_acceptance
+    from evals.executor import _verification_env
+
+    project = tmp_path / "space dir"
+    project.mkdir()
+    (project / "verify.py").write_text(
+        "import sys\nassert sys.argv[1:] == ['A&B']\nprint('passed')\n", encoding="utf-8"
+    )
+    acceptance = plan_acceptance("cd 'space dir' && python verify.py 'A&B'")
+    assert acceptance.chain is not None
+
+    result = await run_windows_acceptance(acceptance.chain, tmp_path, _verification_env(), 10)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == b"passed"
+
+
+def test_kabul_korunan_ic_ayar_dosyasini_adaydan_almaz(tmp_path):
+    from evals.executor import _apply_candidate, _snapshot
+
+    workspace, clean = tmp_path / "candidate", tmp_path / "reference"
+    config = Path("sub") / "custom.ini"
+    for root, value in ((workspace, "candidate"), (clean, "original")):
+        (root / config).parent.mkdir(parents=True)
+        (root / config).write_text(value, encoding="utf-8")
+    _apply_candidate(workspace, clean, set(_snapshot(workspace)), frozenset({"sub/custom.ini"}))
+    assert (clean / config).read_text(encoding="utf-8") == "original"
+
+
+def test_kabul_ayari_surucu_kokune_isaret_edemez():
+    from evals.acceptance_command import plan_acceptance
+
+    acceptance = plan_acceptance("python -m pytest -c C:/example/custom.ini")
+    assert acceptance.command is None
+    assert acceptance.unavailable_reason
+
+
 class _FakeRunner:
     """Kök dizine önceden belirlenmiş dosyalar yazan ve sabit gözlem döndüren koşucu."""
 
@@ -310,6 +349,7 @@ async def test_dogrulama_zaman_asimi_ve_calistirilamama_beklenen_kodla_eslesmez(
         raise OSError("kabuk yok")
 
     monkeypatch.setattr(asyncio, "create_subprocess_shell", bozuk)
+    monkeypatch.setattr(executor_module, "run_windows_acceptance", bozuk)
     executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
     execution = await executor.run(task)
     assert execution.exit_code == executor_module.EXIT_VERIFICATION_UNAVAILABLE

@@ -15,7 +15,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 import random
 import re
 import shutil
@@ -36,6 +35,7 @@ from ..config.models import Config, McpServerConfig, McpTransport
 from ..core.compression import compress_messages, saved_chars
 from ..core.errors import ConfigError, FusionError
 from ..core.health import HealthRegistry
+from ..core.process_liveness import process_alive
 from ..core.protocols import LlmProvider
 from ..core.redaction import StreamRedactor, redact
 from ..core.routing_strategy import RoutingStrategy, order_models
@@ -1571,22 +1571,13 @@ def _build_key_pools(config: Config) -> KeyPoolRegistry:
 
 
 def _process_alive(pid: int) -> bool:
-    """Bir süreç hâlâ yaşıyor mu? (sinyal göndermeden yoklar)
-
-    `signal 0` süreci etkilemez, yalnızca varlığını sorar. `PermissionError`
-    süreç BAŞKASINA ait demektir — yani yaşıyordur.
-    """
+    """Panel, durum doğrulanamadığında giriş penceresini açık kabul eder."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
+        return process_alive(pid) is not False
     except OSError:
         # Platform desteklemiyorsa "bilmiyorum" yerine "bitti" demek, panelin
         # sonsuza kadar beklemesinden iyidir: kullanıcı yine elle doğrulayabilir.
         return False
-    return True
 
 
 def _error_body(message: str) -> dict[str, Any]:
