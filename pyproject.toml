@@ -26,7 +26,7 @@ dependencies = [
     # Ortak bilgi paketinin Ed25519 imza doğrulaması için (stdlib'de Ed25519 yok).
     # Üst sınır 46 -> 51: 50.0.1 ile tam paket (2.560 test) ve anahtar/sır testleri
     # doğrulandı. Sınır tamamen kaldırılmıyor; bir sonraki ana sürüm yine ölçülsün.
-    "cryptography>=42,<51",
+    "cryptography>=50.0.2,<51",
     # API keys and web-session cookies use the OS credential vault when available.
     "keyring>=25,<27",
     # Ajanın ürettiği görseli tam ölçüye getirme ve srcset kopyaları (WebP/AVIF).
