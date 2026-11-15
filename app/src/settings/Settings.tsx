@@ -98,12 +98,14 @@ interface SettingsProps {
   onRunCommand?: (command: string) => void | CommandResult | Promise<void | CommandResult>;
   /** Etkin oturumda tur sürüyor mu? Sürüyorsa uygulama güncellemesi kurulamaz (yeniden başlatma turu keser). */
   turnRunning?: boolean;
+  availableUpdateVersion?: string | null;
   /** Kurulum sihirbazını yeniden açar; verilmezse "Kurulum" kartı gösterilmez. */
   onReopenSetup?: () => void;
 }
 
 export function Settings({
   accountContent,
+  availableUpdateVersion,
   client,
   initialSection = "genel",
   initialFocus,
@@ -388,7 +390,7 @@ export function Settings({
 
           {bolum === "uzak" && <RemoteAccess client={client} />}
 
-          {bolum === "guncellemeler" && <><UpdatePanel turnRunning={turnRunning} /><ReleaseNotesPanel client={client} /></>}
+          {bolum === "guncellemeler" && <><UpdatePanel announcedVersion={availableUpdateVersion} turnRunning={turnRunning} /><ReleaseNotesPanel client={client} /></>}
 
           {bolum === "nasil" && <HowTo onOpenSettings={setBolum} />}
 

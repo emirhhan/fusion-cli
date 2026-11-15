@@ -16,6 +16,52 @@ def test_istem_gorsel_niyetini_acikca_soyler():
     assert image_prompt("Bir görsel oluştur: mavi eldiven") == "Bir görsel oluştur: mavi eldiven"
 
 
+async def test_chatgpt_gorsel_hatasi_yalniz_bir_kez_yeniden_denir(tmp_path, monkeypatch):
+    import pytest
+
+    from fusion_cli.providers import web_image
+    from fusion_cli.providers.web_browser import WebBrowserError, provider_definition
+
+    class Retry:
+        clicks = 0
+
+        @property
+        def first(self):
+            return self
+
+        async def is_visible(self):
+            return True
+
+        async def click(self, **_options):
+            self.clicks += 1
+
+    class Page:
+        retry = Retry()
+
+        async def evaluate(self, _script, _arguments):
+            return []
+
+        async def inner_text(self, _selector):
+            return "Yeniden dene"
+
+        def locator(self, _selector):
+            return self
+
+        def get_by_role(self, role, *, name):
+            assert role == "button" and name.fullmatch("Yeniden dene")
+            return self.retry
+
+    monkeypatch.setattr(web_image, "_POLL_S", 0.001)
+    monkeypatch.setattr(web_image, "_BLOCK_CHECK_EVERY", 10_000)
+    monkeypatch.setattr(web_image, "_CHATGPT_RETRY_GRACE_S", 0)
+    page = Page()
+    with pytest.raises(WebBrowserError, match="yeniden denemeye rağmen"):
+        await web_image._wait_and_extract(
+            page, provider_definition("chatgpt_web"), ("img",), tmp_path, 0.5
+        )
+    assert page.retry.clicks == 1
+
+
 def test_png_kayitlari_dosyaya_yazilir_png_olmayan_atlanir(tmp_path):
     zaman = datetime(2026, 9, 26, 22, 0, 0)
     kayitlar = save_images(

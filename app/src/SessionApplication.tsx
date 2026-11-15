@@ -1839,6 +1839,7 @@ export function SessionUygulama({
             onThemeChange={changeTheme}
             themePreference={themePreference}
             turnRunning={Boolean(active.running)}
+            availableUpdateVersion={guncellemeSurumu}
           />
         )
       : page === "help"
@@ -2338,7 +2339,7 @@ export function SessionUygulama({
           ]}
           guncellemeSurumu={guncellemeSurumu}
           prDurumlari={prDurumlari}
-          onGuncellemeAc={() => setPage("settings")}
+          onGuncellemeAc={() => { setSettingsSection("guncellemeler"); setPage("settings"); }}
           hesap={etkinHesap}
           onCikis={() => {
             // Çıkış sonrası pencere yeniden yüklenir: hesabın yapılandırması

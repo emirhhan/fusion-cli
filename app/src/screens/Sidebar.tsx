@@ -566,6 +566,7 @@ export function Sidebar({
                   satırından, kişiselleştirme Ayarlar'ın içinden açılır. Eski "Daha fazla" alt
                   açılırındaki araçlar ana menüye taşındı; ikinci bir açılır yoktur. */}
               <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>{t("menu.ayarlar")}</span></button>
+              {onGuncellemeAc && <button onClick={() => { setProfileOpen(false); onGuncellemeAc(); }} role="menuitem" type="button"><Icon name="changes" /><span>{t("ayarlar.bolum.guncellemeler")}</span></button>}
               <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>{t("menu.kontrol")}</span></button>
               <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>{t("menu.beceriler")}</span></button>
               <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>{t("menu.mcp")}</span></button>

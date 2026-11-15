@@ -838,6 +838,24 @@ async def test_gorunmez_kipte_pencere_acilamazsa_beklenmez(pool, monkeypatch):
     assert beklendi["n"] == 0
 
 
+async def test_gizli_kip_insan_dogrulamasinda_chromeu_one_getirmez(monkeypatch):
+    from dataclasses import replace
+
+    session = replace(_session(), headless=web_browser.WindowMode.HIDDEN)
+    browser = _SahteTarayici()
+    monkeypatch.setattr(web_browser, "_shared_profile_browser", lambda *_: browser)
+
+    async def challenge(page, definition):
+        raise _DOGRULAMA
+
+    with pytest.raises(web_browser.WebBrowserAuthError, match="insan doğrulaması"):
+        await web_browser._open_past_human_verification(
+            None, web_browser.provider_definition(session.provider), session, 30, challenge
+        )
+
+    assert browser.notlar == []
+
+
 async def test_oturum_zaman_asimi_yanit_beklemeye_gecirilir(pool, monkeypatch):
     """P1-03: `limit_s` geçirilmezse 180 sn varsayılanı sahte seçici hatası üretirdi.
 
@@ -1028,3 +1046,18 @@ async def test_katı_secimde_pasif_mod_oturum_hatasi_olur_tekrar_denenmez(pool, 
 
     assert cagri == ["3.1 Pro"], "pasif mod ikinci kez denenmemeli"
     assert not [entry for entry in log if entry[0] == "send"], "mesaj gönderilmemeli"
+
+
+async def test_chatgpt_keeps_successful_tab_across_idle_release():
+    pool = BrowserSessionPool(idle_release_s=0)
+    page = _FakePage([])
+    pool.schedule_idle_release("chatgpt_web", "main")
+    assert ("chatgpt_web", "main") in pool._idle_timers
+    pool.remember_conversation("chatgpt_web", "main", "root", web_browser.ConversationState(page=page))
+    pool.schedule_idle_release("chatgpt_web", "main")
+    await pool._release_idle(("chatgpt_web", "main"))
+    assert not pool._idle_timers
+    assert pool.conversation("chatgpt_web", "main", "root").page is page
+    assert not page.is_closed()
+    await pool.close()
+    assert page.is_closed()

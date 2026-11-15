@@ -67,7 +67,7 @@ _KURULUM_TALIMATI = (
 
 _LOCAL_PREFIXES = ("localhost", "127.0.0.1", "[::1]")
 SHARED_HEADED_NOTE = (
-    "not: headed yok sayıldı; tarayıcı kullanıcıyla paylaşılıyor ve Tarayıcı panelinde görünür."
+    "not: headed yok sayıldı; tarayıcı aracı arka planda çalışır."
 )
 
 
@@ -91,7 +91,7 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Bir adresi aç (oturum yoksa başlat) ve sayfanın görünür metnini döndür.
 
     `profile` (P-023): `fusion browser` ile kurulan kullanıcı oturumu profili; çerezleri
-    yalnız onaylı alan adlarında yüklenir. `headed`: pencere görünür açılır.
+    yalnız onaylı alan adlarında yüklenir.
     """
     url = normalize_url(require_str(args, "url"))
     # SSRF doğrulaması `web_fetch` ile AYNI kapıdan geçer: tarayıcı olması adresi
@@ -101,14 +101,8 @@ async def browser_open(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
 
     profile = optional_str(args, "profile", "").strip()
-    headed = is_truthy(args.get("headed"))
-    shared_note = ""
-    if headed and context.browser.persistent:
-        # Paylaşılan tarayıcı (P-045) panelde ya da kullanıcının penceresinde zaten görünür;
-        # `headed` ikinci bir yerel pencere açardı (ölçüldü 31 Ekim, inceleme).
-        headed = False
-        shared_note = SHARED_HEADED_NOTE
-    page, hata = await _sayfa(context, profile=profile, headed=headed)
+    shared_note = SHARED_HEADED_NOTE if is_truthy(args.get("headed")) else ""
+    page, hata = await _sayfa(context, profile=profile)
     if page is None:
         return ToolResult.failure(hata)
     try:
@@ -425,7 +419,7 @@ def start_lock(oturum: BrowserSession) -> asyncio.Lock:
 
 
 async def _sayfa(
-    context: ToolContext, *, baslatma: bool = True, profile: str = "", headed: bool = False
+    context: ToolContext, *, baslatma: bool = True, profile: str = ""
 ) -> tuple[Any, str]:
     """Etkin sayfayı getir; yoksa (ve izin varsa) oturumu başlat.
 
@@ -453,7 +447,8 @@ async def _sayfa(
     async with start_lock(oturum):
         if _is_open(oturum):  # kilidi beklerken başka çağrı başlatmış olabilir
             return oturum.page, ""
-        return await start_session(oturum, allowed_local(context), profile=profile, headed=headed)
+        oturum.headless = True
+        return await start_session(oturum, allowed_local(context), profile=profile)
 
 
 def _is_open(oturum: BrowserSession) -> bool:

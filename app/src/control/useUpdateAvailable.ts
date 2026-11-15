@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 /** Kontrol için tanınan süre (ms). Açılışı geciktirmeyecek kadar kısa. */
 const TIMEOUT_MS = 15_000;
 /** Uzun süre açık kalan uygulama yeni sürümü görsün diye periyodik yeniden kontrol (U5-44). */
-export const YENIDEN_KONTROL_MS = 6 * 60 * 60 * 1000;
+export const YENIDEN_KONTROL_MS = 30 * 60 * 1000;
 
 export function useUpdateAvailable(): string | null {
   const [surum, setSurum] = useState<string | null>(null);

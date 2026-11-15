@@ -16,6 +16,7 @@ from fusion_cli.providers.macos_window import UNSUPPORTED_MESSAGE, WindowHideRes
 from fusion_cli.providers.web_shared_browser import (
     DEVTOOLS_PORT_FILE,
     LEASE_DIR,
+    WINDOW_MODE_FILE,
     SharedBrowserError,
     SharedBrowserHooks,
     SharedProfileBrowser,
@@ -32,8 +33,8 @@ class _FakeChrome:
         self.launches = 0
         self.closed: list[str] = []
         self.alive = False
-        #: Her başlatmada Chrome'a headless bayrağı verildi mi?
-        self.headless_launches: list[bool] = []
+        #: Her başlatmada Chrome'a verilen pencere kipi.
+        self.launch_modes: list[WindowMode] = []
         #: Pencere gizleme hangi profiller için çağrıldı?
         self.hidden: list[Path] = []
         #: Doluysa gizleme bu kullanıcı metniyle başarısız olur (ör. izin yok).
@@ -41,9 +42,9 @@ class _FakeChrome:
         self._can_hide = can_hide
 
     def hooks(self, *, prepare=lambda _profile: None) -> SharedBrowserHooks:
-        async def launch(profile: Path, headless: bool) -> None:
+        async def launch(profile: Path, mode: WindowMode) -> None:
             self.launches += 1
-            self.headless_launches.append(headless)
+            self.launch_modes.append(mode)
             # Gerçek Chrome gibi portu biraz gecikmeyle yazar.
             await asyncio.sleep(0.01)
             (profile / DEVTOOLS_PORT_FILE).write_text("41234\n/devtools/browser/x\n")
@@ -90,6 +91,19 @@ async def test_ikinci_surec_calisan_chromeu_yeniden_baslatmadan_kullanir(tmp_pat
 
     assert first == second == "http://127.0.0.1:41234"
     assert chrome.launches == 1
+
+
+async def test_eski_gizli_chrome_yeni_baslangic_sekliyle_degistirilir(tmp_path):
+    chrome = _FakeChrome()
+    await _browser(tmp_path, chrome, _dead_pid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+    (tmp_path / WINDOW_MODE_FILE).write_text("hidden")
+    browser = _browser(tmp_path, chrome, os.getpid())
+
+    await browser.acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+    await browser.acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    assert chrome.closed == ["http://127.0.0.1:41234"]
+    assert chrome.launch_modes == [WindowMode.HIDDEN, WindowMode.HIDDEN]
 
 
 async def test_ayni_anda_kiralayan_surecler_tek_chrome_baslatir(tmp_path):
@@ -211,7 +225,7 @@ async def test_gizli_kip_chromeu_headless_bayragi_olmadan_acar(tmp_path):
 
     await _browser(tmp_path, chrome, os.getpid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
 
-    assert chrome.headless_launches == [False]
+    assert chrome.launch_modes == [WindowMode.HIDDEN]
     assert chrome.hidden == [tmp_path]
 
 
@@ -257,7 +271,7 @@ async def test_gizlenemeyen_platformda_gizli_kip_gorunmeze_duser(tmp_path):
 
     await _browser(tmp_path, chrome, os.getpid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
 
-    assert chrome.headless_launches == [True], "gizlenemeyen pencere açıldı"
+    assert chrome.launch_modes == [WindowMode.HEADLESS], "gizlenemeyen pencere açıldı"
     assert chrome.hidden == []
     assert read_window_notice(tmp_path) == UNSUPPORTED_MESSAGE
 
@@ -278,7 +292,7 @@ async def test_headless_kipte_pencere_gizleme_cagrilmaz(tmp_path):
 
     await _browser(tmp_path, chrome, os.getpid()).acquire(headless=True, timeout_s=2)
 
-    assert chrome.headless_launches == [True]
+    assert chrome.launch_modes == [WindowMode.HEADLESS]
     assert chrome.hidden == []
 
 
@@ -290,6 +304,20 @@ def test_chrome_komutu_otomasyon_bayragi_tasimaz_ve_portu_isletim_sistemine_bira
     assert "--remote-debugging-port=0" in arguments
     assert "--headless=new" in arguments
     assert not any("enable-automation" in argument for argument in arguments)
+
+
+def test_macos_gizli_chrome_launchservices_ile_odak_almadan_acilir(tmp_path, monkeypatch):
+    monkeypatch.setattr("fusion_cli.providers.web_shared_browser.sys.platform", "darwin")
+    app = "/Applications/Google Chrome.app"
+    executable = f"{app}/Contents/MacOS/Google Chrome"
+
+    arguments = chrome_launch_arguments(executable, tmp_path, headless=WindowMode.HIDDEN)
+
+    assert arguments[:7] == ["/usr/bin/open", "-g", "-j", "-n", "-a", app, "--args"]
+    assert f"--user-data-dir={tmp_path}" in arguments
+    assert "--no-startup-window" in arguments
+    assert "about:blank" not in arguments
+    assert "--headless=new" not in arguments
 
 
 async def test_yeni_sekmeden_sonra_gizli_pencere_yeniden_gizlenir(tmp_path):

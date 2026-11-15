@@ -788,10 +788,6 @@ _TOOLS: tuple[Tool, ...] = (
                     "description": "Kullanıcının kurduğu tarayıcı profili adı (girişli oturum); "
                     "yalnız kullanıcı isterse. Boş: çerezsiz.",
                 },
-                "headed": {
-                    "type": "boolean",
-                    "description": "true ise pencere görünür açılır (giriş/CAPTCHA için).",
-                },
             },
             ["url"],
         ),
