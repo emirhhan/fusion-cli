@@ -71,7 +71,8 @@ def visible_hidden_apps(
 
 def onscreen_owners() -> tuple[str, ...] | None:
     """Ekrandaki (katman 0) pencerelerin sahip uygulama adları; macOS dışında/hata → None."""
-    if sys.platform != "darwin":
+    platform = sys.platform
+    if platform != "darwin":
         return None
     try:
         graphics = ctypes.CDLL(_CORE_GRAPHICS)

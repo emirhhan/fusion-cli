@@ -6,6 +6,7 @@ import io
 import json
 
 from fusion_cli.core.events import (
+    McpDiscoveryDiagnostic,
     ModelCallFinished,
     ToolCallRepaired,
     ToolExecuted,
@@ -222,16 +223,24 @@ async def test_cli_receipt_attempt_reaches_tool_events_and_legacy_caller(monkeyp
     wire_events = [json.loads(line)["veri"] for line in emitted]
     json_events = [json.loads(line) for line in jsonl.getvalue().splitlines()]
     keys = ("event_id", "session_id", "turn_id", "attempt_id")
-    assert len(wire_events) == len(json_events) == len(sink.events)
-    for wire_event, json_event, recorded in zip(wire_events, json_events, sink.events, strict=True):
+    assert len(json_events) == len(sink.events)
+    for json_event, recorded in zip(json_events, sink.events, strict=True):
+        assert {key: json_event.get(key) for key in keys} == {
+            key: getattr(recorded, key, None) for key in keys
+        }
+    # MCP discovery diagnostics are intentionally limited to local sinks.
+    public_json_events = [
+        item
+        for item, recorded in zip(json_events, sink.events, strict=True)
+        if not isinstance(recorded, McpDiscoveryDiagnostic)
+    ]
+    assert len(public_json_events) == len(wire_events)
+    for wire_event, json_event in zip(wire_events, public_json_events, strict=True):
         assert {key: wire_event.get(key) for key in keys} == {
             key: json_event.get(key) for key in keys
         }
-        assert {key: wire_event.get(key) for key in keys} == {
-            key: getattr(recorded, key, None) for key in keys
-        }
-    assert [event["event_id"] for event in wire_events] == [
-        f"{receipt.attempt_id}:{index}" for index in range(41, 41 + len(wire_events))
+    assert [event["event_id"] for event in json_events] == [
+        f"{receipt.attempt_id}:{index}" for index in range(41, 41 + len(json_events))
     ]
     legacy = RecordingSink()
     await session.run_agent_task(

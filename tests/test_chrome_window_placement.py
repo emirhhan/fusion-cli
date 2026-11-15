@@ -18,12 +18,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from fusion_cli.core.window_mode import WindowMode
-from fusion_cli.providers.web_shared_browser import chrome_launch_arguments
+from fusion_cli.providers.web_shared_browser import SharedBrowserError, chrome_launch_arguments
 
 
 def _args(*, headless: bool | WindowMode) -> list[str]:
-    return chrome_launch_arguments("/tmp/chrome", Path("/tmp/profil"), headless=headless)
+    executable = "/tmp/Test Chrome.app/Contents/MacOS/Test Chrome"
+    return chrome_launch_arguments(executable, Path("/tmp/profil"), headless=headless)
 
 
 def test_gorunur_kipte_pencere_ekran_disina_alinir():
@@ -74,6 +77,13 @@ def test_gizli_kip_de_otomasyon_bayragi_tasimaz():
 
     assert not any("--enable-automation" in argument for argument in args)
     assert not any("--disable-blink-features" in argument for argument in args)
+
+
+def test_macos_gizli_kip_uygulama_paketi_olmadan_acilmaz(tmp_path, monkeypatch):
+    monkeypatch.setattr("fusion_cli.providers.web_shared_browser.sys.platform", "darwin")
+
+    with pytest.raises(SharedBrowserError, match="uygulama paketi bulunamadı"):
+        chrome_launch_arguments(str(tmp_path / "chrome"), tmp_path, headless=WindowMode.HIDDEN)
 
 
 def test_eski_boolean_cagrilari_ayni_kipleri_verir():

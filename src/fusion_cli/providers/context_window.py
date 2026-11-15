@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 
 import httpx
@@ -60,10 +61,13 @@ def _ram_cap(ram_bytes: int) -> int:
 
 def _total_ram_bytes() -> int | None:
     """Toplam fiziksel bellek; platform desteklemiyorsa `None`."""
-    try:
-        return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))
-    except (AttributeError, ValueError, OSError):
+    if sys.platform == "win32":
         return None
+    else:
+        try:
+            return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))
+        except (AttributeError, ValueError, OSError):
+            return None
 
 
 def _ollama_context_length(model: str, api_base: str) -> int | None:

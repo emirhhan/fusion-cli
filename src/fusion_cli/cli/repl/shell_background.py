@@ -78,27 +78,30 @@ def watch_ctrl_b(detach: ShellDetach, *, enabled: bool = True) -> Iterator[None]
     Yalnız gerçek terminalde (TTY, POSIX) etkindir; tam ekran TUI'de prompt_toolkit tuşu
     kendisi okur (`enabled=False`). Çıkışta terminal kipi geri yüklenir.
     """
-    if not enabled or not _stdin_is_tty():
+    if sys.platform == "win32":
         yield
-        return
-    import termios
-    import tty
+    else:
+        if not enabled or not _stdin_is_tty():
+            yield
+            return
+        import termios
+        import tty
 
-    fd = sys.stdin.fileno()
-    try:
-        saved = termios.tcgetattr(fd)
-        loop = asyncio.get_running_loop()
-    except (termios.error, OSError, RuntimeError):
-        yield
-        return
-    tty.setcbreak(fd)
-    loop.add_reader(fd, lambda: _on_key(fd, detach))
-    try:
-        yield
-    finally:
-        loop.remove_reader(fd)
-        with contextlib.suppress(termios.error, OSError):
-            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        fd = sys.stdin.fileno()
+        try:
+            saved = termios.tcgetattr(fd)
+            loop = asyncio.get_running_loop()
+        except (termios.error, OSError, RuntimeError):
+            yield
+            return
+        tty.setcbreak(fd)
+        loop.add_reader(fd, lambda: _on_key(fd, detach))
+        try:
+            yield
+        finally:
+            loop.remove_reader(fd)
+            with contextlib.suppress(termios.error, OSError):
+                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
 def _stdin_is_tty() -> bool:

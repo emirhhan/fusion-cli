@@ -1,8 +1,13 @@
 """Reading sources does not turn a standalone report into a runtime integration."""
 
+import json
+
 import pytest
 
+from fusion_cli.core.evidence import EvidenceStatus
+from fusion_cli.engines.agent import loop
 from fusion_cli.engines.agent.teacher_plan import classify_teacher_task, is_bounded_single_file_task
+from tests.fakes import model_result
 from tests.test_mixed_current_research import assert_research_and_artifact_required
 
 CURRENT_REPORT = (
@@ -12,6 +17,52 @@ CURRENT_REPORT = (
     "bugünkü erişim tarihini belirt; ön sürümleri kararlı sürüm diye yazma. "
     "Tek bir HTML dosyası olsun; harici bağımlılık kullanma."
 )
+
+
+def install_report_judge(monkeypatch, *, url, fact):
+    async def judge(prompt, config, publisher, *, disable_thinking, response_schema):
+        payload = json.loads(prompt.split("\nDATA\n", 1)[1])
+        source = next(source for source in payload["sources"] if source["requested_url"] == url)
+        cite = next(key for key, text in source["spans"].items() if fact in text)
+        factual = [key for key, span in payload["target"].items() if fact in span["text"]]
+        assert factual
+        claims = [
+            {
+                "targets": factual,
+                "kind": "supported",
+                "sources": [cite],
+                "basis": "The report repeats the release dates in the document fixture.",
+            }
+        ]
+        other = [key for key in payload["target"] if key not in factual]
+        if other:
+            claims.append(
+                {
+                    "targets": other,
+                    "kind": "nonfactual",
+                    "sources": [],
+                    "basis": "Delivery status and navigation only.",
+                }
+            )
+        return model_result(
+            json.dumps(
+                {
+                    "target_digest": payload["target_digest"],
+                    "source_digest": payload["source_digest"],
+                    "claims": claims,
+                }
+            )
+        )
+
+    monkeypatch.setattr(loop.review, "_ask", judge)
+
+
+def assert_report_grounding_passed(outcome):
+    gate = outcome.completion_report.gate
+    assert any(
+        item.criterion_id == "research_grounding" and item.status is EvidenceStatus.PASSED
+        for item in gate.evidence
+    )
 
 
 @pytest.mark.parametrize("verb", ["okuyarak", "okuyup"])
@@ -105,19 +156,16 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
 ):
     from dataclasses import replace
 
-    from fusion_cli.core.tools import ToolResult
     from fusion_cli.core.verification import VerificationResult
-    from fusion_cli.engines.agent import loop
-    from fusion_cli.tools.builtin import build_registry
-    from fusion_cli.tools.registry import ToolRegistry
-    from tests.fakes import model_result, tool_call
+    from fusion_cli.tools import web
+    from tests.fakes import tool_call
     from tests.test_teacher_first import _setup
 
     # Deliberately a test fixture, not a claim about current Python releases.
-    html = '<main>Test source fixture: stable A and B. <a href="https://www.python.org/downloads/">Source</a></main>'
-    answers = [
-        model_result(tool_calls=(tool_call("web_fetch", url="https://www.python.org/downloads/"),))
-    ]
+    url = "https://www.python.org/downloads/"
+    fact = "Fixture A was released on 2031-10-25 and fixture B on 2031-09-12."
+    html = f'<main>{fact} <a href="{url}">Source</a></main>'
+    answers = [model_result(tool_calls=(tool_call("web_fetch", url=url),))]
     answers.extend(
         [
             model_result(tool_calls=(tool_call("write_file", path="rapor.html", content=html),)),
@@ -126,21 +174,18 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
     )
     deps, _sink, teacher, apprentice = _setup(monkeypatch, tmp_path, apprentice_answers=answers)
     deps.config = replace(deps.config, runtime=replace(deps.config.runtime, self_review=True))
-    registry = ToolRegistry()
     reads = []
 
-    def source_fixture(args, context):
-        reads.append(args["url"])
-        return ToolResult("Test source fixture only: stable A and B; not current publication data.")
+    def source_fixture(requested_url):
+        reads.append(requested_url)
+        return "text/plain", fact, requested_url
 
-    for tool in build_registry():
-        registry.register(replace(tool, run=source_fixture) if tool.name == "web_fetch" else tool)
-    deps.base_registry = registry
-    reviews = []
+    monkeypatch.setattr(web, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(web, "fetch_following_redirects", source_fixture)
+    install_report_judge(monkeypatch, url=url, fact=fact)
 
     async def ordinary_review(*args, **kwargs):
-        reviews.append(True)
-        return ""
+        pytest.fail("The factual gate already reviews this report")
 
     class FileVerifier:
         calls = 0
@@ -158,8 +203,9 @@ async def test_report_engine_reads_sources_without_forced_teacher_and_keeps_revi
     assert (tmp_path / "rapor.html").read_text() == html
     assert teacher.calls == 0
     assert outcome.ok
-    assert reads == ["https://www.python.org/downloads/"]
-    assert verifier.calls == 1 and reviews == [True]
+    assert reads == [url]
+    assert verifier.calls == 1
+    assert_report_grounding_passed(outcome)
     assert apprentice.calls == 3
     assert any(
         schema["function"]["name"] == "ask_teacher" for schema in apprentice.seen_requests[0]

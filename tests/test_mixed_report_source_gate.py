@@ -8,7 +8,11 @@ from fusion_cli.core.types import Message, ModelSpec
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import _tool_evidence_satisfied
 from tests.fakes import make_config
-from tests.test_teacher_source_reports import CURRENT_REPORT
+from tests.test_teacher_source_reports import (
+    CURRENT_REPORT,
+    assert_report_grounding_passed,
+    install_report_judge,
+)
 
 URL = "https://www.python.org/downloads/"
 
@@ -121,14 +125,13 @@ def test_read_one_source_and_link_another_do_not_conflate_urls():
 async def test_actual_report_engine_requires_artifact_and_named_source(tmp_path, monkeypatch, case):
     from dataclasses import replace
 
-    from fusion_cli.core.tools import ToolResult
     from fusion_cli.engines.agent import loop
-    from fusion_cli.tools.builtin import build_registry
-    from fusion_cli.tools.registry import ToolRegistry
+    from fusion_cli.tools import web
     from tests.fakes import model_result, tool_call
     from tests.test_teacher_first import _setup
 
-    html = "<main>Test source fixture, not a current release claim.</main>"
+    fact = "Fixture A was released on 2031-10-25 and fixture B on 2031-09-12."
+    html = f"<main>{fact}</main>"
     answers = []
     if case != "none":
         name = "web_search" if case == "search" else "web_fetch"
@@ -151,30 +154,31 @@ async def test_actual_report_engine_requires_artifact_and_named_source(tmp_path,
     answers += [model_result("Test raporu hazır.")] * 4
     deps, _sink, teacher, apprentice = _setup(monkeypatch, tmp_path, apprentice_answers=answers)
     deps.config = replace(deps.config, runtime=replace(deps.config.runtime, self_review=True))
-    registry = ToolRegistry()
     reads = []
 
-    def source_fixture(args, context):
-        reads.append(args)
+    def source_fixture(url):
+        reads.append(url)
         if case == "failed":
-            return ToolResult.failure("Test source fixture inaccessible.")
-        return ToolResult("Test fixture content, not a current publication claim.")
+            raise web.BlockedRedirectError("Test source fixture redirected outside the allowlist.")
+        return "text/plain", fact, url
 
-    for tool in build_registry():
-        registry.register(
-            replace(tool, run=source_fixture) if tool.name in {"web_fetch", "web_search"} else tool
-        )
-    deps.base_registry = registry
+    monkeypatch.setattr(web, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(web, "fetch_following_redirects", source_fixture)
+    monkeypatch.setattr(web, "SEARCH_ENDPOINTS", (lambda query: [f"Search fixture: {URL}"],))
+    install_report_judge(monkeypatch, url=URL, fact=fact)
 
     async def ordinary_review(*args, **kwargs):
-        return ""
+        pytest.fail("The factual gate already reviews this report")
 
     monkeypatch.setattr(loop.review, "review_turn", ordinary_review)
-    outcome = await loop.run_agent(CURRENT_REPORT, deps, verify=False)
+    should_succeed = case in {"correct", "recovery"}
+    outcome = await loop.run_agent(CURRENT_REPORT, deps, verify=should_succeed)
 
-    assert outcome.ok is (case in {"correct", "recovery"})
+    assert outcome.ok is should_succeed
     assert (tmp_path / "rapor.html").exists() is (case != "read_only")
     assert teacher.calls == 0
+    if should_succeed:
+        assert_report_grounding_passed(outcome)
     if case in {"none", "unrelated", "search", "failed", "recovery"}:
         notes = [
             m.content
@@ -187,7 +191,7 @@ async def test_actual_report_engine_requires_artifact_and_named_source(tmp_path,
     if case in {"none", "unrelated", "search", "failed"}:
         assert "kaynak okuması doğrulanmadı" in outcome.final_text
     if case == "recovery":
-        assert reads == [{"url": "https://example.org/old"}, {"url": URL}]
+        assert reads == ["https://example.org/old", URL]
 
 
 @pytest.mark.parametrize(

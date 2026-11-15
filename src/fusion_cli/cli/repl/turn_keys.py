@@ -60,32 +60,39 @@ class TurnKeys:
         self.feed(data)
 
     def _start(self) -> None:
-        import termios
-        import tty
+        if sys.platform == "win32":
+            return
+        else:
+            import termios
+            import tty
 
-        self._saved = termios.tcgetattr(self._fd)
-        tty.setcbreak(self._fd, termios.TCSANOW)
-        attrs = termios.tcgetattr(self._fd)
-        attrs[3] &= ~termios.ECHO
-        termios.tcsetattr(self._fd, termios.TCSANOW, attrs)
-        if self._loop is not None:
-            self._loop.add_reader(self._fd, self._readable)
+            self._saved = termios.tcgetattr(self._fd)
+            tty.setcbreak(self._fd, termios.TCSANOW)
+            attrs = termios.tcgetattr(self._fd)
+            attrs[3] &= ~termios.ECHO
+            termios.tcsetattr(self._fd, termios.TCSANOW, attrs)
+            if self._loop is not None:
+                self._loop.add_reader(self._fd, self._readable)
 
     def _stop(self) -> None:
-        import termios
+        if sys.platform == "win32":
+            return
+        else:
+            import termios
 
-        if self._loop is not None:
-            with contextlib.suppress(ValueError, OSError):
-                self._loop.remove_reader(self._fd)
-        if self._saved is not None:
-            with contextlib.suppress(OSError, termios.error):
-                termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
-            self._saved = None
+            if self._loop is not None:
+                with contextlib.suppress(ValueError, OSError):
+                    self._loop.remove_reader(self._fd)
+            if self._saved is not None:
+                with contextlib.suppress(OSError, termios.error):
+                    termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
+                self._saved = None
 
     @contextlib.contextmanager
     def watching(self) -> Iterator[TurnKeys]:
         """Tur boyunca izle; TTY değilse ya da kurulamazsa sessizce geç."""
-        if sys.platform == "win32" or not os.isatty(self._fd):
+        platform = sys.platform
+        if platform == "win32" or not os.isatty(self._fd):
             yield self
             return
         try:

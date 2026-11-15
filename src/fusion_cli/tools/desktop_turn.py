@@ -85,7 +85,8 @@ def escape_listening() -> bool:
 
 
 def _default_hide(keep: Sequence[int]) -> tuple[int, ...]:
-    if sys.platform == "win32":
+    platform = sys.platform
+    if platform == "win32":
         from .desktop_win32_screen import hide
 
         return hide(keep)
@@ -97,7 +98,8 @@ def _default_hide(keep: Sequence[int]) -> tuple[int, ...]:
 
 
 def _default_unhide(pids: Sequence[int]) -> None:
-    if sys.platform == "win32":
+    platform = sys.platform
+    if platform == "win32":
         from .desktop_win32_screen import unhide
 
         unhide(pids)
@@ -109,7 +111,8 @@ def _default_unhide(pids: Sequence[int]) -> None:
 
 def _default_escape(on_escape: Callable[[], None]) -> Callable[[], None] | None:
     """Esc dinleyicisini başlat; durdurma işlevini döndür (kurulamadıysa None)."""
-    if sys.platform == "win32":
+    platform = sys.platform
+    if platform == "win32":
         # Windows (#430): alçak düzey klavye kancası; fiziksel Esc uygulamaya gitmez.
         from .desktop_win32_screen import escape
 
@@ -129,7 +132,8 @@ NOTIFY_DONE = "Fusion bilgisayarı kullanmayı bitirdi"
 
 def _default_notify(text: str) -> None:
     """macOS bildirimi (beklemeden); `FUSION_NO_OS_NOTIFY` ya da başka platformda sessiz."""
-    if os.environ.get("FUSION_NO_OS_NOTIFY") or sys.platform != "darwin":
+    platform = sys.platform
+    if os.environ.get("FUSION_NO_OS_NOTIFY") or platform != "darwin":
         return
     script = f'display notification {json.dumps(text)} with title "Fusion"'
     subprocess.Popen(

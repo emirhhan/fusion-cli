@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-import termios
 
 import pytest
 
@@ -33,6 +32,8 @@ def test_tty_degilse_izleme_sessizce_gecer(tmp_path):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pty yok")
 def test_pty_uzerinde_ctrl_b_okunur_onayda_kanonik_kipe_doner():
+    import termios
+
     master, slave = os.openpty()
     calls: list[int] = []
     before = termios.tcgetattr(slave)

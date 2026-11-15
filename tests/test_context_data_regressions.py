@@ -1,4 +1,5 @@
 import base64
+import os
 
 from fusion_cli.appserver.session import _attachment_context, _attachment_images
 from fusion_cli.cli.repl.transcript_store import TranscriptStore, load_transcript_messages
@@ -49,7 +50,8 @@ def test_journal_preserves_valid_image(tmp_path):
     journal = FileTurnJournal(tmp_path / "journal.json")
     journal.save([Message("user", "inspect", images=(image,))])
     assert journal.load().messages[0].images == (image,)
-    assert (tmp_path / "journal.json").stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert (tmp_path / "journal.json").stat().st_mode & 0o777 == 0o600
 
 
 async def test_compact_discovery_and_loaded_tool_survive_budget():

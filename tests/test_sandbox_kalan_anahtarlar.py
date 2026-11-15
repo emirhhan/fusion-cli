@@ -158,6 +158,7 @@ def test_dis_proxy_verilince_fusion_proxysi_baslamaz(tmp_path, monkeypatch):
         sandbox_runtime.release_sandbox(run)
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Python Unix soketini desteklemiyor")
 def test_linuxta_dis_proxy_unix_aktariciyla_tasinir(tmp_path, monkeypatch):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))

@@ -81,17 +81,17 @@ def test_absolute_output_is_accepted_only_inside_explicit_workspace(tmp_path):
 
 @pytest.mark.asyncio
 async def test_agent_verify_does_not_skip_explicit_output_without_mutation(tmp_path):
-    from types import SimpleNamespace
+    from fusion_cli.engines.agent.loop import AgentOutcome, _new_budget, _verify
+    from tests.fakes import RecordingSink
+    from tests.test_agent_loop import _deps
 
-    from fusion_cli.engines.agent.loop import _verify
-
-    context = ToolContext(root=tmp_path)
+    deps = _deps(tmp_path, RecordingSink())
+    deps.budget = _new_budget(deps.config)
+    context = deps.tool_context
     context.requested_outputs.add("report.txt")
-    deps = SimpleNamespace(tool_context=context, verifier=OutputPathVerifier(context))
-    result = await _verify(
-        SimpleNamespace(mutating_tool_calls_made=0), deps, plan_mode=False, depth=0
-    )
+    result = await _verify(AgentOutcome("", []), deps, plan_mode=False, depth=0)
     assert result is not None and not result.ok
+    assert any("report.txt" in finding for finding in result.findings)
 
 
 def test_large_artifact_is_unverified_without_unbounded_parser_read(tmp_path):

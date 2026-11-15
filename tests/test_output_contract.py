@@ -198,7 +198,8 @@ def test_prompt_uydurma_teslimi_yasaklar():
         answer_contract=sozlesme,
     )
 
-    assert "YALNIZCA bu turda gerçekten çağırdığın araçlarla" in prompt
+    assert "yalnız bu turda gerçekten değiştirdiğin dosyaları say" in prompt
+    assert "Yapılmamış işi yapılmış gösterme." in prompt
     assert "ask_user" in prompt
 
 

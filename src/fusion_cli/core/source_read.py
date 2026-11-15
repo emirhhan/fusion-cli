@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -30,22 +31,25 @@ def read_scoped_source(root: Path, relative: Path, *, max_bytes: int) -> bytes |
         or not all(hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
     ):
         return None
-    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    try:
-        components = (*root.relative_to(root.anchor).parts, *relative.parts)
-        with ExitStack() as cleanup:
-            parent = os.open(root.anchor, directory_flags)
-            cleanup.callback(os.close, parent)
-            for component in components[:-1]:
-                parent = os.open(component, directory_flags, dir_fd=parent)
-                cleanup.callback(os.close, parent)
-            descriptor = os.open(
-                components[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
-            )
-            cleanup.callback(os.close, descriptor)
-            return _read_descriptor(descriptor, max_bytes)
-    except (OSError, ValueError, NotImplementedError):
+    if sys.platform == "win32":
         return None
+    else:
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        try:
+            components = (*root.relative_to(root.anchor).parts, *relative.parts)
+            with ExitStack() as cleanup:
+                parent = os.open(root.anchor, directory_flags)
+                cleanup.callback(os.close, parent)
+                for component in components[:-1]:
+                    parent = os.open(component, directory_flags, dir_fd=parent)
+                    cleanup.callback(os.close, parent)
+                descriptor = os.open(
+                    components[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
+                )
+                cleanup.callback(os.close, descriptor)
+                return _read_descriptor(descriptor, max_bytes)
+        except (OSError, ValueError, NotImplementedError):
+            return None
 
 
 def _read_descriptor(descriptor: int, max_bytes: int) -> bytes | None:

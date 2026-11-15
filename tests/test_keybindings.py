@@ -177,7 +177,6 @@ async def _vi_prompt(
     import asyncio
 
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
@@ -192,8 +191,11 @@ async def _vi_prompt(
         name: _recorder(name) for name in ("model_sec", "dusunme", "hizli_kip", "kisayollar")
     }
     kb = build_input_bindings(reader, keybindings.load_keymap(tmp_path / "yok.json"))
-    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
-        session: PromptSession[str] = PromptSession(key_bindings=kb, editing_mode=mode)
+    with create_pipe_input() as pipe:
+        # TERM=dumb ise varsayılan çıktı yeni bir Emacs uygulaması başlatır.
+        session: PromptSession[str] = PromptSession(
+            key_bindings=kb, editing_mode=mode, input=pipe, output=DummyOutput()
+        )
         task = asyncio.ensure_future(session.prompt_async())
         await asyncio.sleep(0.2)
         for text, pause in steps:

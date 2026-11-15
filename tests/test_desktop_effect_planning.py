@@ -74,7 +74,7 @@ def test_coordinated_build_objects_still_bind_to_their_shared_verb(task):
     assert required_effect_for(task) == "workspace_mutation"
 
 
-async def test_calculator_lane_admits_explicit_click_and_key_with_trusted_target(
+async def test_calculator_lane_admits_key_but_requires_observed_click_coordinates(
     tmp_path, monkeypatch
 ):
     from dataclasses import replace
@@ -82,6 +82,7 @@ async def test_calculator_lane_admits_explicit_click_and_key_with_trusted_target
     from fusion_cli.core.desktop_frame import DesktopFrame
     from fusion_cli.core.tools import ToolResult
     from fusion_cli.engines.agent import loop
+    from fusion_cli.engines.agent.desktop_grounding import GROUNDING_REQUIRED
     from fusion_cli.tools import desktop_policy
     from fusion_cli.tools.builtin import build_registry
     from fusion_cli.tools.registry import ToolRegistry
@@ -134,7 +135,9 @@ async def test_calculator_lane_admits_explicit_click_and_key_with_trusted_target
     assert outcome.ok
     assert deps.execution is not None and not deps.execution.complex_task
     assert "masaustu" in deps.tool_context.task_kinds
-    assert delivered == ["desktop_click", "desktop_key"]
+    assert delivered == ["desktop_key"]
+    click = next(use for use in outcome.tool_uses if use.name == "desktop_click")
+    assert not click.ok and GROUNDING_REQUIRED in click.output
     assert all(use.ok for use in outcome.tool_uses if use.name in delivered)
     names = {schema["function"]["name"] for schema in provider.seen_requests[0]}
     assert {"desktop_click", "desktop_key", "desktop_background_inspect"} <= names

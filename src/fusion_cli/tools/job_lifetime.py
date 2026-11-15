@@ -18,6 +18,7 @@ import atexit
 import logging
 import os
 import signal
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -239,12 +240,13 @@ def stop_group(group: str) -> int:
 
 
 def _group_alive(pid: int) -> bool:
-    if os.name == "nt":
+    if sys.platform == "win32":
         return True
-    try:
-        os.killpg(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+    else:
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
         return True
-    return True

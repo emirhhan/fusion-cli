@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from types import SimpleNamespace
 
 import pytest
 
@@ -17,33 +16,21 @@ from fusion_cli.core.tool_emulation import (
     render_tool_instructions,
     strip_call_fence,
 )
-from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent import reflexion
-from fusion_cli.engines.agent.approval import Decision
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import _run_tools, _State
 from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 from fusion_cli.tools import build_registry
-
-
-class _Publisher:
-    def __init__(self) -> None:
-        self.events: list[object] = []
-
-    def publish(self, event: object) -> None:
-        self.events.append(event)
-
-
-class _Allow:
-    async def decide(self, _request: object) -> Decision:
-        return Decision.ALLOW
+from tests.agent_harness import web_deps
+from tests.fakes import RecordingSink
 
 
 def _deps(tmp_path):
     # Bütçe sınırları geniş: bu dosya payload TAŞIMASINI sınar, bütçe tükenmesini
     # değil. Bütçenin kendi davranışı `test_turn_budget.py` içindedir.
-    budget = TurnBudget(
+    deps = web_deps(tmp_path, RecordingSink())
+    deps.budget = TurnBudget(
         clock=SystemClock(),
         max_model_calls=50,
         max_verify_rounds=2,
@@ -52,18 +39,7 @@ def _deps(tmp_path):
         max_auto_continues=1,
         max_idle_rounds=99,
     )
-    return SimpleNamespace(
-        steering=None,
-        mutation_blocked_by_pending_input=lambda: False,
-        approval_revision=None,
-        policy_factory=None,
-        publisher=_Publisher(),
-        tool_context=ToolContext(tmp_path),
-        policy=_Allow(),
-        allowed_commands=frozenset(),
-        budget=budget,
-        require_budget=lambda: budget,
-    )
+    return deps
 
 
 def _payload_call(payload_id: str, path: str, content: str) -> str:

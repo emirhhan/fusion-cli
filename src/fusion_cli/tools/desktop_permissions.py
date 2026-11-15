@@ -110,9 +110,10 @@ def probe() -> DesktopPermissionStatus:
     Windows'ta (#430) izin adımı yoktur: Claude Code "On Windows there is no permission step;
     the toggle takes effect immediately." Girdi ve yakalama izinsiz çalışır → ikisi de verilmiş.
     """
-    if sys.platform == "win32":
+    platform = sys.platform
+    if platform == "win32":
         return DesktopPermissionStatus(GRANTED, GRANTED)
-    if sys.platform != "darwin":
+    if platform != "darwin":
         return DesktopPermissionStatus(UNSUPPORTED, UNSUPPORTED)
     try:
         framework = _application_services()
@@ -165,7 +166,8 @@ def request(kind: str) -> DesktopPermissionStatus:
     """Sistem istemini aç (gerekirse) ve güncel durumu döndür; bilinmeyen tür `ValueError`."""
     if kind not in PERMISSION_KINDS:
         raise ValueError(f"Bilinmeyen masaüstü izni: {kind!r}")
-    if sys.platform != "darwin":
+    platform = sys.platform
+    if platform != "darwin":
         return probe()
     try:
         framework = _application_services()

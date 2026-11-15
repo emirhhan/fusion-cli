@@ -8,6 +8,13 @@ from pathlib import Path
 
 import pytest
 
+requires_scoped_descriptors = pytest.mark.skipif(
+    os.name != "posix"
+    or os.open not in os.supports_dir_fd
+    or not all(hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")),
+    reason="Güvenli köke bağlı descriptor okuması bu platformda desteklenmiyor",
+)
+
 
 def _reader():
     from fusion_cli.core.source_read import read_scoped_source
@@ -20,6 +27,7 @@ def _open_hook(monkeypatch, replacement):
     monkeypatch.setattr(os, "open", replacement)
 
 
+@requires_scoped_descriptors
 def test_normal_kaynak_baytlari_ayni_descriptor_uzerinden_okunur(tmp_path):
     source = tmp_path / "src" / "sample.py"
     source.parent.mkdir()
@@ -45,6 +53,7 @@ def test_kok_traversal_iceriyorsa_descriptor_acilmadan_reddedilir(tmp_path, monk
     assert _reader()(tmp_path / ".." / "project", Path("sample.py"), max_bytes=20) is None
 
 
+@requires_scoped_descriptors
 @pytest.mark.parametrize("component", ["leaf", "parent", "root"])
 def test_acma_anindaki_symlink_degisimi_yasak_bayt_okumaz(tmp_path, monkeypatch, component):
     root = tmp_path / "project"
@@ -85,6 +94,7 @@ def test_acma_anindaki_symlink_degisimi_yasak_bayt_okumaz(tmp_path, monkeypatch,
     assert read_calls == []
 
 
+@requires_scoped_descriptors
 @pytest.mark.parametrize("mutation", ["growth", "same_size_change"])
 def test_okuma_sirasinda_degisen_kaynak_donmez_ve_bayt_tavani_asmaz(
     tmp_path, monkeypatch, mutation
@@ -111,6 +121,7 @@ def test_okuma_sirasinda_degisen_kaynak_donmez_ve_bayt_tavani_asmaz(
     assert was_changed and sum(counts) <= 11
 
 
+@requires_scoped_descriptors
 def test_buyuk_dosya_icerik_okumadan_reddedilir(tmp_path, monkeypatch):
     (tmp_path / "sample.py").write_bytes(b"x" * 11)
 
@@ -121,6 +132,7 @@ def test_buyuk_dosya_icerik_okumadan_reddedilir(tmp_path, monkeypatch):
     assert _reader()(tmp_path, Path("sample.py"), max_bytes=10) is None
 
 
+@requires_scoped_descriptors
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO bu platformda yok")
 def test_fifo_bloklamadan_ve_icerik_okumadan_reddedilir(tmp_path, monkeypatch):
     fifo = tmp_path / "source.py"
@@ -148,6 +160,7 @@ def test_fifo_bloklamadan_ve_icerik_okumadan_reddedilir(tmp_path, monkeypatch):
 
 
 def test_desteklenmeyen_platformda_kaynak_acilmadan_vazgecilir(tmp_path, monkeypatch):
+    (tmp_path / "sample.py").write_bytes(b"otherwise readable")
     monkeypatch.setattr(os, "supports_dir_fd", set())
 
     def forbidden_open(*args, **kwargs):

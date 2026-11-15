@@ -149,6 +149,7 @@ def test_genel_adrese_cozulen_izinli_ad_connect_ile_tunellenir(sunucu, monkeypat
         proxy.close()
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Python Unix soketini desteklemiyor")
 def test_unix_soketli_proxy_dinler_ve_kapaninca_soketi_siler():
     # macOS AF_UNIX yol sınırı ~104 bayt: pytest'in tmp_path'i fazla uzun.
     klasor = Path(tempfile.mkdtemp(prefix="sbx", dir="/tmp"))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -307,6 +308,7 @@ def test_decoded_proposal_strings_are_redacted_and_cannot_install(
 
 
 @pytest.mark.parametrize("value", ["ilk\nikinci", "ilk\tikinci"])
+@pytest.mark.skipif(sys.platform == "win32", reason="Güvenli POSIX beceri kurulumu gerekir")
 def test_nonsecret_control_characters_remain_valid(proposal_workspace: Path, value: str) -> None:
     from tests.test_verified_skill_public_flow import CASES, apply_proposal, seed_plan
 
@@ -341,6 +343,7 @@ def test_raw_parameter_containers_cannot_hide_sensitive_strings(
 
 
 @pytest.mark.parametrize("key", ["bir\niki", "bir\tiki"])
+@pytest.mark.skipif(sys.platform == "win32", reason="Güvenli POSIX beceri kurulumu gerekir")
 def test_nonsecret_schema_and_parameter_keys_remain_valid(
     proposal_workspace: Path, key: str
 ) -> None:

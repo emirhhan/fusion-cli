@@ -69,11 +69,7 @@ def test_ekip_uzak_ve_salt_okur_suzgecleri_enjekte_defteri_kullanir(tmp_path):
     assert registry.is_remote("github__read") and registry.is_remote("jira__write")
 
 
-async def _drive(surface, deps, sink, output, tmp_path):
-    async def runner(task, received, **kwargs):
-        assert received is deps
-        return AgentOutcome(final_text="tamam", messages=[], ok=True)
-
+async def _drive(surface, deps, sink, output, tmp_path, *, runner, allowed_tools):
     if surface == "session":
         return await session._run_agent_with_mcp(
             "incele",
@@ -83,6 +79,7 @@ async def _drive(surface, deps, sink, output, tmp_path):
             history=None,
             mode=ApprovalMode.AUTO,
             extra_system="",
+            allowed_tools=allowed_tools,
             turn_runner=runner,
         )
     state = ReplState(config=deps.config, memory=null_memory(), root=tmp_path, home=tmp_path / "ev")
@@ -95,12 +92,16 @@ async def _drive(surface, deps, sink, output, tmp_path):
         plan_mode=False,
         extra_system="",
         step_limit=None,
+        allowed_tools=allowed_tools,
     )
 
 
 @pytest.mark.parametrize("surface", ["session", "repl"])
 @pytest.mark.parametrize("transport", ["mcp", "hosted"])
-async def test_connector_ayni_enjekte_deftere_eklenir(tmp_path, monkeypatch, surface, transport):
+@pytest.mark.parametrize("selected", [False, True], ids=["lazy", "explicit"])
+async def test_connector_yalniz_secildiginde_enjekte_deftere_eklenir(
+    tmp_path, monkeypatch, surface, transport, selected
+):
     from fusion_cli.mcp_bridge import pool
 
     registry = ToolRegistry()
@@ -111,25 +112,49 @@ async def test_connector_ayni_enjekte_deftere_eklenir(tmp_path, monkeypatch, sur
         if transport == "mcp"
         else (),
         hosted_connectors=(
-            HostedConnectorConfig("denetim", "https://example.invalid/mcp", "chatgpt_web"),
+            HostedConnectorConfig(
+                "denetim", "https://example.invalid/mcp", "chatgpt_web", verified=True
+            ),
         )
         if transport == "hosted"
         else (),
     )
 
-    async def ensure(config, target, **kwargs):
-        target.register_or_replace(_tool("denetim__read"))
-        return ("denetim__read",)
+    tool_name = "mcp__denetim__read"
+    selections = []
+
+    async def ensure(config, target, *, selected_names, **kwargs):
+        selections.append(selected_names)
+        target.register_or_replace(_tool(tool_name))
+        return (tool_name,)
+
+    async def runner(task, received, **kwargs):
+        assert received is deps
+        assert received.base_registry is registry
+        assert received.mcp_discovery is not None and not received.mcp_discovery.closed
+        assert registry.names() == ((tool_name,) if selected else ())
+        if selected:
+            assert registry.is_remote(tool_name)
+        return AgentOutcome(final_text="tamam", messages=[], ok=True)
 
     monkeypatch.setattr(
         pool, "ensure_hosted_tools" if transport == "hosted" else "ensure_mcp_tools", ensure
     )
     sink, output = RecordingSink(), io.StringIO()
 
-    outcome = await _drive(surface, deps, sink, output, tmp_path)
+    outcome = await _drive(
+        surface,
+        deps,
+        sink,
+        output,
+        tmp_path,
+        runner=runner,
+        allowed_tools={tool_name} if selected else None,
+    )
 
     assert outcome.ok and outcome.final_text == "tamam"
     assert not any(isinstance(event, ErrorOccurred) for event in sink.events)
     assert "bağlanılamadı" not in output.getvalue().lower()
-    assert registry.names() == ("denetim__read",)
+    assert selections == ([frozenset({"denetim"})] if selected else [])
     assert deps.base_registry is registry
+    assert deps.mcp_discovery is not None and deps.mcp_discovery.closed

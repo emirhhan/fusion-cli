@@ -176,24 +176,24 @@ async def test_profilsiz_acilis_eski_davranisi_korur(tmp_path, sahte_playwright,
     assert sahte_playwright.contexts[0].storage_state_in is None
 
 
-async def test_yapilandirma_varsayilan_profili_ve_headed_kipi_uygular(
-    tmp_path, sahte_playwright, depo
-):
+async def test_varsayilan_profil_arka_planda_acilir(tmp_path, sahte_playwright, depo):
     baglam = ToolContext(root=tmp_path, browser=BrowserSession(profile_name="is", headless=False))
 
     sonuc = await browser.browser_open({"url": "https://example.com"}, baglam)
 
     assert sonuc.ok
-    assert sahte_playwright.headless is False
+    assert sahte_playwright.headless is True
     assert sahte_playwright.contexts[0].storage_state_in is not None
 
 
-async def test_headed_argumani_pencereyi_gorunur_acar(tmp_path, sahte_playwright, depo):
-    await browser.browser_open(
+async def test_headed_argumani_yok_sayilir(tmp_path, sahte_playwright, depo):
+    sonuc = await browser.browser_open(
         {"url": "https://example.com", "headed": True}, ToolContext(root=tmp_path)
     )
 
-    assert sahte_playwright.headless is False
+    assert sonuc.ok
+    assert "headed yok sayıldı" in sonuc.output
+    assert sahte_playwright.headless is True
 
 
 async def test_kapanista_tazelenen_cerezler_profile_geri_yazilir(tmp_path, sahte_playwright, depo):

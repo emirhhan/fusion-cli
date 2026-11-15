@@ -256,38 +256,44 @@ class InlineKeys:
                 self._enter()
 
     def _enter(self) -> bool:
-        assert termios is not None and self._fd is not None and self._loop is not None
-        try:
-            saved = termios.tcgetattr(self._fd)
-        except (termios.error, OSError):
-            _logger.debug("satır içi tuş gözcüsü açılamadı", exc_info=True)
+        if sys.platform == "win32":
             return False
-        raw = list(saved)
-        raw[3] = saved[3] & ~(termios.ICANON | termios.ECHO)
-        raw[6] = list(saved[6])
-        raw[6][termios.VMIN] = 1
-        raw[6][termios.VTIME] = 0
-        try:
-            termios.tcsetattr(self._fd, termios.TCSANOW, raw)
-            self._loop.add_reader(self._fd, self._readable)
-        except (termios.error, OSError, ValueError, NotImplementedError):
-            _logger.debug("satır içi tuş gözcüsü açılamadı", exc_info=True)
-            # Kip değiştiyse geri yükle: yoksa terminal yankısız, bayt bayt kalır.
-            with contextlib.suppress(termios.error, OSError):
-                termios.tcsetattr(self._fd, termios.TCSANOW, saved)
-            return False
-        self._saved = saved
-        return True
+        else:
+            assert termios is not None and self._fd is not None and self._loop is not None
+            try:
+                saved = termios.tcgetattr(self._fd)
+            except (termios.error, OSError):
+                _logger.debug("satır içi tuş gözcüsü açılamadı", exc_info=True)
+                return False
+            raw = list(saved)
+            raw[3] = saved[3] & ~(termios.ICANON | termios.ECHO)
+            raw[6] = list(saved[6])
+            raw[6][termios.VMIN] = 1
+            raw[6][termios.VTIME] = 0
+            try:
+                termios.tcsetattr(self._fd, termios.TCSANOW, raw)
+                self._loop.add_reader(self._fd, self._readable)
+            except (termios.error, OSError, ValueError, NotImplementedError):
+                _logger.debug("satır içi tuş gözcüsü açılamadı", exc_info=True)
+                # Kip değiştiyse geri yükle: yoksa terminal yankısız, bayt bayt kalır.
+                with contextlib.suppress(termios.error, OSError):
+                    termios.tcsetattr(self._fd, termios.TCSANOW, saved)
+                return False
+            self._saved = saved
+            return True
 
     def _leave(self) -> None:
-        assert termios is not None and self._fd is not None
-        saved, self._saved = self._saved, None
-        if self._loop is not None:
-            with contextlib.suppress(OSError, ValueError, NotImplementedError):
-                self._loop.remove_reader(self._fd)
-        if saved is not None:
-            with contextlib.suppress(termios.error, OSError):
-                termios.tcsetattr(self._fd, termios.TCSANOW, saved)
+        if sys.platform == "win32":
+            return
+        else:
+            assert termios is not None and self._fd is not None
+            saved, self._saved = self._saved, None
+            if self._loop is not None:
+                with contextlib.suppress(OSError, ValueError, NotImplementedError):
+                    self._loop.remove_reader(self._fd)
+            if saved is not None:
+                with contextlib.suppress(termios.error, OSError):
+                    termios.tcsetattr(self._fd, termios.TCSANOW, saved)
 
     def _readable(self) -> None:
         assert self._fd is not None

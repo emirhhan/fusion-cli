@@ -9,6 +9,8 @@ import pytest
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import teacher_flow
 from fusion_cli.engines.agent.turn_report import TurnReport
+from tests.fakes import RecordingSink
+from tests.test_agent_loop import _deps
 
 
 @pytest.mark.asyncio
@@ -45,9 +47,11 @@ def test_screenshot_report_does_not_require_code_test_command():
 async def test_screenshot_route_opens_artifact_without_running_code_gate(tmp_path):
     from PIL import Image
 
-    from fusion_cli.engines.agent.loop import _verify
+    from fusion_cli.engines.agent.loop import AgentOutcome, _new_budget, _verify
 
-    context = ToolContext(root=tmp_path)
+    deps = _deps(tmp_path, RecordingSink())
+    deps.budget = _new_budget(deps.config)
+    context = deps.tool_context
     screenshot = tmp_path / "screen.png"
     context.changes.record(screenshot)
     Image.new("RGB", (8, 8), "red").save(screenshot)
@@ -58,16 +62,8 @@ async def test_screenshot_route_opens_artifact_without_running_code_gate(tmp_pat
     code_gate = CommandVerifier(
         ("this-command-must-not-exist",), cwd=str(tmp_path), timeout_s=1, tool_context=context
     )
-    deps = SimpleNamespace(
-        tool_context=context,
-        verifier=CompositeVerifier(
-            (
-                code_gate,
-                ArtifactChangeVerifier(context),
-            )
-        ),
-    )
-    outcome = SimpleNamespace(mutating_tool_calls_made=1)
+    deps.verifier = CompositeVerifier((code_gate, ArtifactChangeVerifier(context)))
+    outcome = AgentOutcome("", [], mutating_tool_calls_made=1)
     result = await _verify(outcome, deps, plan_mode=False, depth=0)
     assert result.ok
     assert result.evidence[0].status.value == "unverified"
@@ -78,17 +74,19 @@ async def test_screenshot_route_opens_artifact_without_running_code_gate(tmp_pat
 async def test_artifact_route_preserves_requested_output_gate(tmp_path):
     from PIL import Image
 
-    from fusion_cli.engines.agent.loop import _verify
+    from fusion_cli.engines.agent.loop import AgentOutcome, _new_budget, _verify
     from fusion_cli.engines.agent.output_verify import OutputPathVerifier
 
-    context = ToolContext(root=tmp_path)
+    deps = _deps(tmp_path, RecordingSink())
+    deps.budget = _new_budget(deps.config)
+    context = deps.tool_context
     screenshot = tmp_path / "screen.png"
     context.changes.record(screenshot)
     Image.new("RGB", (8, 8), "red").save(screenshot)
     context.requested_outputs.add("report.pdf")
-    deps = SimpleNamespace(tool_context=context, verifier=OutputPathVerifier(context))
+    deps.verifier = OutputPathVerifier(context)
     result = await _verify(
-        SimpleNamespace(mutating_tool_calls_made=1), deps, plan_mode=False, depth=0
+        AgentOutcome("", [], mutating_tool_calls_made=1), deps, plan_mode=False, depth=0
     )
     assert not result.ok
     assert any("report.pdf" in finding for finding in result.findings)

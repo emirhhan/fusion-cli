@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from fusion_cli.core.memory import RoutineSpec
@@ -30,6 +32,7 @@ def test_oneri_varsayilan_politikada_calistirilmaz(tmp_path):
 
 
 @pytest.mark.parametrize("mutation", ["arguments", "precondition", "revision", "source", "shell"])
+@pytest.mark.skipif(sys.platform == "win32", reason="Güvenli POSIX beceri kurulumu gerekir")
 def test_public_cagri_gecersiz_kaynakta_bekleyen_gorev_acmaz(
     proposal_workspace, monkeypatch, mutation
 ):
@@ -79,6 +82,7 @@ def test_public_cagri_gecersiz_kaynakta_bekleyen_gorev_acmaz(
     assert state.pending_task == "" and state.pending_context == ""
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Güvenli POSIX beceri kurulumu gerekir")
 def test_kurulu_gelistirme_onerisi_ayni_kokte_blind_gorunumune_girmez(proposal_workspace):
     from pathlib import Path
 

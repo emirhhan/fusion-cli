@@ -446,7 +446,8 @@ def _restrict_profile_dir(profile: Path) -> None:
 
     POSIX dışında ya da izin verilmediğinde sessizce geçilir (turu düşürmez).
     """
-    if sys.platform == "win32":  # pragma: no cover - Windows'ta chmod anlamsız
+    platform = sys.platform
+    if platform == "win32":  # pragma: no cover - Windows'ta chmod anlamsız
         return
     try:
         profile.chmod(0o700)

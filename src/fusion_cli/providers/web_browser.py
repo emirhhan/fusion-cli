@@ -1070,7 +1070,8 @@ async def _connect_shared_context(
 
 
 async def _new_conversation_page(context: Any, session: WebSessionConfig) -> Any:
-    if WindowMode(session.headless) is not WindowMode.HIDDEN or sys.platform != "darwin":
+    platform = sys.platform
+    if WindowMode(session.headless) is not WindowMode.HIDDEN or platform != "darwin":
         return await context.new_page()
 
     # CDP'nin varsayılanı sekmeyi seçer ve gizli Chrome'u öne getirebilir.

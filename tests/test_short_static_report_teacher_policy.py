@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from fusion_cli.engines.agent.teacher_plan import classify_teacher_task
+from tests.test_teacher_source_reports import assert_report_grounding_passed, install_report_judge
 
 ORDINARY_REPORT = (
     "Python’ın en güncel kararlı sürümünü ve yayımlanma tarihini açıklayan kısa bir "
@@ -183,17 +184,18 @@ def test_missing_or_rejected_bounded_report_scope_stays_conservative(task):
 async def test_ordinary_current_report_preserves_source_artifact_and_review_gates(
     monkeypatch, tmp_path, review_mode
 ):
-    from fusion_cli.core.tools import ToolResult
     from fusion_cli.core.verification import VerificationResult
     from fusion_cli.engines.agent import loop
-    from fusion_cli.tools.builtin import build_registry
-    from fusion_cli.tools.registry import ToolRegistry
+    from fusion_cli.tools import web
     from tests.fakes import model_result, tool_call
     from tests.test_teacher_first import _setup
 
-    html = '<main>Source fixture only; not current data. <a href="https://example.org/">Source</a></main>'
+    url = "https://example.org/"
+    fact = "Fixture A: 2031-10-25."
+    html = f'<main>{fact} <a href="{url}">Source</a></main>'
     answers = [
         model_result(tool_calls=(tool_call("web_search", query="test release fixture"),)),
+        model_result(tool_calls=(tool_call("web_fetch", url=url),)),
         model_result(tool_calls=(tool_call("write_file", path="rapor.html", content=html),)),
         *[model_result("rapor.html hazırlandı; kaynak dosyada.")] * 4,
     ]
@@ -211,21 +213,24 @@ async def test_ordinary_current_report_preserves_source_artifact_and_review_gate
         teacher_answers=[model_result('{"bulgular": []}')],
     )
     deps.config = replace(deps.config, runtime=replace(deps.config.runtime, self_review=True))
-    registry = ToolRegistry()
+    searches = []
     reads = []
 
-    def source_fixture(args, context):
-        reads.append(args["query"])
-        return ToolResult("Fixture only: release A; https://example.org/")
+    def search_fixture(query):
+        searches.append(query)
+        return [f"Release index fixture: {url}"]
 
-    for tool in build_registry():
-        registry.register(replace(tool, run=source_fixture) if tool.name == "web_search" else tool)
-    deps.base_registry = registry
-    reviews = []
+    def source_fixture(requested_url):
+        reads.append(requested_url)
+        return "text/plain", fact, requested_url
+
+    monkeypatch.setattr(web, "SEARCH_ENDPOINTS", (search_fixture,))
+    monkeypatch.setattr(web, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(web, "fetch_following_redirects", source_fixture)
+    install_report_judge(monkeypatch, url=url, fact=fact)
 
     async def review(*args, **kwargs):
-        reviews.append(True)
-        return ""
+        pytest.fail("The factual gate already reviews this report")
 
     class FileVerifier:
         calls = 0
@@ -242,10 +247,12 @@ async def test_ordinary_current_report_preserves_source_artifact_and_review_gate
         ORDINARY_REPORT, deps, self_review=False if review_mode == "off" else None
     )
 
-    assert outcome.ok and teacher.calls == (0 if review_mode == "ordinary" else 1)
-    assert reads == ["test release fixture"]
-    assert verifier.calls == 1 and reviews == ([] if review_mode == "off" else [True])
-    assert apprentice.calls == (4 if review_mode == "manual" else 3)
+    assert outcome.ok and teacher.calls == (1 if review_mode == "manual" else 0)
+    assert searches == ["test release fixture"]
+    assert reads == [url]
+    assert verifier.calls == 1
+    assert_report_grounding_passed(outcome)
+    assert apprentice.calls == (5 if review_mode == "manual" else 4)
     assert any(
         schema["function"]["name"] == "ask_teacher" for schema in apprentice.seen_requests[0]
     )

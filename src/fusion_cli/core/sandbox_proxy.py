@@ -24,6 +24,7 @@ import logging
 import select
 import socket
 import socketserver
+import sys
 import threading
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
@@ -104,7 +105,23 @@ class _TcpServer(_ProxyServer, socketserver.TCPServer):
     allow_reuse_address = True
 
 
-class _UnixServer(_ProxyServer, socketserver.UnixStreamServer):
+if sys.platform == "win32":
+
+    class UnixStreamServer(socketserver.TCPServer):
+        # Windows CPython builds can lack AF_UNIX even on capable systems.
+        # Typeshed omits AF_UNIX and UnixStreamServer for Windows.
+        def __init__(self, address: str, handler: type[socketserver.BaseRequestHandler]) -> None:
+            family = getattr(socket, "AF_UNIX", None)
+            if family is None:
+                raise OSError("Bu sistem Unix soketlerini desteklemiyor")
+            self.address_family = family
+            super().__init__(address, handler)  # type: ignore[arg-type]
+
+else:
+    UnixStreamServer = socketserver.UnixStreamServer
+
+
+class _UnixServer(_ProxyServer, UnixStreamServer):
     pass
 
 

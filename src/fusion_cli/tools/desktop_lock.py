@@ -8,20 +8,22 @@ Kilit, yerel yardımcı önbelleğiyle aynı özel dizinde (`$TMPDIR/fusion-desk
 tutulur; sahibi süreç kimliği + oturum belirteci ikilisidir (`desktop_turn.lock_token`: CLI'de
 süreç = oturum, masaüstü uygulamasında sohbet). Tur sonunda BIRAKILMAZ; süreç çıkınca (sahip
 ölü) ya da masaüstünde sohbetten çıkılınca (`release`) kalkar. Süreye bağlı devralma yoktur.
-Dosya `flock` altında okunup yazılır (oku-sonra-yaz atomik).
+Dosya işletim sistemi kilidi altında okunup yazılır (oku-sonra-yaz atomik).
 """
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
+import sys
 import tempfile
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from ..core.file_lease import FileLease
 
 LOCK_DIRECTORY_TEMPLATE = "fusion-desktop-{uid}"
 LOCK_FILE_NAME = "oturum.lock"
@@ -38,8 +40,16 @@ class LockOwner:
     label: str = ""
 
 
+def _lock_directory() -> Path:
+    if sys.platform == "win32":
+        # Windows TEMP is already scoped to the logged-in user.
+        return Path(tempfile.gettempdir()) / "fusion-desktop"
+    else:
+        return Path(tempfile.gettempdir()) / LOCK_DIRECTORY_TEMPLATE.format(uid=os.getuid())
+
+
 def lock_path() -> Path:
-    directory = Path(tempfile.gettempdir()) / LOCK_DIRECTORY_TEMPLATE.format(uid=os.getuid())
+    directory = _lock_directory()
     directory.mkdir(mode=0o700, exist_ok=True)
     return directory / LOCK_FILE_NAME
 
@@ -47,13 +57,33 @@ def lock_path() -> Path:
 def _is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel.CloseHandle.restype = wintypes.BOOL
+        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            # ERROR_INVALID_PARAMETER: no such process. Other failures are ambiguous.
+            return ctypes.get_last_error() != 87
+        try:
+            return int(kernel.WaitForSingleObject(handle, 0)) != 0  # WAIT_OBJECT_0: exited
+        finally:
+            kernel.CloseHandle(handle)
+    else:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
         return True
-    return True
 
 
 def _parse(raw: bytes) -> LockOwner | None:
@@ -79,11 +109,33 @@ def _read(path: Path) -> LockOwner | None:
 
 
 @contextmanager
-def _guarded(path: Path) -> Iterator[int]:
-    """Dosyayı `flock(LOCK_EX)` altında aç: oku-karar ver-yaz tek parça olur."""
-    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+def _guarded(path: Path) -> Iterator[int | None]:
+    """Kilit dosyasındaki oku-karar ver-yaz dizisini serileştir."""
+    if sys.platform == "win32":
+        # The owner file can be removed while the separate lock stays held.
+        lease = FileLease(path.with_name(path.name + ".guard"))
+        deadline = time.monotonic() + 10.0
+        while not lease.try_acquire():
+            if time.monotonic() >= deadline:
+                raise OSError("Masaüstü kilidi bekleme süresi doldu")
+            time.sleep(0.01)
+        try:
+            yield None
+        finally:
+            lease.close()
+    else:
+        import fcntl
+
+        with _open_owner(path) as descriptor:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield descriptor
+
+
+@contextmanager
+def _open_owner(path: Path) -> Iterator[int]:
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags, 0o600)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield descriptor
     finally:
         os.close(descriptor)
@@ -126,9 +178,12 @@ def claim(
     owner = LockOwner(
         owner_pid, token, time.time() if now is None else now, label or f"süreç {owner_pid}"
     )
-    target = lock_path() if path is None else path
     try:
-        with _guarded(target) as descriptor:
+        target = lock_path() if path is None else path
+        with (
+            _guarded(target) as locked,
+            _open_owner(target) if locked is None else nullcontext(locked) as descriptor,
+        ):
             current = _read_fd(descriptor)
             if _is_held_by_other(current, owner):
                 assert current is not None
@@ -146,8 +201,9 @@ def release(*, pid: int | None = None, token: str = "", path: Path | None = None
     if target is None or not target.exists():
         return
     try:
-        with _guarded(target) as descriptor:
-            current = _read_fd(descriptor)
+        with _guarded(target) as locked:
+            with _open_owner(target) if locked is None else nullcontext(locked) as descriptor:
+                current = _read_fd(descriptor)
             if current is not None and (current.pid, current.token) == (owner_pid, token):
                 target.unlink()
     except OSError:
@@ -155,5 +211,5 @@ def release(*, pid: int | None = None, token: str = "", path: Path | None = None
 
 
 def _existing_lock_path() -> Path | None:
-    directory = Path(tempfile.gettempdir()) / LOCK_DIRECTORY_TEMPLATE.format(uid=os.getuid())
+    directory = _lock_directory()
     return directory / LOCK_FILE_NAME if directory.is_dir() else None

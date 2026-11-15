@@ -14,7 +14,7 @@ import socketserver
 import threading
 from pathlib import Path
 
-from .sandbox_proxy import relay
+from .sandbox_proxy import UnixStreamServer, relay
 
 __all__ = ["UnixForwarder"]
 
@@ -37,7 +37,7 @@ class _Handler(socketserver.BaseRequestHandler):
             relay(client, upstream, b"")
 
 
-class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+class _Server(socketserver.ThreadingMixIn, UnixStreamServer):
     daemon_threads = True
     target_port: int
 

@@ -375,10 +375,9 @@ EDIT_EXAMPLE = "\n".join(
 )
 
 PAYLOAD_RULES = (
-    "- Kod veya çok satırlı içerikleri JSON stringine gömme; payload kullan.",
-    f"- Payload gövdesi Markdown kod bloğunda olmalı ve ilk içerik satırı "
-    f"{PAYLOAD_SENTINEL} olmalı.",
-    f"- Her payload {PAYLOAD_CLOSE} ile kapanır; benzersiz id yalnız "
+    "- Kod ve çok satırlı metin için JSON stringi yerine payload kullan.",
+    f"- Payload bir kod bloğudur; ilk içerik satırı {PAYLOAD_SENTINEL} olmalı.",
+    f"- Payload {PAYLOAD_CLOSE} ile kapanır; benzersiz id yalnız "
     '{"$ref":"id"} biçiminde kullanılır.',
 )
 
@@ -395,21 +394,17 @@ _WHOLE_EDIT_RULE = (
     "boyut ve onay kapıları geçmeden write_file kullanma."
 )
 _GENERAL_RULES = (
-    "- name ve arguments zorunludur; arguments JSON nesnesidir ve şemaya uymalıdır.",
-    "- Kullanıcının verdiği dosya yolu, komut ve arama desenini arguments içinde "
-    "BİREBİR koru; yeniden adlandırma, genişletme veya başka alana taşıma.",
-    "- Çağrı gövdesini ```json kod bloğunun İÇİNE yaz. Kod bloğu dışındaki metin "
-    "arayüzde Markdown olarak biçimlendiriliyor ve `__init__.py` gibi adlardaki alt "
-    "çizgiler siliniyor.",
+    "- name ve arguments zorunlu; arguments şemaya uygun bir JSON nesnesi olmalı.",
+    "- Verilen dosya yolu, komut ve arama desenini arguments içinde BİREBİR koru.",
+    "- Çağrıyı ```json bloğuna yaz; Markdown dışarıdaki alt çizgileri bozabilir.",
     _EXACT_EDIT_RULE,
     _EXACT_MATCH_RULE,
-    "- Düzenleme sonucu dönen diff'i oku; istemediğin bir '-' satırı varsa geri ekle.",
-    "- write_file yeni ya da tamamen yenilenecek dosya içindir.",
-    "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap "
-    "(write_file, edit_file, multi_edit, run_shell).",
+    "- Diff'te istemeden silinen satırları geri ekle.",
+    "- write_file yalnız yeni veya tamamen yenilenecek dosya içindir.",
+    "- Yanıt başına EN FAZLA BİR DEĞİŞTİRİCİ çağrı (write_file, edit_file, multi_edit, run_shell).",
     "- Bağımsız OKUMA çağrılarını aynı yanıtta BİRDEN ÇOK yapabilirsin.",
-    "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
-    "- Araç gerekmiyorsa tool-call bloğu üretme; nihai cevabı ver.",
+    "- Aynı çağrıyı aynı argümanlarla tekrarlama.",
+    "- Araç gerekmiyorsa doğrudan yanıt ver.",
 )
 
 

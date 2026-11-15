@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -131,7 +132,7 @@ def substitute_placeholders(text: str, environment: Mapping[str, str]) -> str:
 
 async def _kill(process: asyncio.subprocess.Process, posix: bool) -> None:
     with contextlib.suppress(ProcessLookupError, PermissionError):
-        if posix:
+        if sys.platform != "win32" and posix:
             os.killpg(process.pid, signal.SIGKILL)
         else:
             process.kill()

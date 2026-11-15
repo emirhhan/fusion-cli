@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import re
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -284,68 +285,74 @@ def _skill_text(proposal: SkillProposal, plan: ExecutionPlan, arguments: str) ->
 
 def _open_directory(path: Path) -> int:
     """Her bileşeni bağ izlemeden aç; yazmalar açık üst dizine sabitlenir."""
-    if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+    if sys.platform == "win32":
         raise OSError(WRITE_FAILED)
-    absolute = path.absolute()
-    descriptor = os.open(absolute.anchor, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        for component in absolute.parts[1:]:
-            if component in {".", ".."}:
-                raise OSError(WRITE_FAILED)
-            with contextlib.suppress(FileExistsError):
-                os.mkdir(component, dir_fd=descriptor)
-            child = os.open(
-                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
-            )
+    else:
+        if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+            raise OSError(WRITE_FAILED)
+        absolute = path.absolute()
+        descriptor = os.open(absolute.anchor, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for component in absolute.parts[1:]:
+                if component in {".", ".."}:
+                    raise OSError(WRITE_FAILED)
+                with contextlib.suppress(FileExistsError):
+                    os.mkdir(component, dir_fd=descriptor)
+                child = os.open(
+                    component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+                )
+                os.close(descriptor)
+                descriptor = child
+            return descriptor
+        except BaseException:
             os.close(descriptor)
-            descriptor = child
-        return descriptor
-    except BaseException:
-        os.close(descriptor)
-        raise
+            raise
 
 
 def _install_exclusive(root: Path, name: str, content: str) -> None:
     """Tam dosyayı atomik bağla; hatada yalnız kendi dosyanı temizle."""
-    root_fd = _open_directory(root)
-    skill_fd: int | None = None
-    has_directory = False
-    has_pending = False
-    has_linked = False
-    try:
-        os.mkdir(name, dir_fd=root_fd)
-        has_directory = True
-        skill_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
-        pending_fd = os.open(
-            _PENDING_FILENAME, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=skill_fd
-        )
-        has_pending = True
-        with os.fdopen(pending_fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.link(
-            _PENDING_FILENAME,
-            _SKILL_FILENAME,
-            src_dir_fd=skill_fd,
-            dst_dir_fd=skill_fd,
-            follow_symlinks=False,
-        )
-        has_linked = True
-        os.unlink(_PENDING_FILENAME, dir_fd=skill_fd)
-        has_pending = False
+    if sys.platform == "win32":
+        raise OSError(WRITE_FAILED)
+    else:
+        root_fd = _open_directory(root)
+        skill_fd: int | None = None
         has_directory = False
-    finally:
-        if skill_fd is not None:
-            try:
-                if has_directory and has_linked:
-                    os.unlink(_SKILL_FILENAME, dir_fd=skill_fd)
-                if has_pending:
-                    os.unlink(_PENDING_FILENAME, dir_fd=skill_fd)
-            finally:
-                os.close(skill_fd)
+        has_pending = False
+        has_linked = False
         try:
-            if has_directory:
-                os.rmdir(name, dir_fd=root_fd)
+            os.mkdir(name, dir_fd=root_fd)
+            has_directory = True
+            skill_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+            pending_fd = os.open(
+                _PENDING_FILENAME, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=skill_fd
+            )
+            has_pending = True
+            with os.fdopen(pending_fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.link(
+                _PENDING_FILENAME,
+                _SKILL_FILENAME,
+                src_dir_fd=skill_fd,
+                dst_dir_fd=skill_fd,
+                follow_symlinks=False,
+            )
+            has_linked = True
+            os.unlink(_PENDING_FILENAME, dir_fd=skill_fd)
+            has_pending = False
+            has_directory = False
         finally:
-            os.close(root_fd)
+            if skill_fd is not None:
+                try:
+                    if has_directory and has_linked:
+                        os.unlink(_SKILL_FILENAME, dir_fd=skill_fd)
+                    if has_pending:
+                        os.unlink(_PENDING_FILENAME, dir_fd=skill_fd)
+                finally:
+                    os.close(skill_fd)
+            try:
+                if has_directory:
+                    os.rmdir(name, dir_fd=root_fd)
+            finally:
+                os.close(root_fd)

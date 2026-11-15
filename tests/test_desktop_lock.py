@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -10,6 +12,17 @@ from fusion_cli.core.desktop_frame import DesktopFrame
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.tools import desktop, desktop_lock, desktop_mouse
 from fusion_cli.tools.desktop_lock import LockOwner
+
+
+def test_canlilik_kontrolu_sureci_sonlandirmaz() -> None:
+    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"]) as process:
+        try:
+            assert desktop_lock._is_alive(process.pid)
+            assert process.poll() is None
+        finally:
+            process.kill()
+            process.wait(timeout=5)
+        assert not desktop_lock._is_alive(process.pid)
 
 
 def test_bos_kilit_alinir_ve_ayni_tur_tazeler(tmp_path) -> None:

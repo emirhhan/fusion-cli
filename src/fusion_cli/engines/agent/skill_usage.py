@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -62,14 +63,14 @@ def record_invocation(memory_dir: Path | None, name: str) -> None:
 @contextlib.contextmanager
 def _locked(memory_dir: Path) -> Iterator[None]:
     """Sayaç dosyasının oku-değiştir-yaz bölümü için özel kilit (POSIX `flock`)."""
-    try:
-        import fcntl
-    except ImportError:  # Windows: kilitsiz (eski davranış)
+    if sys.platform == "win32":  # Windows: kilitsiz (eski davranış)
         yield
-        return
-    with (memory_dir / f"{USAGE_FILE}.lock").open("a", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    else:
+        import fcntl
+
+        with (memory_dir / f"{USAGE_FILE}.lock").open("a", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -11,9 +11,9 @@ mod runtime_paths;
 mod runtime_smoke;
 mod session_manager;
 mod speech;
+mod talk_transcript;
 mod tepsi;
 mod terminal;
-mod talk_transcript;
 
 use std::path::PathBuf;
 use std::sync::Arc;

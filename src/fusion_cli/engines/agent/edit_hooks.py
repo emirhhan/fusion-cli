@@ -19,6 +19,7 @@ import os
 import shlex
 import signal
 import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -85,7 +86,7 @@ def _run(command: str, root: Path) -> str | None:
         stdout, stderr = process.communicate(timeout=SHELL_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            if posix:
+            if sys.platform != "win32" and posix:
                 os.killpg(process.pid, signal.SIGKILL)
             else:
                 process.kill()

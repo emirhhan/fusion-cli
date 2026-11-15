@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -156,6 +157,7 @@ def apply_proposal(proposal: SkillProposal, arguments: dict[str, object]) -> Res
 
 
 @pytest.mark.parametrize("case", CASES, ids=[item[0] for item in CASES])
+@pytest.mark.skipif(sys.platform == "win32", reason="Güvenli POSIX beceri kurulumu gerekir")
 def test_six_public_routines_reach_find_read_and_invoker(
     proposal_workspace: Path, case: tuple, monkeypatch
 ) -> None:
@@ -390,6 +392,7 @@ def test_sensitive_or_dynamic_parameters_are_not_persisted(
 
 
 @pytest.mark.parametrize("failure", ["write", "publish", "cleanup"])
+@pytest.mark.skipif(sys.platform == "win32", reason="Güvenli POSIX beceri kurulumu gerekir")
 def test_failed_install_leaves_no_partial_skill(
     proposal_workspace: Path,
     monkeypatch: pytest.MonkeyPatch,

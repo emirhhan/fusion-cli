@@ -176,6 +176,7 @@ def test_birakilan_proxy_kapanir_ve_ikinci_birakma_zararsiz(tmp_path, tcp_proxy)
         socket.create_connection(("127.0.0.1", port), timeout=1).close()
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Python Unix soketini desteklemiyor")
 def test_unix_soketli_proxy_birakilinca_gecici_dizini_de_siler(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox_runtime, "_uses_unix_proxy", lambda: True)
     run = sandbox_runtime.prepare_sandbox("curl a", {}, _ctx(tmp_path))

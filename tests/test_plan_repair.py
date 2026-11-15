@@ -1,10 +1,10 @@
 """Final onarımı, gerçek checkpoint kanıtı ve salt-okunur kurtarma."""
 
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
+from fusion_cli.core.events import ToolOutcome
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
     PlanPhase,
@@ -20,9 +20,10 @@ from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.engines.agent.plan_runner import run_execution_plan
 from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
 from fusion_cli.tools import build_registry
+from tests.agent_harness import web_deps
 from tests.test_plan_runner import _FakeDeps, _step
 
-from .fakes import make_config
+from .fakes import RecordingSink, make_config
 
 
 def _file_step(name, path, *, depends_on=()):
@@ -239,14 +240,15 @@ async def test_arac_aileleri_runtime_yurutmede_de_kisitlanir(tmp_path):
     from fusion_cli.engines.agent.loop import _execute
 
     registry = build_registry()
-    result, _ = await _execute(
+    result, outcome = await _execute(
         ToolCall("call", "write_file", "{}"),
         {"path": "forbidden.txt", "content": "x"},
-        SimpleNamespace(tool_context=ToolContext(root=tmp_path), steering=None),
+        web_deps(tmp_path, RecordingSink()),
         registry,
         execution=ExecutionPolicy(is_web=False, allowed_tool_names=frozenset({"read_file"})),
     )
     assert not result.ok
+    assert outcome is ToolOutcome.BLOCKED
     assert not (tmp_path / "forbidden.txt").exists()
 
 
@@ -254,14 +256,17 @@ async def test_mutation_engeli_basari_kaniti_uretmez(tmp_path):
     from fusion_cli.core.types import ToolCall
     from fusion_cli.engines.agent.loop import _execute
 
-    result, _ = await _execute(
+    result, outcome = await _execute(
         ToolCall("call", "write_file", "{}"),
-        {},
-        SimpleNamespace(steering=None),
+        {"path": "forbidden.txt", "content": "x"},
+        web_deps(tmp_path, RecordingSink()),
         build_registry(),
         execution=ExecutionPolicy(is_web=False, allow_mutation=False),
     )
     assert not result.ok
+    assert outcome is ToolOutcome.BLOCKED
+    assert "Bu model dosya/sistem değiştiremez" in result.output
+    assert not (tmp_path / "forbidden.txt").exists()
 
 
 async def test_checkpoint_artifact_degisince_eski_kanit_kullanilmaz(tmp_path):

@@ -23,6 +23,7 @@ import logging
 import os
 import signal
 import socket
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -127,7 +128,7 @@ def dev_server_command(package_json: object) -> list[str] | None:
 def _signal_group(surec: asyncio.subprocess.Process, sinyal: int) -> None:
     """Sinyali tüm süreç grubuna gönder (yoksa yalnız sürece)."""
     with contextlib.suppress(ProcessLookupError, PermissionError):
-        if os.name == "posix":
+        if sys.platform != "win32" and os.name == "posix":
             os.killpg(surec.pid, sinyal)
         elif sinyal == signal.SIGTERM:
             surec.terminate()
@@ -145,7 +146,11 @@ async def _stop_server(surec: asyncio.subprocess.Process) -> None:
     try:
         await asyncio.wait_for(surec.wait(), timeout=10)
     except TimeoutError:
-        _signal_group(surec, signal.SIGKILL if os.name == "posix" else signal.SIGTERM)
+        if sys.platform != "win32" and os.name == "posix":
+            _signal_group(surec, signal.SIGKILL)
+        else:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                surec.kill()
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(surec.wait(), timeout=5)
 
