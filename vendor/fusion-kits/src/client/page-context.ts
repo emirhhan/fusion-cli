@@ -1,0 +1,14 @@
+import type { Page } from '../server/pages';
+export type PageContext = Pick<Page, 'id' | 'spaceId' | 'title'>;
+export function contextualMessage(
+  text: string,
+  context: PageContext | null | undefined,
+) {
+  if (context === undefined)
+    throw new Error(
+      'Sohbet bağlamı yüklenmedi. Göndermeden önce yeniden dene.',
+    );
+  return context
+    ? `Kaynak: [${context.title.replace(/[[\]\\\r\n]/g, '')}](/#/spaces/${context.spaceId}/pages/${context.id}):\n\n${text}`
+    : text;
+}

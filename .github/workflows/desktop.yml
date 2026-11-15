@@ -169,7 +169,9 @@ jobs:
         # çıktı vermeden sürdü; sınır olmadığı için kendiliğinden bitmeyecekti.
         timeout-minutes: 45
         working-directory: app
-        run: npm run bundle:mac
+        run: |
+          export FUSION_KITS_NODE="$(npx --yes --package=node@24.21.0 -- node -p process.execPath)"
+          npm run bundle:mac
       - name: Mimariyi ve uygulama paketini doğrula
         env:
           EXPECTED_TARGET: ${{ matrix.target }}
@@ -284,7 +286,11 @@ jobs:
         # çıktı vermeden sürdü; sınır olmadığı için kendiliğinden bitmeyecekti.
         timeout-minutes: 45
         working-directory: app
-        run: npm run bundle:win
+        shell: pwsh
+        run: |
+          $env:FUSION_KITS_NODE = (npx --yes --package=node@24.21.0 -- node -p process.execPath).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run bundle:win
       - name: Hedefi doğrula
         run: |
           rustc -vV

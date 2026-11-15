@@ -1,0 +1,703 @@
+/* Fusion menü ölçüleri ve renkleri: Fusion theme/tokens.css ve Sidebar.css. */
+:root {
+  --kits-ink: var(--fusion-ink);
+  --kits-dialog-surface: var(--fusion-dialog-surface);
+  --kits-dialog-border: var(--fusion-dialog-border);
+  --kits-input-surface: var(--fusion-input-surface);
+  --kits-signal: var(--fusion-cyan);
+  --kits-accent-text: var(--fusion-accent-deep);
+  --kits-sidebar: var(--fusion-sidebar);
+  --kits-selected: #ececec;
+  --kits-hover: #efefef;
+  --kits-border: #eaeaea;
+  --kits-muted: var(--fusion-muted);
+  --ink: var(--kits-ink);
+  --muted: var(--kits-muted);
+  --line: var(--kits-border);
+  --blue: var(--kits-accent-text);
+  --blue-dark: var(--kits-accent-text);
+  --lavender: #edf3ff;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  background: #fff;
+  color: var(--kits-ink);
+}
+.fusion-kits.template-app .icon-rail {
+  display: none;
+}
+.fusion-kits.template-app .sidebar {
+  left: 0;
+  width: 260px;
+  padding: 10px 12px 12px;
+  background: var(--kits-sidebar);
+  border-right: 1px solid var(--kits-border);
+  color: var(--kits-ink);
+}
+.fusion-kits.template-app .wordmark {
+  height: 44px;
+  padding: 0 8px;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--kits-ink);
+}
+.fusion-kits .wordmark-dot {
+  display: none;
+}
+.fusion-kits.template-app .nav-item,
+.fusion-kits.template-app .dot-nav,
+.fusion-kits.template-app .space-nav-link {
+  min-height: 40px;
+  border-radius: 8px;
+  color: var(--kits-ink);
+  font-size: 14px;
+  font-weight: 400;
+}
+.fusion-kits.template-app .nav-item:hover,
+.fusion-kits.template-app .dot-nav:hover,
+.fusion-kits.template-app .space-nav-link:hover {
+  background: var(--kits-hover);
+}
+.fusion-kits.template-app .dot-nav.active,
+.fusion-kits.template-app .nav-item.active,
+.fusion-kits.template-app .space-nav-link.active {
+  background: var(--kits-selected);
+  color: var(--kits-ink);
+}
+.fusion-kits.template-app .new-chat {
+  background: transparent;
+  border: 0;
+  margin: 8px 0 16px;
+  justify-content: flex-start;
+}
+.fusion-kits.template-app .new-chat:hover {
+  background: var(--kits-hover);
+}
+.fusion-kits.template-app .nav-label {
+  color: var(--kits-muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  padding-left: 8px;
+}
+.fusion-kits.template-app .sidebar-bottom {
+  border-top-color: var(--kits-border);
+}
+.fusion-kits.template-app .sidebar-bottom .nav-item {
+  font-size: 13px;
+}
+.fusion-kits.template-app .sidebar-empty {
+  color: var(--kits-muted);
+}
+.fusion-kits.template-app .version {
+  font-size: 10px;
+  color: var(--kits-muted);
+}
+.fusion-kits.template-app.app .workspace {
+  margin-left: 260px;
+}
+.fusion-kits.template-app.app.nav-collapsed .workspace {
+  margin-left: 0;
+}
+.fusion-kits.template-app .workspace,
+.fusion-kits.template-app .topbar {
+  background: #fff;
+}
+.fusion-kits.template-app .topbar {
+  min-height: 56px;
+  border-bottom-color: var(--kits-border);
+}
+.fusion-kits.template-app.nav-collapsed .sidebar {
+  display: none;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-color: var(--kits-accent-text);
+}
+@media (max-width: 700px) {
+  .fusion-kits.template-app.app .workspace {
+    margin-left: 0;
+  }
+  .fusion-kits.template-app .sidebar {
+    width: min(300px, calc(100vw - 48px));
+  }
+  .fusion-kits.template-app.nav-collapsed .sidebar.open {
+    display: flex;
+  }
+}
+.fusion-panel,
+.fusion-panel-inline {
+  background: #fff;
+  border: 1px solid var(--kits-border);
+  border-radius: 12px;
+  padding: 16px;
+  color: var(--kits-ink);
+  min-width: 0;
+}
+.fusion-panel {
+  position: fixed;
+  z-index: 35;
+  right: 16px;
+  top: 66px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 82px);
+  overflow: auto;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 12%);
+}
+.fusion-panel-inline {
+  margin: 12px 20px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.fusion-panel header,
+.fusion-panel-inline header,
+.fusion-card-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.fusion-panel header strong,
+.fusion-panel-inline header strong {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.fusion-card-status {
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.fusion-root {
+  color: var(--kits-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.fusion-output,
+.fusion-question pre {
+  background: var(--kits-sidebar);
+  padding: 12px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+}
+.fusion-question {
+  border: 1px solid var(--kits-border);
+  border-left: 3px solid var(--kits-accent-text);
+  padding: 12px;
+  border-radius: 8px;
+}
+.fusion-question h3 {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+.fusion-question code {
+  overflow-wrap: anywhere;
+}
+.fusion-decisions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fusion-question form {
+  display: grid;
+  gap: 8px;
+}
+.fusion-question button {
+  font-size: 12px;
+}
+
+/* Mesaj kutusu: Fusion'ın kapsülü (app/src/screens/Composer.css) ile aynı.
+   style.css'teki katmanlı eski kurallar (kenar çizgisi, gri gönder düğmesi,
+   esnemeyen yazı alanı) burada tek yerde ezilir; gönder düğmesi sağda kalır. */
+.fusion-kits .chat-composer {
+  background: #fff;
+  border: 1px solid var(--kits-border);
+  border-radius: 28px;
+  box-shadow:
+    0 4px 12px rgb(0 0 0 / 5%),
+    0 0 1px rgb(0 0 0 / 30%);
+  margin-top: auto;
+  padding: 12px 16px 10px;
+}
+.fusion-kits .chat-composer:focus-within {
+  border-color: #c9c9cc;
+}
+.fusion-kits .chat-compose-row {
+  align-items: end;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 34px minmax(0, 1fr) 36px;
+}
+.fusion-kits .chat-compose-row textarea {
+  background: transparent;
+  border: 0;
+  color: var(--kits-ink);
+  field-sizing: content;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  max-height: 180px;
+  min-height: 28px;
+  outline: 0;
+  padding: 4px 4px;
+  resize: none;
+  width: 100%;
+}
+.fusion-kits .chat-compose-row textarea::placeholder {
+  color: var(--kits-muted);
+}
+.fusion-kits .chat-compose-row .icon-button {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  margin: 0;
+  width: 34px;
+}
+.fusion-kits .chat-compose-row .icon-button:hover {
+  background: var(--kits-hover);
+}
+.fusion-kits .chat-compose-row .send-button,
+.fusion-kits .send-button {
+  align-items: center;
+  background: var(--kits-ink);
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  margin: 0;
+  width: 36px;
+}
+.fusion-kits .send-button:disabled {
+  background: #d7d7d7;
+  color: #fff;
+  cursor: default;
+}
+.fusion-kits .chat-compose-note {
+  color: var(--kits-muted);
+  font-size: 11px;
+  margin-top: 6px;
+  text-align: center;
+}
+/* Kullanıcı balonu: Fusion'daki açık gri, koyu metinli balon. */
+.fusion-kits .chat-bubble.user {
+  background: #f4f4f4;
+  box-shadow: none;
+  color: var(--kits-ink);
+}
+
+/* Karşılama ekranındaki kutu da aynı Fusion kapsülü. Dar ekranda alttaki
+   açıklama gizlenince `space-between` gönder düğmesini SOLA itiyordu;
+   düğme artık her zaman sağda durur. */
+.fusion-kits .composer {
+  background: #fff;
+  border: 1px solid var(--kits-border);
+  border-radius: 28px;
+  box-shadow:
+    0 4px 12px rgb(0 0 0 / 5%),
+    0 0 1px rgb(0 0 0 / 30%);
+  min-height: 0;
+  padding: 14px 16px 10px;
+}
+.fusion-kits .composer:focus-within {
+  border-color: #c9c9cc;
+}
+.fusion-kits .composer textarea {
+  color: var(--kits-ink);
+  field-sizing: content;
+  font-family: inherit;
+  font-size: 15px;
+  max-height: 180px;
+  min-height: 52px;
+  padding: 4px;
+  width: 100%;
+}
+.fusion-kits .composer textarea::placeholder {
+  color: var(--kits-muted);
+}
+.fusion-kits .composer-bottom {
+  gap: 8px;
+  justify-content: flex-end;
+}
+.fusion-kits .composer-bottom > span {
+  color: var(--kits-muted);
+  font-size: 11px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+/* Fusion düzeni (app/src/screens: Sidebar.css, AppHeader.css, EmptyState).
+   Ölçüler Fusion önizlemesinden tarayıcıda ölçüldü: bölüm başlığı 12px/500
+   gri ve büyük harfsiz, üst çubuk 56px, karşılama başlığı 24px/500 ortada,
+   kapsül kutu 640px, öneriler kutusuz satırlar. */
+.fusion-kits.template-app .nav-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  padding: 8px 3px 4px 8px;
+}
+.fusion-kits.template-app .new-chat {
+  min-height: 40px;
+  padding: 0 8px;
+  gap: 12px;
+}
+.fusion-kits.template-app .topbar {
+  height: 56px;
+  min-height: 56px;
+  padding: 0 16px 0 24px;
+  border-bottom: 0;
+}
+.fusion-kits.template-app .breadcrumbs {
+  font-size: 14px;
+}
+.fusion-kits.template-app .breadcrumbs strong {
+  font-weight: 500;
+}
+.fusion-kits .new-conversation {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(100% - 56px);
+  max-width: 732px;
+  padding: 24px 46px 64px;
+  width: 100%;
+}
+.fusion-kits .empty-chat-persona {
+  margin-bottom: 20px;
+}
+.fusion-kits .empty-chat-persona .mascot {
+  height: 72px;
+  width: 72px;
+}
+.fusion-kits .empty-chat-persona h1,
+.fusion-kits .chat-welcome h1 {
+  color: var(--kits-ink);
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  margin: 12px 0 0;
+}
+.fusion-kits .new-conversation .composer {
+  align-self: center;
+  margin-top: 0;
+  max-width: 640px;
+  min-height: 0;
+  width: 100%;
+}
+.fusion-kits .new-conversation .composer textarea {
+  min-height: 30px;
+}
+.fusion-kits .composer-chip {
+  background: var(--kits-selected);
+  border: 0;
+  border-radius: 999px;
+  color: var(--kits-ink);
+  font-size: 13px;
+  margin-right: auto;
+  padding: 5px 10px;
+}
+.fusion-kits .composer-chip:hover {
+  background: var(--kits-hover);
+}
+.fusion-kits .starter-suggestions {
+  align-self: center;
+  display: grid;
+  gap: 4px;
+  justify-content: stretch;
+  margin-top: 24px;
+  max-width: 700px;
+  width: 100%;
+}
+.fusion-kits .starter-suggestions button {
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  color: var(--kits-muted);
+  font-size: 16px;
+  padding: 12px 16px;
+  text-align: left;
+}
+.fusion-kits .starter-suggestions button:hover:not(:disabled) {
+  background: var(--kits-hover);
+  color: var(--kits-ink);
+}
+.fusion-kits .chat-welcome {
+  padding-top: 18vh;
+  text-align: center;
+}
+.fusion-kits .delivery-binding {
+  align-items: center;
+  border-bottom: 1px solid var(--kits-border);
+  color: var(--kits-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+  padding: 6px 24px;
+}
+.fusion-kits .delivery-binding p {
+  margin: 0;
+}
+.fusion-kits .delivery-binding button {
+  background: transparent;
+  border: 1px solid var(--kits-border);
+  border-radius: 999px;
+  color: var(--kits-ink);
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.fusion-kits .delivery-binding button:disabled {
+  color: var(--kits-muted);
+}
+.fusion-kits.template-app .sidebar .new-chat {
+  margin: 4px 0 8px;
+}
+.fusion-kits .starter-suggestions button {
+  display: block;
+  width: 100%;
+}
+.fusion-kits.template-app .sidebar .wordmark {
+  margin-bottom: 4px;
+}
+/* Koyu temada üretilen sınıflı kurallardan daha seçici olmalı (aynı
+   seçicilikte üretilen dosya sonra yüklendiği için kazanır). */
+.fusion-kits.template-app .new-conversation .starter-suggestions button {
+  background: transparent;
+  border: 0;
+}
+.fusion-kits.template-app .sidebar .new-chat:not(:hover) {
+  background: transparent;
+}
+/* Fusion: --icerik-en-fazla 768px (mesaj akışı ve kapsül aynı genişlikte). */
+.fusion-kits .live-chat {
+  max-width: calc(768px + 70px);
+}
+
+/* Kit karakteri seçici ("+" ile yeni Kit, Kit ayarları). */
+.fusion-kits .character-picker {
+  border: 0;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.fusion-kits .character-picker legend {
+  color: var(--kits-muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.fusion-kits .character-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.fusion-kits .character-option {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  padding: 6px 4px;
+  transition:
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+.fusion-kits .character-option:hover {
+  background: var(--kits-hover);
+}
+.fusion-kits .character-option:active {
+  transform: scale(0.97);
+}
+.fusion-kits .character-option.selected {
+  background: var(--kits-selected);
+  border-color: var(--kits-ink);
+}
+.fusion-kits .character-option input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+.fusion-kits .character-option:has(input:focus-visible) {
+  outline: 2px solid var(--kits-accent-text);
+  outline-offset: 2px;
+}
+.fusion-kits .character-option img {
+  height: 56px;
+  object-fit: contain;
+  width: 56px;
+}
+.fusion-kits .character-option span {
+  color: var(--kits-muted);
+  font-size: 11px;
+}
+.fusion-kits .character-option.selected span {
+  color: var(--kits-ink);
+}
+/* `.nav-item small` sayaç rozeti stilidir; sohbet satırındaki Kit adı rozet değil. */
+.fusion-kits.template-app .thread-summary small {
+  background: transparent;
+  border-radius: 0;
+  color: var(--kits-muted);
+  font-size: 11px;
+  min-width: 0;
+  padding: 0;
+}
+.fusion-kits .call-interrupt {
+  align-self: center;
+  background: transparent;
+  border: 1px solid var(--kits-border);
+  border-radius: 999px;
+  color: var(--kits-ink);
+  font-size: 12px;
+  margin: 4px auto 0;
+  padding: 5px 14px;
+}
+.fusion-kits .call-interrupt:hover {
+  background: var(--kits-hover);
+}
+
+/* Apple sistem fontu başlıkta, paketlenmiş Inter arayüzde. */
+.fusion-kits h1,
+.fusion-kits h2,
+.fusion-kits h3,
+.fusion-kits .wordmark {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, Inter,
+    sans-serif;
+  font-optical-sizing: auto;
+}
+.fusion-kits pre,
+.fusion-kits code,
+.fusion-kits kbd,
+.fusion-kits .document-source {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Kit ayarları: soğuk marka tonları, sıcak krem panel yerine temaya bağlı yüzey. */
+.fusion-kits.template-app .modal[data-dialog-kind='dot'],
+.fusion-kits.template-app .modal[data-dialog-kind='settings'] {
+  background: var(--kits-dialog-surface);
+  border-color: var(--kits-dialog-border);
+  box-shadow: 0 20px 70px rgb(25 46 82 / 16%);
+}
+.fusion-kits.template-app .modal[data-dialog-kind='dot'] input,
+.fusion-kits.template-app .modal[data-dialog-kind='dot'] textarea,
+.fusion-kits.template-app .modal[data-dialog-kind='settings'] input,
+.fusion-kits.template-app .modal[data-dialog-kind='settings'] select {
+  background: var(--kits-input-surface);
+  border-color: var(--kits-dialog-border);
+}
+
+.fusion-kits.template-app .modal .muted,
+.fusion-kits.template-app .modal .settings-row p,
+.fusion-kits.template-app .modal .permission-row small,
+.fusion-kits.template-app .modal .config-note p,
+.fusion-kits.template-app .modal .config-note a {
+  color: var(--kits-muted);
+}
+.fusion-kits.template-app .modal .config-note strong {
+  color: var(--kits-ink);
+}
+
+/* Mobil gezinme kendi hücresindedir; başlığın üzerine sabitlenmez. */
+.fusion-kits.template-app .topbar > .mobile-menu,
+.fusion-kits.template-app .sidebar-close {
+  display: none;
+}
+@media (max-width: 700px) {
+  .fusion-kits.template-app .topbar {
+    padding: 0 8px;
+    gap: 8px;
+  }
+  .fusion-kits.template-app .topbar > .mobile-menu {
+    position: static;
+    display: inline-flex;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--kits-ink);
+    z-index: auto;
+  }
+  .fusion-kits.template-app .desktop-nav-toggle {
+    display: none;
+  }
+  .fusion-kits.template-app .breadcrumbs {
+    min-width: 0;
+    flex: 1;
+  }
+  .fusion-kits.template-app .breadcrumbs strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fusion-kits.template-app .top-actions {
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .fusion-kits.template-app .top-actions > button {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .fusion-kits.template-app .top-actions .mode-badge {
+    display: none;
+  }
+  .fusion-kits.template-app .sidebar {
+    z-index: 50;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    height: 100dvh;
+  }
+  .fusion-kits.template-app .nav-scrim {
+    z-index: 45;
+  }
+  .fusion-kits.template-app .sidebar-close {
+    display: inline-flex;
+    position: absolute;
+    top: 12px;
+    right: 8px;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+  }
+  .fusion-kits.template-app .sidebar .wordmark {
+    padding-right: 38px;
+    flex-shrink: 0;
+  }
+  .fusion-kits.template-app .sidebar > * {
+    flex-shrink: 0;
+  }
+}
+
+.fusion-kits .library-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}

@@ -26,7 +26,11 @@ import process from "node:process";
 import { runtimeError } from "./check-runtime.mjs";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const kitsRoot = resolve(process.env.FUSION_KITS_DIR ?? resolve(appRoot, "../../fusion-kits"));
+const siblingKits = resolve(appRoot, "../../fusion-kits");
+const bundledKits = resolve(appRoot, "../vendor/fusion-kits");
+const kitsRoot = resolve(process.env.FUSION_KITS_DIR
+  ?? (existsSync(siblingKits) ? siblingKits : bundledKits));
+const vendored = kitsRoot === bundledKits;
 const target = resolve(appRoot, "src-tauri/resources/kits");
 const node = process.env.FUSION_KITS_NODE ?? process.execPath;
 const isWindows = process.platform === "win32";
@@ -80,6 +84,20 @@ function checkPortable() {
 }
 
 function checkRepository() {
+  if (vendored) {
+    const drift = git(
+      ["status", "--porcelain", "--untracked-files=no", "--", "vendor/fusion-kits"],
+      resolve(appRoot, ".."),
+    );
+    if (drift.status !== 0 || drift.stdout.trim()) {
+      fail("Paketli Fusion Kits kaynakları yayın commit'iyle eşleşmiyor.");
+    }
+    const source = JSON.parse(readFileSync(resolve(kitsRoot, ".fusion-source.json"), "utf8"));
+    if (!/^[0-9a-f]{40}$/.test(source.commit) || Number.isNaN(Date.parse(source.commitDate))) {
+      fail("Paketli Fusion Kits kaynak kaydı geçersiz.");
+    }
+    return { ...source, sourceDirty: false };
+  }
   if (!existsSync(kitsRoot)) {
     fail(`Fusion Kits deposu bulunamadı: ${kitsRoot}`, "FUSION_KITS_DIR ile Kits deposunu gösterin; Kits'siz paket üretilmez.");
   }
@@ -134,10 +152,23 @@ function packageFromHead(source, nodeVersion) {
   const modules = resolve(tree, "node_modules");
   let added = false;
   try {
-    const add = git(["worktree", "add", "--detach", tree, source.commit]);
-    if (add.status !== 0) throw new Error(`Geçici Kits ağacı açılamadı: ${add.stderr.trim()}`);
-    added = true;
-    symlinkSync(resolve(kitsRoot, "node_modules"), modules, isWindows ? "junction" : "dir");
+    const dependencies = resolve(kitsRoot, "node_modules");
+    if (vendored) {
+      cpSync(kitsRoot, tree, {
+        recursive: true,
+        filter: (path) => path !== dependencies && path !== resolve(kitsRoot, "dist"),
+      });
+    } else {
+      const add = git(["worktree", "add", "--detach", tree, source.commit]);
+      if (add.status !== 0) throw new Error(`Geçici Kits ağacı açılamadı: ${add.stderr.trim()}`);
+      added = true;
+    }
+    const linkDependencies = existsSync(dependencies);
+    if (linkDependencies) {
+      symlinkSync(dependencies, modules, isWindows ? "junction" : "dir");
+    } else {
+      run("npm", ["ci"], tree, "Kits bağımlılıkları kurulamadı");
+    }
     if (!existsSync(resolve(tree, "scripts/kits-bundle.mjs"))) {
       throw new Error(`Kits son commit'inde scripts/kits-bundle.mjs yok (${source.commit}).`);
     }
@@ -160,7 +191,7 @@ function packageFromHead(source, nodeVersion) {
     moveInto(staging, target);
     return manifest;
   } finally {
-    if (existsSync(modules)) unlinkSync(modules);
+    if (added && existsSync(modules)) unlinkSync(modules);
     // Yalnız bu betiğin açtığı geçici ağaç kaldırılır; başka worktree'lere dokunulmaz.
     if (added) {
       const removed = git(["worktree", "remove", "--force", tree]);

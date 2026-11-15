@@ -1,0 +1,106 @@
+.page-conflict-panel {
+  border: 1px solid var(--kits-dialog-border);
+  border-radius: 14px;
+  padding: 18px;
+  margin: 18px 0;
+  background: var(--kits-dialog-surface);
+  color: var(--ink);
+}
+.page-conflict-panel > header {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: start;
+}
+.page-conflict-panel h2,
+.page-conflict-panel h3 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+.page-conflict-panel p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.page-conflict-versions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.page-conflict-versions article {
+  min-width: 0;
+  background: var(--kits-input-surface);
+  border: 1px solid var(--kits-dialog-border);
+  padding: 12px;
+  border-radius: 10px;
+}
+.page-conflict-versions pre {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.page-conflict-panel input:not([type='checkbox']),
+.page-conflict-panel textarea,
+.page-conflict-panel select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  color: inherit;
+  background: var(--kits-input-surface);
+  border: 1px solid var(--kits-dialog-border);
+  border-radius: 8px;
+  padding: 9px;
+  margin: 6px 0 12px;
+  font: inherit;
+}
+.page-conflict-panel textarea {
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.page-conflict-panel button {
+  color: inherit;
+  background: var(--kits-input-surface);
+  border: 1px solid var(--kits-dialog-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.page-conflict-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.page-conflict-panel button:focus-visible,
+.page-conflict-panel input:focus-visible,
+.page-conflict-panel textarea:focus-visible,
+.page-conflict-panel select:focus-visible {
+  outline: 2px solid var(--kits-accent-text);
+  outline-offset: 2px;
+}
+.page-conflict-choices {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.page-conflict-ack {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  font-size: 13px;
+  margin: 16px 0;
+}
+@media (max-width: 640px) {
+  .page-conflict-versions {
+    grid-template-columns: 1fr;
+  }
+  .page-conflict-panel > header {
+    flex-direction: column;
+  }
+  .page-conflict-panel {
+    padding: 12px;
+  }
+}
