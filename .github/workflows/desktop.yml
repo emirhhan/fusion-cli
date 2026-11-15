@@ -417,7 +417,7 @@ jobs:
           fi
           echo "make_latest=$make_latest" >> "$GITHUB_OUTPUT"
       - name: Release oluştur ve dosyaları yükle
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
