@@ -17,11 +17,12 @@ kilitlenmelerin hepsi kapıların ETKİLEŞİMİNDEN doğdu.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
+from fusion_cli.config.loader import load_config
 from fusion_cli.core.budget import TurnBudget
 from fusion_cli.core.clock import SystemClock
 from fusion_cli.core.events import ToolExecuted, ToolOutcome
@@ -29,7 +30,7 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message, ToolCall
 from fusion_cli.engines.agent.approval import Decision
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
-from fusion_cli.engines.agent.loop import _run_tools, _State
+from fusion_cli.engines.agent.loop import AgentDeps, _run_tools, _State
 from fusion_cli.tools import build_registry
 
 VAR_OLAN = "mevcut.py"
@@ -72,19 +73,13 @@ def _budget() -> TurnBudget:
     )
 
 
-def _deps(tmp_path: Path, budget: TurnBudget) -> SimpleNamespace:
-    return SimpleNamespace(
-        steering=None,
-        mutation_blocked_by_pending_input=lambda: False,
-        approval_revision=None,
-        policy_factory=None,
-        config=SimpleNamespace(teacher=None),
+def _deps(tmp_path: Path, budget: TurnBudget) -> AgentDeps:
+    return AgentDeps(
+        config=replace(load_config(), teacher=None),
         publisher=_Publisher(),
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),
-        allowed_commands=frozenset(),
         budget=budget,
-        require_budget=lambda: budget,
     )
 
 
@@ -93,32 +88,30 @@ def _deps(tmp_path: Path, budget: TurnBudget) -> SimpleNamespace:
 # --------------------------------------------------------------------------- #
 
 
-def durum_bos_dizin(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
+def durum_bos_dizin(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Hiçbir şey yok. En sade durum."""
 
 
-def durum_dosya_var_okunmamis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
+def durum_dosya_var_okunmamis(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Kullanıcının dosyası var ama agent onu hiç okumadı — toptan yazma kapalı."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
 
 
-def durum_dosya_var_okunmus(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
+def durum_dosya_var_okunmus(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Dosya okunmuş: toptan yazma açılmış olmalı."""
     hedef = tmp_path / VAR_OLAN
     hedef.write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     deps.tool_context.fully_read.add(hedef.resolve())
 
 
-def durum_agent_bu_turda_olusturdu(
-    tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget
-) -> None:
+def durum_agent_bu_turda_olusturdu(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """İskele senaryosu: dosyayı agent'ın kendisi yazdı, doldurabilmeli."""
     hedef = tmp_path / VAR_OLAN
     deps.tool_context.changes.record(hedef.resolve())
     hedef.write_text("YER TUTUCU\n", encoding="utf-8")
 
 
-def durum_okuma_tekrarlanmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
+def durum_okuma_tekrarlanmis(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Aynı okuma iki kez yapılmış: tekrar kapısı üçüncüyü engelleyecek."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     imza = budget.signature("read_file", f'{{"path": "{VAR_OLAN}"}}', mutating=False)
@@ -126,14 +119,14 @@ def durum_okuma_tekrarlanmis(tmp_path: Path, deps: SimpleNamespace, budget: Turn
     budget.count_call(imza)
 
 
-def durum_onarim_hakki_bitmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
+def durum_onarim_hakki_bitmis(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Sözleşme onarım hakkı tükenmiş — bozuk çağrı artık onarılmayacak."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     while budget.take_contract_repair():
         pass
 
 
-def durum_mutasyon_yapilmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
+def durum_mutasyon_yapilmis(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Çalışma alanı değişmiş: tekrar imzaları tazelenmiş olmalı."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     imza = budget.signature("read_file", f'{{"path": "{VAR_OLAN}"}}', mutating=False)
@@ -142,9 +135,7 @@ def durum_mutasyon_yapilmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnB
     budget.record_mutation()
 
 
-def durum_bos_dizin_tekrarli_listeleme(
-    tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget
-) -> None:
+def durum_bos_dizin_tekrarli_listeleme(tmp_path: Path, deps: AgentDeps, budget: TurnBudget) -> None:
     """Boş dizinde keşif tükenmiş: model listeleyip durdu, hâlâ bir çıkışı olmalı."""
     imza = budget.signature("list_dir", '{"path": "."}', mutating=False)
     budget.count_call(imza)
