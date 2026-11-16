@@ -41,7 +41,8 @@ async def test_gercek_tiklama_ve_state_gecisi(style, handler, expected_problem):
         try:
             page = await browser.new_page()
             await page.set_content(source)
-            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            # Playwright tıklamadan önce öğenin hareket etmediğini birkaç karede doğrular.
+            report = await start_game(page, settle_ms=20, timeout_ms=2_000, state_script=_STATE)
             assert report.has_button
             assert bool(report.problems) is expected_problem
             if not expected_problem:
