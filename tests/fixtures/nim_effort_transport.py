@@ -19,6 +19,8 @@ def forbid(*args, **kwargs):
     raise AssertionError("Network forbidden")
 
 
+# Build asyncio's own wakeup socket pair before denying network calls on Windows.
+loop = asyncio.new_event_loop()
 socket.create_connection = forbid
 socket.getaddrinfo = forbid
 socket.socket.connect = forbid
@@ -157,4 +159,5 @@ async def main():
     print(json.dumps(receipt, ensure_ascii=False))
 
 
-asyncio.run(main())
+with asyncio.Runner(loop_factory=lambda: loop) as runner:
+    runner.run(main())

@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from fusion_cli.core.process_liveness import process_alive
 from fusion_cli.tools.remotion_observe import ProcessOutput, RenderRequest, observe_frame
 
 
@@ -133,21 +134,17 @@ async def _assert_owned_child_dead(pid):
     import os
     import signal
 
-    import pytest
-
     try:
         for _ in range(30):
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+            if process_alive(pid) is False:
                 break
             await asyncio.sleep(0.01)
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+        assert process_alive(pid) is False
     finally:
         # Yalnız testin kendi PID'si; kullanıcı süreçlerine dokunulmaz.
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+        if process_alive(pid) is True:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
 
 
 async def test_timeout_kendi_direncli_alt_surecini_yetim_birakmaz(tmp_path):
@@ -156,7 +153,9 @@ async def test_timeout_kendi_direncli_alt_surecini_yetim_birakmaz(tmp_path):
     from fusion_cli.tools.remotion_observe import _run
 
     parent = _write_owned_process_fixture(tmp_path)
-    output = await _run((sys.executable, str(parent)), tmp_path, 0.2)
+    output = await _run(
+        (sys.executable, str(parent)), tmp_path, 1.5 if sys.platform == "win32" else 0.2
+    )
     assert output.timed_out
     await _assert_owned_child_dead(int((tmp_path / "child.pid").read_text()))
 
@@ -170,7 +169,7 @@ async def test_tekrarlanan_iptal_kendi_direncli_alt_surecini_yetim_birakmaz(tmp_
     from fusion_cli.tools.remotion_observe import _run
 
     parent = _write_owned_process_fixture(tmp_path)
-    task = asyncio.create_task(_run((sys.executable, str(parent)), tmp_path, 0.2))
+    task = asyncio.create_task(_run((sys.executable, str(parent)), tmp_path, 5))
     for _ in range(50):
         if (tmp_path / "child.pid").exists():
             break

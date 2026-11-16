@@ -54,6 +54,6 @@ def stray_kit_files(root: Path, contract: RegisteredKitContract) -> tuple[Path, 
             for path in kit.rglob("*")
             if path.is_file()
             and not is_editor_junk(path)
-            and str(path.relative_to(root)) not in expected
+            and path.relative_to(root).as_posix() not in expected
         )
     )
