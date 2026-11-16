@@ -516,14 +516,12 @@ def test_disable_slash_commands_metni_aynen_gonderir(monkeypatch):
 
 
 def test_sigterm_istisnaya_cevrilir():
-    import os
     import signal
 
     from fusion_cli.cli.print_runtime import TerminatedError, sigterm_as_exception
 
     with pytest.raises(TerminatedError), sigterm_as_exception():
-        os.kill(os.getpid(), signal.SIGTERM)
-        __import__("time").sleep(1)
+        signal.raise_signal(signal.SIGTERM)
 
 
 # --- --from-pr, kök --bg, kök --model (#302, #311, #296) -------------------------------- #
