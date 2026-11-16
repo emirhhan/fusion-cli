@@ -208,7 +208,7 @@ def test_validate_eklenti_uyari_strict_ve_json(tmp_path):
     root = _plugin(tmp_path / "p", "Rapor_Araci")
     (root / "CLAUDE.md").write_text("x", encoding="utf-8")
 
-    loose = runner.invoke(app, ["validate", str(root)])
+    loose = runner.invoke(app, ["validate", str(root)], env={"COLUMNS": "300"})
     assert loose.exit_code == 0, loose.output
     assert "Doğrulama uyarılarla başarılı" in loose.output
     assert "description alanı yok" in loose.output and "CLAUDE.md" in loose.output
@@ -271,7 +271,7 @@ def test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir(tmp_path):
         ),
         encoding="utf-8",
     )
-    result = runner.invoke(app, ["validate", str(market)])
+    result = runner.invoke(app, ["validate", str(market)], env={"COLUMNS": "300"})
     assert result.exit_code == 0, result.output
     output = " ".join(result.output.split())
     assert 'Entry declares version "2.0.0" but' in output

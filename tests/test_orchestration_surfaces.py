@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 from fusion_cli.appserver.orchestration_routes import dispatch_orchestration
 from fusion_cli.cli.repl.workflow_commands import workflows_command
 from fusion_cli.cli.workflow_cli import app as workflow_app
+from fusion_cli.engines.agent import workflow_store
 from fusion_cli.engines.agent.workflow_spec import parse_workflow
 from fusion_cli.engines.agent.workflow_store import RunRecord, WorkflowStore
 
@@ -87,6 +88,14 @@ async def test_akis_rpcleri_liste_kosu_ve_iptal(tmp_path):
     assert kosu["ok"] and kosu["kosu"]["status"] == "calisiyor"
     assert iptal["ok"] and store.cancel_requested("k1")
     assert eksik == {"ok": False, "metin": "Koşu kimliği gerekli."}
+
+
+@pytest.mark.parametrize(("alive", "status"), [(False, "yarim"), (None, "calisiyor")])
+def test_workflow_only_marks_confirmed_dead_process_as_orphan(tmp_path, monkeypatch, alive, status):
+    store = _kayitli(tmp_path)
+    monkeypatch.setattr(workflow_store, "process_alive", lambda _pid: alive)
+
+    assert store.runs()[0].status == status
 
 
 # --------------------------------------------------------------------------- #

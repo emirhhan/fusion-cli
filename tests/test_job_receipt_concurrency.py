@@ -20,6 +20,8 @@ def test_receipt_writer_contention_is_explicit_and_first_receipt_immutable(tmp_p
         return snapshot(*args)
 
     monkeypatch.setattr(job_delivery, "snapshot_delivery", blocked)
+    # Exercise every retry without making the outcome depend on the runner's scheduler.
+    monkeypatch.setattr(job_delivery, "_LEASE_WAIT_S", 0)
     with ThreadPoolExecutor(max_workers=1) as pool:
         first = pool.submit(job_delivery.save_completion, tmp_path, tmp_path, "12345678", 0)
         try:
