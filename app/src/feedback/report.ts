@@ -57,7 +57,8 @@ const SIR_KALIPLARI: ReadonlyArray<readonly [RegExp, string]> = [
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/g, `Bearer ${GIZLENDI}`],
   // Authorization: Basic <base64> — genel desen yalnız "Authorization"ı yutup kimlik bilgisini açıkta bırakırdı.
   [/\b(?:proxy-)?authorization\s*[:=]\s*["']?basic\s+[A-Za-z0-9+/_-]+=*/gi, GIZLENDI],
-  [/(?:["']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|private[_-]?key)[A-Za-z0-9_.-]*(?:["']?)\s*[:=]\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,}]+)/gi, GIZLENDI],
+  // Uzun etiketlerde aynı sözcüğün her karakterinden yeniden arama yapma.
+  [/["']?\b(?=[A-Za-z0-9_.-]+["']?\s*[:=]\s*[^\s,}])[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password|passwd|authorization|private[_-]?key)[A-Za-z0-9_.-]*["']?\s*[:=]\s*(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,}]+)/gi, GIZLENDI],
   // Sağlayıcı anahtarları: OpenAI/Anthropic (sk-…), NVIDIA (nvapi-…), Google (AIza…), GitHub (gh*_…).
   [/\b(?:sk|nvapi|gsk|xai)-[A-Za-z0-9_-]{12,}/g, GIZLENDI],
   // Alt çizgili biçimler: Stripe (sk_live_…), Groq (gsk_…), Hugging Face (hf_…), Google OAuth (ya29.…).

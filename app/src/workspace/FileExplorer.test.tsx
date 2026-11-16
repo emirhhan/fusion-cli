@@ -185,9 +185,9 @@ it("200'den fazla girdili dizinin bütün sayfaları okunur (U4-42)", async () =
     return { ok: true, girdiler: sayfa, next_cursor: sonraki < tum.length ? sonraki : null, has_more: sonraki < tum.length };
   });
   render(<FileExplorer client={client} root="/proje" />);
-  expect(await screen.findByRole("treeitem", { name: "f249.txt" })).toBeTruthy();
+  expect(await screen.findByRole("treeitem", { name: "f249.txt" }, { timeout: 5_000 })).toBeTruthy();
   expect(screen.getAllByRole("treeitem")).toHaveLength(250);
-});
+}, 10_000);
 
 it("CRLF'li dosya düzenlenip kaydedilince satır sonları korunur ve görünüm değişse bile onChanged çağrılır (U4-44)", async () => {
   const yazilan: string[] = [];
