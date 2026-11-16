@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..core.constants import DEVTOOLS_PORT_FILE
+from ..core.process_liveness import process_alive
 from ..core.window_mode import WindowMode, resolve_window_mode
 from .macos_window import (
     UNSUPPORTED_MESSAGE,
@@ -156,12 +157,9 @@ def read_browser_path(profile: Path) -> str | None:
 
 def _pid_alive(pid: int) -> bool:
     try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True
+        return process_alive(pid) is not False
     except OSError:
         return False
-    return True
 
 
 class SharedProfileBrowser:

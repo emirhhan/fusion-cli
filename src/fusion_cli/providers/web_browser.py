@@ -41,6 +41,7 @@ from uuid import uuid4
 from ..config.models import WebSessionConfig
 from ..config.paths import web_profile_dir
 from ..core.constants import MIN_BROWSER_TURN_S, WEB_IMAGE_UPLOAD_PROVIDERS
+from ..core.process_liveness import process_alive
 from ..core.prompt_manifest import PromptTransportMeasurement
 from ..core.redaction import redact, strip_driver_log
 from ..core.refusal import looks_like_refusal
@@ -2055,14 +2056,11 @@ def _profile_process_alive(profile: Path) -> bool:
     try:
         owner = (profile / "SingletonLock").readlink().name
         pid = int(owner.rsplit("-", 1)[-1])
-        if pid <= 0:
-            return False
-        os.kill(pid, 0)
+        return process_alive(pid) is not False
     except PermissionError:
         return True
     except (OSError, ValueError):
         return False
-    return True
 
 
 async def _stop_profile_process(profile: Path) -> None:
