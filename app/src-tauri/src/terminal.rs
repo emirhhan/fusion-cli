@@ -651,11 +651,15 @@ mod tests {
             .unwrap();
         #[cfg(windows)]
         {
-            wait_for_bytes(CURSOR_QUERY, || alinan.lock().unwrap().clone());
+            wait_for_bytes(CURSOR_QUERY, OUTPUT_TIMEOUT, || {
+                alinan.lock().unwrap().clone()
+            });
             manager
                 .write(&snapshot.terminal_id, CURSOR_RESPONSE.to_vec())
                 .unwrap();
-            wait_for_bytes(b"> ", || alinan.lock().unwrap().clone());
+            wait_for_bytes(b"> ", POWERSHELL_START_TIMEOUT, || {
+                alinan.lock().unwrap().clone()
+            });
         }
         manager
             .write(&snapshot.terminal_id, print_command("fusion-raw-kanal"))
@@ -756,20 +760,26 @@ mod tests {
         (manager, outputs, closed)
     }
 
-    fn wait_for_output(outputs: &OutputLog, id: &str, needle: &[u8]) {
-        wait_for_bytes(needle, || {
-            outputs
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|event| event.terminal_id == id)
-                .flat_map(|event| event.data.iter().copied())
-                .collect()
-        });
+    const OUTPUT_TIMEOUT: Duration = Duration::from_secs(5);
+    #[cfg(windows)]
+    const POWERSHELL_START_TIMEOUT: Duration = Duration::from_secs(20);
+
+    fn terminal_output(outputs: &OutputLog, id: &str) -> Vec<u8> {
+        outputs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| event.terminal_id == id)
+            .flat_map(|event| event.data.iter().copied())
+            .collect()
     }
 
-    fn wait_for_bytes(needle: &[u8], read: impl Fn() -> Vec<u8>) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+    fn wait_for_output(outputs: &OutputLog, id: &str, needle: &[u8]) {
+        wait_for_bytes(needle, OUTPUT_TIMEOUT, || terminal_output(outputs, id));
+    }
+
+    fn wait_for_bytes(needle: &[u8], timeout: Duration, read: impl Fn() -> Vec<u8>) {
+        let deadline = Instant::now() + timeout;
         loop {
             let bytes = read();
             if bytes.windows(needle.len()).any(|window| window == needle) {
@@ -804,7 +814,9 @@ mod tests {
             manager
                 .write(&snapshot.terminal_id, CURSOR_RESPONSE.to_vec())
                 .unwrap();
-            wait_for_output(outputs, &snapshot.terminal_id, b"> ");
+            wait_for_bytes(b"> ", POWERSHELL_START_TIMEOUT, || {
+                terminal_output(outputs, &snapshot.terminal_id)
+            });
         }
         #[cfg(not(windows))]
         let _ = outputs;
@@ -974,7 +986,9 @@ mod tests {
                 }
                 let _ = io::copy(&mut reader, &mut io::sink());
             });
-            wait_for_bytes(CURSOR_QUERY, || startup.lock().unwrap().clone());
+            wait_for_bytes(CURSOR_QUERY, OUTPUT_TIMEOUT, || {
+                startup.lock().unwrap().clone()
+            });
             writer.write_all(CURSOR_RESPONSE).unwrap();
             writer
         };
