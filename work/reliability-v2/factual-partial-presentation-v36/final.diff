@@ -1,0 +1,379 @@
+diff --git a/src/fusion_cli/appserver/delivery_presentation.py b/src/fusion_cli/appserver/delivery_presentation.py
+index dba54603..2204694e 100644
+--- a/src/fusion_cli/appserver/delivery_presentation.py
++++ b/src/fusion_cli/appserver/delivery_presentation.py
+@@ -9,7 +9,9 @@ from dataclasses import dataclass
+ from pathlib import PurePath
+ from typing import TYPE_CHECKING
+ 
++from ..core.evidence import EvidenceStatus
+ from ..core.redaction import redact
++from ..core.repair_ledger import FailureOrigin
+ from ..core.text_fold import fold_tr
+ from ..engines.agent.completion_evidence import evidence_payload
+ from ..engines.agent.response_format import requested_response_format
+@@ -18,6 +20,7 @@ from ..engines.agent.turn_report import summarize_evidence
+ 
+ if TYPE_CHECKING:
+     from ..engines.agent.loop import AgentOutcome
++    from ..engines.agent.turn_report import TurnReport
+ 
+ MAX_BYTES = 32 * 1024
+ MAX_TEXT = 500
+@@ -281,6 +284,74 @@ def _project_delivery_evidence(value: object) -> dict[str, object] | None:
+     )
+ 
+ 
++def _factual_partial(
++    task: str,
++    outcome: AgentOutcome,
++    report: TurnReport,
++    projected: dict[str, object] | None,
++) -> bool:
++    """Recognize only the existing trusted repair delivery, never arbitrary model prose.
++
++    Accepted owner/root identity is enforced upstream by repaired_document_text and
++    the session publication guards; this seam checks its exact generated result.
++    """
++    output = short_static_report_output(task)
++    gate = report.gate
++    if (
++        not outcome.verification_repaired
++        or outcome.budget_stopped
++        or outcome.hit_step_limit
++        or requested_response_format(task) is not None
++        or _EXPLICIT_DETAILS.search(fold_tr(task))
++        or _EXPLICIT_CODE.search(fold_tr(task))
++        or report.is_verified is not False
++        or report.false_claim
++        or report.job_deliveries
++        or report.test_tamper
++        or not output
++        or report.changed_paths != (output,)
++        or gate is None
++        or gate.ok
++        or gate.summary != "Olgusal kaynak denetimi tamamlanamadı."
++        or gate.findings
++        or any(
++            item.check_id != "research_grounding"
++            or item.family != "measurement_incomplete"
++            or item.origin is not FailureOrigin.INFRASTRUCTURE
++            for item in gate.failure_evidence
++        )
++        or projected is None
++        or projected.get("ayrintilar_kisaltildi")
++        or not _warnings_preserved(gate.warnings, projected)
++        or any(run.exit_code != 0 for run in report._unresolved_evidence)
++    ):
++        return False
++    # Both raw evidence sets must retain the output and browser checks, with
++    # exactly the factual check unresolved. Missing checks cannot qualify.
++    for criteria in (report.criteria, gate.evidence):
++        factual = [item for item in criteria if item.criterion_id == "research_grounding"]
++        mechanical = [item for item in criteria if item.criterion_id != "research_grounding"]
++        if (
++            len(factual) != 1
++            or factual[0].status is not EvidenceStatus.UNVERIFIED
++            or not factual[0].applicable
++            or not any(item.criterion_id == f"cikti:{output}" for item in mechanical)
++            or not any(item.criterion_id == "tarayici_sayfalari" for item in mechanical)
++            or any(
++                item.status is not EvidenceStatus.PASSED or not item.applicable
++                for item in mechanical
++            )
++        ):
++            return False
++    # All other unmeasured reasons remain visible in the normal fallback.
++    if summarize_evidence(report).unmeasured != ("Olgusal kaynak denetimi tamamlanamadı.",):
++        return False
++    repaired = (
++        f"Rapor dosyası: `{output}`. Son hali bütünüyle doğrulanamadı; kontrol sonuçları yukarıda."
++    )
++    return outcome.final_text == report.render_with_model_text(repaired)
++
++
+ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
+     """Only separate an exact generated prefix from a fully measured document delivery."""
+     report = getattr(outcome, "completion_report", None)
+@@ -296,6 +367,13 @@ def present_delivery(task: str, outcome: AgentOutcome) -> DeliveryPresentation:
+             degisiklik_ozeti=list(report.change_lines),
+         )
+     projected = public_delivery_evidence(payload)
++    if _factual_partial(task, outcome, report, projected):
++        output = report.changed_paths[0]
++        return DeliveryPresentation(
++            f"Olgusal kaynak denetimi tamamlanamadı.\n\nRapor dosyası: `{output}`.",
++            projected,
++            True,
++        )
+     safe = (
+         outcome.ok
+         and not outcome.budget_stopped
+diff --git a/src/fusion_cli/engines/agent/turn_report.py b/src/fusion_cli/engines/agent/turn_report.py
+index acddb9d3..b1c5abdf 100644
+--- a/src/fusion_cli/engines/agent/turn_report.py
++++ b/src/fusion_cli/engines/agent/turn_report.py
+@@ -787,7 +787,7 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
+     gate = report.gate
+     verified: list[str] = []
+     unmeasured: list[str] = []
+-    if gate is not None and gate.ok:
++    if gate is not None:
+         verified.extend(
+             _gate_label(item)
+             for item in gate.evidence
+@@ -801,6 +801,11 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
+         for run in runs
+     )
+     if gate is not None:
++        if any(
++            item.criterion_id == "research_grounding" and item.status is EvidenceStatus.UNVERIFIED
++            for item in gate.evidence
++        ):
++            unmeasured.append("Olgusal kaynak denetimi tamamlanamadı.")
+         for warning in gate.warnings:
+             reason = _unmeasured_reason(warning)
+             if reason is not None:
+diff --git a/tests/test_d11_tur_kanit.py b/tests/test_d11_tur_kanit.py
+index 0ac68944..7f466e92 100644
+--- a/tests/test_d11_tur_kanit.py
++++ b/tests/test_d11_tur_kanit.py
+@@ -377,3 +377,34 @@ def test_ekranda_degisen_satirlar_basilir():
+     cikti = buffer.getvalue()
+     assert "depo.py (+1 -1)" in cikti
+     assert "  - a" in cikti
++
++
++def test_partial_factual_gate_preserves_independent_passes():
++    from fusion_cli.engines.agent.turn_report import TurnReport
++
++    criteria = (
++        CriterionEvidence(
++            "cikti:rapor.html", VerificationCheckKind.TOOL, EvidenceStatus.PASSED, "Dosya açıldı"
++        ),
++        CriterionEvidence(
++            "tarayici_sayfalari",
++            VerificationCheckKind.TOOL,
++            EvidenceStatus.PASSED,
++            "1 sayfa tarayıcıda açılıp denetlendi",
++        ),
++        CriterionEvidence(
++            "research_grounding",
++            VerificationCheckKind.TOOL,
++            EvidenceStatus.UNVERIFIED,
++            "Kaynak denetimi zaman aşımına uğradı",
++        ),
++    )
++    report = TurnReport(
++        changed_paths=("rapor.html",),
++        criteria=criteria,
++        gate=VerificationResult(False, evidence=criteria),
++    )
++    summary = summarize_evidence(report)
++    assert len(summary.verified) == 2
++    assert summary.unmeasured == ("Olgusal kaynak denetimi tamamlanamadı.",)
++    assert report.is_verified is False
+diff --git a/tests/test_document_delivery_presentation.py b/tests/test_document_delivery_presentation.py
+index 481b17ae..4622238c 100644
+--- a/tests/test_document_delivery_presentation.py
++++ b/tests/test_document_delivery_presentation.py
+@@ -716,3 +716,199 @@ def test_document_note_public_projection_matches_shared_decoder_fixture():
+         projected = public_delivery_evidence(case["input"])
+         assert projected == case["projected"], case["name"]
+         assert (projected.get("sunum") == "document") is case["document"], case["name"]
++
++
++def factual_partial_outcome():
++    from fusion_cli.core.repair_ledger import FailureEvidence, FailureOrigin
++
++    outcome, _ = report_outcome()
++    report = outcome.completion_report
++    mechanical = (
++        CriterionEvidence(
++            "cikti:rapor.html",
++            VerificationCheckKind.TOOL,
++            EvidenceStatus.PASSED,
++            "rapor.html açıldı",
++            artifact="rapor.html",
++        ),
++        CriterionEvidence(
++            "tarayici_sayfalari",
++            VerificationCheckKind.TOOL,
++            EvidenceStatus.PASSED,
++            "1 sayfa tarayıcıda açılıp denetlendi",
++        ),
++    )
++    factual = CriterionEvidence(
++        "research_grounding",
++        VerificationCheckKind.TOOL,
++        EvidenceStatus.UNVERIFIED,
++        "Kaynak denetimi zaman aşımına uğradı",
++    )
++    criteria = (*mechanical, factual)
++    report = replace(
++        report,
++        criteria=criteria,
++        gate=VerificationResult(
++            False,
++            "Olgusal kaynak denetimi tamamlanamadı.",
++            evidence=criteria,
++            failure_evidence=(
++                FailureEvidence(
++                    "research_grounding",
++                    "measurement_incomplete",
++                    "target-digest",
++                    origin=FailureOrigin.INFRASTRUCTURE,
++                ),
++            ),
++        ),
++    )
++    outcome.completion_report = report
++    outcome.ok = False
++    outcome.verification_repaired = True
++    text = (
++        "Rapor dosyası: `rapor.html`. Son hali bütünüyle doğrulanamadı; kontrol sonuçları yukarıda."
++    )
++    outcome.final_text = report.render_with_model_text(text)
++    return outcome
++
++
++def test_factual_partial_retains_mechanical_proof_and_delivers_one_honest_note():
++    from fusion_cli.appserver.delivery_presentation import present_delivery
++
++    outcome = factual_partial_outcome()
++    original = outcome.final_text
++    result = present_delivery(TASK, outcome)
++    assert result.compact
++    assert result.text == "Olgusal kaynak denetimi tamamlanamadı.\n\nRapor dosyası: `rapor.html`."
++    assert len(result.evidence["kontroller"]) == 2
++    assert result.evidence["olculmeyen"] == ["Olgusal kaynak denetimi tamamlanamadı."]
++    assert result.evidence["dogrulandi"] is False
++    assert result.evidence.get("sunum") is None
++    assert outcome.ok is False and outcome.final_text == original
++
++
++@pytest.mark.parametrize(
++    "change",
++    [
++        "details",
++        "code",
++        "json",
++        "target",
++        "two",
++        "prefix",
++        "remainder",
++        "budget",
++        "interrupt",
++        "legacy",
++        "false",
++        "failed_factual",
++        "missing_browser",
++        "missing_output",
++        "failed_other",
++        "unknown_other",
++        "warning_long",
++        "warnings_many",
++        "warning_unknown",
++        "finding",
++        "truncated_details",
++        "other_failure_evidence",
++    ],
++)
++def test_factual_partial_fallback_preserves_all_original_text(change):
++    from fusion_cli.appserver.delivery_presentation import present_delivery
++
++    outcome = factual_partial_outcome()
++    report = outcome.completion_report
++    task = TASK
++    if change in {"details", "code", "json", "target"}:
++        task += {
++            "details": " Kanıtları göster.",
++            "code": " HTML kodunu göster.",
++            "json": " Yanıtı yalnız JSON ver.",
++            "target": " extra.html olarak hazırla.",
++        }[change]
++    elif change == "two":
++        report = replace(report, changed_paths=("rapor.html", "extra.html"))
++    elif change == "prefix":
++        outcome.final_text = "forged\n" + outcome.final_text
++    elif change == "remainder":
++        outcome.final_text += " Tüm olgular doğrudur."
++    elif change == "budget":
++        outcome.budget_stopped = True
++    elif change == "interrupt":
++        outcome.hit_step_limit = True
++    elif change == "legacy":
++        outcome.verification_repaired = False
++    elif change == "false":
++        report = replace(report, false_claim=True)
++    elif change in {
++        "failed_factual",
++        "missing_browser",
++        "missing_output",
++        "failed_other",
++        "unknown_other",
++    }:
++        criteria = report.criteria
++        if change == "missing_browser":
++            criteria = tuple(item for item in criteria if item.criterion_id != "tarayici_sayfalari")
++        elif change == "missing_output":
++            criteria = tuple(
++                item for item in criteria if not item.criterion_id.startswith("cikti:")
++            )
++        else:
++            index = -1 if change == "failed_factual" else 0
++            status = (
++                EvidenceStatus.UNVERIFIED if change == "unknown_other" else EvidenceStatus.FAILED
++            )
++            criteria = tuple(
++                replace(item, status=status) if i == index % len(criteria) else item
++                for i, item in enumerate(criteria)
++            )
++        report = replace(report, criteria=criteria, gate=replace(report.gate, evidence=criteria))
++    elif change in {"warning_long", "warnings_many", "warning_unknown"}:
++        warnings = {
++            "warning_long": ("x" * 501,),
++            "warnings_many": ("uyarı",) * 11,
++            "warning_unknown": ("Ölçülemedi: başka kontrol",),
++        }[change]
++        report = replace(report, gate=replace(report.gate, warnings=warnings))
++    elif change == "other_failure_evidence":
++        report = replace(
++            report,
++            gate=replace(
++                report.gate,
++                failure_evidence=(replace(report.gate.failure_evidence[0], check_id="browser"),),
++            ),
++        )
++    elif change == "finding":
++        report = replace(report, gate=replace(report.gate, findings=("Başka hata",)))
++    elif change == "truncated_details":
++        report = replace(report, change_lines=("x" * 501,))
++    if report != outcome.completion_report:
++        outcome.completion_report = report
++        outcome.final_text = report.render_with_model_text(
++            "Rapor dosyası: `rapor.html`. Son hali bütünüyle doğrulanamadı; "
++            "kontrol sonuçları yukarıda."
++        )
++    result = present_delivery(task, outcome)
++    assert not result.compact
++    assert result.text == outcome.final_text
++
++
++def test_factual_partial_keeps_complete_warning_and_all_evidence():
++    from fusion_cli.appserver.delivery_presentation import present_delivery
++
++    outcome = factual_partial_outcome()
++    report = replace(
++        outcome.completion_report,
++        gate=replace(outcome.completion_report.gate, warnings=(TOUCH_WARNING,)),
++    )
++    outcome.completion_report = report
++    outcome.final_text = report.render_with_model_text(
++        "Rapor dosyası: `rapor.html`. Son hali bütünüyle doğrulanamadı; kontrol sonuçları yukarıda."
++    )
++    result = present_delivery(TASK, outcome)
++    assert result.compact
++    assert result.evidence["uyarilar"] == [TOUCH_WARNING]
++    assert len(result.evidence["criteria"]) == 3
++    assert result.evidence["criteria_status_counts"] == {"passed": 2, "failed": 0, "unverified": 1}
