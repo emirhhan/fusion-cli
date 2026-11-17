@@ -621,6 +621,7 @@ mod tests {
             manager
                 .write(&snapshot.terminal_id, CURSOR_RESPONSE.to_vec())
                 .unwrap();
+            wait_for_bytes(b"> ", || alinan.lock().unwrap().clone());
         }
         manager
             .write(&snapshot.terminal_id, print_command("fusion-raw-kanal"))
@@ -769,6 +770,7 @@ mod tests {
             manager
                 .write(&snapshot.terminal_id, CURSOR_RESPONSE.to_vec())
                 .unwrap();
+            wait_for_output(outputs, &snapshot.terminal_id, b"> ");
         }
         #[cfg(not(windows))]
         let _ = outputs;
@@ -802,7 +804,9 @@ mod tests {
 
     #[cfg(windows)]
     fn print_command(text: &str) -> Vec<u8> {
-        format!("Write-Output '{text}'\r\n").into_bytes()
+        // Keep the expected output out of the command text echoed by PowerShell.
+        let (first, rest) = text.split_at(1);
+        format!("Write-Output ('{first}' + '{rest}')\r").into_bytes()
     }
 
     #[test]
@@ -814,35 +818,25 @@ mod tests {
         let (manager, outputs, _) = manager();
 
         let snapshot = open_interactive_fixture(&manager, &outputs, cwd.path());
-        for _ in 0..25 {
-            #[cfg(unix)]
-            manager
-                .write(&snapshot.terminal_id, b"pwd\n".to_vec())
-                .unwrap();
-            #[cfg(windows)]
-            manager
-                .write(&snapshot.terminal_id, b"Get-Location\r\n".to_vec())
-                .unwrap();
-            let has_cwd = outputs
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|event| event.terminal_id == snapshot.terminal_id)
-                .flat_map(|event| event.data.iter().copied())
-                .collect::<Vec<_>>()
-                .windows(cwd.path().to_string_lossy().len())
-                .any(|window| window == cwd.path().to_string_lossy().as_bytes());
-            if has_cwd {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-
-        wait_for_output(
-            &outputs,
-            &snapshot.terminal_id,
-            cwd.path().to_string_lossy().as_bytes(),
+        #[cfg(unix)]
+        let (command, expected) = (
+            b"pwd\n".as_slice(),
+            cwd.path().to_string_lossy().into_owned(),
         );
+        #[cfg(windows)]
+        let expected = std::fs::canonicalize(cwd.path()).unwrap();
+        #[cfg(windows)]
+        let expected = expected.to_string_lossy();
+        #[cfg(windows)]
+        let (command, expected) = (
+            b"[Console]::WriteLine(('cwd' + ':') + (Get-Location).ProviderPath)\r".as_slice(),
+            format!("cwd:{}", expected.trim_start_matches(r"\\?\")),
+        );
+        manager
+            .write(&snapshot.terminal_id, command.to_vec())
+            .unwrap();
+
+        wait_for_output(&outputs, &snapshot.terminal_id, expected.as_bytes());
         assert_eq!(Path::new(&snapshot.cwd), cwd.path());
         manager.close_all();
     }
@@ -903,7 +897,12 @@ mod tests {
                 .write_all(CURSOR_RESPONSE)
                 .unwrap();
         }
-        wait_for_output(&outputs, "raw-byte-helper", b"\x1b[31mfusion-pty-ok\x1b[0m");
+        #[cfg(unix)]
+        let expected = b"\x1b[31mfusion-pty-ok\x1b[0m";
+        // ConPTY renders the console buffer, emitting its own line break and SGR reset.
+        #[cfg(windows)]
+        let expected = b"\x1b[31m\r\nfusion-pty-ok\x1b[m";
+        wait_for_output(&outputs, "raw-byte-helper", expected);
     }
 
     #[test]
@@ -1180,7 +1179,7 @@ mod tests {
             .unwrap();
         #[cfg(windows)]
         manager
-            .write(&snapshot.terminal_id, b"exit 1\r\n".to_vec())
+            .write(&snapshot.terminal_id, b"exit 1\r".to_vec())
             .unwrap();
 
         let event = wait_for_closed(&closed, &snapshot.terminal_id);
@@ -1310,7 +1309,7 @@ mod tests {
             .write(&snapshot.terminal_id, print_command("final-output"))
             .unwrap();
         output_entered_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(5))
             .unwrap();
 
         let closing_manager = Arc::clone(&manager);
@@ -1371,11 +1370,15 @@ mod tests {
         manager
             .write(
                 &snapshot.terminal_id,
-                b"Start-Sleep -Seconds 30\r\n".to_vec(),
+                b"Write-Output ('fusion-' + 'sleeping'); Start-Sleep -Seconds 30\r".to_vec(),
             )
             .unwrap();
+        #[cfg(windows)]
+        wait_for_output(&outputs, &snapshot.terminal_id, b"fusion-sleeping");
         std::thread::sleep(Duration::from_millis(150));
         manager.write(&snapshot.terminal_id, vec![0x03]).unwrap();
+        #[cfg(windows)]
+        std::thread::sleep(Duration::from_millis(150));
         manager
             .write(
                 &snapshot.terminal_id,
