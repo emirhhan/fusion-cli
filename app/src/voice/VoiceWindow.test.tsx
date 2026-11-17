@@ -1168,14 +1168,21 @@ describe("VoiceWindow — dalga 4 ekran düzeltmeleri (U2)", () => {
   });
 
   it("ana pencere dinleyicisi geç kurulursa tercih isteği cevap gelene dek yeniden denenir (U2-47)", async () => {
+    const retryMs = 20;
     const fake = fakeRuntime();
-    render(<VoiceWindow prefsRetryMs={20} wakeEnabled={false} runtime={fake.runtime} />);
-    await waitFor(() => expect(fake.runtime.requestPrefs).toHaveBeenCalledTimes(3));
-    act(() => fake.prefs({ hiz: 1.3 }));
-    const sayi = vi.mocked(fake.runtime.requestPrefs).mock.calls.length;
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    // Cevap geldikten sonra yeniden istenmez.
-    expect(vi.mocked(fake.runtime.requestPrefs).mock.calls.length).toBe(sayi);
+    vi.useFakeTimers();
+    try {
+      render(<VoiceWindow prefsRetryMs={retryMs} wakeEnabled={false} runtime={fake.runtime} />);
+      expect(fake.runtime.requestPrefs).toHaveBeenCalledOnce();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2 * retryMs); });
+      expect(fake.runtime.requestPrefs).toHaveBeenCalledTimes(3);
+
+      act(() => fake.prefs({ hiz: 1.3 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(6 * retryMs); });
+      expect(fake.runtime.requestPrefs).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("StrictMode'da efekt iki kez kurulsa da beklenmedik çıkış sonrası dinleme toparlanır (U2-18)", async () => {
