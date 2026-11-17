@@ -154,6 +154,8 @@ impl TerminalManager {
             .lock()
             .unwrap()
             .insert(terminal_id.clone(), Arc::clone(&terminal));
+        #[cfg(windows)]
+        close_conpty_after_child_exit(Arc::clone(&terminal));
         forward_output(
             terminal_id.clone(),
             reader,
@@ -415,6 +417,39 @@ fn event_worker(
         }
     });
     sender
+}
+
+#[cfg(windows)]
+fn close_conpty_after_child_exit(terminal: Arc<ManagedTerminal>) {
+    use std::os::windows::io::{AsRawHandle, BorrowedHandle, RawHandle};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn WaitForSingleObject(handle: RawHandle, milliseconds: u32) -> u32;
+    }
+    const INFINITE: u32 = u32::MAX;
+    const WAIT_OBJECT_0: u32 = 0;
+
+    let process = terminal.child.lock().unwrap().as_ref().and_then(|child| {
+        let handle = child.as_raw_handle()?;
+        // SAFETY: The locked child owns the handle until this duplicate is made.
+        unsafe { BorrowedHandle::borrow_raw(handle) }
+            .try_clone_to_owned()
+            .ok()
+    });
+    let Some(process) = process else {
+        return;
+    };
+
+    // ConPTY can keep its output pipe open after the shell exits. Close the
+    // console so the reader can drain its final bytes and then report the exit.
+    std::thread::spawn(move || {
+        // SAFETY: The owned process handle stays valid throughout this wait.
+        if unsafe { WaitForSingleObject(process.as_raw_handle(), INFINITE) } == WAIT_OBJECT_0 {
+            let master = terminal.master.lock().unwrap().take();
+            drop(master);
+        }
+    });
 }
 
 fn forward_output(
@@ -1168,22 +1203,31 @@ mod tests {
 
     #[test]
     fn natural_shell_exit_reports_its_portable_pty_exit_code() {
+        assert_natural_shell_exit(1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn natural_shell_exit_can_report_the_windows_still_active_value() {
+        assert_natural_shell_exit(259);
+    }
+
+    fn assert_natural_shell_exit(exit_code: u32) {
         let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let (manager, outputs, closed) = manager();
         let snapshot = open_interactive_fixture(&manager, &outputs, cwd.path());
 
         #[cfg(unix)]
-        manager
-            .write(&snapshot.terminal_id, b"exit 1\n".to_vec())
-            .unwrap();
+        let command = format!("exit {exit_code}\n");
         #[cfg(windows)]
+        let command = format!("exit {exit_code}\r");
         manager
-            .write(&snapshot.terminal_id, b"exit 1\r".to_vec())
+            .write(&snapshot.terminal_id, command.into_bytes())
             .unwrap();
 
         let event = wait_for_closed(&closed, &snapshot.terminal_id);
-        assert_eq!(event.exit_code, Some(1));
+        assert_eq!(event.exit_code, Some(exit_code));
     }
 
     #[test]
