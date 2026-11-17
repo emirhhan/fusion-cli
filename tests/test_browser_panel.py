@@ -429,6 +429,22 @@ async def test_paylasilan_tarayicida_headed_ikinci_pencere_acmaz(panel, site, mo
 
 
 @gercek_tarayici
+async def test_bagimsiz_tarama_gorunur_ayar_ve_istekle_bile_arka_planda_acilir(site):
+    oturum = BrowserSession(headless=False)
+    baglam = ToolContext(
+        root=Path(), browser=oturum, local_origins={site.removeprefix("http://").rstrip("/")}
+    )
+    try:
+        sonuc = await browser_tools.browser_open({"url": site, "headed": True}, baglam)
+        assert sonuc.ok and oturum.headless
+        browser = await oturum.browser.new_browser_cdp_session()
+        version = await browser.send("Browser.getVersion")
+        assert version["product"].startswith("HeadlessChrome/")
+    finally:
+        await oturum.close()
+
+
+@gercek_tarayici
 async def test_oge_secici_benzersiz_secici_ve_proje_ici_goruntu_doner(panel, site, tmp_path):
     await panel.handle("tarayici_panel.ac", {"url": site})
     await _kare(panel)

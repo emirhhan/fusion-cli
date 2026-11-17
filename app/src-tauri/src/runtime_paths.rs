@@ -68,7 +68,7 @@ impl RuntimePaths {
         Self::for_home(home)
     }
 
-    fn from_root(root: PathBuf) -> Self {
+    pub(crate) fn from_root(root: PathBuf) -> Self {
         Self {
             active_record: root.join("active-runtime.json"),
             lock_file: root.join("runtime.lock"),

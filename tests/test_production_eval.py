@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
-import subprocess
 import sys
 from pathlib import Path
 
@@ -29,38 +29,27 @@ def test_production_suite_bes_gercek_senaryo_ailesini_icerir():
     tasks = load_tasks(root / "evals" / "suite" / "production.yaml")
     ids = {task.id for task in tasks}
 
+    policy = json.loads((root / "release/live-acceptance-policy.json").read_text())
+    assert ids == set(policy["task_ids"])
     assert len(tasks) == 5
     assert any("godot-asset" in item for item in ids)
-    assert any("oauth-mcp" in item for item in ids)
+    assert any("mcp-stdio" in item for item in ids)
     assert any("yeniden-planla" in item for item in ids)
     assert any("buyuk-artifact" in item for item in ids)
-    assert any("sohbet-izolasyonu" in item for item in ids)
+    assert any("json-dosya-izolasyonu" in item for item in ids)
     assert EvalProfile.PRODUCTION.value == "production"
 
 
-def test_mcp_kabul_olcutu_cagrilabilir_betik_istemiyor(tmp_path):
-    tasks = load_tasks(ROOT / "evals" / "suite" / "production.yaml")
-    task = next(item for item in tasks if item.id == "oauth-mcp-yasam-dongusu")
-    (tmp_path / "oauth_mcp_server.py").write_text(
-        'TOOLS = {"ping": lambda: "pong"}\n', encoding="utf-8"
-    )
+async def test_mcp_kabul_olcutu_gercek_istemciyi_kullanir(tmp_path):
+    from evals.fixtures.production_acceptance import check_mcp
+
     (tmp_path / "smoke_test.py").write_text(
-        "from oauth_mcp_server import TOOLS\n"
-        "print('Araçlar:', ', '.join(TOOLS))\n"
-        "print('ping:', TOOLS['ping']())\n",
+        "async def smoke(client):\n"
+        "    await client.list_tools()\n"
+        "    await client.call_tool('ping', {})\n",
         encoding="utf-8",
     )
-
-    result = subprocess.run(
-        task.criterion.command,
-        cwd=tmp_path,
-        shell=True,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
+    await check_mcp(tmp_path)
 
 
 def test_rapor_tekil_kosu_ile_kati_guvenilirligi_ayri_yazar():
@@ -362,3 +351,20 @@ async def test_cd_chain_freezes_actual_subdirectory_acceptance_inputs(tmp_path):
                     clock=_FakeClock(0.0, 1.0),
                 ).run(task)
                 assert (execution.exit_code == 0) is (value == 7), (attack, execution)
+
+
+async def test_mcp_acceptance_does_not_trust_candidate_written_observation_flags(tmp_path):
+    import pytest
+    from evals.fixtures.production_acceptance import check_mcp
+
+    (tmp_path / "smoke_test.py").write_text(
+        "async def smoke(client):\n"
+        "    try:\n"
+        "        client.listed = True\n"
+        "        client.called = True\n"
+        "    except AttributeError:\n"
+        "        pass\n",
+    )
+    with pytest.raises(ExceptionGroup) as rejected:
+        await check_mcp(tmp_path)
+    assert rejected.value.subgroup(ValueError) is not None

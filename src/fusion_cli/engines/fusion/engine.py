@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.concurrency import gather_with_cutoff
 from ...core.events import CandidatesStarted, EventPublisher, JudgingStarted
@@ -183,6 +184,7 @@ async def _call_candidates(
             retry_delays_s=runtime.retry_delays_s,
             health=health,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         return lambda: provider.complete(request)
 
@@ -322,6 +324,7 @@ async def _judge(
         background=True,
         health=health,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     try:
         return await asyncio.wait_for(
@@ -353,6 +356,7 @@ async def _synthesize(
         background=True,
         health=health,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     return await provider.complete(request)
 

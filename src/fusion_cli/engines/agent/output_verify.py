@@ -20,6 +20,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...core.evidence import CriterionEvidence, EvidenceStatus
+from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
 from ...tools.remotion_bootstrap import VIDEO_FPS, VIDEO_HEIGHT, VIDEO_WIDTH
@@ -30,17 +32,17 @@ from ...tools.video_evidence import (
     mismatches,
     read_video_facts,
 )
-
-#: Ters tırnak içindeki göreli, uzantılı yol (adres ve mutlak yol değil).
-_PATH = re.compile(r"`(?P<path>(?![a-z]+://)(?!/)[\w.\-/]+\.[A-Za-z0-9]{1,5})`")
-#: Yolun hemen ardında (ya da önünde) çıktı olduğunu söyleyen sözler.
-_OUTPUT_WORDS = re.compile(
-    r"olarak|olsun|kaydet|render|üret|uret|çıktı|cikti|dışa aktar|\bsave\b|\boutput\b|"
-    r"\bexport\b|\bwrite to\b",
-    re.IGNORECASE,
+from .artifact_verify import inspect_artifact
+from .output_contract import (
+    capture_output_baselines as capture_output_baselines,
 )
-#: Yolun çevresinde bakılan pencere (karakter).
-_WINDOW = 40
+from .output_contract import (
+    output_file_version,
+)
+from .output_contract import (
+    requested_outputs_in as requested_outputs_in,
+)
+
 #: Aynı adlı dosya aranırken atlanan klasörler.
 _SKIP_DIRS = frozenset({"node_modules", ".git", ".venv", "__pycache__", ".fusion"})
 #: Siyahlığı ölçülen video uzantıları.
@@ -92,20 +94,6 @@ async def _ffmpeg_stderr(ffmpeg: str, path: Path, filter_graph: str) -> bytes | 
     return err
 
 
-def requested_outputs_in(task: str) -> tuple[str, ...]:
-    """İsteğin çıktı olarak andığı göreli dosya yolları (sırası korunur, tekrarsız)."""
-    found: list[str] = []
-    for match in _PATH.finditer(task):
-        around = task[max(0, match.start() - _WINDOW) : match.end() + _WINDOW]
-        yol = match.group("path")
-        # `../x.mp4` kök dışına çıkar (A2-33): yalnız kök içi göreli yollar sayılır.
-        if ".." in Path(yol).parts:
-            continue
-        if _OUTPUT_WORDS.search(around) and yol not in found:
-            found.append(yol)
-    return tuple(found)
-
-
 class OutputPathVerifier:
     """Kullanıcının istediği çıktı dosyaları kök dizinde, istenen yolda var mı?"""
 
@@ -114,16 +102,61 @@ class OutputPathVerifier:
 
     async def verify(self) -> VerificationResult:
         # Bu turda hiçbir şey yazılmadıysa (soru-cevap, inceleme) söylenecek bir şey yok.
-        if not self._context.requested_outputs or not self._context.touched:
+        if not self._context.requested_outputs:
             return VerificationResult(ok=True)
         root = self._context.root
         bulgular: list[str] = []
         uyarilar: list[str] = []
         kanitlar: list[str] = []
+        criteria: list[CriterionEvidence] = []
         for yol in sorted(self._context.requested_outputs):
             path = root / yol
+            resolved = path.resolve()
+            if not resolved.is_relative_to(root.resolve()):
+                bulgular.append(f"ÇIKTI KAPSAM DIŞI: `{yol}` proje kökü dışına çözülüyor.")
+                continue
             if not path.exists():
                 bulgular.append(await _finding(root, yol))
+                continue
+            if yol in self._context.output_baselines:
+                if output_file_version(path) == self._context.output_baselines[yol]:
+                    bulgular.append(
+                        f"ÇIKTI GÜNCEL DEĞİL: `{yol}` bu turda üretilmedi veya güncellenmedi."
+                    )
+                    continue
+            elif path not in self._context.touched:
+                warning = f"ÇIKTI ÖLÇÜLEMEDİ: `{yol}` dosyasının bu turda üretildiği doğrulanamadı."
+                uyarilar.append(warning)
+                criteria.append(
+                    CriterionEvidence(
+                        criterion_id=f"cikti_guncellik:{yol}",
+                        kind=VerificationCheckKind.TOOL,
+                        status=EvidenceStatus.UNVERIFIED,
+                        artifact=yol,
+                        summary=warning,
+                    )
+                )
+            if path.suffix.lower() not in _VIDEO_SUFFIXES:
+                inspection = await asyncio.to_thread(inspect_artifact, path)
+                if inspection.problem:
+                    bulgular.append(f"ÇIKTI GEÇERSİZ: `{yol}` {inspection.problem}")
+                if inspection.warning:
+                    uyarilar.append(f"ÇIKTI ÖLÇÜLEMEDİ: `{yol}` {inspection.warning}")
+                criteria.append(
+                    CriterionEvidence(
+                        criterion_id=f"cikti:{yol}",
+                        kind=VerificationCheckKind.TOOL,
+                        artifact=yol,
+                        summary=inspection.problem or inspection.warning or f"{yol} açıldı",
+                        status=EvidenceStatus.FAILED
+                        if inspection.problem
+                        else (
+                            EvidenceStatus.UNVERIFIED
+                            if inspection.warning
+                            else EvidenceStatus.PASSED
+                        ),
+                    )
+                )
             elif path.suffix.lower() in _VIDEO_SUFFIXES:
                 kanit = await _video_evidence(path, yol, self._expected_video())
                 bulgular.extend(kanit.findings)
@@ -137,13 +170,17 @@ class OutputPathVerifier:
                     )
         if not bulgular:
             return VerificationResult(
-                ok=True, summary="; ".join(kanitlar), warnings=tuple(uyarilar)
+                ok=True,
+                summary="; ".join(kanitlar),
+                warnings=tuple(uyarilar),
+                evidence=tuple(criteria),
             )
         return VerificationResult(
             ok=False,
             summary=f"istenen çıktıda {len(bulgular)} sorun",
             findings=tuple(bulgular),
             warnings=tuple(uyarilar),
+            evidence=tuple(criteria),
         )
 
     def _expected_video(self) -> ExpectedVideo | None:

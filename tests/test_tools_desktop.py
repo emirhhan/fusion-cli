@@ -41,7 +41,12 @@ def test_metin_sonucta_sizdirilmaz(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(desktop, "_framework", lambda: object())
     monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
     typed: list[str] = []
-    monkeypatch.setattr(desktop, "_post_text", lambda loaded, value: typed.append(value))
+
+    def post_text(loaded, value, **kwargs):
+        typed.append(value)
+        return len(value)
+
+    monkeypatch.setattr(desktop, "_post_text", post_text)
 
     result = desktop.desktop_type({"text": "özel metin"}, ToolContext(root=tmp_path))
 
@@ -159,6 +164,15 @@ def test_tus_dizgisi_sirayla_gonderilir(tmp_path, monkeypatch) -> None:
         (21, True, True),
         (36, False, False),
     ]
+
+
+def test_carpma_tusu_hesap_makinesine_gonderilir(tmp_path, monkeypatch) -> None:
+    alinan = _izinli(monkeypatch)
+
+    sonuc = desktop.desktop_key({"key": "*"}, ToolContext(root=tmp_path))
+
+    assert sonuc.ok, sonuc.output
+    assert [(key["code"], key["shift"]) for key in alinan] == [(0x43, False)]
 
 
 def test_tekrar_sayisi_ve_basili_tutma(tmp_path, monkeypatch) -> None:

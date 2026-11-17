@@ -1,22 +1,16 @@
-"""Oturum ömrü: istekleri karşılar, turu çalıştırır, kapanışı düzenler.
+"""Oturum istekleri, kabul edilmiş turlar ve görünür sohbetin yaşam döngüsü.
 
-Bir süreç BİR oturum yürütür. Uygulama ikinci bir sohbet istiyorsa ikinci bir
-süreç başlatır; böylece paylaşılan durum, kilit ve sahiplik sorunları hiç
-doğmaz ve bir oturumun çökmesi diğerini etkilemez.
-
-`self._state` (bir `ReplState`) TEK doğru durum kaynağıdır: yapılandırma, onay
-modu, motor ve sohbet geçmişi burada yaşar. Komut akışları (`/model`,
-`/security`, `/plan`…) `state.config`/`state.approval`'i DEĞİŞTİRİR; bu yüzden
-tur çalıştırma ve durum bildirimi HER ZAMAN `self._state` üzerinden okur —
-ayrı bir kopya tutulursa (`self._config` gibi) komutlar "uygulandı" der ama
-sonraki tur eski değerle koşar (bkz. `geliştirme belgeleri`
-C1/C4).
+Komutlar görünür `ReplState` durumunu günceller. Yeni bir tur kabul edilirken kök,
+sohbet, yapılandırma, geçmiş ve bekleyen girdiler ilk asenkron beklemeden önce alınır.
+Araçlar, günlük ve sonuç bu kabul sahibine bağlı kalır; sekme değişimi çalışan turun
+bağlamını değiştirmez. Açık canlı izin değişiklikleri yalnız aynı sahipte uygulanır.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import hashlib
 import inspect
 import json
@@ -28,11 +22,12 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import partial
 from itertools import count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from ..cli.repl import code_review_findings, cron_store, goal_flow, goal_store, linked_pr, macros
 from ..cli.repl.agent_link import close_link
@@ -45,6 +40,7 @@ from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.task_list import session_todos
 from ..cli.repl.transcript_store import (
     TranscriptStore,
+    _workspace_digest,
     delete_conversation,
     list_conversations,
     load_transcript_messages,
@@ -70,7 +66,7 @@ from ..core.clock import SystemClock
 from ..core.concurrency import BackgroundTasks
 from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
 from ..core.errors import ConfigError
-from ..core.events import Event, EventSink, StatusChanged
+from ..core.events import Event, EventSink, StatusChanged, ToolExecuted, ToolStarted
 from ..core.owned_thread import await_owned_thread
 from ..core.plan_switch import PlanModeSwitch
 from ..core.reasoning import ReasoningEffort, resolve_reasoning
@@ -79,7 +75,7 @@ from ..core.remotion_browser import RemotionBrowser
 from ..core.session_cron import CronTask, SessionCron
 from ..core.skill_context import SkillSelection
 from ..core.steering import SteeringQueue
-from ..core.submission import SubmissionReceipt, SubmissionRepository
+from ..core.submission import SubmissionKey, SubmissionReceipt, SubmissionRepository
 from ..core.tools import TodoStatus
 from ..core.turn_deadline import TurnDeadline
 from ..core.types import Message
@@ -91,11 +87,11 @@ from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..engines.agent.remotion_bridge import FrameTransport
 from ..engines.agent.skill_turn import resolve_turn_model
 from ..engines.agent.team_fork import run_forked_turn
-from ..engines.agent.turn_report import evidence_payload
 from ..engines.retention import purge_local_state_daily
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
-from ..memory.turn_journal import FileTurnJournal
+from ..memory.turn_journal import FileTurnJournal, JournalEntry
+from ..memory.turn_journal_codec import message_to
 from ..observability.usage_log import UsageLog, new_session_id, open_usage_log
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
@@ -123,6 +119,7 @@ from .chrome_bridge import ChromeBridge
 from .chrome_group import schedule_group_close
 from .chrome_install import install_status
 from .chrome_settings import CHROME_SETTINGS_ROUTES, dispatch_chrome_settings
+from .chrome_task_scope import ChromeTaskScope, ScopedChromeBridge, restricted_task
 from .commands import (
     command_choices,
     list_commands,
@@ -156,6 +153,7 @@ from .control import (
 )
 from .conversation_title import conversation_title
 from .daemon_thread import run_in_daemon_thread
+from .delivery_presentation import present_delivery
 from .desktop_activity import DesktopActivity
 from .desktop_dock import DesktopDock
 from .desktop_permission_routes import (
@@ -213,13 +211,20 @@ from .plan_routes import plan_accept, plan_card_payload
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+from .visible_transcript import (
+    VisibleToolRecorder,
+    load_visible_transcript,
+    project_visible_history,
+)
 
 if TYPE_CHECKING:
     from ..cli.repl.prefixes import ShellPrefixResult
+    from ..engines.hooks.session import HookSession
 from .runtime_prefs import persist_approval, persist_engine
 from .sandbox_rpc import SANDBOX_ROUTES, dispatch_sandbox
 from .schedule import SCHEDULE_ROUTES
 from .side_chat import SIDE_CHAT_ROUTE, ask_side
+from .voice_research import VOICE_RESEARCH_ROUTE, research_voice
 from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import discard_prepared_voice, play_prepared_voice, prepare_voice, warm_voice
@@ -229,7 +234,7 @@ from .voice import speak as voice_speak
 from .voice import status as voice_status
 from .voice import stop as voice_stop
 from .voice import wait_for_speech as voice_wait
-from .voice_context import VoiceTurnContext, parse_voice_context
+from .voice_context import VoiceTurnContext, is_voice_geography_question, parse_voice_context
 from .wake import WakeDesk
 from .workspace import (
     WorkspaceJournal,
@@ -353,39 +358,10 @@ def findings_payload(text: str) -> dict[str, Any]:
 
 
 def _attachment_images(value: object) -> tuple[str, ...]:
-    """Görsel ekleri modele iliştirilebilir veri URI'lerine çevir.
+    """Validate and read attachments through the shared bounded adapter."""
+    from .attachments import attachment_images
 
-    Eskiden ek olarak YALNIZ dosya yolu metin bağlamına giriyordu; görebilen bir
-    model bile resmi hiç görmüyordu. Okunamayan, çok büyük ya da tanınmayan
-    türdeki dosyalar sessizce atlanır — yol bilgisi metin bağlamında zaten
-    kalır ve model gerektiğinde dosyayı araçla okuyabilir.
-
-    `read_bytes` + base64 (≈ 53 MB'a kadar) senkron diskte çalışır: çağıranlar bunu
-    `asyncio.to_thread` ile çağırır, olay döngüsü bloklanmaz (ölçüldü 30 Ekim).
-    """
-    if not isinstance(value, list):
-        return ()
-    import base64
-
-    uriler: list[str] = []
-    for raw in value[:8]:
-        if not isinstance(raw, dict) or raw.get("kind") != "image":
-            continue
-        path = raw.get("path")
-        if not isinstance(path, str):
-            continue
-        local_path = Path(path).expanduser()
-        tur = _GORSEL_TURLERI.get(local_path.suffix.casefold())
-        if tur is None:
-            continue
-        try:
-            if local_path.stat().st_size > MAX_GORSEL_BAYT:
-                continue
-            ham = local_path.read_bytes()
-        except OSError:
-            continue
-        uriler.append(f"data:{tur};base64,{base64.b64encode(ham).decode('ascii')}")
-    return tuple(uriler)
+    return attachment_images(value)
 
 
 async def _attachment_images_async(value: object) -> tuple[str, ...]:
@@ -400,47 +376,10 @@ async def _attachment_images_async(value: object) -> tuple[str, ...]:
 
 
 def _attachment_context(value: object) -> tuple[str, str | None]:
-    """Eklerin yalnız güvenli metadata'sını tur bağlamına dönüştürür.
+    """Validate all attachments before admitting a turn."""
+    from .attachments import attachment_context
 
-    Dosya içeriği burada okunmaz; arayüz mutlak yolu verir ve agent standart
-    dosya araçları/izinleri üzerinden gerektiğinde kendisi okur.
-    """
-    if not isinstance(value, list):
-        return "", None
-    attachments: list[dict[str, str]] = []
-    unavailable: list[str] = []
-    for raw in value[:20]:
-        if not isinstance(raw, dict):
-            continue
-        path = raw.get("path")
-        if not isinstance(path, str) or not path.strip() or len(path) > 4096:
-            continue
-        local_path = Path(path).expanduser()
-        if not local_path.is_absolute() or not local_path.is_file():
-            unavailable.append(str(raw.get("name") or path)[:512])
-            continue
-        attachments.append(
-            {
-                "path": str(local_path),
-                "name": str(raw.get("name", ""))[:512],
-                "kind": "image" if raw.get("kind") == "image" else "file",
-            }
-        )
-    if unavailable:
-        names = ", ".join(unavailable[:3])
-        suffix = "…" if len(unavailable) > 3 else ""
-        return "", f"Ek açılamadı veya artık mevcut değil: {names}{suffix}"
-    if not attachments:
-        return "", None
-    payload = json.dumps(attachments, ensure_ascii=False)
-    return (
-        "<kullanici_ekleri>\n"
-        "Bu yolları kullanıcı bu tur için açıkça ekledi. İçerikleri yalnız görev "
-        "gerektiriyorsa standart izin ve araç kurallarıyla oku.\n"
-        f"{payload}\n"
-        "</kullanici_ekleri>",
-        None,
-    )
+    return attachment_context(value)
 
 
 def _discard_line(_line: str) -> None:
@@ -473,6 +412,41 @@ def _should_auto_continue(outcome: object, auto_continues: int) -> bool:
     return bekleyen and getattr(outcome, "mutating_tool_calls_made", 0) > 0
 
 
+class _RetryEffectSink:
+    """Conservative retry evidence; unknown tools require observation."""
+
+    # Only fixed local readers are eligible. Shell, browser, MCP and dynamic tools
+    # remain unsafe even when a particular invocation looks read-only.
+    READERS = frozenset({"read_file", "list_dir", "search_code"})
+
+    def __init__(self, inner: EventSink) -> None:
+        self.inner = inner
+        self.safe = True
+
+    def handle(self, event: Event) -> None:
+        if isinstance(event, (ToolStarted, ToolExecuted)) and (
+            event.name not in self.READERS
+            or (isinstance(event, ToolExecuted) and event.mutating is True)
+        ):
+            self.safe = False
+        self.inner.handle(event)
+
+    def permits_retry(
+        self, entry: JournalEntry | None, prefix: tuple[dict[str, object], ...]
+    ) -> bool:
+        """Require the original attempt boundary and every observed/durable effect."""
+        if not self.safe or entry is None:
+            return False
+        durable_prefix = tuple(
+            message_to(message, include_images=True) for message in entry.messages[: len(prefix)]
+        )
+        return durable_prefix == prefix and all(
+            call.name in self.READERS
+            for message in entry.messages[len(prefix) :]
+            for call in message.tool_calls
+        )
+
+
 class _MeteredSink:
     """Olayları yazan sink'i sarar ve tüketimi sayar.
 
@@ -481,7 +455,7 @@ class _MeteredSink:
     """
 
     def __init__(
-        self, inner: ProtocolSink, meter: UsageMeter, usage_log: UsageLog | None = None
+        self, inner: EventSink, meter: UsageMeter, usage_log: UsageLog | None = None
     ) -> None:
         self._inner = inner
         self._meter = meter
@@ -499,6 +473,46 @@ class _MeteredSink:
 # Uygulamanın ön yüzü ilk sekmesini bu kimlikle açar; ikisi aynı olmazsa açılış
 # turu ile sekmenin geçmişi ayrışır.
 FALLBACK_CONVERSATION_ID = "varsayilan"
+
+
+@dataclass(frozen=True)
+class _DeliveryOwner:
+    store: TranscriptStore
+    key: SubmissionKey
+    store_id: str
+    generation: int
+
+    def valid(self) -> bool:
+        return (
+            self.store.root == Path(self.key.root)
+            and self.store.base_dir
+            == Path(self.key.profile_id) / "transcripts" / _workspace_digest(Path(self.key.root))
+            and self.store.session_id == self.store_id
+        )
+
+
+@dataclass(frozen=True)
+class _AcceptedTurn:
+    """Execution inputs belong to acceptance, independently of the visible chat."""
+
+    state: ReplState
+    visible_state: ReplState
+    store: TranscriptStore
+    conversation_id: str
+    generation: int
+    workspace_mode: str
+    personal_memory: PersonalMemory
+    disabled_mcp: frozenset[str]
+    pending_capabilities: tuple[tuple[str, str], ...]
+    catalogue: CapabilityRegistry
+    next_mode: macros.Mode
+    goal_continuation: str | None
+    fork_requested: bool
+    approval_revision: int
+    approval_mode: ApprovalMode
+    workspace_journal: WorkspaceJournal
+    hook_source: HookSession | None
+    approval_scopes: frozenset[str]
 
 
 def export_payload(history: list[Message], data: dict[str, Any]) -> dict[str, Any]:
@@ -631,6 +645,10 @@ class AppSession:
         self._transcript_store = TranscriptStore(
             config.memory_dir, root, conversation_id=FALLBACK_CONVERSATION_ID
         )
+        self._visible_generation = 0
+        self._active_accepted: _AcceptedTurn | None = None
+        self._hook_lease: _AcceptedTurn | None = None
+        self._visible_history_imported = False
         #: "sohbet" ya da "kod". Varsayılan artık KOD (Faz 5, Görev 5 — "tek
         #: kutu"): arayüzdeki manuel kip düğmesi kaldırıldı, kullanıcı artık
         #: hiçbir seçim yapmıyor. Eski gerekçe ("merhaba"da proje taranmasın)
@@ -675,9 +693,10 @@ class AppSession:
         self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
         self._chrome_history: list[Message] = []
+        self._chrome_turn_id: str | None = None
         self._chrome = ChromeBridge(
             self._chrome_turn,
-            self._cancel_turn,
+            self._chrome_cancel,
             self._chrome_answer,
             self._chrome_settings,
             installer=auto_install_async,
@@ -721,6 +740,7 @@ class AppSession:
         #: Son değerlendirmenin ürettiği devam görevi: hedef kipi YALNIZ bu metinle gelen
         #: tura uygulanır, ilgisiz sonraki mesaja sızmaz.
         self._goal_continuation: str | None = None
+        self._goal_turn_id: str | None = None
         #: Seçilen beceri `context: fork` istedi (P-054): sonraki tur fork alt ajanda koşar.
         self._fork_requested = False
 
@@ -750,17 +770,53 @@ class AppSession:
             )
         return self._remote
 
-    async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
-        """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
-        self._chrome.publish({"tur": "basladi"})
-        result = await self._run_turn(prompt, browser_only=True)
+    async def _chrome_turn(
+        self, prompt: str, turn_id: str | None = None, *, target: object = None
+    ) -> dict[str, Any]:
+        """Execute only admitted panel work; terminal events share its owner."""
+        owner = turn_id or f"chrome:{uuid4().hex}"
+        # Snapshot extension metadata before any model, memory or chat-switch await.
+        scoped_chrome = None
+        if restricted_task(prompt):
+            try:
+                scope = ChromeTaskScope.from_target(target)
+            except ValueError as error:
+                return {"ok": False, "metin": str(error), "turnId": owner}
+            scoped_chrome = ScopedChromeBridge(self._chrome, scope)
+        try:
+            result = await self._run_turn(
+                prompt, browser_only=True, chrome_turn_id=owner, scoped_chrome=scoped_chrome
+            )
+        except (Exception, asyncio.CancelledError):
+            if self._chrome_turn_id == owner:
+                self._chrome.publish(
+                    {
+                        "tur": "bitti",
+                        "turnId": owner,
+                        "ok": False,
+                        "metin": messages.APP_TURN_NO_ANSWER,
+                    }
+                )
+                self._chrome_turn_id = None
+            raise
+        result.pop("_retry_safe", None)
+        result.pop("_cancelled", None)
         answer = result.get("metin")
         if isinstance(answer, str):
-            # Açılışsız `</think>` de `strip_thinking` içinde ayıklanır.
             result["metin"] = strip_thinking(answer).strip()
-        # Panel tur sürerken kapanıp açılabilir: sonuç akışta da durur.
-        self._chrome.publish({"tur": "bitti", "ok": result.get("ok"), "metin": result.get("metin")})
+        if self._chrome_turn_id == owner:
+            self._chrome.publish({"tur": "bitti", "turnId": owner, **result})
+            self._chrome_turn_id = None
+        if turn_id is not None:
+            result["turnId"] = owner
         return result
+
+    def _chrome_cancel(self, turn_id: str | None = None) -> dict[str, Any]:
+        # Old panels without ownership can still run tasks but must reconnect to
+        # the current protocol before stopping one; never stop native work.
+        if not turn_id or turn_id != self._chrome_turn_id:
+            return {"ok": False, "metin": "Durdurma isteği etkin panel göreviyle eşleşmiyor."}
+        return self._cancel_turn()
 
     async def _chrome_settings(self, data: dict[str, Any]) -> dict[str, Any]:
         """Yan panelin model seçici ve "Önce sor / Sormadan yap" anahtarı.
@@ -768,6 +824,27 @@ class AppSession:
         Claude in Chrome'daki gibi panel modeli ve izin kipini kendisi seçer. Model
         masaüstündeki `model.sec` ile (eski `/development uygula` ile aynı uygulayıcı) değişir.
         """
+        if data.get("izinler") is True or "izin_sil" in data:
+            from .site_permissions import site_permission_settings
+
+            accepted = self._accepted_permission_owner()
+            owns_visible = accepted is not None
+            memory = (
+                accepted.state.approval_memory
+                if accepted is not None and owns_visible
+                else self._state.approval_memory
+            )
+            result = await site_permission_settings(memory, data.get("izin_sil"))
+            if (
+                owns_visible
+                and accepted is not None
+                and self._same_accepted_chat(accepted)
+                and isinstance(data.get("izin_sil"), str)
+                and result.get("ok")
+            ):
+                self._state.approval_memory.forget(data["izin_sil"])
+            self._sync_active_approval()
+            return result
         if data.get("yeni") is True:
             # Paneldeki "temizle": yeni panel konuşması, uygulamanın sohbeti etkilenmez.
             if self._turn is not None and not self._turn.done():
@@ -1048,6 +1125,8 @@ class AppSession:
         if request.name == SIDE_CHAT_ROUTE:
             # Yan sohbet (#444): ana geçmişi okur, değiştirmez; araç yok.
             return await ask_side(self._state.config, list(self._state.history), request.data)
+        if request.name == VOICE_RESEARCH_ROUTE:
+            return await research_voice(self._state.config, self._state.root, request.data)
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name in CHROME_SETTINGS_ROUTES:
@@ -1078,7 +1157,14 @@ class AppSession:
 
                 if previous[1]:
                     end_session(conversation_job_scope(self._state.config.memory_dir, previous[1]))
-                await self._state.reset_child_runs()
+                if self._active_accepted is not None or self._admission_tasks:
+                    # The accepted turn owns the old scope until it settles.
+                    self._state.child_runs = ChildRuns(persistent=True)
+                    from ..core.background_events import BackgroundEvents
+
+                    self._state.background_events = BackgroundEvents()
+                else:
+                    await self._state.reset_child_runs()
                 self._child_runs = self._state.child_runs
             if result.get("ok"):
                 from ..engines.hooks.opening import open_soon
@@ -1088,9 +1174,19 @@ class AppSession:
         if request.name == "oturum.durum":
             return self._status()
         if request.name == "oturum.gecmis":
+            store, generation = self._transcript_store, self._visible_generation
+            loader = (
+                project_visible_history
+                if self._visible_history_imported
+                else load_visible_transcript
+            )
+            history = await asyncio.to_thread(loader, store, tuple(self._state.history))
+            if store is not self._transcript_store or generation != self._visible_generation:
+                return {"ok": False, "metin": "Sohbet değişti; geçmişi yeniden yükleyin."}
             return {
                 "ok": True,
-                "mesajlar": visible_history(self._state.history),
+                "mesajlar": history.rows,
+                **({"gecmis_kirpildi": True} if history.truncated else {}),
             }
         if request.name == "sohbet.sil":
             return await self._delete_conversation(request.data)
@@ -1159,6 +1255,11 @@ class AppSession:
         if request.name == "gecmis.surdur":
             prepared = prepare_resume(self._home, self._state.root, request.data)
             if isinstance(prepared, PreparedResume):
+                # Imported context replaces the current view, rather than mixing
+                # the previous conversation's persisted tool rows into it.
+                self._visible_generation += 1
+                self._visible_history_imported = True
+                self._transcript_store.record_visible_clear()
                 self._state.pending_digest = prepared.digest
                 # Kullanıcının kendi devralma eylemi, o oturumun klasörlerine açık izindir.
                 self._state.extra_roots = tuple(
@@ -1618,22 +1719,33 @@ class AppSession:
             attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
             if attachment_error:
                 return {"ok": False, "metin": attachment_error}
+            try:
+                attachment_images = await _attachment_images_async(request.data.get("ekler"))
+            except ValueError as error:
+                return {"ok": False, "metin": str(error)}
             direct = await self._run_turn(
                 str(request.data.get("gorev", "")),
                 attachment_context,
-                await _attachment_images_async(request.data.get("ekler")),
+                attachment_images,
                 voice_context=voice_context,
                 deadline=deadline,
             )
+            direct.pop("_retry_safe", None)
             direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
             return self._with_steering_leftover(direct)
         if request.name == "tur.kes":
-            if self._goal_task is not None and not self._goal_task.done():
-                # Tur bitti, hedef değerlendiriliyor: Durdur devam zincirini keser.
+            owner = self._goal_turn_id if self._goal_judging() else self._steering_turn
+            if "turnId" in request.data and (
+                not isinstance(request.data["turnId"], str)
+                or not owner
+                or request.data["turnId"] != owner
+            ):
+                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
+            # Requests without turnId retain the explicit legacy stop-current behavior.
+            if self._goal_judging():
+                assert self._goal_task is not None
                 self._goal_task.cancel()
                 return {"ok": True, "state": "stopping", "metin": messages.GOAL_STOPPED}
-            if "turnId" in request.data and request.data["turnId"] != self._steering_turn:
-                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
 
@@ -1657,6 +1769,7 @@ class AppSession:
             conversation_id,
         )
         if root == current_root and conversation_id == self._transcript_store.session_id:
+            self._visible_generation += 1
             self._cancel_turn()
             self._state.history = []
         return {"ok": True, "sohbet_id": conversation_id}
@@ -1783,6 +1896,20 @@ class AppSession:
         Okuma ve yazma TEK yerden bağlanır; ayrı ayrı bağlanırsa biri kimliği
         alıp öteki almadığında sekme yazdığını geri okuyamaz.
         """
+        self._visible_generation += 1
+        if self._active_accepted is not None or self._admission_tasks:
+            # A pending/accepted turn retains its live hook object. The new
+            # visible chat must not restart or mutate that object's lifecycle.
+            self._state.hook_session = None
+        # Pending inputs belong to the conversation being left. An accepted
+        # job already holds its own copy; the new chat starts without them.
+        self._state.take_pending_extras()
+        self._state.take_pending_digest()
+        self._pending_capabilities = []
+        self._next_turn_mode = macros.Mode.NONE
+        self._goal_continuation = None
+        self._fork_requested = False
+        self._visible_history_imported = False
         self._state.history = load_transcript_messages(
             self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
         )
@@ -1819,11 +1946,13 @@ class AppSession:
             self._state.select_persona(None)
             self._note_persist_warning(messages.SESSION_AGENT_MISSING.format(name=wanted))
 
-    def _turn_journal(self, task: str) -> FileTurnJournal:
+    def _turn_journal(self, task: str, *, accepted: _AcceptedTurn | None = None) -> FileTurnJournal:
         """Bu konuşmanın tur günlüğü (transcript klasöründe, konuşma başına tek dosya)."""
-        kimlik = _SAFE_JOURNAL_ID.sub("_", self._conversation_id or FALLBACK_CONVERSATION_ID)
+        conversation = accepted.conversation_id if accepted else self._conversation_id
+        store = accepted.store if accepted else self._transcript_store
+        kimlik = _SAFE_JOURNAL_ID.sub("_", conversation or FALLBACK_CONVERSATION_ID)
         return FileTurnJournal(
-            self._transcript_store.base_dir / "journals" / f"{kimlik}.json",
+            store.base_dir / "journals" / f"{kimlik}.json",
             task=task,
             original_owner_id=kimlik,
         )
@@ -1836,11 +1965,18 @@ class AppSession:
         konuşmayı taşır. Bildirim bir kez yazılır; geçmiş her açılışta yüklenir
         (yeni bir tur başlayana ya da günlük silinene kadar).
         """
+        accepted = self._active_accepted
+        if accepted is not None and self._same_accepted_chat(accepted):
+            return
         journal = self._turn_journal("")
         entry = journal.load()
         if entry is None or not entry.messages:
             return
-        from ..core.turn_resume import interrupted_history
+        from ..core.turn_resume import close_pending_tool_results, interrupted_history
+
+        if entry.execution_finished:
+            self._state.history = close_pending_tool_results(entry.messages)
+            return
 
         self._state.history = interrupted_history(
             entry.messages, task=entry.task, root=str(self._state.root.resolve())
@@ -2000,6 +2136,7 @@ class AppSession:
         if mode is not self._state.approval:
             self._state.approval_memory.revoke()
         self._state.approval = mode
+        self._sync_active_approval(explicit_mode=mode)
         if persist:
             self._note_persist_warning(persist_approval(self._state.config, mode))
         return None
@@ -2046,14 +2183,17 @@ class AppSession:
         )
         return "" if sonuc.get("ok") else str(sonuc.get("metin") or "Ayar yazılamadı.")
 
-    async def _deny_desktop_app(self, app: str) -> None:
+    async def _deny_desktop_app(self, app: str, *, accepted: _AcceptedTurn | None = None) -> None:
         """Onay kartındaki "Her zaman reddet" (P-007): `desktop.denied_apps`'e yaz ve uygula."""
-        sonuc, guncel = await asyncio.to_thread(computer_routes.deny_app, self._state.config, app)
+        state = accepted.state if accepted is not None else self._state
+        sonuc, guncel = await asyncio.to_thread(computer_routes.deny_app, state.config, app)
         if not sonuc.get("ok"):
             logging.getLogger(__name__).warning(
                 "Reddedilen uygulama kaydedilemedi: %s", sonuc.get("metin")
             )
-        self._state.config = replace(self._state.config, desktop=guncel.desktop)
+        state.config = replace(state.config, desktop=guncel.desktop)
+        if accepted is not None and self._accepted_is_visible(accepted):
+            self._state.config = replace(self._state.config, desktop=guncel.desktop)
 
     async def _computer_rpc(self, request: Request) -> dict[str, Any]:
         """`bilgisayar.*` (P-006): yazma dosyaya gider; oturum yalnız `desktop:`'u günceller."""
@@ -2636,6 +2776,9 @@ class AppSession:
             # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
             # `/reset`, `/new` artık `/clear` takma adı (#185). Masaüstü sohbet kimliğini
             # kendi sekmesi yönetir; geçmiş ve hook oturumu Claude `/clear` gibi yenilenir.
+            self._visible_generation += 1
+            self._visible_history_imported = False
+            self._transcript_store.record_visible_clear()
             self._state.reset_history()
             if not turn_running:
                 # REPL/TUI'de `/clear` yeni sohbet kimliği açtığı için eski sohbetin arka plan
@@ -2711,6 +2854,7 @@ class AppSession:
             self._child_runs = self._state.child_runs
         if self._state.approval is not previous_approval:
             self._state.approval_memory.revoke()
+            self._sync_active_approval(explicit_mode=self._state.approval)
             self._note_persist_warning(persist_approval(self._state.config, self._state.approval))
             result = {**result, **self._take_persist_warning()}
         if command is not None and command.name in {"rewind", "undo"}:
@@ -2742,7 +2886,9 @@ class AppSession:
         self._next_turn_mode = mode
         return {**result, "gorev": task}
 
-    async def _prefix_reply(self, task: str) -> dict[str, Any] | None:
+    async def _prefix_reply(
+        self, task: str, *, state: ReplState | None = None
+    ) -> dict[str, Any] | None:
         """`! komut` ve `# not` yerel cevap döner; `@dosya` blokları sonraki turun bağlamına girer.
 
         Ölçüldü (31 Ekim): masaüstünde önekler düz mesaj olarak modele gidiyordu (yarım
@@ -2752,8 +2898,10 @@ class AppSession:
         from ..cli.repl import prefixes
         from ..cli.repl.loop import apply_mentions
 
+        state = state or self._state
+
         if (command := prefixes.shell_command(task)) is not None:
-            result = await self._live_shell(command)
+            result = await self._live_shell(command, state=state)
             parts: list[str] = []
             if result.output:
                 parts.append(f"```text\n$ {command}\n{result.output.rstrip()}\n```")
@@ -2761,7 +2909,7 @@ class AppSession:
             if result.context_block:
                 from ..cli.repl import shell_mode
 
-                if shell_mode.responds_to_bash_commands(self._state.root, self._state.home):
+                if shell_mode.responds_to_bash_commands(state.root, state.home):
                     # Claude Code (#219): çıktı bağlama girince model kendiliğinden yanıtlar;
                     # arayüz bu görevi kullanıcı mesajı göstermeden tur olarak başlatır.
                     follow_up = shell_mode.follow_up_task(command)
@@ -2774,7 +2922,7 @@ class AppSession:
                 "yerel_yanit": True,
             }
             return {**reply, "gorev": follow_up} if follow_up else reply
-        for mention_note in apply_mentions(task, self._state):
+        for mention_note in apply_mentions(task, state):
             # Arayüze ayrı not kanalı yok; okunamayan anma günlüğe düşer, tur yine çalışır.
             logging.getLogger(__name__).info("@anma: %s", mention_note)
         return None
@@ -2784,7 +2932,9 @@ class AppSession:
         leftover, self._steering_leftover = self._steering_leftover, []
         return {**result, "kalan_yonlendirme": leftover} if leftover else result
 
-    async def _live_shell(self, command: str) -> ShellPrefixResult:
+    async def _live_shell(
+        self, command: str, *, state: ReplState | None = None
+    ) -> ShellPrefixResult:
         """`! komut` çıktısı komut sürerken `KabukCiktisi` olayıyla akar (#219)."""
         from ..cli.repl import prefixes
 
@@ -2796,7 +2946,7 @@ class AppSession:
 
         try:
             return await prefixes.run_shell_prefix(
-                self._state, command, on_chunk=lambda text: _emit({"parca": text})
+                state or self._state, command, on_chunk=lambda text: _emit({"parca": text})
             )
         finally:
             _emit({"bitti": True})
@@ -2884,7 +3034,7 @@ class AppSession:
             # yeni projeye taşınmaz.
             self._state.extra_roots = ()
             self._state.approval_memory.revoke()
-        self._workspace_journal.clear()
+        self._workspace_journal = WorkspaceJournal()
         self._processes.update_root(self._root)
         # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
         # kalmasın: kullanıcı projeler arasında gidip gelirken bayat bir
@@ -2989,6 +3139,270 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_COMMAND_UNKNOWN}
         return {"ok": True, "secici": payload}
 
+    def _capture_delivery_owner(self, key: SubmissionKey) -> _DeliveryOwner | None:
+        store = self._transcript_store
+        owner = _DeliveryOwner(store, key, store.session_id, self._visible_generation)
+        alias = (
+            self._conversation_id is None
+            and key.conversation_id == FALLBACK_CONVERSATION_ID
+            and self._state.conversation_id == store.session_id
+        )
+        return (
+            owner if owner.valid() and (store.session_id == key.conversation_id or alias) else None
+        )
+
+    def _capture_accepted_turn(self) -> _AcceptedTurn:
+        from ..cli.repl.task_list import StoredTodoList, task_list_path
+        from ..cli.rule_notices import attach_rule_writer
+        from ..engines.agent.auto_switch import AutoSwitch
+
+        visible = self._state
+        state = copy.copy(visible)
+        state.root = self._transcript_store.root
+        state.history = list(visible.history)
+        state.pending_blocks = list(visible.pending_blocks)
+        state.checkpoints = copy.deepcopy(visible.checkpoints)
+        state.cron = copy.deepcopy(visible.cron)
+        state.todos = copy.deepcopy(visible.todos)
+        if isinstance(state.todos, StoredTodoList):
+            state.todos._locate = lambda: task_list_path(
+                state.config.memory_dir, state.conversation_id
+            )
+        memory = copy.copy(visible.approval_memory)
+        memory._scopes = set(memory._scopes)
+        memory.notices = list(memory.notices)
+        memory.auto_review = copy.copy(memory.auto_review)
+        memory.auto_review._cache = memory.auto_review._cache.copy()
+        memory.auto_review._recent = memory.auto_review._recent.copy()
+        memory.auto_review.remembered = memory.is_remembered
+        memory.auto_review.plan_bypass = lambda: memory.plan_bypass
+        memory.auto_review.on_fallback = state._fall_back_to_manual
+        memory.auto_switch = AutoSwitch(
+            available=state._auto_switch_available, switch=state._switch_to_auto
+        )
+        attach_rule_writer(memory, lambda: state.root)
+        state.approval_memory = memory
+        generation = self._visible_generation
+        original_mode = visible.approval
+        original_revision = visible.approval_memory.revision
+
+        def mode_changed(mode: ApprovalMode) -> None:
+            if (
+                self._state is visible
+                and self._visible_generation == generation
+                and visible.approval is original_mode
+                and visible.approval_memory.revision == original_revision
+            ):
+                visible.approval = mode
+                if visible.on_mode_change is not None:
+                    visible.on_mode_change(mode)
+
+        state.on_mode_change = mode_changed
+        # Live hook lifecycle is rebound only after a new receipt is claimed.
+        # Capturing/replaying a receipt must not steal a pending opening task.
+        previous_hooks = visible.hook_session
+        state.hook_session = None
+        return _AcceptedTurn(
+            state,
+            visible,
+            self._transcript_store,
+            self._conversation_id or FALLBACK_CONVERSATION_ID,
+            self._visible_generation,
+            self._workspace_mode,
+            self._personal_memory,
+            frozenset(self._disabled_mcp),
+            tuple(self._pending_capabilities),
+            self._all_capabilities,
+            self._next_turn_mode,
+            self._goal_continuation,
+            self._fork_requested,
+            visible.approval_memory.revision,
+            visible.approval,
+            self._workspace_journal,
+            previous_hooks,
+            frozenset(visible.approval_memory._scopes),
+        )
+
+    def _bind_hook_owner(self, state: ReplState, source: HookSession) -> None:
+        from ..engines.hooks.factory import open_hook_session
+
+        state.hook_session = open_hook_session(
+            state.root,
+            lambda: state.config,
+            session_id=state.conversation_id,
+            permission_mode=lambda: state.approval.value,
+            existing=source,
+        )
+        source.skills_reloader = state._reload_skills
+        source.title_sink = state._adopt_hook_title
+        source.context_chars = lambda: sum(len(m.content or "") for m in state.history)
+
+    def _lease_accepted_hooks(self, accepted: _AcceptedTurn) -> None:
+        if self._hook_lease is None:
+            if accepted.hook_source is not None:
+                self._bind_hook_owner(accepted.state, accepted.hook_source)
+            self._hook_lease = accepted
+
+    def _accepted_permission_owner(self) -> _AcceptedTurn | None:
+        accepted = self._active_accepted or self._hook_lease
+        return accepted if accepted is not None and self._same_accepted_chat(accepted) else None
+
+    def _sync_active_approval(self, *, explicit_mode: ApprovalMode | None = None) -> None:
+        accepted = self._accepted_permission_owner()
+        if accepted is None:
+            return
+        memory = accepted.state.approval_memory
+        visible = self._state.approval_memory
+        # Explicit user permission changes belong to chat identity even after
+        # old -> new -> old. Incidental mutable deltas still require the exact
+        # generation, so another chat cannot revoke or regrant this turn's scopes.
+        if explicit_mode is not None:
+            if accepted.state.approval is not explicit_mode or memory.revision != visible.revision:
+                memory.revoke()
+            memory.revision = visible.revision
+            accepted.state.approval = explicit_mode
+            return
+        if not self._accepted_is_visible(accepted):
+            return
+        memory._scopes.difference_update(accepted.approval_scopes - visible._scopes)
+        if visible.revision != accepted.approval_revision and memory.revision != visible.revision:
+            memory.revoke()
+            memory.revision = visible.revision
+            accepted.state.approval = self._state.approval
+
+    async def _release_accepted_hooks(self, accepted: _AcceptedTurn) -> None:
+        if self._hook_lease is not accepted:
+            return
+        self._hook_lease = None
+        source = accepted.state.hook_session or accepted.hook_source
+        if source is not None and (
+            self._state.hook_session is source
+            or (self._accepted_is_visible(accepted) and self._state.hook_session is None)
+        ):
+            self._bind_hook_owner(self._state, source)
+        elif source is not None:
+            await source.end("resume")
+
+    def _same_accepted_chat(self, accepted: _AcceptedTurn) -> bool:
+        return (
+            self._state.root.resolve() == accepted.store.root
+            and (self._conversation_id or FALLBACK_CONVERSATION_ID) == accepted.conversation_id
+            and self._state.config.memory_dir == accepted.state.config.memory_dir
+        )
+
+    def _merge_accepted_result(self, accepted: _AcceptedTurn) -> None:
+        self._merge_accepted_approval(accepted)
+        if not self._accepted_is_visible(accepted):
+            return
+        state = accepted.state
+        for name in (
+            "history",
+            "last_changes",
+            "last_tool_context",
+            "checkpoints",
+            "pending_plan",
+            "linked_pr",
+            "persona_initial_prompt_applied",
+            "invoked_skills",
+            "todos",
+            "cron",
+            "worktree",
+            "hook_session",
+        ):
+            setattr(self._state, name, getattr(state, name))
+        self._state.root = state.root
+        self._state.child_runs = state.child_runs
+        self._child_runs = state.child_runs
+
+    def _merge_accepted_approval(self, accepted: _AcceptedTurn) -> None:
+        if not self._same_accepted_chat(accepted):
+            return
+        state = accepted.state
+        self._sync_active_approval()
+        if self._state.approval_memory.revision == state.approval_memory.revision:
+            self._state.approval_memory = state.approval_memory
+            self._state.approval = state.approval
+
+    def _accepted_capability_context(
+        self, accepted: _AcceptedTurn
+    ) -> tuple[str, SkillSelection | None, bool]:
+        state = accepted.state
+        parts: list[str] = []
+        selected_skill = None
+        fork = False
+        for kind, name in accepted.pending_capabilities:
+            if kind == "beceri":
+                item = accepted.catalogue.get_skill(name)
+                if item is None:
+                    continue
+                page = read_skill_page(item.path)
+                if page.error:
+                    continue
+                if selected_skill is None:
+                    selected_skill = SkillSelection(
+                        item.qualified_name, page.revision, page.next_offset
+                    )
+                if getattr(item, "context", "") == "fork":
+                    fork = True
+                    if not state.pending_fork_agent:
+                        state.pending_fork_agent = getattr(item, "agent", "")
+                self._queue_skill_turn_settings(item, state=state)
+                parts.append(f"# Kullanıcının açıkça seçtiği beceri: {name}\n{page.text}")
+            elif kind == "ajan":
+                item = accepted.catalogue.get_agent(name)
+                body = load_agent_prompt(item.path)[:6_000] if item else ""
+                if body:
+                    parts.append(f"# Kullanıcının açıkça seçtiği uzman ajan: {name}\n{body}")
+            elif kind == "mcp":
+                parts.append(
+                    f"Kullanıcı bu turda özellikle '{name}' MCP sunucusunun "
+                    "araçlarını kullanmanı istedi."
+                )
+        return "\n\n".join(parts), selected_skill, fork
+
+    def _accepted_is_visible(self, accepted: _AcceptedTurn) -> bool:
+        return (
+            self._state is accepted.visible_state
+            and self._visible_generation == accepted.generation
+            and self._state.root.resolve() == accepted.store.root
+            and (self._conversation_id or FALLBACK_CONVERSATION_ID) == accepted.conversation_id
+        )
+
+    def _consume_accepted_inputs(self, accepted: _AcceptedTurn) -> None:
+        """Only a newly claimed receipt consumes the pending inputs it captured."""
+        if not self._accepted_is_visible(accepted):
+            return
+        empty = copy.copy(accepted.state)
+        empty.take_pending_extras()
+        empty.take_pending_digest()
+        for name in (
+            "pending_context",
+            "pending_tools",
+            "pending_model_choice",
+            "pending_denied_tools",
+            "pending_fork_agent",
+            "pending_grants",
+            "pending_fresh_fork",
+            "pending_fork_background",
+            "pending_fork_skill",
+            "pending_stacked_skills",
+            "pending_skill_name",
+            "pending_digest",
+            "pending_blocks",
+        ):
+            if getattr(self._state, name) == getattr(accepted.state, name):
+                # Consume through a throwaway view so the accepted view retains
+                # its captured values until it constructs the actual turn extras.
+                setattr(self._state, name, getattr(empty, name))
+        if tuple(self._pending_capabilities) == accepted.pending_capabilities:
+            self._pending_capabilities = []
+        if self._next_turn_mode == accepted.next_mode:
+            self._next_turn_mode = macros.Mode.NONE
+        if self._goal_continuation == accepted.goal_continuation:
+            self._goal_continuation = None
+        if self._fork_requested == accepted.fork_requested:
+            self._fork_requested = False
+
     async def _submit_turn(self, request: Request) -> dict[str, Any]:
         """Yanıt bekleyicisinin iptali kabul edilmiş görevi iptal etmez."""
         if self._closed:
@@ -3005,21 +3419,44 @@ class AppSession:
 
     async def _admit_submission(self, request: Request) -> dict[str, Any]:
         """Kalıcı kabul, validasyon ve görev sahipliği aynı kilidi paylaşır."""
-        import sqlite3
-
         from ..core.submission import SubmissionKey
-        from .submission import receipt_payload
 
         try:
             self._state.prepare_persona_config()
         except ConfigError as error:
             return {"ok": False, "metin": str(error)}
+        # Bind profile adoption to the same visible chat as the receipt key,
+        # before lookup/claim or durable running-state writes can yield.
+        profile_generation = self._visible_generation
         key = SubmissionKey(
             str(self._state.config.memory_dir.resolve()),
             str(self._root.resolve()),
             self._conversation_id or FALLBACK_CONVERSATION_ID,
             str(request.data["gonderim_id"]),
         )
+        delivery_owner = self._capture_delivery_owner(key)
+        accepted = self._capture_accepted_turn()
+        self._lease_accepted_hooks(accepted)
+        try:
+            return await self._admit_captured_submission(
+                request, key, profile_generation, delivery_owner, accepted
+            )
+        finally:
+            if self._active_accepted is not accepted:
+                await self._release_accepted_hooks(accepted)
+
+    async def _admit_captured_submission(
+        self,
+        request: Request,
+        key: SubmissionKey,
+        profile_generation: int,
+        delivery_owner: _DeliveryOwner | None,
+        accepted: _AcceptedTurn,
+    ) -> dict[str, Any]:
+        import sqlite3
+
+        from .submission import receipt_payload
+
         async with self._admission_lock:
             try:
                 existing = await self._submission_store.lookup(key)
@@ -3052,6 +3489,10 @@ class AppSession:
                     self._submission_task is not None and not self._submission_task.done()
                 ):
                     return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
+                try:
+                    attachment_images = await _attachment_images_async(request.data.get("ekler"))
+                except ValueError as error:
+                    return {"ok": False, "metin": str(error)}
                 claim = await (
                     self._submission_store.retry(key)
                     if is_retry
@@ -3068,15 +3509,22 @@ class AppSession:
                         claim.receipt, state="recoveryRequired", error_code="session_closed"
                     )
                     return {"ok": False, "metin": messages.APP_SUBMISSION_STORAGE_FAILED}
+                self._consume_accepted_inputs(accepted)
+                self._lease_accepted_hooks(accepted)
+                self._active_accepted = accepted
                 owned = asyncio.create_task(
                     self._execute_submission(
                         claim.receipt,
                         task,
                         attachment_context,
-                        await _attachment_images_async(request.data.get("ekler")),
+                        attachment_images,
                         voice_context,
                         deadline,
-                        self._state.config,
+                        accepted.state.config,
+                        accepted.state.auto_profile,
+                        profile_generation,
+                        delivery_owner,
+                        accepted,
                     )
                 )
                 self._submission_task = owned
@@ -3101,6 +3549,10 @@ class AppSession:
         voice_context: VoiceTurnContext | None,
         deadline: TurnDeadline | None,
         config_snapshot: Config | None = None,
+        auto_profile_snapshot: bool | None = None,
+        profile_generation_snapshot: int | None = None,
+        delivery_owner_snapshot: _DeliveryOwner | None = None,
+        accepted_snapshot: _AcceptedTurn | None = None,
     ) -> dict[str, Any]:
         """Sonuç metadata'sının sahibi transport handler değil yürütme görevidir."""
         import sqlite3
@@ -3125,6 +3577,10 @@ class AppSession:
                 receipt=receipt,
                 event_sequence=count(1),
                 config_snapshot=config_snapshot,
+                auto_profile_snapshot=auto_profile_snapshot,
+                profile_generation_snapshot=profile_generation_snapshot,
+                delivery_owner_snapshot=delivery_owner_snapshot,
+                accepted_snapshot=accepted_snapshot,
             )
             result = self._with_steering_leftover(result)
             # İptal durumu ekran metninin eşitliğinden değil açık işaretten çıkarılır (metin
@@ -3156,6 +3612,10 @@ class AppSession:
         finally:
             if self._submission_task is owned:
                 self._submission_task = None
+            if self._active_accepted is accepted_snapshot:
+                self._active_accepted = None
+            if accepted_snapshot is not None:
+                await self._release_accepted_hooks(accepted_snapshot)
 
     async def _run_turn(
         self,
@@ -3165,31 +3625,116 @@ class AppSession:
         *,
         voice_context: VoiceTurnContext | None = None,
         browser_only: bool = False,
+        chrome_turn_id: str | None = None,
+        scoped_chrome: ScopedChromeBridge | None = None,
         auto_continues: int = 0,
         deadline: TurnDeadline | None = None,
         receipt: SubmissionReceipt | None = None,
         event_sequence: Iterator[int] | None = None,
         config_snapshot: Config | None = None,
+        auto_profile_snapshot: bool | None = None,
+        profile_generation_snapshot: int | None = None,
+        delivery_owner_snapshot: _DeliveryOwner | None = None,
+        accepted_snapshot: _AcceptedTurn | None = None,
     ) -> dict[str, Any]:
-        """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
+        accepted = accepted_snapshot or self._capture_accepted_turn()
+        if accepted_snapshot is None:
+            self._lease_accepted_hooks(accepted)
+        try:
+            return await self._run_accepted_turn(
+                task,
+                attachment_context,
+                images,
+                voice_context=voice_context,
+                browser_only=browser_only,
+                chrome_turn_id=chrome_turn_id,
+                scoped_chrome=scoped_chrome,
+                auto_continues=auto_continues,
+                deadline=deadline,
+                receipt=receipt,
+                event_sequence=event_sequence,
+                config_snapshot=config_snapshot,
+                auto_profile_snapshot=auto_profile_snapshot,
+                profile_generation_snapshot=profile_generation_snapshot,
+                delivery_owner_snapshot=delivery_owner_snapshot,
+                accepted_snapshot=accepted,
+            )
+        finally:
+            if self._active_accepted is accepted:
+                self._active_accepted = None
+            await self._release_accepted_hooks(accepted)
+            if not browser_only:
+                if (
+                    self._same_accepted_chat(accepted)
+                    and self._transcript_store is not accepted.store
+                ):
+                    # Old -> new -> old: the durable owner may have completed
+                    # after the last reopen loaded history. Reload only that owner.
+                    self._state.history = load_transcript_messages(
+                        accepted.state.config.memory_dir,
+                        accepted.store.root,
+                        conversation_id=accepted.store.session_id,
+                    )
+                if accepted.state.child_runs is not self._state.child_runs:
+                    await accepted.state.child_runs.close()
 
-        Yapılandırma ve onay modu `self._state`'TEN okunur (bkz. modül
-        docstring'i): `/model` ya da `/security` gibi komutlar `self._state`i
-        güncelledikten HEMEN SONRAKİ turda etkili olmalı, bir tur gecikmeli
-        değil.
-        """
+    async def _run_accepted_turn(
+        self,
+        task: str,
+        attachment_context: str = "",
+        images: tuple[str, ...] = (),
+        *,
+        voice_context: VoiceTurnContext | None = None,
+        browser_only: bool = False,
+        chrome_turn_id: str | None = None,
+        scoped_chrome: ScopedChromeBridge | None = None,
+        auto_continues: int = 0,
+        deadline: TurnDeadline | None = None,
+        receipt: SubmissionReceipt | None = None,
+        event_sequence: Iterator[int] | None = None,
+        config_snapshot: Config | None = None,
+        auto_profile_snapshot: bool | None = None,
+        profile_generation_snapshot: int | None = None,
+        delivery_owner_snapshot: _DeliveryOwner | None = None,
+        accepted_snapshot: _AcceptedTurn | None = None,
+    ) -> dict[str, Any]:
+        """Kabul anındaki bağlamla çalış; yalnız açık canlı izin değişikliklerini eşle."""
+        assert accepted_snapshot is not None
+        accepted = accepted_snapshot
+        turn_state = accepted.state
+        turn_store = accepted.store
         self._report_voice_background_failures()
         if not browser_only:
             try:
-                self._state.prepare_persona_config()
+                turn_state.prepare_persona_config()
             except ConfigError as error:
                 return {"ok": False, "metin": str(error)}
-            task = self._state.take_persona_initial(task)
+            task = turn_state.take_persona_initial(task)
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
+        if not browser_only and receipt is None and delivery_owner_snapshot is None:
+            delivery_owner_snapshot = self._capture_delivery_owner(
+                SubmissionKey(
+                    str(turn_state.config.memory_dir.resolve()),
+                    str(turn_state.root.resolve()),
+                    accepted.conversation_id,
+                    "",
+                )
+            )
         await self._iptal_edilen_turu_bekle()
-        if self._turn is not None or self._goal_judging():
+        if (
+            self._turn is not None
+            or self._goal_judging()
+            or (
+                self._submission_task is not None
+                and not self._submission_task.done()
+                and asyncio.current_task() is not self._submission_task
+            )
+        ):
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
+        if not browser_only and receipt is None and auto_continues == 0:
+            self._consume_accepted_inputs(accepted)
+        self._active_accepted = accepted
         from ..cli.session import open_trace, run_agent_task
 
         # Yan panelin konuşması uygulamanın sohbetine KARIŞMAZ: kendi geçmişi vardır,
@@ -3199,102 +3744,181 @@ class AppSession:
                 # Otomatik devamın sentetik "devam et" metni kullanıcı sözü değildir
                 # (makbuz yolundaki `auto_continues == 0` koşuluyla aynı kural).
                 if auto_continues == 0:
-                    self._transcript_store.record_user(task)
+                    turn_store.record_user(task)
             elif receipt.attempt_id.endswith(":1") and auto_continues == 0:
-                self._transcript_store.record_user(
-                    task, message_id=f"{receipt.key.request_id}:user"
-                )
+                turn_store.record_user(task, message_id=f"{receipt.key.request_id}:user")
         if voice_context is not None and not browser_only and not attachment_context and not images:
             from .voice_intents import local_voice_reply
 
             reply = local_voice_reply(task)
             if reply is not None:
-                self._state.history = [
-                    *self._state.history,
+                turn_state.history = [
+                    *turn_state.history,
                     Message("user", task),
                     Message("assistant", reply),
                 ]
-                self._transcript_store.record_assistant(
+                turn_store.record_assistant(
                     reply, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
                 )
+                self._merge_accepted_result(accepted)
                 return {"ok": True, "metin": reply, "yerel_yanit": True}
         if not browser_only and not attachment_context and not images:
             # REPL önekleri (P-022) masaüstünde de geçerli; `!`/`#` model çağırmaz.
-            local = await self._prefix_reply(task)
+            local = await self._prefix_reply(task, state=turn_state)
             if local is not None:
+                self._merge_accepted_result(accepted)
+                if self._accepted_is_visible(accepted):
+                    from ..cli.repl.prefixes import push_pending_context
+
+                    for block in turn_state.pending_blocks:
+                        push_pending_context(self._state, block)
                 return local
             from ..cli.repl.background_commands import at_session_turn
 
             # `@oturum mesaj` (#228): Claude Code gibi tur çalışır, model SendMessage ile iletir.
-            task = at_session_turn(self._state, task) or task
+            task = at_session_turn(turn_state, task) or task
         image_command = None if browser_only else parse_image_command(task)
         if image_command is not None and not attachment_context and not images:
-            ok, markdown = await run_image_command(self._state.config, image_command)
-            self._state.history = [
-                *self._state.history,
+            ok, markdown = await run_image_command(turn_state.config, image_command)
+            turn_state.history = [
+                *turn_state.history,
                 Message("user", task),
                 Message("assistant", markdown),
             ]
-            self._transcript_store.record_assistant(
+            turn_store.record_assistant(
                 markdown, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
             )
+            self._merge_accepted_result(accepted)
             return {"ok": ok, "metin": markdown, "gorsel_komutu": True}
-        history = self._chrome_history if browser_only else self._state.history
+        history = self._chrome_history if browser_only else turn_state.history
+
+        # Capture the attempt boundary before execution can mutate history. Tool
+        # call IDs are model input and can repeat, including with identical args.
+        retry_prefix = tuple(
+            message_to(message, include_images=True)
+            for message in [*history, Message("user", task)]
+        )
 
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
-        protocol_sink = ProtocolSink(writer, receipt=receipt, sequence=event_sequence)
+        visible_generation = accepted.generation
+        recorder = (
+            None
+            if browser_only
+            else VisibleToolRecorder(
+                turn_store,
+                active=lambda: self._turn is owned_turn,
+                turn_id=receipt.attempt_id if receipt else None,
+            )
+        )
+
+        def public_writer(line: str) -> None:
+            if recorder is not None:
+                recorder.record(line)
+            writer(line)
+
+        protocol_sink = ProtocolSink(public_writer, receipt=receipt, sequence=event_sequence)
+        effect_sink = _RetryEffectSink(protocol_sink)
         sink = LibrarySink(
             _MeteredSink(
-                protocol_sink,
+                effect_sink,
                 self._usage,
                 self._usage_log,
             ),
-            self._state.root,
+            turn_state.root,
         )
         prompter = ProtocolPrompter(
             writer,
             self.pending,
-            root=self._state.root,
+            root=turn_state.root,
             element_name=self._chrome.element_name,
             namespace=receipt.attempt_id if receipt else "",
             on_closed=self._question_closed,
             # Önizleme aracın esnek eşleşme ayarıyla AYNI olmalı (gerçek diff).
-            edit_fuzzy_match=(config_snapshot or self._state.config).runtime.edit_fuzzy_match,
-            on_app_denied=self._deny_desktop_app,
+            edit_fuzzy_match=(config_snapshot or turn_state.config).runtime.edit_fuzzy_match,
+            on_app_denied=partial(self._deny_desktop_app, accepted=accepted),
         )
         steering = SteeringQueue()
-        child_runs = self._state.child_runs
-        self._child_runs = child_runs
+        child_runs = turn_state.child_runs
+        if self._accepted_is_visible(accepted):
+            self._child_runs = child_runs
         self._steering = steering
-        self._steering_turn = receipt.attempt_id if receipt else None
+        self._steering_turn = receipt.attempt_id if receipt else chrome_turn_id
         self._steering_requests.clear()
-        config = config_snapshot or self._state.config
-        if self._disabled_mcp:
+        config = config_snapshot or turn_state.config
+        profile_state = accepted.visible_state
+        profile_base_config = config
+        # Durable "running" bookkeeping can yield before this method starts.
+        # Adoption belongs to the chat visible at acceptance, even if the same
+        # ReplState/config has since been rebound to another conversation.
+        profile_generation = (
+            visible_generation
+            if profile_generation_snapshot is None
+            else profile_generation_snapshot
+        )
+        select_auto_profile = auto_continues == 0 and (
+            turn_state.auto_profile if auto_profile_snapshot is None else auto_profile_snapshot
+        )
+        if accepted.disabled_mcp:
             config = replace(
                 config,
                 mcp_servers=tuple(
-                    server for server in config.mcp_servers if server.name not in self._disabled_mcp
+                    server
+                    for server in config.mcp_servers
+                    if server.name not in accepted.disabled_mcp
                 ),
             )
-        capability_context = self._take_capability_context()
-        selected_skill, self._taken_skill = self._taken_skill, None
-        inherited_context = self._state.take_pending_digest()
+        capability_context, selected_skill, capability_fork = self._accepted_capability_context(
+            accepted
+        )
+        inherited_context = turn_state.take_pending_digest()
         # `/beceri` slash komutunun hazırladığı gövde ve araç kısıtı (P-019).
-        pending_extras = self._state.take_pending_extras()
+        pending_extras = turn_state.take_pending_extras()
         # Becerinin `model`/`effort` alanı yalnız bu turun yapılandırmasıdır (P-020).
-        config = pending_extras.turn_config(config)
-        turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
+        if not select_auto_profile:
+            config = pending_extras.turn_config(config)
+        turn_mode = accepted.next_mode
         if not browser_only:
-            continuation, self._goal_continuation = self._goal_continuation, None
+            continuation = accepted.goal_continuation
             if turn_mode is macros.Mode.NONE and continuation is not None and task == continuation:
                 turn_mode = macros.Mode.GOAL
-        fork_requested, self._fork_requested = self._fork_requested, False
+        fork_requested = accepted.fork_requested or capability_fork
+
+        def current_approval() -> ApprovalMode:
+            self._sync_active_approval()
+            return turn_state.approval
 
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
+        execution_binding: tuple[str, str, str, int] | None = None
+
         async def execute_turn() -> AgentOutcome:
+            nonlocal execution_binding
+            nonlocal config
+            if select_auto_profile:
+                from ..config.profile import auto_turn_config
+
+                # Establish _turn ownership before yielding. Classification/imports
+                # cannot block the UI or let another turn enter this session.
+                selected_config, reason = await asyncio.to_thread(
+                    auto_turn_config, profile_base_config, task
+                )
+                # Only the event loop adopts the result. A cancelled worker or a
+                # changed conversation must never overwrite another chat's model.
+                if (
+                    self._state is profile_state
+                    and self._visible_generation == profile_generation
+                    and profile_state.config is profile_base_config
+                ):
+                    profile_state.config = selected_config
+                # The session retains its connector catalogue; this turn retains
+                # the disabled-connector filter captured above.
+                if selected_config.mcp_servers != config.mcp_servers:
+                    selected_config = replace(selected_config, mcp_servers=config.mcp_servers)
+                config = pending_extras.turn_config(selected_config)
+                if reason is not None:
+                    sink.handle(StatusChanged(reason))
             if journal is not None:
                 # Çalışan tur sahipliği kurulduktan sonra I/O yap; paralel
                 # istek ilk turu görünmezken ikinci bir tur başlatamasın.
@@ -3302,11 +3926,39 @@ class AppSession:
             # Belleği okumak diske gider. Beklemeyi çalışan tur nesnesi
             # oluşturulduktan SONRA yap; aksi halde aynı anda gelen ikinci
             # istek ilk tur henüz görünmediği için üst üste başlayabilir.
-            memory_block = await asyncio.to_thread(self._personal_memory.prompt_block)
+            memory_block = await asyncio.to_thread(accepted.personal_memory.prompt_block)
             # Chrome bağlıyken tarayıcı işlerinin sınırı (bkz. `CHROME_NOTE`).
             # Köprü açıksa not verilir: eklenti o an bağlı olmasa da chrome_* Chrome'u açar.
             chrome_note = CHROME_NOTE if self._chrome.running else ""
-            persona = persona_turn(self._state.persona)
+            persona = persona_turn(turn_state.persona)
+            allowed_tools = pending_extras.merged_tools(
+                (CHROME_CODE_TURN_TOOLS if accepted.workspace_mode == "kod" else CHROME_TURN_TOOLS)
+                if browser_only
+                else persona.allowed_tools
+            )
+            answer_only = (
+                voice_context is not None
+                and not browser_only
+                and not attachment_context
+                and not images
+                and turn_mode is macros.Mode.NONE
+                and is_voice_geography_question(task)
+            )
+            if answer_only:
+                allowed_tools = set()
+            bootstrap_mcp = True
+            if answer_only:
+                bootstrap_mcp = False
+            if browser_only and config.mcp_servers and allowed_tools is not None:
+                from ..tools import build_registry as build_builtin_registry
+
+                # Chrome's MCP-shaped aliases are local builtins. Do not await
+                # unrelated connectors before a surface which cannot call them.
+                # ask_teacher is registered by engine_tools rather than the
+                # base registry; it also has no configured MCP dependency.
+                builtin_names = set(build_builtin_registry().names()) | {"ask_teacher"}
+                if allowed_tools <= builtin_names:
+                    bootstrap_mcp = False
             extra_system = "\n\n".join(
                 part
                 for part in (
@@ -3323,11 +3975,18 @@ class AppSession:
                 )
                 if part
             )
+            execution_binding = (
+                str(config.memory_dir.resolve()),
+                str(turn_state.root.resolve()),
+                accepted.conversation_id,
+                accepted.generation,
+            )
             return await run_agent_task(
                 task,
                 config,
-                remotion_transport=self._state.remotion_transport,
-                remotion_browser=self._state.remotion_browser,
+                bootstrap_mcp=bootstrap_mcp,
+                remotion_transport=turn_state.remotion_transport,
+                remotion_browser=turn_state.remotion_browser,
                 require_remotion_kit=self._require_remotion_kit,
                 deadline=deadline,
                 sinks=(
@@ -3338,21 +3997,17 @@ class AppSession:
                     *trace_sinks,
                 ),
                 prompter_factory=lambda _drain: prompter,
-                mode=self._state.approval,
-                root=self._state.root,
-                extra_roots=self._state.extra_roots,
-                home=self._state.home,
+                mode=turn_state.approval,
+                root=turn_state.root,
+                extra_roots=turn_state.extra_roots,
+                home=turn_state.home,
                 history=history,
-                cron=None if browser_only else self._state.cron,
-                background_events=None if browser_only else self._state.background_events,
-                todos=None if browser_only else session_todos(self._state),
-                chrome_bridge=self._chrome,
+                cron=None if browser_only else turn_state.cron,
+                background_events=None if browser_only else turn_state.background_events,
+                todos=None if browser_only else session_todos(turn_state),
+                chrome_bridge=scoped_chrome or self._chrome,
                 skill_grants=pending_extras.grants,
-                allowed_tools=pending_extras.merged_tools(
-                    (CHROME_CODE_TURN_TOOLS if self._workspace_mode == "kod" else CHROME_TURN_TOOLS)
-                    if browser_only
-                    else persona.allowed_tools
-                ),
+                allowed_tools=allowed_tools,
                 denied_tools=(
                     frozenset()
                     if browser_only
@@ -3361,20 +4016,20 @@ class AppSession:
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
-                session_persona=None if browser_only else self._state.persona,
-                main_config_applied=self._state.main_config_applied and not browser_only,
+                session_persona=None if browser_only else turn_state.persona,
+                main_config_applied=turn_state.main_config_applied and not browser_only,
                 system_prompt=(
                     persona.system_prompt
-                    if browser_only or self._workspace_mode == "kod"
+                    if browser_only or (accepted.workspace_mode == "kod" and not answer_only)
                     else CHAT_SYSTEM_PROMPT
                 ),
                 # Sohbet kipi çalışma alanına dokunmaz: ölçüldü, "kampanya planı
                 # yap" isteği sohbette diske dosya yazıyordu (bkz. `chat_mode.py`).
-                chat_mode=self._workspace_mode != "kod" and not browser_only,
+                chat_mode=(accepted.workspace_mode != "kod" or answer_only) and not browser_only,
                 interactive=True,
-                capabilities=self._state.capabilities,
-                plain_memory=self._state.plain_memory,
-                conversation_id=self._conversation_id or "app",
+                capabilities=turn_state.capabilities,
+                plain_memory=turn_state.plain_memory,
+                conversation_id=accepted.conversation_id,
                 attempt_id=receipt.attempt_id if receipt is not None else None,
                 event_correlator=protocol_sink.correlate if receipt is not None else None,
                 step_limit=macros.mode_step_limit(turn_mode),
@@ -3385,22 +4040,22 @@ class AppSession:
                     if (macros.mode_fork(turn_mode) or fork_requested) and not browser_only
                     else None
                 ),
-                approval_memory=self._state.approval_memory,
+                approval_memory=turn_state.approval_memory,
                 steering=steering,
                 child_runs=child_runs,
                 selected_skill=selected_skill,
-                current_approval=lambda: self._state.approval,
+                current_approval=current_approval,
                 # Oturumun kalıcı belleği (dersler, öğretmen planları, kod indeksi).
                 # Verilmezse tur boş bellekle koşar ve hiçbir şey öğrenilmez.
-                memory=self._state.memory,
+                memory=turn_state.memory,
                 # Sekmenin sağlık kaydı: devre durumu turlar arasında yaşar.
-                health=self._state.health,
+                health=turn_state.health,
                 journal=journal,
                 background=self._voice_background if voice_context else None,
                 changes=changes,
                 worktree_switch=switch,
                 plan_mode_switch=plan_switch,
-                hooks=self._state.hooks(),
+                hooks=turn_state.hooks(),
                 browser=self._browser_panel.turn_browser(),
             )
 
@@ -3413,26 +4068,32 @@ class AppSession:
         # çalışma alanı günlüğüne geçer ve UI geri alma yalnız bunlara dayanır. Kayıt
         # tur checkpoint defterinden gelir: `/rewind` masaüstünde de aynı defteri sarar.
         changes = (
-            ChangeSet() if browser_only else self._state.checkpoints.begin(task, history).changes
+            ChangeSet() if browser_only else turn_state.checkpoints.begin(task, history).changes
         )
         # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
-        journal = None if browser_only else self._turn_journal(task)
+        journal = None if browser_only else self._turn_journal(task, accepted=accepted)
         self._start_local_state_purge(config.memory_dir)
         # Teşhis izi: `/trace` bu turun neden düştüğünü sonradan söyleyebilsin.
         trace = None if browser_only else open_trace(config.memory_dir / "traces")
         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
         owned_turn = asyncio.ensure_future(execute_turn())
         self._turn = owned_turn
+        if browser_only:
+            self._chrome_turn_id = chrome_turn_id
+            self._chrome.publish({"tur": "basladi", "turnId": chrome_turn_id})
         self._ensure_idle_watch()
         self._turn_settled.clear()
         try:
             outcome = await owned_turn
+            # Capture before recovery/history replacement can omit durable calls.
+            outcome_entry = journal.load() if journal is not None else None
         except asyncio.CancelledError:
             self._iptal_bekliyor = True
+            interrupted_entry = journal.load() if journal is not None else None
             # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
             if not browser_only:
-                self._transcript_store.record_assistant(
+                turn_store.record_assistant(
                     messages.APP_TURN_CANCELLED,
                     message_id=f"{receipt.key.request_id}:assistant" if receipt else None,
                 )
@@ -3440,18 +4101,29 @@ class AppSession:
                 # dendiğinde model neyin yarıda kaldığını hiç görmüyordu.
                 from ..core.turn_resume import interrupted_history
 
-                entry = journal.load() if journal is not None else None
                 preserved = (
-                    list(entry.messages) if entry is not None else [*history, Message("user", task)]
+                    list(interrupted_entry.messages)
+                    if interrupted_entry is not None
+                    else [*history, Message("user", task)]
                 )
-                self._state.history = interrupted_history(
-                    preserved, task=task, root=str(self._state.root.resolve())
+                turn_state.history = interrupted_history(
+                    preserved, task=task, root=str(turn_state.root.resolve())
                 )
                 if journal is not None:
-                    await await_owned_thread(journal.save, self._state.history)
-            return {"ok": False, "metin": messages.APP_TURN_CANCELLED, "_cancelled": True}
+                    await await_owned_thread(journal.save_finished, turn_state.history)
+            if browser_only:
+                self._merge_accepted_approval(accepted)
+            else:
+                self._merge_accepted_result(accepted)
+            retry_safe = effect_sink.permits_retry(interrupted_entry, retry_prefix)
+            return {
+                "ok": False,
+                "metin": messages.APP_TURN_CANCELLED,
+                "_cancelled": True,
+                "_retry_safe": retry_safe,
+            }
         finally:
-            record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
+            record_agent_changes(turn_state.root, accepted.workspace_journal, changes.snapshots)
             self._desktop_activity.clear()
             self._browser_panel.turn_finished()
             self._computer_activity.clear()
@@ -3470,19 +4142,21 @@ class AppSession:
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
         if browser_only:
             self._chrome_history = outcome.messages
+            self._merge_accepted_approval(accepted)
             return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
-        self._state.history = outcome.messages
+        turn_state.history = outcome.messages
         # Turda açılan/okunan PR sohbetin PR künyesi olur (P-057; `oturum.durum.pr`); künye
         # çıkarımı korumalıdır, tur kaydını düşürmez.
-        linked_pr.bind_from_turn(self._state, getattr(outcome, "tool_uses", ()))
-        switched = await self._state.apply_worktree_switch(switch)
+        linked_pr.bind_from_turn(turn_state, getattr(outcome, "tool_uses", ()))
+        switched = await turn_state.apply_worktree_switch(switch)
         # `enter_plan_mode` (#324): model kendini plan kipine geçirdiyse sekme kipi PLAN olur.
-        self._state.apply_plan_mode_switch(plan_switch)
+        turn_state.apply_plan_mode_switch(plan_switch)
         # `exit_plan_mode` planı yazdıysa kart `plan.kart` ile açılır (#325; REPL ile aynı).
         if getattr(outcome, "plan_path", None) is not None:
-            self._state.pending_plan = outcome.plan_path
-        self._child_runs = self._state.child_runs
-        root_payload = self._adopt_state_root() if switched else {}
+            turn_state.pending_plan = outcome.plan_path
+        owned_visible = self._accepted_is_visible(accepted)
+        self._merge_accepted_result(accepted)
+        root_payload = self._adopt_state_root() if switched and owned_visible else {}
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
         #
         # Ölçüldü (7 Eylül, kullanıcının Godot koşuları): plan adımı duraklayınca
@@ -3490,15 +4164,50 @@ class AppSession:
         # `198b3a19…` sohbeti 8 soru ve 0 cevap taşıyor. Sekme yeniden açıldığında
         # model kendi ne dediğini göremiyor ve kaldığı yerden süremiyor — oysa
         # duraklama metni tam da devam etmek için gereken bilgidir.
-        if outcome.final_text.strip():
-            if receipt is None:
-                self._transcript_store.record_assistant(outcome.final_text)
-            else:
-                self._transcript_store.record_assistant(
-                    outcome.final_text, message_id=f"{receipt.key.request_id}:assistant"
+        presentation = present_delivery(task, outcome)
+        expected_binding = (
+            (
+                delivery_owner_snapshot.key.profile_id,
+                delivery_owner_snapshot.key.root,
+                delivery_owner_snapshot.key.conversation_id,
+                delivery_owner_snapshot.generation,
+            )
+            if delivery_owner_snapshot is not None
+            else None
+        )
+        if presentation.compact and (execution_binding != expected_binding or switched):
+            presentation = replace(
+                presentation,
+                text=outcome.final_text,
+                compact=False,
+                evidence={k: v for k, v in (presentation.evidence or {}).items() if k != "sunum"},
+            )
+        delivered_text = outcome.final_text
+        delivered_evidence = presentation.evidence
+        delivery_store = (
+            delivery_owner_snapshot.store
+            if delivery_owner_snapshot is not None and delivery_owner_snapshot.valid()
+            else None
+        )
+        if outcome.final_text.strip() and delivery_store is not None:
+            identifier = f"{receipt.key.request_id}:assistant" if receipt else None
+            if presentation.evidence is not None:
+                saved = delivery_store.record_presented_assistant(
+                    presentation.text, evidence=presentation.evidence, message_id=identifier
                 )
+                if saved:
+                    delivered_text = presentation.text
+                else:
+                    delivered_evidence = {
+                        k: v for k, v in presentation.evidence.items() if k != "sunum"
+                    }
+                    delivery_store.record_assistant(outcome.final_text, message_id=identifier)
+            else:
+                delivery_store.record_assistant(outcome.final_text, message_id=identifier)
+        elif presentation.compact and delivered_evidence is not None:
+            delivered_evidence = {k: v for k, v in delivered_evidence.items() if k != "sunum"}
         # Boş metinle "başarısız" dönmek kullanıcıya hiçbir şey söylemez.
-        metin = outcome.final_text
+        metin = delivered_text
         if not metin.strip() and not outcome.ok:
             metin = (
                 turn_stopped_summary(outcome.stop_reason, outcome.todos)
@@ -3507,9 +4216,10 @@ class AppSession:
             )
             # Özet de "ne oldu" kaydıdır: sekme yeniden açıldığında "devam et"
             # turunun modeli neyin kaldığını buradan görür.
-            self._transcript_store.record_assistant(
-                metin, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
-            )
+            if delivery_store is not None:
+                delivery_store.record_assistant(
+                    metin, message_id=f"{receipt.key.request_id}:assistant" if receipt else None
+                )
         if journal is not None:
             if outcome.ok:
                 # Transcript sonucu kaydedildikten sonra tamamlanmış günlük kaldırılır.
@@ -3518,13 +4228,13 @@ class AppSession:
                 preserved = list(outcome.messages)
                 if metin and (not preserved or preserved[-1].content != metin):
                     preserved.append(Message("assistant", metin, harness_note=True))
-                await await_owned_thread(journal.save, preserved)
+                await await_owned_thread(journal.save_finished, preserved)
         if _should_auto_continue(outcome, auto_continues) and (
             deadline is None or deadline.remaining_s() > 0
         ):
             # Uzun iş tek turun bütçesine sığmaz: gerçek değişiklik yapan ve görevi
             # bekleyen tur, kullanıcı "devam et" yazmak zorunda kalmadan sürer.
-            # Geçmiş (`self._state.history`) taşındığı için model kaldığı yeri bilir.
+            # Geçmiş (`turn_state.history`) taşındığı için model kaldığı yeri bilir.
             sink.handle(
                 StatusChanged(
                     messages.APP_TURN_AUTO_CONTINUE.format(
@@ -3539,12 +4249,22 @@ class AppSession:
                 receipt=receipt,
                 event_sequence=event_sequence,
                 config_snapshot=config,
+                delivery_owner_snapshot=delivery_owner_snapshot,
+                accepted_snapshot=accepted,
             )
             if receipt is not None:
                 continued["_retry_safe"] = False
             return {**root_payload, **continued}
-        self._cron_save()
-        goal_payload = await self._evaluate_goal(sink)
+        cron_store.save(turn_state.config.memory_dir, accepted.conversation_id, turn_state.cron)
+        self._goal_turn_id = receipt.attempt_id if receipt else None
+        try:
+            goal_payload = (
+                await self._evaluate_goal(sink, accepted=accepted)
+                if self._accepted_is_visible(accepted)
+                else {}
+            )
+        finally:
+            self._goal_turn_id = None
         if switched:
             metin = f"{metin}\n\n{switched}".strip()
         cevap: dict[str, Any] = {
@@ -3560,26 +4280,30 @@ class AppSession:
             cevap["_retry_safe"] = (
                 getattr(outcome, "tool_calls_made", None) == 0
                 and getattr(outcome, "tool_uses", None) == ()
+                and effect_sink.permits_retry(outcome_entry, retry_prefix)
             )
-        kanit = evidence_payload(getattr(outcome, "completion_report", None))
-        if kanit is not None:
-            cevap["kanit"] = kanit
+        if delivered_evidence is not None:
+            cevap["kanit"] = delivered_evidence
         # Onay kartındaki "bir daha sorma" kuralı yazıldı/yazılamadı bildirimi (P-003).
-        for notice in self._state.approval_memory.take_notices():
+        for notice in turn_state.approval_memory.take_notices():
             self._note_persist_warning(messages.PERMISSION_RULE_SAVED.format(summary=notice))
         return {**cevap, **self._take_persist_warning()}
 
-    async def _evaluate_goal(self, sink: EventSink) -> dict[str, Any]:
+    async def _evaluate_goal(
+        self, sink: EventSink, *, accepted: _AcceptedTurn | None = None
+    ) -> dict[str, Any]:
         """`/goal` etkinse turu değerlendir (P-058); sonuç `hedef`/`hedef_devam` alanlarıdır.
 
         Devam turunu arayüz gönderir (`hedef_devam`): her tur sohbette ayrı cevap olarak
         görünür ve Durdur düğmesi zinciri keser. Devam turu hedef kipinde koşar.
         """
-        if self._state.goal is None or not self._state.goal.is_active:
+        state = accepted.state if accepted is not None else self._state
+        original_goal = state.goal
+        if state.goal is None or not state.goal.is_active:
             return {}
         sink.handle(StatusChanged(messages.GOAL_JUDGING))
         task = asyncio.ensure_future(
-            goal_flow.evaluate_goal(self._state, publisher=goal_flow.SinkPublisher((sink,)))
+            goal_flow.evaluate_goal(state, publisher=goal_flow.SinkPublisher((sink,)))
         )
         self._goal_task = task
         try:
@@ -3594,8 +4318,12 @@ class AppSession:
             self._goal_task = None
         # Ölçüldü (31 Ekim): burada `_next_turn_mode = GOAL` kuruluyordu; devamı göndermeyen
         # istemcide (Telegram) ya da sırada kullanıcı mesajı varken kip ilgisiz tura geçiyordu.
-        self._goal_continuation = outcome.next_prompt if outcome is not None else None
-        return goal_flow.wire_payload(outcome, self._state)
+        if accepted is None or (
+            self._accepted_is_visible(accepted) and self._state.goal is original_goal
+        ):
+            self._state.goal = state.goal
+            self._goal_continuation = outcome.next_prompt if outcome is not None else None
+        return goal_flow.wire_payload(outcome, state)
 
     def _goal_judging(self) -> bool:
         """Tur bitti ama hedef değerlendirmesi sürüyor: oturum meşgul sayılır."""
@@ -3759,25 +4487,28 @@ class AppSession:
             )
         return ""
 
-    def _queue_skill_turn_settings(self, item: Capability) -> None:
+    def _queue_skill_turn_settings(
+        self, item: Capability, *, state: ReplState | None = None
+    ) -> None:
         """Katalogdan seçilen becerinin `model`/`effort`/`disallowed-tools` alanları (P-020).
 
         Slash yolu (`/beceri`) bunları zaten bekleyen eklere koyar; slash seçimi önceliklidir.
         """
-        if self._state.pending_model_choice.is_empty:
+        state = state or self._state
+        if state.pending_model_choice.is_empty:
             resolution = resolve_turn_model(
-                item.model, item.effort, allow_model=model_override_allowed(self._state, item)
+                item.model, item.effort, allow_model=model_override_allowed(state, item)
             )
-            self._state.pending_model_choice = resolution.choice
-        self._state.pending_denied_tools = self._state.pending_denied_tools | map_denied_tools(
+            state.pending_model_choice = resolution.choice
+        state.pending_denied_tools = state.pending_denied_tools | map_denied_tools(
             item.disallowed_tools
         )
         # `allowed-tools` ön onayı ve `disallowed-tools` deseni bu turun izin kuralı (#142).
         from ..engines.agent.skill_tool import grant_entries
 
-        self._state.pending_grants = (
-            *self._state.pending_grants,
-            *grant_entries(item, self._state.root),
+        state.pending_grants = (
+            *state.pending_grants,
+            *grant_entries(item, state.root),
         )
 
     def _cancel_turn(self) -> dict[str, Any]:

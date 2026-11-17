@@ -1,3 +1,6 @@
+import { ensurePermission } from "./permissionWait.js";
+import { taskScopedTab } from "./taskScope.js";
+export { PERMISSION_KEY, setPermissionWait, answerPermission, currentPermission } from "./permissionWait.js";
 // Fusion Browser ortak çekirdeği: sayfa eylemleri ve sekme yönetimi.
 // Hem arka plan hizmeti (otomatik bağlantı) hem yan panel (elle bağlantı) kullanır.
 
@@ -8,6 +11,9 @@ const LOAD_TIMEOUT_MS = 20000;
 
 export function pageAction(operation, args) {
   const calistir = () => {
+  if (args.__taskOrigin && location.origin !== args.__taskOrigin) {
+    throw new Error("Görevin başlangıçtaki sitesi değişti; sayfa okunmadı.");
+  }
   // Sayfanın İÇİNDE çalışır (chrome.scripting ile enjekte edilir); dış kapsam yoktur.
   const INTERACTIVE = "button, a[href], input, textarea, select, summary, [role='button'], " +
     "[role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='checkbox'], " +
@@ -156,8 +162,12 @@ export function pageAction(operation, args) {
       const text = node.nodeValue.replace(/\s+/g, " ").trim();
       const parent = node.parentElement;
       if (!text || !parent || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName) || !isShown(parent)) continue;
-      parts.push(BLOCK.test(getComputedStyle(parent).display) ? `\n${text}` : ` ${text}`);
-      length += text.length + 1;
+      // Count only emitted UTF-16 units: a leading separator would be trimmed,
+      // consuming the text_page lookahead before it reaches the following node.
+      const separator = parts.length ? (BLOCK.test(getComputedStyle(parent).display) ? "\n" : " ") : "";
+      const part = separator + text;
+      parts.push(part);
+      length += part.length;
     }
     return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, limit);
   };
@@ -387,7 +397,8 @@ export function pageAction(operation, args) {
     const PAGE = MAX_TEXT;
     const page = Math.max(1, Number(args.page) || 1);
     const full = visibleText(PAGE * page + 1);
-    return { page, text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
+    return { page, title: document.title, url: location.href,
+      text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
   }
   if (operation === "hover") {
     // ref ya da ekran görüntüsü koordinatı (Claude computer hover coordinate).
@@ -1146,35 +1157,6 @@ async function closeSessionGroups(onlyEmpty) {
   return closed;
 }
 
-/** Panelin "Bu siteye izin ver" kartını açan kayıt (panel `PERMISSION_KEY`i dinler). */
-export const PERMISSION_KEY = "fusionPermission";
-
-/** Kullanıcının izin kartına basması için komutun bekleyeceği süre (köprü zaman aşımı 30 sn). */
-let permissionWaitMs = 25000;
-/** Testler bekleme süresini kısaltır. */
-export function setPermissionWait(ms) { permissionWaitMs = ms; }
-
-/**
- * İzni olmayan siteye girişte: paneldeki izin kartını aç ve kullanıcının tıklamasını BEKLE;
- * izin gelince komut kaldığı yerden sürer (ajanın yeniden denemesine gerek kalmaz).
- * İzin yalnız kullanıcı tıklamasıyla verilebilir (Chrome kuralı). Süre dolarsa ya da
- * kullanıcı reddederse modele ne yapacağı söylenir.
- */
-async function ensurePermission(origin, reason) {
-  if (await permitted(origin)) return;
-  try { await chrome.storage.session.set({ [PERMISSION_KEY]: { origin, at: Date.now() } }); } catch { /* kart açılamazsa mesaj yeter */ }
-  const until = Date.now() + permissionWaitMs;
-  while (Date.now() < until) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    if (await permitted(origin)) return;
-    const pending = (await chrome.storage.session.get(PERMISSION_KEY).catch(() => ({})))[PERMISSION_KEY];
-    if (!pending) break; // kullanıcı "Şimdi değil" dedi
-  }
-  if (await permitted(origin)) return;
-  throw new Error(
-    `${reason} ${origin} için kullanıcı izin vermedi (panelde izin kartı açıldı). ` +
-    "Kullanıcıya kısaca söyle; izin gelirse aynı komutu yeniden dene, vermezse o siteye girme.");
-}
 
 async function permitted(origin) {
   return /^https?:/.test(origin) && chrome.permissions.contains({ origins: [`${origin}/*`] });
@@ -1203,23 +1185,28 @@ export async function selectActiveTab({ request = true } = {}) {
   return setSelected(tab);
 }
 
-export async function checkedTab() {
+/** Yalnız gerçek sekme bağlama eksikliği navigate→yeni sekme geri dönüşünü açar. */
+export class TabBindingError extends Error {
+  constructor(message) { super(message); this.name = "TabBindingError"; }
+}
+
+export async function checkedTab(permissionContext = {}) {
   let selected = await getSelected();
   if (!selected) {
     // Seçili sekme yoksa etkin sekme izinliyse ona bağlan (Claude in Chrome gibi).
     try { selected = await selectActiveTab({ request: false }); } catch {
-      throw new Error("Bağlı sekme yok. chrome_action ile 'open' (adres) ya da 'tabs' kullan.");
+      throw new TabBindingError("Bağlı sekme yok. chrome_action ile 'open' (adres) ya da 'tabs' kullan.");
     }
   }
   let tab;
   try { tab = await chrome.tabs.get(selected.id); } catch {
     await clearSelected();
-    throw new Error("Bağlı sekme kapandı. 'tabs' ile listele ya da 'open' ile yeni sekme aç.");
+    throw new TabBindingError("Bağlı sekme kapandı. 'tabs' ile listele ya da 'open' ile yeni sekme aç.");
   }
   const origin = new URL(tab.pendingUrl || tab.url).origin;
   if (origin !== selected.origin) {
     if (!await permitted(origin)) {
-      await ensurePermission(origin, "Sekme izin verilmeyen bir siteye geçti.");
+      await ensurePermission(origin, "Sekme izin verilmeyen bir siteye geçti.", permissionContext);
     }
     await setSelected(tab);
   }
@@ -1294,6 +1281,9 @@ async function registerMonitorNow() {
  * `kind: network` → istekler (`url_pattern` alt dize, `request_id` ile gövde).
  */
 export function readMonitor(args) {
+  if (args.__taskOrigin && location.origin !== args.__taskOrigin) {
+    throw new Error("Görevin başlangıçtaki sitesi değişti; izleme okunmadı.");
+  }
   const monitor = globalThis.__fusionMonitor;
   if (!monitor) return { present: false };
   const limit = Math.max(1, Math.min(200, Number(args.limit) || 50));
@@ -1319,7 +1309,8 @@ export function readMonitor(args) {
 }
 
 /** Ağ boşta mı: izleyici varsa bekleyen istek sayısı, yoksa yalnız belge durumu ve düğüm sayısı. */
-export function monitorState() {
+export function monitorState(taskOrigin) {
+  if (taskOrigin && location.origin !== taskOrigin) throw new Error("Görevin başlangıçtaki sitesi değişti.");
   const monitor = globalThis.__fusionMonitor;
   return {
     present: Boolean(monitor), pending: monitor ? monitor.pending : 0,
@@ -1359,8 +1350,14 @@ async function readMonitored(tab, kind, veri) {
   if (!await monitorEnabled()) {
     throw new Error("Konsol ve ağ izleme kapalı. Paneldeki Bağlantı ayarlarından “Konsol ve ağ isteklerini izle”yi aç.");
   }
-  const result = await runInMain(tab, readMonitor, [{ kind, ...veri }]);
+  const result = await runInMain(tab, readMonitor, [{ kind, ...veri, __taskOrigin: tab.__taskOrigin }]);
   if (result.present) return result;
+  // File injections cannot check the document origin atomically. A scoped read must
+  // not install into whichever document replaced this one during the previous await.
+  if (tab.__taskScope) return {
+    present: false, total: 0, matched: 0, messages: [], requests: [],
+    ipucu: "İzleyici bu sayfada hazır değil; bu görevde yeni izleyici kurulmadı. Geçmiş kayıtlar okunamadı.",
+  };
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["pageMonitor.js"] });
   return {
     present: false, total: 0, matched: 0, messages: [], requests: [],
@@ -1376,7 +1373,10 @@ async function waitNetworkIdle(tab, limit) {
   let previous = null;
   let quietSince = 0;
   while (Date.now() - started < limit) {
-    const state = await runInMain(tab, monitorState, []).catch(() => null);
+    const state = await runInMain(tab, monitorState, [tab.__taskOrigin]).catch((error) => {
+      if (tab.__taskOrigin) throw error;
+      return null;
+    });
     const settled = state && state.ready === "complete" && state.pending === 0 &&
       previous !== null && previous.nodes === state.nodes;
     if (settled) {
@@ -1399,26 +1399,41 @@ async function savedShortcuts() {
 }
 
 async function runInTab(tab, operation, args) {
+  if (tab.__taskScope) await taskScopedTab({taskScope: tab.__taskScope, islem: "snapshot"});
   let injection;
   try {
     [injection] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id }, func: pageAction, args: [operation, { ...args, __hataDondur: true }],
+      target: { tabId: tab.id }, func: pageAction,
+      args: [operation, { ...args, __hataDondur: true, __taskOrigin: tab.__taskOrigin }],
     });
   } catch (error) {
+    if (tab.__taskScope) await taskScopedTab({taskScope: tab.__taskScope, islem: "snapshot"});
     // Çerçeve işlem sırasında kapandıysa (gönderim sonrası yönlendirme) adres değişmiştir.
     const current = await chrome.tabs.get(tab.id).catch(() => null);
     if (current && current.url !== tab.url) return { navigated: true, url: current.url };
     throw error;
   }
   const current = await chrome.tabs.get(tab.id).catch(() => null);
+  if (tab.__taskScope) await taskScopedTab({taskScope: tab.__taskScope, islem: "snapshot"});
   return injectionOutcome(injection, current?.url);
 }
 
-export async function execute(command) {
+export async function execute(command, { onPermissionProgress } = {}) {
+  let scopedTab = await taskScopedTab(command);
+  const permissionContext = { commandId: command.id, onProgress: onPermissionProgress };
   const veri = command.veri || {};
+  if (scopedTab && command.islem !== "tabs") {
+    if (!await permitted(command.taskScope.origin)) {
+      await ensurePermission(command.taskScope.origin, "Bu görevdeki site için izin yok.", permissionContext);
+    }
+    // A user can navigate while a consent card is open. Revalidate after its await.
+    scopedTab = await taskScopedTab(command);
+    scopedTab.__taskOrigin = command.taskScope.origin;
+    scopedTab.__taskScope = command.taskScope;
+  }
   if (command.islem === "tabs") {
-    const tabs = await chrome.tabs.query({});
-    const selected = await getSelected();
+    const tabs = scopedTab ? [scopedTab] : await chrome.tabs.query({});
+    const selected = scopedTab || await getSelected();
     return {
       tabs: tabs.filter((t) => /^https?:/.test(t.url || "")).slice(0, 60).map((t) => ({
         id: t.id, title: (t.title || "").slice(0, 100), url: t.url, active: t.active,
@@ -1470,7 +1485,7 @@ export async function execute(command) {
     // Yeni pencere (isteğe bağlı adresle); açılan sekme bağlanır.
     const url = veri.url ? new URL(veri.url) : null;
     if (url && !/^https?:$/.test(url.protocol)) throw new Error("Yeni pencerede yalnız http(s) adresi açılabilir.");
-    if (url && !await permitted(url.origin)) await ensurePermission(url.origin, "Bu siteyi açmak için izin yok.");
+    if (url && !await permitted(url.origin)) await ensurePermission(url.origin, "Bu siteyi açmak için izin yok.", permissionContext);
     const created = await chrome.windows.create({ url: url ? url.href : undefined, focused: true, state: "normal" });
     const tab = created.tabs?.[0];
     await addToSessionGroup(tab).catch(() => null);
@@ -1524,17 +1539,19 @@ export async function execute(command) {
     const target = await chrome.tabs.get(veri.tabId);
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {
-      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.", permissionContext);
     }
+    if (command.taskScope) await taskScopedTab(command);
     await chrome.tabs.update(target.id, { url: destination.href });
     await waitForLoad(target.id);
+    if (command.taskScope) await taskScopedTab(command);
     await setSelected(await chrome.tabs.get(target.id));
     return { url: destination.href };
   }
   if (command.islem === "tab_open") {
     const destination = new URL(veri.url);
     if (!await permitted(destination.origin)) {
-      await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteyi açmak için izin yok.", permissionContext);
     }
     const tab = await chrome.tabs.create({ url: destination.href, active: true });
     // Oturum grubuna koy (#436); gruplama başarısızsa sekme yine açılır.
@@ -1551,11 +1568,12 @@ export async function execute(command) {
     return { focused: tab.id, windowId: tab.windowId };
   }
   if (command.islem === "tab_select") {
+    if (scopedTab) return { selected: scopedTab.id, url: scopedTab.url };
     const tab = await chrome.tabs.get(Number(veri.id));
     // chrome:// ya da url'si okunamayan sekmede `new URL(undefined)` anlamsız "Invalid URL" atardı.
     if (!/^https?:/.test(tab.url || "")) throw new Error("Yalnız http(s) sekmeleri seçilebilir.");
     const origin = new URL(tab.url).origin;
-    await ensurePermission(origin, "Bu sekmenin sitesi için izin yok.");
+    await ensurePermission(origin, "Bu sekmenin sitesi için izin yok.", permissionContext);
     await setSelected(tab);
     return { selected: tab.id, url: tab.url };
   }
@@ -1567,19 +1585,21 @@ export async function execute(command) {
   }
   let tab;
   try {
-    tab = await checkedTab();
+    tab = scopedTab || await checkedTab(permissionContext);
   } catch (error) {
     // Adres açmak için bağlı sekme şart değildir: yeni sekmede açılır. Ölçüldü (4 Ekim
     // 2026): her kabul koşusunun ilk chrome_navigate çağrısı "Bağlı sekme yok" ile düştü.
-    if (command.islem !== "navigate" || !veri.url) throw error;
-    return execute({ ...command, islem: "tab_open" });
+    if (!(error instanceof TabBindingError) || command.islem !== "navigate" || !veri.url) throw error;
+    return execute({ ...command, islem: "tab_open" }, { onPermissionProgress });
   }
   if (command.islem === "history") {
+    if (command.taskScope) await taskScopedTab(command);
     if (veri.dir === "back") await chrome.tabs.goBack(tab.id);
     else if (veri.dir === "forward") await chrome.tabs.goForward(tab.id);
     else await chrome.tabs.reload(tab.id);
     await new Promise((resolve) => setTimeout(resolve, 300));
     await waitForLoad(tab.id);
+    if (command.taskScope) await taskScopedTab(command);
     const now = await chrome.tabs.get(tab.id);
     if (now.url && /^https?:/.test(now.url)) await setSelected(now);
     return { url: now.url };
@@ -1597,10 +1617,12 @@ export async function execute(command) {
   if (command.islem === "navigate") {
     const destination = new URL(veri.url);
     if (destination.origin !== new URL(tab.url).origin && !await permitted(destination.origin)) {
-      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.");
+      await ensurePermission(destination.origin, "Bu siteye gitmek için izin yok.", permissionContext);
     }
+    if (command.taskScope) await taskScopedTab(command);
     await chrome.tabs.update(tab.id, { url: destination.href });
     await waitForLoad(tab.id);
+    if (command.taskScope) await taskScopedTab(command);
     await setSelected(await chrome.tabs.get(tab.id));
     return { url: destination.href };
   }

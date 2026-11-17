@@ -27,12 +27,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..config.models import HostedConnectorConfig
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolEvidenceRole, ToolResult
 from ..tools import ToolRegistry
 from ..tools.emulation import MESSAGE_REQUIRED_MISSING, coerce_arguments, validate_arguments
 from .call_errors import describe_call_error
@@ -328,7 +328,9 @@ class HostedConnectorClient:
         repaired = await self._ask(connector, _repair_reminder())
         return parse_result(repaired)
 
-    async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
+    async def register_into(
+        self, registry: ToolRegistry, *, selected_names: Iterable[str] | None = None
+    ) -> tuple[str, ...]:
         """Doğrulanmış connector'ların araçlarını kayıt defterine ekle.
 
         Doğrulanmamış connector için oturuma HİÇ gidilmez: ölçülmemiş bir
@@ -336,8 +338,9 @@ class HostedConnectorClient:
         güvenmesine yol açar (`WebSessionConfig.tool_eval_passed` ile aynı gerekçe).
         """
         added: list[str] = []
+        selected = None if selected_names is None else set(selected_names)
         for name, connector in self._connectors.items():
-            if not connector.verified:
+            if not connector.verified or (selected is not None and name not in selected):
                 continue
             try:
                 tools = self._discovered.get(name)
@@ -371,6 +374,7 @@ class HostedConnectorClient:
                         # Bu yüzden stdio/HTTP araçlarının açıklamasız varsayılanı
                         # uygulanır: auto kip ilk çağrıda sorar.
                         effect=ToolEffect.REMOTE_WRITE,
+                        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
                     )
                 )
                 added.append(fusion_name)

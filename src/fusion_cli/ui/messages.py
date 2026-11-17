@@ -122,7 +122,10 @@ AGENT_TEACHER_LESSON_REUSED_OK = "Hafızadaki plan tuttu; güveni arttı"
 AGENT_TEACHER_LESSON_REUSED_FAIL = (
     "Hafızadaki plan tutmadı; sonraki benzer işte öğretmene sorulacak"
 )
-AGENT_TEACHER_LIMITATION = "{topic} yapılamıyor: {reason}. Alternatif: {alternative}"
+AGENT_TEACHER_LIMITATION = (
+    "Öğretmen değerlendirmesi (doğrulanmadı): {topic} — {reason}. "
+    "Önerilen alternatif: {alternative}"
+)
 AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
 AGENT_SELF_REVIEW_UNAVAILABLE = "öz-denetim · tamamlanamadı; sonuç denetlenmedi"
 AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"

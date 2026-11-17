@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from evals.interactions import InteractionMetrics
 from fusion_cli.core.events import Event
 from fusion_cli.core.evidence import EvidenceEnvironment
 
@@ -65,3 +66,4 @@ class TaskExecution:
     environments: tuple[EvidenceEnvironment, ...] = ()
     effective_config_digest: str | None = None
     sample_index: int | None = None
+    interactions: InteractionMetrics | None = None

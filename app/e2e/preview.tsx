@@ -1,3 +1,4 @@
+import { ActivityPanelFixture } from "./ActivityPanelFixture";
 import { TYPOGRAPHY_TEXT, typographyMessages } from "./typographyFixture";
 import { AgentPanel } from "../src/team/AgentPanel";
 import React from "react";
@@ -552,4 +553,4 @@ function Preview() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><Preview /></React.StrictMode>);
+ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode>{state === "activity-panel" ? <ActivityPanelFixture /> : <Preview />}</React.StrictMode>);

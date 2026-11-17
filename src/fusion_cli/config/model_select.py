@@ -19,6 +19,7 @@ from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import ModelSpec
 from .eligibility import capability_from_spec
 from .keys import NIM_PREFIX, OPENROUTER_PREFIX
+from .model_lookup import configured_model_specs, model_spec_for
 from .models import Config
 from .tool_policy import can_be_mutation_agent, mutation_policy_for_model
 
@@ -175,7 +176,15 @@ def apply_single_model(config: Config, model_id: str) -> Config:
     # `/development` açıkça TEK model seçtirir. `strict` etiketi savunmacıdır:
     # config'te önceki/panelden kalmış bir fallback bulunsa bile kullanıcıya başka
     # modelin sessizce cevap vermesine izin vermez. Panelden strict kapatılabilir.
-    spec = ModelSpec(name=SINGLE_MODEL_NAME, model=_validated(model_id), tags=("strict",))
+    model = _validated(model_id)
+    known = model_spec_for(model, configured_model_specs(config))
+    base = known if known is not None else ModelSpec(name=SINGLE_MODEL_NAME, model=model)
+    spec = replace(
+        base,
+        name=SINGLE_MODEL_NAME,
+        fallback=(),
+        tags=tuple(dict.fromkeys((*base.tags, "strict"))),
+    )
     return replace(
         config,
         agent=spec,

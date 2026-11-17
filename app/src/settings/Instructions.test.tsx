@@ -64,7 +64,7 @@ it("yüklenen talimat katmanlarını ve kırpma notunu listeler", async () => {
     return { ok: true };
   });
   render(<Instructions client={client} />);
-  const liste = await screen.findByLabelText("Yüklenen talimat katmanları");
+  const liste = await screen.findByLabelText("Talimat dosyaları ve kurallar");
   expect(liste.textContent).toContain("~/.claude/CLAUDE.md");
   expect(liste.textContent).toContain("Kullanıcı · 120 karakter");
   expect(liste.textContent).toContain("512 kırpıldı");
@@ -106,7 +106,7 @@ it("kural dosyalarını kapsamıyla listeler", async () => {
     return { ok: true };
   });
   render(<Instructions client={client} />);
-  const liste = await screen.findByLabelText("Yüklenen talimat katmanları");
+  const liste = await screen.findByLabelText("Talimat dosyaları ve kurallar");
   expect(liste.textContent).toContain("Kural · 90 karakter · src/**/*.tsx, *.css · depo içeriği");
   expect(liste.textContent).toContain("Kural · 40 karakter · her yerde");
 });
@@ -115,10 +115,10 @@ it("talimat dosyaları varsayılan kapalı açılır-kapanır listede, başlıkt
   const katmanlar = Array.from({ length: 12 }, (_, sira) => ({ kaynak: `/Users/ornek/cok/uzun/bir/yol/kural-${sira}.md`, katman: "kural", karakter: 100, kirpilan: 0, guvenilir: true, kapsam: [] }));
   const client = istemci(async (ad) => ad === "ayar.talimat" ? { ok: true, metin: "", sinir: 4000, katmanlar } : { ok: true });
   render(<Instructions client={client} />);
-  const ozet = await screen.findByText("Tur başında yüklenen talimat dosyaları (12)");
+  const ozet = await screen.findByText("Talimat dosyaları ve kurallar (12)");
   const acilir = ozet.closest("details") as HTMLDetailsElement;
   expect(acilir.open).toBe(false);
-  expect(screen.getByLabelText("Yüklenen talimat katmanları").querySelectorAll("li")).toHaveLength(12);
+  expect(screen.getByLabelText("Talimat dosyaları ve kurallar").querySelectorAll("li")).toHaveLength(12);
   fireEvent.click(ozet);
   expect(acilir.open).toBe(true);
 });

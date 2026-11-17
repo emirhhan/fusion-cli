@@ -19,7 +19,7 @@ def test_panel_dinleme_ustel_bekler_ve_hatayi_tekrarlamaz() -> None:
     """R1-33. Ölçüldü (30 Ekim): kopuk bağlantıda her 2 sn'de aynı hata yazılıyordu."""
     panel = (EXTENSION / "panel.js").read_text(encoding="utf-8")
     assert "MAX_RETRY_MS" in panel and "2 ** listenFailures" in panel
-    assert "if (listenFailures === 0) error(" in panel
+    # Hata/rozet iyileşmesi test_remediation_permission_js gerçek taşıma regresyonunda ölçülür.
 
 
 def test_panel_uc_izin_modu_sunar_varsayilan_otomatik() -> None:

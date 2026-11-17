@@ -8,6 +8,47 @@ it("desteklenen yoğunluk nedeni boş olsa da gerçek çağrı makbuzunda korunu
 });
 
 describe("olayAdimi", () => {
+  it.each([
+    {completed:false,issue_found:false},
+    {completed:false,issue_found:true},
+  ])('tamamlanmayan özdenetimi kalıcı ama görev hatası üretmeyen adım olarak gösterir: %s', result=>{
+    const step=olayAdimi({olay:'SelfReviewFinished',...result,reasoning:'Gizli düşünme'});
+    expect(step).toMatchObject({metin:'özdenetim tamamlanamadı',kalici:true,durum:'unknown'});
+    expect(step?.cikti).toContain('değerlendirmesi doğrulanmadı');
+    expect(step?.cikti).not.toContain('Gizli düşünme');
+    expect(step?.sonuc).toBeUndefined();
+  });
+  it.each([{issue_found:false},{completed:'false',issue_found:false},{completed:true,issue_found:'false'}])(
+    'eksik veya bozuk özdenetim sonucunu geçmiş gibi göstermez: %s', result=>{
+      expect(olayAdimi({olay:'SelfReviewFinished',...result})).toMatchObject({
+        metin:'özdenetim sonucu bilinmiyor',kalici:true,durum:'unknown'});
+    });
+  it('tamamlanmış özdenetim sadece tamamlanmayı ve bildirilmiş bulguyu anlatır',()=>{
+    const empty=olayAdimi({olay:'SelfReviewFinished',completed:true,issue_found:false});
+    expect(empty?.metin).toBe('özdenetim tamamlandı');
+    expect(empty?.cikti).not.toMatch(/tüm.*doğrulandı|geçti/);
+    expect(olayAdimi({olay:'SelfReviewFinished',completed:true,issue_found:true})?.metin).toContain('bulgu bildirildi');
+  });
+  it('doğrulama ve gerçek değişiklik özetini kalıcı ve sınırlı adım olarak taşır', () => {
+    const measured=olayAdimi({olay:'VerificationPassed',checks:['Tarayıcıda açıldı'],unmeasured:[]});
+    expect(measured).toMatchObject({kalici:true,cikti:expect.stringContaining('Tarayıcıda açıldı')});
+    const partial=olayAdimi({olay:'VerificationPassed',checks:['Dosya var'],unmeasured:['Gönderim ölçülmedi']});
+    expect(partial?.metin).toBe('doğrulama sonucu');
+    expect(partial?.durum).toBe('unknown');
+    expect(partial?.cikti).toContain('Gönderim ölçülmedi');
+    const digest=olayAdimi({olay:'ChangesDigested',lines:['rapor.html: 67 yeni satır','token=abcdefghijklmnop']});
+    expect(digest).toMatchObject({kalici:true,metin:'değişiklik özeti',cikti:expect.stringContaining('67 yeni satır')});
+    expect(digest?.diff).toBeUndefined();
+    expect(digest?.cikti).not.toContain('abcdefghijklmnop');
+    expect(olayAdimi({olay:'VerificationPassed',checks:['x',3],unmeasured:[]})?.metin).not.toBe('kontroller doğrulandı');
+    const limited=olayAdimi({olay:'VerificationPassed',checks:Array(10).fill('x'.repeat(500)),unmeasured:['Ağ gönderimi ölçülmedi']});
+    expect(limited?.cikti).toContain('Ağ gönderimi ölçülmedi');
+    expect(limited?.cikti?.length).toBeLessThanOrEqual(4002);
+    expect(olayAdimi({olay:'VerificationPassed',checks:[''],unmeasured:[]})?.metin).toBe('doğrulama sonucu');
+    const unicode=olayAdimi({olay:'ChangesDigested',lines:Array(20).fill('x'+'😀'.repeat(499))});
+    expect(unicode?.cikti?.length).toBeLessThanOrEqual(4002);
+    expect(unicode?.cikti).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u);
+  });
   it("öğretmen görev kararı ve planını kısa adım olarak gösterir", () => {
     expect(olayAdimi({ olay: "TeacherTaskClassified", size: "orta-buyuk", reasons: ["istenen etki: workspace_mutation"] })?.metin)
       .toBe("orta-büyük görev belirlendi");

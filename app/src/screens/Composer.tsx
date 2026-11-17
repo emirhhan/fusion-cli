@@ -124,6 +124,9 @@ interface ComposerProps {
   /** Etkin ajan modeli. Boşsa seçici çizilmez. */
   activeModel?: string;
   activeModelLabel?: string;
+  activeModelPending?: boolean;
+  activeModelError?: string;
+  onActiveModelRetry?: () => void;
   /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
   modelOptions?: ModelOption[];
   modelsError?: string;
@@ -196,6 +199,9 @@ export function Composer({
   running = false,
   activeModel = "",
   activeModelLabel,
+  activeModelPending,
+  activeModelError,
+  onActiveModelRetry,
   modelOptions = [],
   modelsError = "",
   modelSelectionPending = false,
@@ -217,6 +223,7 @@ export function Composer({
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingSubmission = useRef(false);
+  const [submissionPending, setSubmissionPending] = useState(false);
   const draft = value ?? internalValue;
   // Masaüstünde /subtask için görünür yol (P-054): komut sunucuda varsa ve taslak bir istemse.
   const subtaskAvailable = workspaceMode !== "sohbet" && !draft.trim().startsWith("/") && Boolean(draft.trim())
@@ -308,8 +315,13 @@ export function Composer({
     if (!task || pendingSubmission.current) return;
     const snapshot = draft;
     pendingSubmission.current = true;
-    const fail = () => {
+    setSubmissionPending(true);
+    const finishSubmission = () => {
       pendingSubmission.current = false;
+      setSubmissionPending(false);
+    };
+    const fail = () => {
+      finishSubmission();
       setSendError("Mesaj gönderilemedi. Yeniden dene.");
     };
     const accept = (result: SubmissionResult) => {
@@ -320,7 +332,7 @@ export function Composer({
         if (current === snapshot) setDraft("");
         else if (current.startsWith(snapshot)) setDraft(current.slice(snapshot.length).replace(/^\s+/, ""));
       }
-      pendingSubmission.current = false;
+      finishSubmission();
     };
     try {
       const result = onSend(task);
@@ -547,7 +559,7 @@ export function Composer({
           </div>
           {running ? (
             <span className="composer__actions">
-              {onModelSelect && <ModelPicker active={activeModel} activeLabel={activeModelLabel ? `${activeModelLabel} · sonraki tur` : `${shortModelName(activeModel)} · sonraki tur`} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
+              {onModelSelect && <ModelPicker activePending={activeModelPending} activeError={activeModelError} onActiveRetry={onActiveModelRetry} active={activeModel} activeLabel={activeModelLabel || activeModel ? `${activeModelLabel || shortModelName(activeModel)} · sonraki tur` : undefined} options={modelOptions} busy={modelsBusy} pending={modelSelectionPending} error={modelsError} onOpen={onModelMenuOpen} onRetry={onModelMenuOpen} onConnect={onModelConnect} onSelect={onModelSelect} />}
               {/* Çalışırken "Bağlamı sıkıştır" sunulmaz: onSend çalışan tura talimat/sıra olarak gider
                   ve /compact komut yerine modele metin olarak iletilebilirdi (U1-11). */}
               <ContextGauge olcu={context} />
@@ -558,7 +570,7 @@ export function Composer({
                   Düğme yalnız yazı varken çıkar; boşken soluk bir ok "gönder
                   çalışmıyor" gibi okunuyordu. */}
               {draft.trim() && (
-                <Button aria-label="Sıraya ekle" icon="send" iconOnly onClick={() => send()} />
+                <Button aria-label="Sıraya ekle" aria-busy={submissionPending || undefined} disabled={submissionPending} icon="send" iconOnly onClick={() => send()} />
               )}
               {/* ChatGPT'deki gibi: tur sürerken ses düğmelerinin yerinde beyaz
                   yuvarlak içinde kare durdur düğmesi — Fusion'ın çalıştığı buradan anlaşılır. */}
@@ -593,6 +605,9 @@ export function Composer({
               {onModelSelect && <EffortMenu onSelect={(level) => void onSend(`/effort ${level}`)} />}
               {onModelSelect && (
                 <ModelPicker
+                  activePending={activeModelPending}
+                  activeError={activeModelError}
+                  onActiveRetry={onActiveModelRetry}
                   active={activeModel}
                   activeLabel={activeModelLabel}
                   busy={modelsBusy}
@@ -609,6 +624,8 @@ export function Composer({
                 <button
                   aria-label="Alt görev olarak gönder"
                   className="composer__subtask"
+                  aria-busy={submissionPending || undefined}
+                  disabled={submissionPending}
                   onClick={() => send("/subtask ")}
                   title="Bağlamı devralan bir alt ajanda çalıştır; sohbete yalnız özeti döner (/subtask)"
                   type="button"
@@ -616,7 +633,7 @@ export function Composer({
                   Alt görev
                 </button>
               )}
-              <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={() => send()} variant="primary" />
+              <Button aria-label="Gönder" aria-busy={submissionPending || undefined} disabled={!draft.trim() || submissionPending} icon="send" iconOnly onClick={() => send()} title={submissionPending ? "Mesaj gönderiliyor" : undefined} variant="primary" />
             </span>
           )}
         </div>

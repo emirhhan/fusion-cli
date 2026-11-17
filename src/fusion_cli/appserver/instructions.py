@@ -37,17 +37,18 @@ def read_instructions() -> str:
 
 
 def get_instructions(root: Path | None = None, home: Path | None = None) -> dict[str, Any]:
-    """`ayar.talimat`: kayıtlı metin, sınır ve (kök verilmişse) yüklenen talimat katmanları.
+    """`ayar.talimat`: kayıtlı metin, sınır ve (kök verilmişse) talimat envanteri.
 
-    `katmanlar`: tur başında bağlama giren dosyalar — kaynak adı, katman, karakter, kırpılan
-    karakter ve güvenilir olup olmadığı. `notlar`: atlanan import / dolan bütçe gibi uyarılar.
+    `katmanlar`: başlangıç dosyaları ve kapsamlı kuralların kaynak, karakter ve güven bilgisi.
+    `toplam_karakter` yalnız başlangıçta yüklenen içeriği sayar; ertelenen kuralları saymaz.
+    `notlar`: atlanan import, dolan bütçe veya kesin ölçülemeyen kırpma gibi uyarılar.
     """
     sonuc: dict[str, Any] = {"ok": True, "metin": read_instructions(), "sinir": MAX_UZUNLUK}
     if root is None:
         return sonuc
-    from ..engines.agent.instruction_layers import load_instruction_layers
+    from ..engines.agent.project_instructions import load_startup_instruction_files
 
-    yuk = load_instruction_layers(root, home)
+    yuk = load_startup_instruction_files(root, home)
     sonuc["katmanlar"] = [
         {
             "kaynak": item.label,
@@ -57,19 +58,30 @@ def get_instructions(root: Path | None = None, home: Path | None = None) -> dict
             "guvenilir": item.trusted,
         }
         for item in yuk.files
+        if item.layer != "kural"
     ]
     # `.claude/rules` kuralları da katman listesine girer (katman "kural", `kapsam` = paths).
     # Eksik yüzeydi: arayüzün "Kural" etiketi vardı ama hiç kullanılmıyordu (31 Ekim).
     from ..engines.agent.instruction_rules import MAX_RULE_FILE_CHARS, discover_rules, rule_block
 
+    loaded_rules = {item.label: item for item in yuk.files if item.layer == "kural"}
     for kural in discover_rules(root, home):
-        _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+        loaded = loaded_rules.get(kural.label)
+        if loaded is not None:
+            karakter, kirpilan = loaded.chars, loaded.trimmed
+            kesin = loaded.trimmed_exact
+        else:
+            _, karakter = rule_block(kural, MAX_RULE_FILE_CHARS)
+            kirpilan = 0
+            kesin = True
         sonuc["katmanlar"].append(
             {
                 "kaynak": kural.label,
                 "katman": "kural",
                 "karakter": karakter,
-                "kirpilan": 0,
+                "kirpilan": kirpilan if kesin else None,
+                "kirpilan_alt_sinir": kirpilan,
+                "kirpilan_kesin": kesin,
                 "guvenilir": kural.trusted,
                 "kapsam": list(kural.paths),
             }

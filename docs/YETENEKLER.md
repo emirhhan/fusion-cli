@@ -36,15 +36,18 @@ Fusion iki şeyi tek üründe birleştirir:
 | Kanıta bağlı yeniden planlama | Aynı başarısız hedefte dönmek yerine doğrulanmış işi koruyup dalı bir kez yeniler |
 | Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
 | Fusion ↔ Kits köprüsü (`fusion kit`, `kit_send`, `fusion_browser`) | Bir Kit'e mesaj/görev bırak, durumunu oku; Kit kullanıcının Chrome'unu onaylı kullanır (bkz. `docs/KITS_KOPRUSU.md`) |
-| Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
+| Yerel production smoke değerlendirmesi | Godot asset, gerçek MCP stdio listeleme/çağırma, replan, büyük dosya koruması ve JSON dosya ayrımını ölçer; OAuth/uygulama sohbet izolasyonu değildir |
 | REPL paritesi (Claude Code) | `!` kabuk, `@dosya` anma + Tab tamamlama; `/status`, `/context`; `/export`, `/copy`; `/config` + `fusion config get/set/list`, `--set`, `--profile`; `/output-style`; `/statusline`; `/theme`, `/tui`, `/search`; `keybindings.json`, `/config editorMode=vim` (bkz. NASIL_KULLANILIR §15) |
 | Komut paleti ve kısayollar (masaüstü) | Claude Desktop varsayılan tablosu (⌘/, ⌘N, ⌘W, Ctrl+Tab, ⌘⇧D, ⌘⇧B, Ctrl+`, ⌘\\, ⌘⇧M); komut paleti (eylem/ekran/sohbet/komut/ayar/dosya) tuşsuz, istenen tuşa bağlanır; Ayarlar › Kısayollar ile yeniden bağlama; `keybindings.json` `masaustu` bölümü (bkz. NASIL_KULLANILIR §17) |
 
-Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`
-komutuyla çalışır. Rapor, bütün tekil koşuların başarı oranını ve yalnız üç tekrarın
+Canlı smoke ölçümü isteğe bağlı olarak
+`python -m evals run evals/suite/production.yaml --profile production --repeat 3 --out production-report.json`
+komutuyla çalıştırılır; bu çağrı mevcut CI yayın zincirinde zorunlu değildir.
+Her görev en fazla 30 model çağrısı ve 180 saniye ile sınırlıdır. Rapor, bütün tekil koşuların başarı oranını ve yalnız üç tekrarın
 üçünü de geçen görevlerin katı güvenilirlik oranını ayrı gösterir. Canlı Meta OAuth
 girişi kullanıcı hesabı ve tarayıcı onayı gerektirdiği için son smoke kontroldür;
-token hiçbir değerlendirme fikstüründe tutulmaz.
+token hiçbir değerlendirme fikstüründe tutulmaz. Yayın manifesti canlı kanıt yoksa
+`liveAcceptance.status=not_measured` yazar; ayrıntılar `release/README.md` içindedir.
 
 ## Hâlâ eksik olanlar (dürüst)
 

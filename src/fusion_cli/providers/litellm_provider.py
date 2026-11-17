@@ -21,7 +21,8 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.model_capability import ModelCapability
 from ..core.protocols import Clock
-from ..core.reasoning import resolve_reasoning
+from ..core.provider_diagnostics import observe_phase
+from ..core.reasoning import ReasoningResolution, resolve_reasoning
 from ..core.redaction import redact
 from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
 from ..core.tool_schema_variants import accepts_raw_schemas, with_raw_schemas
@@ -37,9 +38,11 @@ from ..core.types import (
 )
 from . import beta_headers
 from .context_window import ollama_num_ctx
+from .stream_cleanup import closing_stream
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
+_NIM_BUDGET_MODEL = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
 
 #: Çıktı bütçesi düşünme sırasında dolduğunda kullanıcıya dönen açıklama.
 TRUNCATED_ERROR = (
@@ -102,8 +105,14 @@ class LiteLlmProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         started = self._clock.monotonic()
+        if request.provider_observer is not None:
+            request.provider_observer.leaf_enter()
         try:
-            response = await _litellm().acompletion(**self._call_kwargs(request, stream=False))
+            kwargs = self._call_kwargs(request, stream=False)
+            sdk = _litellm()
+            observe_phase(request, "sdk_await_enter")
+            response = await sdk.acompletion(**kwargs)
+            observe_phase(request, "sdk_response_returned")
         except Exception as exc:
             # Sağlayıcı hataları BEKLENEN durumdur (429, 5xx, zaman aşımı, soğuk uç):
             # akışı kesmemek için exception'a değil sonuç nesnesine çevrilir.
@@ -113,20 +122,29 @@ class LiteLlmProvider:
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         started = self._clock.monotonic()
         chunks: list[Any] = []
+        if request.provider_observer is not None:
+            request.provider_observer.leaf_enter()
         try:
-            response = await _litellm().acompletion(**self._call_kwargs(request, stream=True))
-            async for chunk in response:
-                chunks.append(chunk)
-                text = _chunk_text(chunk)
-                if text:
-                    yield TextChunk(text)
-                else:
-                    # Araç argümanı ya da düşünme parçası: metin yok ama model
-                    # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
-                    # olarak yazan model iki dakika "sessiz" sanılıp her denemede
-                    # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
-                    # sessizlik sınırını tazeler (bkz. `loop._call_model`).
-                    yield TextChunk("", provisional=True)
+            kwargs = self._call_kwargs(request, stream=True)
+            sdk = _litellm()
+            observe_phase(request, "sdk_await_enter")
+            response = await sdk.acompletion(**kwargs)
+            async with closing_stream(response):
+                observe_phase(request, "sdk_stream_open")
+                async for chunk in response:
+                    chunks.append(chunk)
+                    text = _chunk_text(chunk)
+                    if request.provider_observer is not None:
+                        request.provider_observer.sdk_chunk(has_text=bool(text))
+                    if text:
+                        yield TextChunk(text)
+                    else:
+                        # Araç argümanı ya da düşünme parçası: metin yok ama model
+                        # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
+                        # olarak yazan model iki dakika "sessiz" sanılıp her denemede
+                        # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
+                        # sessizlik sınırını tazeler (bkz. `loop._call_model`).
+                        yield TextChunk("", provisional=True)
         except Exception as exc:
             yield StreamDone(self._with_effort(self._failure(exc, started), request))
             return
@@ -143,6 +161,19 @@ class LiteLlmProvider:
             "timeout": request.timeout_s,
             "num_retries": request.max_retries,
         }
+        if self._model.startswith("nvidia_nim/"):
+            # NIM's LiteLLM mapping drops max_retries, restoring the SDK default
+            # of two retries even when the request explicitly asks for zero.
+            kwargs["allowed_openai_params"] = ["max_retries"]
+        if request.response_schema is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "fusion_response",
+                    "strict": True,
+                    "schema": dict(request.response_schema),
+                },
+            }
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             if accepts_raw_schemas(self._model):
@@ -164,6 +195,22 @@ class LiteLlmProvider:
             # Yalnız ölçülen sağlayıcıda: NIM şablon anahtarı. Başka uçlara ham gövde
             # gönderilmez (OpenAI 400 verir).
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        if request.reasoning_budget is not None:
+            if (
+                self._model != _NIM_BUDGET_MODEL
+                or request.reasoning_effort not in {"medium", "high"}
+                or request.disable_thinking
+                or isinstance(request.reasoning_budget, bool)
+                or not 0 < request.reasoning_budget <= request.max_tokens
+            ):
+                raise ValueError("Düşünme bütçesi bu model/istek için geçerli değil.")
+            # Resmî NIM infer API: yerel alanlar. LiteLLM reasoning_effort'u düşürür;
+            # extra_body içindeki yerel alanlar gerçek gövdeye aynen aktarılır.
+            kwargs.pop("reasoning_effort", None)
+            kwargs["extra_body"] = {
+                "reasoning_effort": request.reasoning_effort,
+                "reasoning_budget": request.reasoning_budget,
+            }
         measured_local_default = self._model in {
             "ollama/huihui_ai/qwen3.5-abliterated:9b",
             "ollama_chat/huihui_ai/qwen3.5-abliterated:9b",
@@ -204,6 +251,40 @@ class LiteLlmProvider:
 
     def _with_effort(self, result: ModelResult, request: CompletionRequest) -> ModelResult:
         resolution = resolve_reasoning(request.reasoning_effort, self._capability)
+        native_budget = (
+            self._model == _NIM_BUDGET_MODEL
+            and request.reasoning_budget is not None
+            and request.reasoning_effort in {"medium", "high"}
+            and not request.disable_thinking
+            and not isinstance(request.reasoning_budget, bool)
+            and 0 < request.reasoning_budget <= request.max_tokens
+        )
+        if native_budget:
+            resolution = ReasoningResolution(
+                request.reasoning_effort,
+                request.reasoning_effort,
+                "Yoğunluk ve sınırlı bütçe NIM yerel istek gövdesine iletildi.",
+            )
+        if (
+            resolution.applied is not None
+            and self._model.startswith("nvidia_nim/")
+            and not native_budget
+        ):
+            # Capability intent can survive our kwargs yet be dropped by the SDK's
+            # NIM mapper. The receipt must describe that transport, not the intent.
+            supported = _litellm().get_supported_openai_params(
+                model=self._model.removeprefix("nvidia_nim/"), custom_llm_provider="nvidia_nim"
+            )
+            if supported is None or "reasoning_effort" not in supported:
+                resolution = replace(
+                    resolution,
+                    applied=None,
+                    reason=(
+                        "NVIDIA NIM taşımasında düşünme yoğunluğunun iletildiği doğrulanmadı."
+                        if supported is None
+                        else "NVIDIA NIM taşıma adaptörü düşünme yoğunluğu parametresini iletmiyor."
+                    ),
+                )
         return replace(
             result,
             requested_effort=resolution.requested,

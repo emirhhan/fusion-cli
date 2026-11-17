@@ -40,7 +40,7 @@ async def test_yonetilen_dosya_yoksa_kisit_yok(tmp_path, monkeypatch) -> None:
     assert navigation_blocked("https://example.com") is None
 
 
-async def test_dis_gezinme_kapali_localhost_acik(tmp_path, monkeypatch) -> None:
+async def test_dis_gezinme_kapali_localhost_acik(tmp_path, monkeypatch, public_example_dns) -> None:
     _managed(tmp_path, monkeypatch, {"disableBrowserExternalNavigation": True})
     assert "disableBrowserExternalNavigation" in str(navigation_blocked("https://example.com"))
     assert navigation_blocked("http://localhost:5173") is None

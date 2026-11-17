@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
@@ -111,6 +112,7 @@ async def judge_goal(
             retry_delays_s=config.runtime.retry_delays_s,
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         async with asyncio.timeout(config.runtime.judge_timeout_s + 2.0):
             result = await provider.complete(request)

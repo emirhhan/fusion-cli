@@ -53,7 +53,25 @@ DEFAULT_QUESTION = (
 #: Görsel modeli yanıt sınırı. Kısa tutulur: ölçüldü, 11b model uzun bütçede
 #: aynı cümleyi tekrarlayarak döngüye giriyor.
 VISION_MAX_TOKENS = 200
+#: Yalnız yapılandırılmış `truncated` sonucundan sonra bir kez genişletilir.
+#: Reasoning token'ları da aynı bütçeyi tüketir; bu sınır yeterlilik garantisi değil,
+#: kısa görsel açıklaması için sınırlı bir kurtarma bütçesidir.
+VISION_RECOVERY_MAX_TOKENS = 4096
 VISION_TIMEOUT_S = 60.0
+
+# The focus question may contain an expected answer. It must not become visual
+# evidence. Keep this instruction above the caller's question, including recovery.
+VISION_GROUNDING_PROMPT = (
+    "You are a visual observer. Report only what is visibly present in the image. "
+    "The user's question specifies a focus, not evidence of image contents. "
+    "Never calculate an expression, complete missing input, or substitute an expected result "
+    "for text actually visible. Preserve every visible digit and operator, including trailing "
+    "operators. If text is unclear say so rather than guessing. Return three short labeled "
+    "fields: visible_text (literal transcription of relevant display text), "
+    "description (visible objects/state only), uncertainty (unclear details or none). "
+    "Do not claim that an action succeeded or that a task was verified."
+)
+VISION_OBSERVATION_LABEL = "Görsel modelinin gözlemi; bağımsız doğrulama değildir: "
 
 
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
@@ -127,15 +145,24 @@ def _is_webp(ham: bytes, mime: str) -> bool:
 
 async def describe_image(config: Config, path: Path, question: str) -> tuple[str, str | None]:
     """Görseli yapılandırılmış görsel modeline sor. (açıklama, hata) döndürür."""
+    if config.vision is None:
+        return "", "Görsel modeli yapılandırılmamış."
+    data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
+    if sorun is not None:
+        return "", sorun
+    return await describe_image_data(config, data_uri, question)
+
+
+async def describe_image_data(
+    config: Config, data_uri: str, question: str
+) -> tuple[str, str | None]:
+    """Describe the already-authorized immutable image snapshot."""
+    from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
 
     spec = config.vision
     if spec is None:  # pragma: no cover - araç yalnızca spec varken kaydedilir
         return "", "Görsel modeli yapılandırılmamış."
-    # Dosya okuma olay döngüsünü bloklamasın (A2-39): 5 MB'a kadar senkron okuma.
-    data_uri, sorun = await asyncio.to_thread(load_image_data_uri, path)
-    if sorun is not None:
-        return "", sorun
     try:
         provider = build_provider(
             spec,
@@ -143,16 +170,37 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
             retry_delays_s=config.runtime.retry_delays_s,
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
-        result = await provider.complete(
-            CompletionRequest(
-                messages=(Message("user", question, images=(data_uri,)),),
-                temperature=config.runtime.utility_temperature,
-                max_tokens=VISION_MAX_TOKENS,
-                timeout_s=VISION_TIMEOUT_S,
-                max_retries=0,
-            )
-        )
+        # Kısa, başarılı çağrının eski bütçesi korunur. Bütçe düşünme sırasında
+        # dolarsa AYNI 200 token isteği tekrarlanmaz; tek kurtarma da ilk çağrının
+        # kalan süresini paylaşır. Kesilmiş metin görsel kanıt diye kullanılmaz.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + VISION_TIMEOUT_S
+        async with asyncio.timeout_at(deadline):
+            for max_tokens in (VISION_MAX_TOKENS, VISION_RECOVERY_MAX_TOKENS):
+                result = await provider.complete(
+                    CompletionRequest(
+                        messages=(
+                            Message("system", VISION_GROUNDING_PROMPT),
+                            Message("user", question, images=(data_uri,)),
+                        ),
+                        temperature=config.runtime.utility_temperature,
+                        max_tokens=max_tokens,
+                        timeout_s=max(0.001, deadline - loop.time()),
+                        max_retries=0,
+                    )
+                )
+                if not result.truncated:
+                    break
+            else:
+                return "", (
+                    f"Görsel modeli ({spec.model}) {VISION_RECOVERY_MAX_TOKENS} tokenlık "
+                    "görsel açıklama bütçesinde de tamamlanmadı. "
+                    "Görseli veya soruyu daralt ya da başka bir görsel modeli seç."
+                )
+    except TimeoutError:
+        return "", f"Görsel modeli ({spec.model}) için süre sınırı aşıldı."
     except (ConfigError, ProviderError) as error:
         # Kurulamayan görsel sağlayıcısı aracı düşürmez, açıklayıcı hata döner.
         return "", f"Görsel modeli ({spec.model}) kullanılamıyor: {error}"
@@ -163,4 +211,4 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
         return "", f"Görsel modeli ({spec.model}) başarısız: {result.error or 'bilinmeyen hata'}"
     if not result.text.strip():
         return "", f"Görsel modeli ({spec.model}) boş yanıt döndürdü."
-    return collapse_repeats(result.text.strip()), None
+    return VISION_OBSERVATION_LABEL + collapse_repeats(result.text.strip()), None

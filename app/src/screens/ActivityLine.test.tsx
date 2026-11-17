@@ -68,7 +68,8 @@ describe("ActivityLine — kalıcı adım izi (Claude gibi)", () => {
     const satirlar = container.querySelectorAll(".activity__trail > li");
     expect(satirlar).toHaveLength(3);
     const acilir = container.querySelectorAll(".activity__trail-item");
-    expect(acilir).toHaveLength(2);
+    expect(acilir).toHaveLength(3);
+    expect(acilir[2].textContent).toContain("Bu işlem için ek ayrıntı yok.");
     expect(acilir[0].querySelector("summary")?.textContent).toContain("src/app.py yazılıyor");
     expect(acilir[0].querySelector('.diff-card__line[data-kind="add"]')?.textContent).toBe("+x = 1");
     expect(acilir[1].querySelector(".activity__trail-command")?.textContent).toBe("$ pytest -q");

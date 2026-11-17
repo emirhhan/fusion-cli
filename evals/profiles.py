@@ -162,7 +162,7 @@ def _file_digests(root: Path, paths: tuple[Path, ...]) -> tuple[tuple[str, str],
 
 
 def _source_entries(root: Path) -> tuple[tuple[str, str], ...]:
-    paths = (*tuple((root / "src").rglob("*.py")), *tuple((root / "evals").glob("*.py")))
+    paths = (*tuple((root / "src").rglob("*.py")), *tuple((root / "evals").rglob("*.py")))
     return _file_digests(root, paths)
 
 
@@ -183,6 +183,8 @@ def _scorer_entries(root: Path) -> tuple[tuple[str, str], ...]:
         root,
         (
             *scorer_paths,
+            root / "evals/fixtures/production_acceptance.py",
+            root / "evals/fixtures/oauth_mcp_server.py",
             root / "evals/criteria.py",
             root / "evals/research_acceptance.py",
             root / "evals/executor.py",

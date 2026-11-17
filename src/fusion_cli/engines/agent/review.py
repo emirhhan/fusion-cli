@@ -14,8 +14,10 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.events import EventPublisher
 from ...core.evidence import CriterionEvidence
@@ -32,6 +34,7 @@ _PROMPT_PATH = Path(__file__).parent / "prompts" / "review.txt"
 CLEAN_VERDICT = "TAMAM"
 #: Bundan kısa bir cevap anlamlı bir talimat taşıyamaz.
 MIN_INSTRUCTION_CHARS = 8
+_GROUNDED_NIM_REASONING_BUDGET = 1024
 
 #: Denetçiye gösterilecek oturum izinin uzunluğu.
 #:
@@ -138,13 +141,32 @@ async def review_turn(
     return parse_feedback(result.text)
 
 
-async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) -> ModelResult:
+async def _ask(
+    prompt: str,
+    config: Config,
+    publisher: EventPublisher | None,
+    *,
+    disable_thinking: bool = False,
+    response_schema: Mapping[str, object] | None = None,
+) -> ModelResult:
+    structured_nim = (
+        response_schema is not None
+        and config.judge.model == "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
+    )
     request = CompletionRequest(
         messages=(Message("user", prompt),),
         temperature=config.runtime.utility_temperature,
         max_tokens=config.runtime.judge_max_tokens,
         timeout_s=config.runtime.judge_timeout_s,
         max_retries=config.runtime.max_retries,
+        disable_thinking=disable_thinking and not structured_nim,
+        reasoning_effort="medium" if structured_nim else None,
+        reasoning_budget=min(_GROUNDED_NIM_REASONING_BUDGET, config.runtime.judge_max_tokens)
+        if structured_nim
+        else None,
+        # Bu model/taşıma eşleşmesinde şema kısıtı gerçek uçta doğrulandı.
+        # Diğer denetçiler kendi mevcut metin protokolünü korur.
+        response_schema=response_schema if structured_nim else None,
     )
     # Arka plan işi: ilerleme satırı GÖSTERİLMEZ ama harcadığı token muhasebeye girer.
     provider = build_provider(
@@ -153,6 +175,7 @@ async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) ->
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     return await provider.complete(request)
 

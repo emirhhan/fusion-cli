@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolEvidenceRole
 from . import (
     archive,
     browser,
@@ -118,6 +118,7 @@ def build_registry(
                     "additionalProperties": False,
                 },
                 run=SymbolQuery(symbol_query_settings or SymbolQuerySettings()),
+                evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
             )
         )
     return registry
@@ -127,16 +128,27 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_background_windows",
         description=(
-            "Pencereleri (window_id, pid) listele. Ekranı bozmaz; desktop_open yerine tercih et."
+            "Pencereleri (window_id, pid) listele; is_main/is_focused/subrole varsa "
+            "gözlenen AX ipucudur. "
+            "Eksik alan bilinmiyor demektir. Kullanıcının istediği ana/standard pencereyi seç; "
+            "aynı PID'deki geçici paylaşım/yardımcı pencereyi ana pencere sayma."
         ),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_windows"],
         run=desktop_background.desktop_background_windows,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="desktop_background_inspect",
-        description=("Pencereyi öne getirmeden AX öğelerini incele; eylem için güncel ref kullan."),
+        description=(
+            "window_id/pid kaynağı: desktop_window_focus veya desktop_background_windows. "
+            "AX öğelerini ve güvenli, düzenlenemez AXStaticText display.value oku "
+            "(en çok 1000 karakter). "
+            "desktop_windows kimlik vermez; "
+            "value_truncated varsa tam değer değildir. Eylem için güncel ref kullan."
+        ),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_inspect"],
         run=desktop_background.desktop_background_inspect,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         effect_resolver=desktop_policy.observe_effect,
     ),
     Tool(
@@ -144,6 +156,7 @@ _TOOLS: tuple[Tool, ...] = (
         description=("Arka plandaki pencereyi ScreenCaptureKit ile yakala; odağı değiştirmez."),
         parameters=desktop_background.BACKGROUND_TOOL_SCHEMAS["desktop_background_screenshot"],
         run=desktop_background.desktop_background_screenshot,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         effect_resolver=desktop_policy.observe_effect,
     ),
     Tool(
@@ -159,22 +172,33 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_windows",
-        description="macOS pencerelerini uygulama ve adla listele.",
+        description=(
+            "macOS pencere uygulama adını ve başlığını listele; window_id/pid vermez. "
+            "Kimlik gerektiren araçlar için desktop_background_windows kullan."
+        ),
         parameters=_schema({}, []),
         run=desktop_inspect.desktop_windows,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="desktop_window_focus",
-        description="macOS penceresini adına göre öne getir.",
+        description=(
+            "macOS penceresini öne getir ve gözlenen window_id/pid kimliğini doğrula. "
+            "Sonuçtaki kimliği arka plan incelemesine taşı; koordinat için yeni screenshot al."
+        ),
         parameters=_schema({"app": _STRING, "window": _STRING}, ["app"]),
         run=desktop_inspect.desktop_window_focus,
         mutating=True,
     ),
     Tool(
         name="desktop_accessibility",
-        description="Öndeki macOS penceresinin erişilebilir öğelerini oku.",
+        description=(
+            "Öndeki macOS penceresinde yalnız rol, ad ve geometri oku; AXValue doğrulamaz. "
+            "Literal display.value için desktop_background_inspect kullan."
+        ),
         parameters=_schema({}, []),
         run=desktop_inspect.desktop_accessibility,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="chrome_page",
@@ -192,6 +216,7 @@ _TOOLS: tuple[Tool, ...] = (
             [],
         ),
         run=chrome.chrome_page,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="chrome_action",
@@ -217,6 +242,7 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
         effect_resolver=chrome.chrome_action_effect,
+        evidence_role_resolver=chrome.action_evidence_role,
     ),
     Tool(
         name="chrome_javascript",
@@ -274,6 +300,7 @@ _TOOLS: tuple[Tool, ...] = (
         description="Çalışan macOS uygulamalarını listele.",
         parameters=_schema({}, []),
         run=desktop.desktop_apps,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="desktop_request_access",
@@ -300,6 +327,7 @@ _TOOLS: tuple[Tool, ...] = (
         description="Bağlı macOS ekranlarını sırası ve boyutuyla listele (çoklu ekran).",
         parameters=_schema({}, []),
         run=desktop_screen.desktop_displays,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="desktop_screenshot",
@@ -317,6 +345,7 @@ _TOOLS: tuple[Tool, ...] = (
             [],
         ),
         run=desktop_screen.desktop_screenshot,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         mutating=True,
     ),
     Tool(
@@ -419,6 +448,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["path"],
         ),
         run=files.read_file,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="write_file",
@@ -571,6 +601,7 @@ _TOOLS: tuple[Tool, ...] = (
         "önce bunu kullan, körlemesine dosya okuma.",
         parameters=_schema({"path": {**_STRING, "description": "Dizin yolu (varsayılan: .)"}}, []),
         run=files.list_dir,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="search_code",
@@ -584,6 +615,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["pattern"],
         ),
         run=search.search_code,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="glob",
@@ -597,6 +629,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["pattern"],
         ),
         run=search.glob_files,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="git",
@@ -612,6 +645,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["subcommand"],
         ),
         run=shell.git,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="gh",
@@ -623,6 +657,7 @@ _TOOLS: tuple[Tool, ...] = (
             ["args"],
         ),
         run=github_cli.gh,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         effect=ToolEffect.REMOTE_READ,
     ),
     Tool(
@@ -655,6 +690,7 @@ _TOOLS: tuple[Tool, ...] = (
         ),
         run=shell.run_shell,
         mutating=True,
+        evidence_role_resolver=shell.process_evidence_role,
     ),
     Tool(
         name="job_status",
@@ -700,8 +736,24 @@ _TOOLS: tuple[Tool, ...] = (
         name="web_search",
         description="Web'de ara (ücretsiz). Güncel bilgi, sürüm ya da hata çözümü "
         "gerektiğinde kullan; ezberden emin konuşma.",
-        parameters=_schema({"query": {**_STRING, "description": "arama sorgusu"}}, ["query"]),
+        parameters=_schema(
+            {
+                "query": {**_STRING, "description": "arama sorgusu"},
+                "recency_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Son kaç gün; tarih aralığıyla birlikte verilmez",
+                },
+                "date_from": {
+                    **_STRING,
+                    "description": "Başlangıç YYYY-MM-DD; date_to ile birlikte",
+                },
+                "date_to": {**_STRING, "description": "Bitiş YYYY-MM-DD; date_from ile birlikte"},
+            },
+            ["query"],
+        ),
         run=web.web_search,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
         effect_resolver=_gate_only,
     ),
@@ -731,6 +783,7 @@ _TOOLS: tuple[Tool, ...] = (
         description="URL içeriğini metin olarak oku. Girişli/formlu sayfada browser_open kullan.",
         parameters=_schema({"url": _STRING}, ["url"]),
         run=web.web_fetch,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         # Onay kapısına girer (Claude: Manuel/acceptEdits kipinde sorulur, #55).
         effect_resolver=_gate_only,
     ),
@@ -788,14 +841,11 @@ _TOOLS: tuple[Tool, ...] = (
                     "description": "Kullanıcının kurduğu tarayıcı profili adı (girişli oturum); "
                     "yalnız kullanıcı isterse. Boş: çerezsiz.",
                 },
-                "headed": {
-                    "type": "boolean",
-                    "description": "true ise pencere görünür açılır (giriş/CAPTCHA için).",
-                },
             },
             ["url"],
         ),
         run=browser.browser_open,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         # Çerezsiz açılış yalnız okur; profil yüklenecekse onay (REMOTE_SESSION, P-023).
         effect=ToolEffect.REMOTE_READ,
         effect_resolver=browser.browser_open_effect,
@@ -805,12 +855,14 @@ _TOOLS: tuple[Tool, ...] = (
         description="Açık sayfanın güncel adresini, başlığını ve metnini oku.",
         parameters=_schema({}, []),
         run=browser.browser_read,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="browser_tabs_list",
         description="Bu turdaki açık tarayıcı sekmelerini listele; yıldız etkin sekmeyi gösterir.",
         parameters=_schema({}, []),
         run=browser.browser_tabs_list,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
     ),
     Tool(
         name="browser_tab_select",
@@ -876,6 +928,7 @@ _TOOLS: tuple[Tool, ...] = (
             [],
         ),
         run=browser.browser_screenshot,
+        evidence_role=ToolEvidenceRole.DATA_OBSERVATION,
         mutating=True,
     ),
     Tool(

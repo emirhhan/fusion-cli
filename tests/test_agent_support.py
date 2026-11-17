@@ -210,12 +210,14 @@ async def test_ozet_uretilirse_eski_turlar_tek_nota_iner(monkeypatch):
     # yanlış sebeple kırılmasın.
     mesajlar = [Message("user", "x" * (history.COMPRESS_THRESHOLD_CHARS + 1))] + [
         Message("user" if i % 2 == 0 else "assistant", f"m{i}")
-        for i in range(history.KEEP_RECENT_MESSAGES + 2)
+        for i in range(history.KEEP_RECENT_MESSAGES + 6)
     ]
 
     sonuc = await compaction.compress(mesajlar, config=make_config())
 
     assert len(sonuc) < len(mesajlar)
+    # Ara kullanıcı koşulları özetin doğruluğuna bağlı kalmadan birebir korunur.
+    assert all(message in sonuc for message in mesajlar if message.role == "user")
     assert sonuc[0].content.startswith("[önceki konuşmanın özeti]")
 
 

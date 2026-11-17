@@ -68,6 +68,33 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert oturum._workspace_mode == "sohbet"
 
 
+async def test_sesli_cografya_sorusu_kod_oturumunda_araclari_acmaz(tmp_path, monkeypatch):
+    from fusion_cli.appserver.voice_context import VoiceTurnContext
+    from fusion_cli.cli import session as cli_session
+
+    kwargs_seen = []
+
+    async def fake_run_agent_task(_task, _config, **kwargs):
+        kwargs_seen.append(kwargs)
+        return SimpleNamespace(ok=True, final_text="Ankara.", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    session = _session(tmp_path, [])
+    session._workspace_mode = "kod"
+    assert (await session._run_turn(
+        "Teşekkür ederim Türkiye'nin başkenti neresi?", voice_context=VoiceTurnContext()
+    ))["ok"]
+    assert (await session._run_turn(
+        "Projede kaç il var?", voice_context=VoiceTurnContext()
+    ))["ok"]
+
+    answer, work = kwargs_seen
+    assert answer["chat_mode"] and not answer["bootstrap_mcp"]
+    assert answer["allowed_tools"] == set()
+    assert not work["chat_mode"] and work["bootstrap_mcp"]
+    assert session._workspace_mode == "kod"
+
+
 async def test_chrome_paneli_kod_kipinde_proje_ve_ogretmen_araclarini_kisitlamaz(
     tmp_path, monkeypatch
 ):
@@ -119,7 +146,7 @@ async def test_masaustu_turu_oturumun_kalici_bellegini_ajana_verir(tmp_path, mon
 async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path, monkeypatch):
     oturum = _session(tmp_path, [])
 
-    async def fake_run_turn(_task, *, browser_only):
+    async def fake_run_turn(_task, *, browser_only, chrome_turn_id, scoped_chrome=None):
         assert browser_only
         return {"ok": True, "metin": "internal reasoning\n</think>\nİşlem tamamlandı."}
 
@@ -776,7 +803,8 @@ async def test_history_run_agent_task_a_gecirilir(tmp_path, monkeypatch):
     await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "ikinci iş"}))
 
     # C2: ikinci tur BİRİNCİ turun ürettiği geçmişi gördü — sıfırdan başlamadı.
-    assert gorulen_gecmisler[1] is ilk_turun_ciktisi
+    assert gorulen_gecmisler[1] == ilk_turun_ciktisi
+    assert gorulen_gecmisler[1] is not ilk_turun_ciktisi
 
 
 async def test_model_olayi_oturum_kullanimina_yansir(tmp_path, monkeypatch):

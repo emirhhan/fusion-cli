@@ -11,8 +11,10 @@ Retina pikseli veriyordu; model 2x kaymış noktaya tıklıyordu.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 #: Eski `runtime.desktop_screenshot_max_width` varsayılanı (kullanımdan kalktı, #448).
@@ -78,6 +80,31 @@ class DesktopTurnHooks(Protocol):
     def foreground_action(self, keep: Sequence[int] = ()) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class DesktopCapture:
+    """Trusted captured bytes and their full-screen coordinate rectangle."""
+
+    generation: int
+    path: Path
+    payload_digest: str
+    file_digest: str
+    byte_size: int
+    frame: DesktopFrame | None
+    bounds: tuple[float, float, float, float]
+    focus: tuple[object, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopMouseAction:
+    point: tuple[float, float]
+    pressed: int | None = None
+    released: tuple[int, ...] = ()
+
+
+def image_payload_digest(data_uri: str) -> str:
+    return hashlib.sha256(data_uri.encode("ascii")).hexdigest()
+
+
 class DesktopView:
     """Turun son tam ekran çerçevesi; fare araçları koordinatı buna göre çevirir.
 
@@ -90,6 +117,102 @@ class DesktopView:
         self.turn: DesktopTurnHooks | None = None
         #: Son masaüstü çağrısının politika hedefi (pid); gizlemede görünür kalır (P-033).
         self.target_pid = 0
+        # Explicit focus binds subsequent coordinates to the observed window.
+        self.focused_window: tuple[int, float, float, float, float] | None = None
+        self.focus_required = False
+        self.focused_window_id = 0
+        self.focused_window_title = ""
+        self.current_capture: DesktopCapture | None = None
+        self._capture_generation = 0
+        self._observation_turn_id = ""
+        self._observation_artifacts: dict[Path, DesktopCapture] = {}
+        self._explicit_capture_exports: set[Path] = set()
+
+    def begin_observation_turn(self, turn_id: str) -> None:
+        """Reset presentation receipts only; grounding/focus authority is unchanged."""
+        self._observation_turn_id = turn_id
+        self._observation_artifacts.clear()
+        self._explicit_capture_exports.clear()
+
+    @property
+    def observation_turn_id(self) -> str:
+        return self._observation_turn_id
+
+    def record_observation_artifact(
+        self, capture: DesktopCapture, *, turn_id: str, implicit: bool
+    ) -> None:
+        """Trusted implicit captures are internal; explicit exports revoke that label."""
+        if turn_id and turn_id == self._observation_turn_id:
+            if not implicit:
+                self._explicit_capture_exports.add(capture.path)
+                self._observation_artifacts.pop(capture.path, None)
+            elif capture.path not in self._explicit_capture_exports:
+                self._observation_artifacts[capture.path] = capture
+
+    def observation_artifact_paths(self, turn_id: str) -> tuple[Path, ...]:
+        """Return this turn's unchanged captured bytes, never filename lookalikes."""
+        if not turn_id or turn_id != self._observation_turn_id:
+            return ()
+        paths: list[Path] = []
+        for path, capture in self._observation_artifacts.items():
+            try:
+                if path.is_symlink() or path.stat().st_size != capture.byte_size:
+                    continue
+                with path.open("rb") as handle:
+                    data = handle.read(capture.byte_size + 1)
+            except OSError:
+                continue
+            if hashlib.sha256(data).hexdigest() == capture.file_digest:
+                paths.append(path)
+        return tuple(paths)
+
+    def focus_identity(self) -> tuple[object, ...]:
+        return (
+            self.focused_window,
+            self.focused_window_id,
+            self.focused_window_title,
+            self.focus_required,
+        )
+
+    def invalidate_capture(self, *, clear_frame: bool = False) -> None:
+        """Advance the epoch even if a focus attempt later returns to the same target."""
+        self._capture_generation += 1
+        self.current_capture = None
+        if clear_frame:
+            self.frame = None
+
+    def begin_capture(self) -> tuple[int, tuple[object, ...]]:
+        """Invalidate old authority and snapshot the focus before acquiring pixels."""
+        self.invalidate_capture()
+        return self._capture_generation, self.focus_identity()
+
+    def capture_is_current(self, token: tuple[int, tuple[object, ...]]) -> bool:
+        return token == (self._capture_generation, self.focus_identity())
+
+    def record_capture(
+        self,
+        path: Path,
+        data_uri: str,
+        data: bytes,
+        bounds: tuple[float, float, float, float],
+        *,
+        token: tuple[int, tuple[object, ...]] | None = None,
+    ) -> DesktopCapture:
+        if token is None:
+            self._capture_generation += 1
+            token = self._capture_generation, self.focus_identity()
+        capture = DesktopCapture(
+            token[0],
+            path,
+            image_payload_digest(data_uri),
+            hashlib.sha256(data).hexdigest(),
+            len(data),
+            self.frame,
+            bounds,
+            token[1],
+        )
+        self.current_capture = capture
+        return capture
 
     def to_point(self, x: float, y: float) -> tuple[float, float]:
         """Çerçeve yoksa (henüz görüntü alınmadı) koordinat ekran noktası sayılır."""

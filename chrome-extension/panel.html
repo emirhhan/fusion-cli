@@ -32,11 +32,11 @@
       <section id="perm" class="ask perm" hidden aria-labelledby="perm-title">
         <div class="ask__eyebrow">Site izni</div>
         <h2 id="perm-title" class="ask__title"></h2>
-        <p class="ask__reason">Tek seferlik: bir kez izin verirsen Fusion bundan sonra siteleri sormadan açar. Gönderme, silme, ödeme ve hesap oluşturma yine sana sorulur. İzni Bağlantı ayarlarından geri alabilirsin.</p>
+        <p class="ask__reason">Chrome erişimi kaldırılana kadar sürer: yalnız bu siteyi veya tüm siteleri seçebilirsin. Fusion eylem onayı ayrı bir katmandır; riskli işlemler yine sorulur. İzinleri Bağlantı ayarlarından kapsamıyla görüp geri alabilirsin.</p>
         <div class="perm__actions">
           <button id="perm-all" class="primary" type="button">Tüm sitelere izin ver</button>
           <button id="perm-allow" class="secondary" type="button">Yalnız bu site</button>
-          <button id="perm-deny" class="quiet" type="button">Şimdi değil</button>
+          <button id="perm-deny" class="quiet" type="button">Reddet</button>
         </div>
       </section>
 
@@ -103,6 +103,7 @@
         </button>
       </form>
       <p class="sheet__text">Fusion masaüstü uygulaması açıkken panel kendiliğinden bağlanır. Bağlanmazsa Fusion'da Ayarlar → Tarayıcı bölümündeki port ve anahtarı gir.</p>
+      <p id="connection-checked" class="sheet__text" role="status">Bağlantı henüz kontrol edilmedi.</p>
       <div id="pairing" class="field-stack">
         <label for="port">Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
         <label for="token">Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
@@ -114,8 +115,8 @@
         <button id="grant-capture" class="secondary" type="button">Chrome iznini iste</button>
       </div>
       <div class="sheet__group">
-        <h3>Your approved sites</h3>
-        <p class="sheet__text">Chrome erişimi verdiğin siteler; Kaldır erişimi geri alır. Eylem başına site izni (Allow this action / Always allow actions on this site / Decline) Fusion oturumunda tutulur; terminalde /chrome permissions ile listelenir ve geri alınır.</p>
+        <h3>Site izinleri ve kapsamları</h3>
+        <p class="sheet__text">Chrome erişimi, Fusion oturum izinleri ve yerleşik Browser kalıcı izinleri ayrı gösterilir. Kaldır yalnız seçtiğin izni geri alır. Chrome oturum izni uygulama kapanınca sona erer; kalıcı yerleşik Browser izni kaldırılana kadar sürer.</p>
         <ul id="sites" class="sites"></ul>
         <p id="sites-empty" class="sheet__text">Henüz izin verdiğin site yok.</p>
       </div>

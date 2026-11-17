@@ -6,6 +6,7 @@ export type RecognitionEvent = {
   segment: number;
   /** Yalnız `hata` olaylarında, hata sınıfı biliniyorsa (ör. `dikte_kapali`). */
   kod?: string;
+  surekli_tur?: boolean;
 };
 
 export type VoicePhase =

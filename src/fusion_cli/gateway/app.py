@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
 
 from ..config.credentials import FernetSecretStore
 from ..config.live import reload_if_changed, revision
+from ..config.model_lookup import configured_model_specs
 from ..config.models import Config, McpServerConfig, McpTransport
 from ..core.compression import compress_messages, saved_chars
 from ..core.errors import ConfigError, FusionError
@@ -137,6 +138,7 @@ class GatewayApp:
             health=self._health,
             key_pools=self._key_pools,
             web_sessions=web_registry_for(self._config),
+            model_specs=configured_model_specs(self._config),
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

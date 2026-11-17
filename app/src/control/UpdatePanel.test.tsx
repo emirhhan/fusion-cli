@@ -8,6 +8,13 @@ vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it("kenar çubuğundan bildirilen sürümü açınca kurulum düğmesini hazırlar", async () => {
+  mocks.check.mockResolvedValue({ version: "1.0.0", close: vi.fn().mockResolvedValue(undefined) });
+  render(<UpdatePanel announcedVersion="1.0.0" />);
+  await screen.findByRole("button", { name: "İndir, kur ve yeniden başlat" });
+  expect(mocks.check).toHaveBeenCalledOnce();
+});
+
 it("sunucu hatasında güncel demez ve yeniden denemeye izin verir", async () => {
   mocks.check.mockRejectedValue(new Error("offline"));
   render(<UpdatePanel />);

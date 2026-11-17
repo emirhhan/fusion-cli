@@ -37,6 +37,8 @@ _LOG = logging.getLogger(__name__)
 _SCHEMA = 1
 _ORIGINAL_SCHEMA = 1
 _ORIGINAL_FILE_BYTES = 2_000_000
+_MAX_JOURNAL_BYTES = 64 * 1024 * 1024
+_MAX_JOURNAL_IMAGE_CHARS = 56 * 1024 * 1024
 #: Günlük kilidi için bekleme: en çok `_LOCK_ATTEMPTS * _LOCK_RETRY_S` ≈ 0,6 sn.
 _LOCK_ATTEMPTS = 12
 _LOCK_RETRY_S = 0.05
@@ -53,6 +55,7 @@ class JournalEntry:
     notified: bool
     revision: str = ""
     agent_state: AgentRunState | None = None
+    execution_finished: bool = False
 
 
 class FileTurnJournal:
@@ -81,9 +84,16 @@ class FileTurnJournal:
     def save(self, messages: Sequence[Message]) -> None:
         self._write(self._task, messages, notified=False)
 
+    def save_finished(self, messages: Sequence[Message]) -> None:
+        """Keep continuation context after execution ended, without claiming a crash."""
+        self._write(self._task, messages, notified=False, execution_finished=True)
+
     def load(self) -> JournalEntry | None:
         try:
-            serialized = self._path.read_text(encoding="utf-8")
+            with self._path.open(encoding="utf-8") as stream:
+                serialized = stream.read(_MAX_JOURNAL_BYTES + 1)
+            if len(serialized) > _MAX_JOURNAL_BYTES:
+                return None
             raw = json.loads(serialized)
         except FileNotFoundError:
             return None
@@ -120,6 +130,7 @@ class FileTurnJournal:
             notified=bool(raw.get("bildirildi", False)),
             revision=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
             agent_state=agent_state_from(raw.get("ajan")),
+            execution_finished=raw.get("execution_finished") is True,
         )
 
     def mark_notified(self, entry: JournalEntry) -> None:
@@ -128,7 +139,12 @@ class FileTurnJournal:
                 return
             current = self.load()
             if current is not None and current.revision == entry.revision:
-                self._write_payload(entry.task, entry.messages, notified=True)
+                self._write_payload(
+                    entry.task,
+                    entry.messages,
+                    notified=True,
+                    execution_finished=entry.execution_finished,
+                )
 
     def clear(self) -> None:
         with self._transaction() as owned:
@@ -287,10 +303,19 @@ class FileTurnJournal:
         result = OriginalTraceRead(scope, "redacted_original", tuple(messages))
         return result if result.is_usable() else OriginalTraceRead(scope, "incomplete")
 
-    def _write(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
+    def _write(
+        self,
+        task: str,
+        messages: Sequence[Message],
+        *,
+        notified: bool,
+        execution_finished: bool = False,
+    ) -> None:
         with self._transaction() as owned:
             if owned:
-                self._write_payload(task, messages, notified=notified)
+                self._write_payload(
+                    task, messages, notified=notified, execution_finished=execution_finished
+                )
 
     @contextlib.contextmanager
     def _transaction(self) -> Iterator[bool]:
@@ -317,13 +342,40 @@ class FileTurnJournal:
                 time.sleep(_LOCK_RETRY_S)
         return False
 
-    def _write_payload(self, task: str, messages: Sequence[Message], *, notified: bool) -> None:
+    def _write_payload(
+        self,
+        task: str,
+        messages: Sequence[Message],
+        *,
+        notified: bool,
+        execution_finished: bool = False,
+    ) -> None:
+        encoded = []
+        image_chars = 0
+        for message in messages:
+            item = message_to(message, include_images=True)
+            images = item.get("gorseller", [])
+            size = (
+                sum(len(image) for image in images if isinstance(image, str))
+                if isinstance(images, list)
+                else 0
+            )
+            if image_chars + size > _MAX_JOURNAL_IMAGE_CHARS:
+                item.pop("gorseller", None)
+                item["icerik"] = (
+                    str(item["icerik"])
+                    + "\n[Günlük görsel bütçesi aşıldı; görselleri yeniden ekleyin.]"
+                )
+            else:
+                image_chars += size
+            encoded.append(item)
         payload = {
             "surum": _SCHEMA,
             "gorev": redact(task),
             "zaman": self._clock.now(),
             "bildirildi": notified,
-            "mesajlar": [message_to(message) for message in messages],
+            "mesajlar": encoded,
+            "execution_finished": execution_finished,
         }
         if self.agent_state is not None:
             payload["ajan"] = agent_state_to(self.agent_state)

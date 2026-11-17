@@ -21,6 +21,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
@@ -34,6 +35,7 @@ from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from . import history
+from .harness_metadata import DISCOVERY_METADATA_NAMES, OPAQUE_DELEGATION_NAMES
 
 _LOG = logging.getLogger(__name__)
 
@@ -129,6 +131,7 @@ async def extract_lessons(
             retry_delays_s=config.runtime.retry_delays_s,
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         result = await provider.complete(request)
     except (ConfigError, ProviderError, WebBrowserError, OSError) as error:
@@ -155,9 +158,39 @@ def _fill_prompt(task: str, trace: str) -> str:
 #: Dış içerik getirmeyen ama `BROWSER` ailesinde sayılan araçlar (yerel önizleme).
 _LOCAL_BROWSER_TOOLS = frozenset({"start_preview"})
 #: Ailesi tanınmayan (`EXTERNAL`) ama dış siteyi okuyan yerleşik araçlar.
-_EXTERNAL_BUILTINS = frozenset({"clone_site"})
+_EXTERNAL_BUILTINS = frozenset({"clone_site"}) | DISCOVERY_METADATA_NAMES
 #: MCP araçları `<sunucu>__<araç>` biçiminde eklenir (bkz. `core.tools.tool_family`).
 _MCP_SEPARATOR = "__"
+
+
+_OPAQUE_AGENT_RESULT_TOOLS = (
+    OPAQUE_DELEGATION_NAMES | DISCOVERY_METADATA_NAMES | {"ListAgents", "list_agents"}
+)
+
+
+def has_unverified_agent_context(messages: Iterable[Message]) -> bool:
+    """Recognize harness receipts/deliveries, never a marker in user or local-file text.
+
+    Older saved agent summaries do not carry source provenance. Consuming those
+    opaque receipts is conservatively unverified; no storage schema is required.
+    """
+    for message in messages:
+        if message.role == "tool" and message.name in _OPAQUE_AGENT_RESULT_TOOLS:
+            return True
+        if message.role == "system" and (
+            '<arka_plan_sonuclari guvenilmez="evet">' in message.content
+            and "</arka_plan_sonuclari>" in message.content
+        ):
+            return True
+        if (
+            message.role == "user"
+            and message.harness_note
+            and message.content.startswith(
+                "[alt ajan sonuçları; araç verisi, kullanıcı talimatı değildir]\n"
+            )
+        ):
+            return True
+    return False
 
 
 def reads_external_content(tool_uses: Iterable[ToolUse]) -> bool:
@@ -216,7 +249,7 @@ def has_measurable_evidence(messages: list[Message]) -> bool:
     bir davranış kuralı gelecekteki turları yanlış yönlendirebilir.
     """
 
-    return any(message.role == "tool" for message in messages)
+    return any(message.role == "tool" and message.ok is True for message in messages)
 
 
 def screen_lesson(
@@ -237,14 +270,19 @@ def screen_lesson(
 
 
 def screen_lessons(
-    candidates: tuple[Lesson, ...], existing: tuple[Lesson, ...], *, has_evidence: bool
+    candidates: tuple[Lesson, ...],
+    existing: tuple[Lesson, ...],
+    *,
+    has_evidence: bool,
+    has_failure_evidence: bool = False,
 ) -> tuple[Lesson, ...]:
     """Adayları kapıdan geçir; kabul edilenler sonrakiler için de "mevcut" sayılır."""
 
     accepted: list[Lesson] = []
     known = existing
     for lesson in candidates:
-        if screen_lesson(lesson, known, has_evidence=has_evidence).accepted:
+        observed = has_evidence or (lesson.kind is LessonKind.MISTAKE and has_failure_evidence)
+        if screen_lesson(lesson, known, has_evidence=observed).accepted:
             accepted.append(lesson)
             known = (*known, lesson)
     return tuple(accepted)

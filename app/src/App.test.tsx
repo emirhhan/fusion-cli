@@ -887,7 +887,7 @@ it("son sohbet silinince yeni Desktop sohbeti açılabilir ve eski kimlik geri g
   fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
   fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
   expect(screen.queryByText("Hazırlanıyor…")).toBeNull();
@@ -905,7 +905,7 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   await screen.findByRole("button", { name: "Saklı sohbet" });
   fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   // "Görsel ve video üretimi" artık en soldaki rayda yok; ekran komut paletinden açılır.
   expect(screen.queryByRole("button", { name: "Görsel ve video üretimi" })).toBeNull();
@@ -923,7 +923,7 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   expect(screen.queryByRole("heading", { name: "Yakında" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Saklı sohbet" })).toBeNull());
   expect(fake.requests.some((request) => request.ad === "sohbet.sil" && request.veri.sohbet_id === "sakli")).toBe(true);
 });
@@ -933,7 +933,7 @@ it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider",
   render(<SessionUygulama transport={fake.transport} />);
   fireEvent.click(await screen.findByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
-  fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   fireEvent.click(screen.getByRole("button", { name: "Hesap menüsü" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Ayarlar" }));
@@ -1097,4 +1097,60 @@ it("etkin sohbetten görsel sayfasına geçer, geri ve ileri gezinir", async () 
   fireEvent.click(screen.getByRole("button", { name: "İleri git" }));
   expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
   expect(fake.transport.create).toHaveBeenCalledTimes(1);
+});
+
+it("tarayıcı görselinde sınır reddinden sonra başarılı tekrar eski ek hatasını temizler", async () => {
+  const state = { ok: true, acik: true, denetim: "ajan", ajan_goruyor: true, seq: 0 };
+  const fake = composerTransport({
+    "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+    "tarayici_panel.durum": state,
+    "tarayici_panel.kare": state,
+    "tarayici_panel.ekran": { ...state, yol: ".fusion/retry.png" },
+  });
+  const selectFiles = vi.fn().mockResolvedValue(Array.from({ length: 8 }, (_, index) => `/proje/${index}.png`));
+  render(<SessionUygulama selectFiles={selectFiles} transport={fake.transport} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Dosya veya klasör ekle" }));
+  await screen.findByText("7.png");
+  fireEvent.click(screen.getByRole("tab", { name: "Tarayıcı" }));
+  const capture = await screen.findByRole("button", { name: "Görüntüyü sohbete ekle" });
+  await waitFor(() => expect(capture).toHaveProperty("disabled", false));
+  fireEvent.click(capture);
+  expect(await screen.findByText("Bir turda en fazla 8 görsel eklenebilir.")).toBeTruthy();
+  expect(screen.queryByText("retry.png")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "0.png ekini kaldır" }));
+  fireEvent.click(capture);
+  await screen.findByText("retry.png");
+  expect(screen.queryByText("Bir turda en fazla 8 görsel eklenebilir.")).toBeNull();
+});
+
+it("DOM drop geçerli dosyayı eklerken yolu çözülemeyen öğe uyarısını korur", async () => {
+  const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+  const { container } = render(<SessionUygulama transport={fake.transport} />);
+  await screen.findByRole("textbox", { name: "Mesaj" });
+  const valid = new File(["png"], "valid.png", { type: "image/png" });
+  Object.defineProperty(valid, "path", { value: "/proje/valid.png" });
+  const unresolved = new File(["png"], "unresolved.png", { type: "image/png" });
+  fireEvent.drop(container.querySelector(".composer")!, { dataTransfer: { files: [valid, unresolved] } });
+  await screen.findByText("valid.png");
+  expect(screen.getByText("1 öğenin yolu çözülemedi; Ekle düğmesiyle seçebilirsin.")).toBeTruthy();
+});
+
+it("RPC geçmiş sınırını görünür araç olmayan bildirimle açıklar ve temizlemede kaldırır", async () => {
+  const fake = composerTransport({
+    "oturum.gecmis": { ok: true, gecmis_kirpildi: true, mesajlar: [
+      { rol: "kullanici", metin: "Önceki görev" },
+      { rol: "olay", olay: { olay: "ToolExecuted", name: "read_file", args: { path: "a.txt" }, outcome: "ok", output: "ok" } },
+      { rol: "asistan", metin: "Bitti" },
+    ] },
+    "komut.calistir": { ok: true, temizle: true, metin: "" },
+  });
+  render(<SessionUygulama transport={fake.transport} />);
+  const note = await screen.findByRole("note", { name: "Geçmiş bildirimi" });
+  expect(note.textContent).toContain("boyut sınırları nedeniyle kısaltıldı");
+  expect(note.closest(".conversation__message--event")).toBeTruthy();
+  expect(within(note).queryByRole("button")).toBeNull();
+  const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+  fireEvent.change(textbox, { target: { value: "/clear" } });
+  fireEvent.keyDown(textbox, { key: "Enter" });
+  await waitFor(() => expect(screen.queryByRole("note", { name: "Geçmiş bildirimi" })).toBeNull());
 });

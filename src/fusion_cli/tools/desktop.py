@@ -7,6 +7,7 @@ import ctypes
 import subprocess
 import sys
 import time
+from threading import Event
 from typing import Any, cast
 
 from ..core.tools import ToolArgs, ToolContext, ToolResult
@@ -45,11 +46,18 @@ KEY_CODES = {
     # Noktalama (ANSI): `cmd+-`/`cmd+=` yakınlaştırma, `cmd+,` ayarlar, `cmd+/` yorum.
     "-": 27, "=": 24, "[": 33, "]": 30, ";": 41, "'": 39, ",": 43, ".": 47, "/": 44,
     "\\": 42, "`": 50, "+": 24,
+    "*": 0x43,  # Sayısal takımın çarpma tuşu; klavye düzeninden bağımsız.
     "f13": 105, "f14": 107, "f15": 113, "f16": 106, "f17": 64, "f18": 79, "f19": 80, "f20": 90,
     "capslock": 57,
 }  # fmt: skip
 #: Başka araç takımlarının tuş adları (tek kaynak: `key_spec.KEY_NAME_ALIASES`).
 KEY_ALIASES = KEY_NAME_ALIASES
+
+# Logical arithmetic keys use the numeric keypad when no modifier is requested.
+# ANSI punctuation is a physical position: e.g. ANSI '=' emits '-' on Turkish Q.
+# HIToolbox Events.h: kVK_ANSI_Keypad{Multiply,Plus,Divide,Minus,Equals}.
+# Keep KEY_CODES unchanged for shortcuts (cmd+= etc.) and explicit modifiers.
+_ARITHMETIC_KEYPAD_CODES = {"*": 0x43, "+": 0x45, "/": 0x4B, "-": 0x4E, "=": 0x51}
 
 
 def resolve_key(name: str) -> int | None:
@@ -168,7 +176,10 @@ def _open_windows(name: str) -> ToolResult:
     return ToolResult(f"Uygulama açıldı: {name}")
 
 
-def _post_text(framework: ctypes.CDLL, value: str) -> None:
+def _post_text(framework: ctypes.CDLL, value: str, *, cancelled: Event | None = None) -> int:
+    # Validate the complete input before dispatching a prefix. Keep an astral
+    # scalar's UTF-16 surrogate pair together in the same event.
+    value.encode("utf-16-le")
     framework.CGEventCreateKeyboardEvent.argtypes = [
         ctypes.c_void_p,
         ctypes.c_uint16,
@@ -182,17 +193,35 @@ def _post_text(framework: ctypes.CDLL, value: str) -> None:
     ]
     framework.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
     framework.CFRelease.argtypes = [ctypes.c_void_p]
-    units = value.encode("utf-16-le")
-    characters = (ctypes.c_uint16 * (len(units) // 2)).from_buffer_copy(units)
-    for is_down in (True, False):
-        event = framework.CGEventCreateKeyboardEvent(None, 0, is_down)
-        if not event:
-            raise RuntimeError("Klavye olayı oluşturulamadı")
+    dispatched = 0
+    for char in value:
+        if cancelled is not None and cancelled.is_set():
+            break
+        units = char.encode("utf-16-le")
+        characters = (ctypes.c_uint16 * (len(units) // 2)).from_buffer_copy(units)
+        events: list[int] = []
         try:
-            framework.CGEventKeyboardSetUnicodeString(event, len(characters), characters)
-            framework.CGEventPost(0, event)
+            # Prepare both events before pressing the key, so a failed allocation
+            # or Unicode assignment cannot leave a partially prepared key down.
+            for is_down in (True, False):
+                event = framework.CGEventCreateKeyboardEvent(None, 0, is_down)
+                if not event:
+                    raise RuntimeError("Klavye olayı oluşturulamadı")
+                events.append(event)
+                framework.CGEventKeyboardSetUnicodeString(event, len(characters), characters)
+            if cancelled is not None and cancelled.is_set():
+                break
+            try:
+                framework.CGEventPost(0, events[0])
+            finally:
+                # Cancellation must stop the next scalar, never suppress the
+                # matching release of an already dispatched key press.
+                framework.CGEventPost(0, events[1])
+            dispatched += 1
         finally:
-            framework.CFRelease(event)
+            for event in events:
+                framework.CFRelease(event)
+    return dispatched
 
 
 def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -210,14 +239,27 @@ def desktop_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         if desktop_win32.active():
             desktop_win32.send_text(value)
+            dispatched = len(value)
         else:
             framework = _framework()
             if not _trusted(framework):
                 return permission_failure(ACCESSIBILITY)
-            _post_text(framework, value)
+            dispatched = _post_text(framework, value, cancelled=context.cancelled)
+    except UnicodeError:
+        return ToolResult.failure(
+            "Metin geçerli Unicode karakterleri içermeli; klavye olayı gönderilmedi."
+        )
     except (OSError, RuntimeError) as exc:
-        return ToolResult.failure(f"Metin yazılamadı: {exc}")
-    return ToolResult(f"Odaklı alana {len(value)} karakter yazıldı.")
+        return ToolResult.failure(f"Metin gönderimi tamamlanamadı: {exc}")
+    if dispatched < len(value):
+        return ToolResult.failure(
+            f"Metin gönderimi iptal edildi; {dispatched}/{len(value)} karakter için klavye "
+            "olayları gönderildi. Hedef içerik doğrulanmadı."
+        )
+    return ToolResult(
+        f"Odaklı uygulamaya {dispatched} karakter için klavye olayları gönderildi; "
+        "hedef içerik doğrulanmadı."
+    )
 
 
 def _post_key(
@@ -298,6 +340,8 @@ def _key_chords(args: ToolArgs) -> tuple[KeyChord, ...] | str:
 def _post_chord(framework: ctypes.CDLL, chord: KeyChord, hold_ms: int) -> None:
     """Akoru `_post_key`'e geçir; yalnız açık olan ek bayraklar iletilir (test sözleşmesi)."""
     code = cast(int, resolve_key(chord.key))
+    if not (chord.command or chord.control or chord.option or chord.shift):
+        code = _ARITHMETIC_KEYPAD_CODES.get(chord.key, code)
     extra: dict[str, Any] = {name: True for name in ("option", "control") if getattr(chord, name)}
     if hold_ms:
         extra["hold_ms"] = hold_ms

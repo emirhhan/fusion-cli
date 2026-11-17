@@ -1,5 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -8,7 +8,10 @@ const reasonText = (reason: unknown): string => (reason instanceof Error ? reaso
 const isSignatureError = (text: string): boolean => /signature|imza|verif|doğrula/i.test(text);
 
 /** `turnRunning`: çalışan bir görev varken kurulum kapalıdır (yeniden başlatma görevi keser). */
-export function UpdatePanel({ turnRunning = false }: { turnRunning?: boolean } = {}) {
+export function UpdatePanel({ announcedVersion, turnRunning = false }: {
+  announcedVersion?: string | null;
+  turnRunning?: boolean;
+} = {}) {
   const [update, setUpdate] = useState<Update | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Yeni sürümü kontrol edebilirsin.");
@@ -26,9 +29,7 @@ export function UpdatePanel({ turnRunning = false }: { turnRunning?: boolean } =
       .catch(() => undefined);
     return () => { alive = false; };
   }, []);
-  if (!isTauri()) return null;
-
-  const inspect = async () => {
+  const inspect = useCallback(async () => {
     setBusy(true);
     setMessage("Güncelleme kontrol ediliyor…");
     try {
@@ -41,7 +42,11 @@ export function UpdatePanel({ turnRunning = false }: { turnRunning?: boolean } =
     } finally {
       setBusy(false);
     }
-  };
+  }, []);
+  useEffect(() => {
+    if (isTauri() && announcedVersion) void inspect();
+  }, [announcedVersion, inspect]);
+  if (!isTauri()) return null;
   const install = async () => {
     if (!update) return;
     setBusy(true);

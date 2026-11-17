@@ -9,6 +9,7 @@ tek çağrı yapar. Yanıt ana geçmişe, transkripte ya da belleğe yazılmaz; 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ..core.protocols import LlmProvider
@@ -68,16 +69,30 @@ def build_messages(history: Sequence[Message], side: object, question: str) -> t
     )
 
 
-def _default_provider(config: Config) -> LlmProvider:
+def _default_provider(config: Config, *, browserless: bool = False) -> LlmProvider | None:
+    from ..config.model_lookup import configured_model_specs
     from ..providers.factory import build_provider
     from ..providers.web_registry import web_registry_for
 
+    spec = config.agent
+    if browserless:
+        from ..providers.registry import ProviderKind, provider_for_model
+
+        allowed = {ProviderKind.API_KEY, ProviderKind.LOCAL, ProviderKind.AGGREGATOR}
+        models = [
+            model for model in spec.models
+            if (definition := provider_for_model(model)) is not None and definition.kind in allowed
+        ]
+        if not models:
+            return None
+        spec = replace(spec.with_identity(models[0]), fallback=())
     return build_provider(
-        config.agent,
+        spec,
         publisher=None,
-        retry_delays_s=config.runtime.retry_delays_s,
+        retry_delays_s=() if browserless else config.runtime.retry_delays_s,
         background=True,
-        web_sessions=web_registry_for(config),
+        web_sessions=None if browserless else web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
 
 
@@ -102,7 +117,12 @@ async def ask_side(
         timeout_s=runtime.request_timeout_s,
         max_retries=runtime.max_retries,
     )
-    provider = (provider_factory or _default_provider)(config)
+    provider = (
+        provider_factory(config) if provider_factory
+        else _default_provider(config, browserless=data.get("tarayicisiz") is True)
+    )
+    if provider is None:
+        return {"ok": False, "metin": "Arka planda kullanılabilecek bir model bağlantısı yok."}
     result = await provider.complete(request)
     if not result.ok or not result.text.strip():
         return {"ok": False, "metin": result.error or "Model yanıt vermedi."}

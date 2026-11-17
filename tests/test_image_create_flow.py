@@ -10,7 +10,7 @@ import pytest
 
 from fusion_cli.appserver import image_create
 from fusion_cli.config.models import WebSessionConfig
-from fusion_cli.providers import image_generation, web_image
+from fusion_cli.providers import image_generation, web_browser, web_image
 from fusion_cli.providers.web_browser import WebBrowserError
 from fusion_cli.providers.web_image import GeneratedImage
 
@@ -154,6 +154,39 @@ class _SahteHavuz:
 
     def schedule_idle_release(self, _provider, _account) -> None:
         return None
+
+
+async def test_gizli_gorsel_uretimi_arka_plan_sekmesi_acar(tmp_path, monkeypatch) -> None:
+    havuz = _SahteHavuz()
+    serbest_birakilan = []
+    oturum = WebSessionConfig(
+        model="chatgpt_web/main/auto",
+        transport="browser",
+        provider="chatgpt_web",
+        headless="hidden",
+    )
+
+    class Tarayici:
+        async def new_browser_cdp_session(self):
+            raise WebBrowserError("arka plan sekmesi istendi")
+
+    class Baglam:
+        browser = Tarayici()
+
+        async def new_page(self):
+            pytest.fail("Gizli kipte öne gelen Playwright sekmesi açıldı")
+
+    async def baglam_al(_session, _credential):
+        return Baglam()
+
+    monkeypatch.setattr(havuz, "context_for", baglam_al)
+    monkeypatch.setattr(
+        havuz, "schedule_idle_release", lambda *hesap: serbest_birakilan.append(hesap)
+    )
+    monkeypatch.setattr(web_browser.sys, "platform", "darwin")
+    with pytest.raises(WebBrowserError, match="arka plan sekmesi istendi"):
+        await web_image.generate_images(oturum, None, "bir kask çiz", tmp_path, pool=havuz)
+    assert serbest_birakilan == [("chatgpt_web", "main")]
 
 
 async def test_referans_yuklenemezse_istem_gonderilmez(tmp_path, monkeypatch) -> None:

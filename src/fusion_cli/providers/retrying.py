@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator, Sequence
 from ..core.clock import SystemSleeper
 from ..core.constants import RETRY_AFTER_MAX_WAIT_S
 from ..core.protocols import LlmProvider, Sleeper
+from ..core.provider_diagnostics import observe_phase
 from ..core.types import (
     CompletionRequest,
     ModelResult,
@@ -41,6 +42,7 @@ from ..core.types import (
     StreamItem,
     is_permanent_error,
 )
+from .stream_cleanup import closing_stream
 from .stream_opening import is_liveness_chunk, is_provisional
 
 
@@ -74,7 +76,10 @@ class RetryingProvider:
         for delay in self._delays_s:
             if not self._should_retry(result):
                 return result
-            await self._sleeper.sleep(_wait_s(delay, result))
+            wait_s = _wait_s(delay, result)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
             result = await self._inner.complete(request)
         return result
 
@@ -82,30 +87,32 @@ class RetryingProvider:
         # Son tur `None` gecikmesiyle işaretlenir: "artık bekleme, sonucu ne olursa
         # olsun ver". Deneme sayısı yine gecikme listesinden türer, ayrı sayaç yok.
         for delay in (*self._delays_s, None):
-            stream = self._inner.stream(request)
-            first = await anext(stream, None)
-            while is_provisional(first):
-                # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını görmeli (P1-05).
-                if is_liveness_chunk(first):
-                    assert first is not None
-                    yield first
+            async with closing_stream(self._inner.stream(request)) as stream:
                 first = await anext(stream, None)
-            # Metin akmadan gelen sonuç: hata da olabilir, araç çağrısından ibaret
-            # başarılı bir cevap da. Ayrımı `_should_retry` yapar.
-            erken = _opening_result(first, self._inner.label)
-            if erken is None:
-                # Akış çıktı üretti; ekrana yazılmış metni tekrar denemek onu ikinci
-                # kez baştan yazdırırdı. Kalanı olduğu gibi geçiririz.
-                assert first is not None  # `erken is None` bunu garanti eder
-                yield first
-                async for item in stream:
-                    yield item
-                return
-            await _close(stream)
+                while is_provisional(first):
+                    # Boş canlılık parçası atılmaz: üst katman modelin çalıştığını görmeli (P1-05).
+                    if is_liveness_chunk(first):
+                        assert first is not None
+                        yield first
+                    first = await anext(stream, None)
+                # Metin akmadan gelen sonuç: hata da olabilir, araç çağrısından ibaret
+                # başarılı bir cevap da. Ayrımı `_should_retry` yapar.
+                erken = _opening_result(first, self._inner.label)
+                if erken is None:
+                    # Akış çıktı üretti; ekrana yazılmış metni tekrar denemek onu ikinci
+                    # kez baştan yazdırırdı. Kalanı olduğu gibi geçiririz.
+                    assert first is not None  # `erken is None` bunu garanti eder
+                    yield first
+                    async for item in stream:
+                        yield item
+                    return
             if delay is None or not self._should_retry(erken):
                 yield StreamDone(erken)
                 return
-            await self._sleeper.sleep(_wait_s(delay, erken))
+            wait_s = _wait_s(delay, erken)
+            observe_phase(request, "provider_retry_wait", wait_s=wait_s)
+            await self._sleeper.sleep(wait_s)
+            observe_phase(request, "provider_retry_wait_end")
 
     # ----------------------------------------------------------------------- #
 
@@ -152,18 +159,6 @@ def _opening_result(first: StreamItem | None, label: str) -> ModelResult | None:
     if isinstance(first, StreamDone):
         return first.result
     return None
-
-
-async def _close(stream: AsyncIterator[StreamItem]) -> None:
-    """Yeniden denemeden önce kaybeden akışı kapat; arkada açık bağlantı bırakma."""
-    closer = getattr(stream, "aclose", None)
-    if closer is None:
-        return
-    # Kapanış hatası turu etkilemez; bilinçli olarak yutulur.
-    try:
-        await closer()
-    except Exception:
-        return
 
 
 def wrap(

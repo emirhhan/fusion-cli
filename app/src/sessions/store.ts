@@ -7,6 +7,7 @@ import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
 import { olayEkle } from "../protocol/olayAkisi";
 import { canApplySuggestedTitle } from "./title";
+import { closeUnfinishedTools } from "./unfinishedTools";
 
 // Opak eski olaylarda pencere belleği sınırlıdır; wire v1 sequence kalıcı high-water kullanır.
 export const EVENT_REPLAY_WINDOW = 256;
@@ -24,6 +25,7 @@ interface SessionSeed {
   title: string;
   source: SessionSource;
   root: string;
+  bootstrap?: Promise<boolean>;
   client: ProtocolClient;
   pid?: number;
 }
@@ -31,7 +33,7 @@ interface SessionSeed {
 export type SessionAction =
   | { type: "submissionCompleted"; id: string; requestId: string }
   | { type: "submissionStarted"; id: string; requestId: string; expectedTurnId?: string }
-  | { type: "created"; session: SessionSeed }
+  | { type: "created"; session: SessionSeed; activate?: boolean }
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
@@ -77,20 +79,33 @@ function updateSession(
  *
  * Ölçüldü (30 Ekim): kullanıcı geçmiş gelmeden mesaj yazarsa geri gelen geçmiş TAMAMEN atılıyor,
  * sohbetin önceki içeriği hiç görünmüyordu (U4-35). Çekirdek yeni mesajı geçmişe de yazmış
- * olabileceğinden, mevcut kullanıcı mesajlarının geçmişteki aynı metinli kopyası bir kez düşülür.
+ * olabileceğinden, kalıcı kimliği aynı mesajlar birleştirilir. Kimliksiz eski kullanıcı
+ * satırları için aynı metinli kopya bir kez düşülür; ayrı makbuzlar birleştirilmez.
  */
 function gecmisiOnePekle(gecmis: Mesaj[], mevcut: Mesaj[], oturumId: string): Mesaj[] {
   const kalan = [...gecmis];
-  for (const mesaj of mevcut) {
-    if (mesaj.rol !== "kullanici") continue;
-    for (let indeks = kalan.length - 1; indeks >= 0; indeks -= 1) {
-      if (kalan[indeks].rol === "kullanici" && kalan[indeks].metin === mesaj.metin) {
-        kalan.splice(indeks, 1);
-        break;
+  const eskiKimlik = (id: string | undefined) => !id || id.startsWith("legacy:") || /^history-\d+$/.test(id);
+  // Geçmiş bildirimi her yanıtta yenilenir; diğer canlı mesajların sırası korunur.
+  const retained = mevcut.filter(message => message.rol !== "bildirim" || message.id !== "history-notice").map(mesaj => {
+    let indeks = kalan.findIndex(old => old.rol === mesaj.rol && old.id && old.id === mesaj.id &&
+      (!eskiKimlik(old.id) || old.metin === mesaj.metin));
+    if (indeks < 0 && mesaj.rol === "kullanici") {
+      for (let i = kalan.length - 1; i >= 0; i -= 1) {
+        if (kalan[i].rol === "kullanici" && kalan[i].metin === mesaj.metin &&
+            (eskiKimlik(kalan[i].id) || eskiKimlik(mesaj.id))) {
+          indeks = i;
+          break;
+        }
       }
     }
-  }
-  return migrateMessageIds([...kalan, ...mevcut], oturumId);
+    if (indeks < 0) return mesaj;
+    const [old] = kalan.splice(indeks, 1);
+    return {...old, ...mesaj,
+      metin: mesaj.metin.trim() ? mesaj.metin : old.metin,
+      ...(mesaj.delivery ?? old.delivery ? {delivery: mesaj.delivery ?? old.delivery} : {}),
+      ...(mesaj.findings ?? old.findings ? {findings: mesaj.findings ?? old.findings} : {})};
+  });
+  return migrateMessageIds([...kalan, ...retained], oturumId);
 }
 
 /**
@@ -115,8 +130,10 @@ function akanBalonuKalicilastir(mesajlar: Mesaj[]): Mesaj[] {
 export function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case "created": {
-      const exists = Boolean(state.sessions[action.session.id]);
-      const model: SessionModel = {
+      const existing = state.sessions[action.session.id];
+      const exists = Boolean(existing);
+      // Tekrarlanan yayın veya geç bağlanma çalışan turun istemcisini/sahipliğini silemez.
+      const model: SessionModel = existing && (existing.client === action.session.client || existing.running) ? existing : {
         ...action.session,
         updatedAt: action.session.updatedAt ?? Date.now(),
         pid: action.session.pid ?? null,
@@ -134,7 +151,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       };
       return {
         ...state,
-        activeId: action.session.id,
+        activeId: action.activate === false ? state.activeId : action.session.id,
         order: exists ? state.order : [...state.order, action.session.id],
         sessions: { ...state.sessions, [action.session.id]: model },
         connectionError: null,
@@ -222,7 +239,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         running: action.running,
-        ...(action.running ? {} : { messages: akanBalonuKalicilastir(session.messages) }),
+        ...(action.running ? {} : { messages: akanBalonuKalicilastir(closeUnfinishedTools(session)) }),
         stopping: action.running ? session.stopping : false,
         stopError: action.running ? session.stopError : null,
         // Tur bitti: turun beklettiği sorular artık yanıtlanamaz. SoruKapandi olayı kaybolsa da
@@ -282,7 +299,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         stopError: null,
       }));
     case "removed": {
-      // Silme geri alınamaz: oturum listeden çıkar. Son oturum silinirse
+      // Kaldırılan oturum listeden çıkar; disk kaydı korunur. Son oturum silinirse
       // etkin seçim boşa düşer ve arayüz yeni görev ekranına döner.
       const kalan = { ...state.sessions };
       delete kalan[action.id];

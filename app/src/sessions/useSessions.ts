@@ -39,6 +39,13 @@ const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı."
 const TUR_IPTAL_GUVENLI_SURE_MS = 5_000;
 export type WorkspaceMode = "sohbet" | "kod";
 
+interface SessionConnection {
+  id: string;
+  client: ProtocolClient;
+  snapshot: BackendSessionSnapshot | null;
+  bootstrap?: Promise<boolean>;
+}
+
 export function storedWorkspaceMode(id: string): WorkspaceMode | null {
   try {
     const value = localStorage.getItem(`fusion.session-mode.${id}`);
@@ -131,9 +138,12 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const attempts = useRef(new Map<string, string>());
   const retryRequests = useRef(new Set<string>());
   const generations = useRef(new Map<string, number>());
+  const historyVersions = useRef(new Map<string, number>());
   const expectedTurns = useRef(new Map<string, string>());
   const queuedRestores = useRef(new Set<string>());
   const clients = useRef(new Map<string, ProtocolClient>());
+  const connecting = useRef(new Map<string, Promise<SessionConnection>>());
+  const navigationRevision = useRef(0);
   const clientRoots = useRef(new Map<string, string>());
   const deletedIds = useRef(new Set<string>());
   const lineHandlers = useRef(new Map<string, (line: string) => void>());
@@ -154,13 +164,13 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const storedRef = useRef<StoredConversation[]>([]);
   storedRef.current = stored;
 
-  const connect = useCallback(
-    async (input: NewSession = {}, publish = true) => {
+  const connectOnce = useCallback(
+    async (input: NewSession = {}, publish = true, navigation = navigationRevision.current): Promise<SessionConnection> => {
       const id = input.id ?? nextSessionId();
       requestedClose.current.delete(id);
       const existing = clients.current.get(id);
       if (existing) {
-        if (publish) dispatch({ type: "selected", id });
+        if (publish && navigationRevision.current === navigation) dispatch({ type: "selected", id });
         return { id, client: existing, snapshot: null };
       }
 
@@ -234,8 +244,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         .then((sonuc) => {
           if (sonuc.ok === false) throw new Error(String(sonuc.hata ?? sonuc.metin ?? "çekirdek reddetti"));
         })
-        .then(() => true, (reason: unknown) => {
-          if (publish && !requestedClose.current.has(id) && mounted.current) {
+        .then(() => mounted.current && clients.current.get(id) === client && !requestedClose.current.has(id), (reason: unknown) => {
+          if (publish && clients.current.get(id) === client && !requestedClose.current.has(id) && mounted.current) {
             dispatch({ type: "crashed", id,
               reason: `Sekme çekirdeğe tanıtılamadı (oturum.baslat): ${reason instanceof Error ? reason.message : String(reason)}` });
           }
@@ -244,6 +254,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       if (publish) {
         dispatch({
           type: "created",
+          activate: navigationRevision.current === navigation,
           session: {
             id,
             title: input.title ?? DEFAULT_TITLE,
@@ -252,15 +263,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             root: snapshot.kok,
             pid: snapshot.pid,
             client,
+            bootstrap: baslatildi,
           },
         });
         // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
         // sorulursa proje genelindeki başka bir konuşma yüklenir.
+        const historyVersion = historyVersions.current.get(id) ?? 0;
         void baslatildi
           .then((tanitildi) => tanitildi ? client.request("oturum.gecmis", {}) : { mesajlar: null })
           .then((result) => {
-            if (!Array.isArray(result.mesajlar)) return;
-            const messages = historyMessages(result.mesajlar);
+            if (clients.current.get(id) !== client
+              || (historyVersions.current.get(id) ?? 0) !== historyVersion
+              || !Array.isArray(result.mesajlar)) return;
+            const messages = historyMessages(result.mesajlar, result.gecmis_kirpildi === true);
             dispatch({ type: "historyLoaded", id, messages });
             queuedRestores.current.add(id);
           })
@@ -268,18 +283,37 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           // Geri açılan sohbet dolu olabilir: gösterge ilk mesajı beklemesin.
           .finally(() => olcuyuTazele(id, client, dispatch));
       }
-      return { id, client, snapshot };
+      return { id, client, snapshot, bootstrap: baslatildi };
     },
     [transport],
   );
 
+  const connect = useCallback(
+    async (input: NewSession = {}, publish = true, navigation = navigationRevision.current): Promise<SessionConnection> => {
+      const id = input.id ?? nextSessionId();
+      // Aynı sekmenin geri yükleme/açma yarışı ikinci istemci ve olay dinleyicisi yaratmaz.
+      const pending = connecting.current.get(id);
+      if (pending) {
+        const connection = await pending;
+        if (publish && navigationRevision.current === navigation) dispatch({ type: "selected", id });
+        return { ...connection, snapshot: null };
+      }
+      const owned = connectOnce({ ...input, id }, publish, navigation);
+      connecting.current.set(id, owned);
+      try { return await owned; }
+      finally { if (connecting.current.get(id) === owned) connecting.current.delete(id); }
+    },
+    [connectOnce],
+  );
+
   const create = useCallback(
-    async (input: NewSession = {}) => (await connect(input)).id,
+    async (input: NewSession = {}) => (await connect(input, true, ++navigationRevision.current)).id,
     [connect],
   );
 
   const resume = useCallback(
     async (input: ResumeSession) => {
+      const navigation = ++navigationRevision.current;
       const connection = await connect(
         {
           title: `[${input.source}] ${input.title}`,
@@ -287,6 +321,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           root: input.root,
         },
         false,
+        navigation,
       );
       if (!connection.snapshot) {
         throw new Error("Devralma için yeni bir konuşma oluşturulamadı.");
@@ -301,6 +336,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         }
         dispatch({
           type: "created",
+          activate: navigationRevision.current === navigation,
           session: {
             id: connection.id,
             title: `[${input.source}] ${input.title}`,
@@ -308,11 +344,15 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             root: connection.snapshot.kok,
             pid: connection.snapshot.pid,
             client: connection.client,
+            bootstrap: connection.bootstrap,
           },
         });
+        const historyVersion = historyVersions.current.get(connection.id) ?? 0;
         void connection.client.request("oturum.gecmis", {}).then((history) => {
-          if (!Array.isArray(history.mesajlar)) return;
-          const messages = historyMessages(history.mesajlar);
+          if (clients.current.get(connection.id) !== connection.client
+            || (historyVersions.current.get(connection.id) ?? 0) !== historyVersion
+            || !Array.isArray(history.mesajlar)) return;
+          const messages = historyMessages(history.mesajlar, history.gecmis_kirpildi === true);
           dispatch({ type: "historyLoaded", id: connection.id, messages });
         }).catch(() => undefined);
         olcuyuTazele(connection.id, connection.client, dispatch);
@@ -333,6 +373,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   );
 
   const restoreSessions = useCallback(async () => {
+    const navigation = navigationRevision.current;
     // Kaydedilmiş sekmeler zaten yazılıyordu; yalnız okunmuyordu. Ölçüldü
     // (kullanıcının makinesi, 7-8 Eylül): her açılışta tek ve sabit kimlikli bir
     // sekme açılıyor, dünkü konuşmalara giden yol tamamen kapanıyordu.
@@ -342,7 +383,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       .slice(-MAX_RESTORED_SESSIONS);
     if (restorable.length === 0) {
       // Boş kayıt, son sohbetin silindiğini gösterir; eski sabit kimliği diriltme.
-      await create(persistedView.current ? {} : { id: DEFAULT_SESSION_ID, mode: "kod" });
+      await connect(persistedView.current ? {} : { id: DEFAULT_SESSION_ID, mode: "kod" }, true, navigation);
       return;
     }
     // Başarısız sekme sessizce düşmez: kayıtta KORUNUR (bir sonraki açılışta yeniden denenir)
@@ -359,7 +400,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           source: session.source,
           root: session.root,
           updatedAt: session.updatedAt,
-        });
+        }, true, navigation);
         opened.push(connection.id);
       } catch (reason) {
         failures.push({ session, reason: reason instanceof Error ? reason.message : String(reason) });
@@ -376,10 +417,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         metin: `${failures.length} kayıtlı sekme açılamadı: ${detail}. Kayıtları korundu; sonraki açılışta yeniden denenecek.` } });
     }
     const activeId = persistedView.current?.activeId;
-    if (activeId && restorable.some((session) => session.id === activeId)) {
+    if (navigationRevision.current === navigation && activeId && restorable.some((session) => session.id === activeId)) {
       dispatch({ type: "selected", id: activeId });
     }
-  }, [connect, create]);
+  }, [connect]);
 
   const refreshStored = useCallback(async () => {
     // Çekirdek yalnız KENDİ kökündeki sohbetleri bilir: her farklı proje kökü için bir açık
@@ -422,9 +463,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
 
   const openStored = useCallback(
     async (id: string, root?: string) => {
+      const navigation = ++navigationRevision.current;
       const known = storedRef.current.find((item) => item.id === id);
-      await connect({ id, title: known?.title ?? DEFAULT_TITLE, root: root ?? known?.root, updatedAt: known ? known.updatedAt * 1000 : undefined });
-      dispatch({ type: "selected", id });
+      await connect({ id, title: known?.title ?? DEFAULT_TITLE, root: root ?? known?.root, updatedAt: known ? known.updatedAt * 1000 : undefined }, true, navigation);
+      if (navigationRevision.current === navigation) dispatch({ type: "selected", id });
     },
     [connect],
   );
@@ -501,6 +543,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true, voice?: VoiceTurnMetadata, requestId = nextSessionId()) => {
       const session = state.sessions[id];
       if (!session || !task.trim() || session.status !== "ready") return false;
+      if (recordMessage && state.activeId === id) navigationRevision.current += 1;
       try {
         saveSubmission({requestId, sessionId: id, root: session.root, task, attachments, voice,
           state: session.running || runningRequests.current.has(id) ? "queued" : "pending"});
@@ -562,7 +605,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       baslatRef.current?.(id, task, attachments, voice, requestId);
       return true;
     },
-    [state.sessions],
+    [state.sessions, state.activeId],
   );
 
   /** Yalnız gerçek terminal sonuç veya bağlantı kapanışı kabul kilidini bırakır. */
@@ -764,6 +807,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     const current = oturumlarRef.current[id]?.root ?? clientRoots.current.get(id);
     if (typeof result.kok === "string" && result.kok && result.kok !== current) {
       clientRoots.current.set(id, result.kok);
+      historyVersions.current.set(id, (historyVersions.current.get(id) ?? 0) + 1);
       dispatch({ type: "rootChanged", id, root: result.kok });
     }
   };
@@ -804,7 +848,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       kokuDevral(id, result);
       // `/rewind` konuşmayı geri sardı; çekirdek kalan geçmişi `gecmis` ile verir (P-004).
       if (Array.isArray(result.gecmis)) {
-        dispatch({ type: "historyReplaced", id, messages: historyMessages(result.gecmis) });
+        historyVersions.current.set(id, (historyVersions.current.get(id) ?? 0) + 1);
+        dispatch({ type: "historyReplaced", id, messages: historyMessages(result.gecmis, result.gecmis_kirpildi === true) });
       }
       const text = typeof result.metin === "string" ? result.metin : "";
       const preparedTask = typeof result.gorev === "string" && result.gorev.trim()
@@ -983,7 +1028,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         try { localStorage.removeItem(`fusion.session-mode.${id}`); } catch { /* Storage is optional. */ }
         setStored((rows) => rows.filter((item) => item.id !== id));
         dispatch({ type: "removed", id });
-        // Diskte silme tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.
+        // Listeden kaldırma kaydı tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.
         if (session) await close(id).catch(() => undefined);
       } finally {
         if (temporary) await close(temporary.id).catch(() => undefined);
@@ -1082,10 +1127,16 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     openStored,
     refreshStored,
     storedConversations: stored,
-    clear: (id: string) => dispatch({ type: "cleared", id }),
+    clear: (id: string) => {
+      historyVersions.current.set(id, (historyVersions.current.get(id) ?? 0) + 1);
+      dispatch({ type: "cleared", id });
+    },
     close,
     create,
-    select: (id: string) => dispatch({ type: "selected", id }),
+    select: (id: string) => {
+      if (oturumlarRef.current[id]) navigationRevision.current += 1;
+      dispatch({ type: "selected", id });
+    },
     resume,
     recentProjects,
     remove,

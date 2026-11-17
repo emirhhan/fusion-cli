@@ -1,0 +1,31 @@
+{
+  "source_snapshot": "e62c73aad935051f3c7430d0ca11c17fe51e4a8f",
+  "python": {
+    "passed": 475,
+    "slow_deselected": 7,
+    "scope": "21 changed and related files",
+    "warning": "existing Pydantic ReadOnly warning"
+  },
+  "app": {
+    "passed": 2366,
+    "files": 302
+  },
+  "mypy": {
+    "sources": 1261,
+    "result": "passed"
+  },
+  "ruff": "passed",
+  "reviews": {
+    "whole_code": "APPROVE",
+    "python": "APPROVE",
+    "typescript_javascript": "APPROVE",
+    "react": "APPROVE",
+    "swift": "APPROVE"
+  },
+  "scope_limits": [
+    "No full15000Pythonrerun",
+    "Previous5baselineCLI/Vimfailures remain outside wave",
+    "Live model/desktop acceptance pending",
+    "No publish or notarization"
+  ]
+}

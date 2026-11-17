@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from fusion_cli.appserver.voice_context import parse_voice_context
+from fusion_cli.appserver.voice_context import is_voice_geography_question, parse_voice_context
 
 
 @pytest.mark.parametrize("value", [True, "sesli", [], {"kesilen": None}, {"talimat": "x"}])
@@ -30,3 +30,30 @@ def test_iki_sesli_turun_kesilme_bilgisi_birbirine_sizmaz():
     assert r"\"seçenek\"\nAlıntı" in first.prompt()
     assert "İkinci seçenek" not in first.prompt()
     assert "İlk" not in second.prompt()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Türkiye’nin başkenti neresi?",
+        "Teşekkür ederim Türkiye'de kaç tane bölge var",
+        "İstanbul'da kaç tane bölge var",
+    ],
+)
+def test_genel_sesli_cografya_sorusu(text):
+    assert is_voice_geography_question(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Türkiye'nin başkenti neresi söyle ve proje dosyasına ekle",
+        "Proje klasöründe kaç alt dizin var?",
+        "Projedeki şehirleri sayıp rapor oluştur",
+        "Projede kaç il var?",
+        "Satış raporunda kaç şehir var?",
+        "Veritabanında kaç ilçe var?",
+    ],
+)
+def test_sesli_is_istegi_genel_soru_sayilmaz(text):
+    assert not is_voice_geography_question(text)

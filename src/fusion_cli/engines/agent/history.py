@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from ...core.types import Message
+from .research_evidence import RESEARCH_TOOLS, bounded_evidence, is_research_result
 
 #: Geçmiş bu karakter sayısını aşınca sıkıştırma denenir.
 #:
@@ -187,10 +188,14 @@ def clear_old_tool_outputs(
     limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
     sonuc = list(messages)
     unseen = unseen_tool_indexes(sonuc)
+    if history_chars(sonuc) >= limit:
+        for index, evidence in bounded_evidence(sonuc).items():
+            if index not in unseen:
+                sonuc[index] = evidence
     temizlenebilir = [
         index
         for index, message in enumerate(sonuc)
-        if message.role == "tool" and index not in unseen
+        if message.role == "tool" and index not in unseen and not is_research_result(message)
     ]
     toplam = history_chars(sonuc)
     for index in temizlenebilir:
@@ -247,7 +252,10 @@ def _stub_old_tool_arguments(messages: list[Message], toplam: int, limit: int) -
             break
         message = messages[index]
         cagrilar = tuple(
-            replace(call, arguments=_stub_arguments(call.arguments)) for call in message.tool_calls
+            call
+            if call.name in RESEARCH_TOOLS
+            else replace(call, arguments=_stub_arguments(call.arguments))
+            for call in message.tool_calls
         )
         once = sum(len(call.arguments) for call in message.tool_calls)
         sonra = sum(len(call.arguments) for call in cagrilar)
@@ -391,7 +399,7 @@ def _describe(message: Message, message_chars: int = TRACE_MESSAGE_CHARS) -> lis
         if is_summary_message(message):
             # Önceki özet KESİLMEZ: ardışık sıkıştırmada özetin özeti ilk özeti silerdi.
             return [f"[kullanıcı] {message.content[:TRACE_SUMMARY_CHARS]}"]
-        return [f"[kullanıcı] {excerpt}"]
+        return [f"[kullanıcı] {_sample(message.content, message_chars)}"]
     if message.role == "tool":
         # Başarı bilgisi mesajın kendisinde taşınır; metinden tahmin edilmez.
         flag = " ⟵ HATA" if message.ok is False else ""

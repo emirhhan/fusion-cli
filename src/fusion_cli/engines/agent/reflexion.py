@@ -10,15 +10,37 @@ bir davranış düzeltmesidir.
 from __future__ import annotations
 
 import shlex
+from typing import Literal
 
 from ...core.tool_emulation import PAYLOAD_EXAMPLE, PAYLOAD_RULES, render_call
 from ...core.types import Message
 
-STANDARD_NOTE = (
+WORKSPACE_NOTE = (
     "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Kısaca ne yanlış "
     "gitti düşün ve FARKLI bir yaklaşım dene — aynı çağrıyı birebir tekrarlama. "
     "Gerekirse önce keşif yap (read_file / search_code), sonra hedefli düzelt."
 )
+
+STANDARD_NOTE = (
+    "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Hatayı değerlendir; "
+    "aynı başarısız çağrıyı körlemesine tekrarlama. Kullanıcının istediği ve izin verdiği "
+    "kapsamda uygun gözlemle eksik bilgiyi edin, sonucu doğrula. Bir engel varsa açıkla."
+)
+DESKTOP_NOTE = (
+    "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Hedef uygulama "
+    "ve pencerenin güncel durumunu izinli masaüstü gözlemiyle doğrula. Eski veya belirsiz "
+    "hedefe körlemesine eylem uygulama. Yalnız istenen işlem kapsamında ilerle; "
+    "sonucu gözlemle doğrula. İzin veya kimlik engeli varsa açıkla."
+)
+RecoveryContext = Literal["workspace", "desktop", "observation"]
+
+
+def recovery_context(*, required_effect: str | None, desktop: bool) -> RecoveryContext:
+    """File-changing recovery requires this turn's affirmative workspace contract."""
+    if required_effect == "workspace_mutation":
+        return "workspace"
+    return "desktop" if desktop else "observation"
+
 
 PERSISTENT_NOTE = (
     "[refleksiyon] Son araç çağrısı HATA döndürdü. Pes etme: hatayı dikkatlice oku ve "
@@ -107,9 +129,10 @@ def wrong_workspace_note(root: str, suggestion: str = "") -> Message:
     return Message("user", WRONG_WORKSPACE_NOTE.format(root=root, oneri=oneri), harness_note=True)
 
 
-def note(*, persistent: bool) -> Message:
-    """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
-    return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE, harness_note=True)
+def note(*, persistent: bool, context: RecoveryContext = "observation") -> Message:
+    """Araç hatasından sonra görevin yetkili kapsamı içinde yön ver."""
+    text = {"workspace": WORKSPACE_NOTE, "desktop": DESKTOP_NOTE}.get(context, STANDARD_NOTE)
+    return Message("user", PERSISTENT_NOTE if persistent else text, harness_note=True)
 
 
 def auto_continue_note() -> Message:
@@ -132,15 +155,31 @@ def keep_delivery(delivery: str, confirmation: str) -> str:
 # Ölçüldü (28 Eylül, büyük proje görevi): model 13 dakika boyunca yalnız arama ve
 # okuma yaptı, hiçbir görevi tamamlamadan "ilerleme yok" ile cevapsız kesildi.
 # Bekleyen görev varken doğru hamle keşfi bırakıp ilk somut değişikliği yapmaktır.
-STALL_RESCUE_NOTE = (
+WORKSPACE_STALL_RESCUE_NOTE = (
     "[ilerleme-yok] Son turlarda yeni bir şey öğrenmedin ve hiçbir dosyayı "
     "değiştirmedin. Aramayı bırak: elindeki bilgiyle görev listesindeki sıradaki "
     "maddenin İLK somut değişikliğini şimdi yap. Bir engel varsa onu tek cümleyle açıkla."
 )
 
 
-def stall_rescue_note() -> Message:
-    return Message("user", STALL_RESCUE_NOTE, harness_note=True)
+STALL_RESCUE_NOTE = (
+    "[ilerleme-yok] Son turlarda yeni ilerleme doğrulanmadı. Aynı keşfi tekrarlama. "
+    "Kullanıcının istediği kapsamda eksik kanıtı tamamla veya doğrulanmış sonucu sun. "
+    "Bir engel varsa onu açıkla; yeni bir görev uydurma."
+)
+DESKTOP_STALL_RESCUE_NOTE = (
+    "[ilerleme-yok] Son turlarda hedef uygulama üzerinde yeni ilerleme doğrulanmadı. "
+    "Yalnız istenen masaüstü işlemi için güncel hedef uygulama/pencere durumunu gözle. "
+    "Kimlik ve izin doğrulanıyorsa sıradaki yetkili işlemi yap ve gerçek sonucu doğrula. "
+    "Aynı başarısız eylemi körlemesine tekrarlama; engel varsa açıkla."
+)
+
+
+def stall_rescue_note(*, context: RecoveryContext = "observation") -> Message:
+    text = {"workspace": WORKSPACE_STALL_RESCUE_NOTE, "desktop": DESKTOP_STALL_RESCUE_NOTE}.get(
+        context, STALL_RESCUE_NOTE
+    )
+    return Message("user", text, harness_note=True)
 
 
 #: Yanıt bütünlüğü sınıfına göre gönderilecek not.
@@ -204,6 +243,48 @@ def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message
     """
 
     label = _EFFECT_LABELS.get(effect or "", "kullanıcının istediği gerçek işlem")
+    if effect == "web_scope":
+        return Message(
+            "user",
+            "FUSION_NOT: Kullanıcı okuma kapsamını sınırladı; bu sınır sayfanın "
+            "diğer içeriği hakkında kesin çıkarıma izin vermez. Tam metin okumasına veya yeni "
+            "adrese geçme. Yalnız izinli gözlemi bildir ve doğrulanamayan kısmı açıkça söyle.",
+            harness_note=True,
+        )
+    if effect == "web_content":
+        return Message(
+            "user",
+            "FUSION_NOT: Sayfa içeriği için kaynak okuması doğrulanmadı. Etkileşimli, alt ağaç, "
+            "derinlik sınırlı veya kırpılmış gözlem metnin yokluğunu kanıtlamaz. Yalnız "
+            "kullanıcının yetkilendirdiği mevcut sayfada get_page_text ile tam görünür metni "
+            "oku; page=1 ve has_more=false olmayan bir parça tüm belgeyi kanıtlamaz. "
+            "Başka adrese gitme, kapsam dışı metin veya kontroller üzerinde işlem yapma.",
+            harness_note=True,
+        )
+    if effect == "web_lookup":
+        last = (
+            " Bu son deneme; kanıt yoksa güncelliğin doğrulanamadığını bildir."
+            if attempt >= 3
+            else ""
+        )
+        return Message(
+            "user",
+            "[eylem-kanıtı-zorunlu] Bu araştırma için yeterli kaynak okuması doğrulanmadı. "
+            "Kullanıcının belirttiği URL'leri web_fetch ile oku; URL yoksa web_search ile "
+            "ilgili birincil kaynağı bul ve oku. Başka bir sayfayı okumuş olmak istenen "
+            "kaynağı doğrulamaz. Erişim tarihi ile yayın tarihini ayır; eski bir sayfayı "
+            "bugün çekmek bilginin güncel olduğunu kanıtlamaz. "
+            "Erişim yoksa bilgiyi tahmin etme ve yapılmış gibi sunma." + last,
+            harness_note=True,
+        )
+    if effect == "workspace_read":
+        return Message(
+            "user",
+            "[eylem-kanıtı-zorunlu] İstenen çalışma alanı incelemesi henüz doğrulanmadı. "
+            "İlgili yolu list_dir, read_file veya search_code ile incele ve bulguyu bildir. "
+            "Bu bir okuma görevi; kanıt üretmek için dosya değiştirme.",
+            harness_note=True,
+        )
     if attempt >= 2:
         son = " Bu SON uyarı: bundan sonra tur başarısız kapanır." if attempt >= 3 else ""
         return Message(
@@ -231,6 +312,21 @@ def tool_evidence_required_note(effect: str | None, attempt: int = 1) -> Message
 def unverified_action_message(effect: str | None) -> str:
     """İki araçsız denemeden sonra kullanıcıya dürüst ve kesin sonuç ver."""
 
+    if effect == "web_scope":
+        return (
+            "Sayfa içeriği için kaynak okuması doğrulanmadı: izin verilen kısmi gözlem "
+            "bu çıkarım için yeterli değil. Okuma kapsamı genişletilmedi."
+        )
+    if effect == "web_content":
+        return (
+            "İşlem tamamlanmadı: sayfa içeriği için kaynak okuması doğrulanmadı. "
+            "Eldeki gözlem kısmi; görünmeyen metnin sayfada bulunmadığını söyleyemem."
+        )
+    if effect == "web_lookup":
+        return (
+            "İşlem tamamlanmadı: araştırma için gerekli kaynak okuması doğrulanmadı. "
+            "Bilgi kaynağa dayanarak doğrulanmış kabul edilemez."
+        )
     label = _EFFECT_LABELS.get(effect or "", "istenen işlem")
     return (
         f"İşlem tamamlanmadı: {label} için başarılı bir araç çağrısı doğrulanamadı. "

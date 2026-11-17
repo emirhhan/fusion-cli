@@ -360,7 +360,7 @@ def test_zayiflatma_varken_gecen_test_dogrulama_sayilmaz(tmp_path: Path) -> None
     metin = supheli.render()
     assert "ŞÜPHELİ TEST DEĞİŞİKLİĞİ" in metin
     assert "✓ Doğrulandı" not in metin
-    assert "SAYILMAZ" in metin
+    assert "sayılmaz" in metin.casefold()
 
 
 def test_yalniz_dokunus_dogrulamayi_dusurmez_ama_uyarir(tmp_path: Path) -> None:

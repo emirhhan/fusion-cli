@@ -14,6 +14,7 @@ from typing import cast
 
 import yaml
 
+from evals.setup_content import setup_content
 from evals.tasks import (
     CriterionKind,
     EvalSuite,
@@ -140,7 +141,7 @@ def _parse_setup(raw: object) -> dict[str, str]:
         return {}
     if not isinstance(raw, dict):
         raise EvalError("'setup' bir sözlük olmalı: <yol>: <içerik>")
-    return {str(yol): str(icerik) for yol, icerik in raw.items()}
+    return {str(yol): setup_content(icerik) for yol, icerik in raw.items()}
 
 
 def parse_criterion(raw: object) -> SuccessCriterion:

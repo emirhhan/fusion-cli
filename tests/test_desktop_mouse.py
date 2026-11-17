@@ -208,3 +208,12 @@ def test_fare_olayi_konum_ve_tik_sayisini_tasir() -> None:
         assert _field(framework, handle, desktop_mouse._CLICK_STATE_FIELD) == 2
     finally:
         framework.CFRelease(handle)
+
+
+def test_focused_window_rejects_outside_coordinate_before_events(tmp_path, monkeypatch):
+    plans = _izinli(monkeypatch)
+    context = ToolContext(root=tmp_path)
+    context.desktop.frame = DesktopFrame(1000, 800, 0, 0, 1000, 800)
+    context.desktop.focused_window = (42, 350.0, 260.0, 210.0, 380.0)
+    result = desktop_mouse.desktop_click({"x": 200, "y": 200}, context)
+    assert not result.ok and not plans

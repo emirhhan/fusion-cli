@@ -12,8 +12,14 @@ from .desktop_visibility import is_hidden_app
 from .native_desktop import SwiftDesktop
 
 WINDOW_PROPERTIES: dict[str, object] = {
-    "window_id": {"type": "integer", "description": "Pencere listesindeki kararlı kimlik."},
-    "pid": {"type": "integer", "description": "Pencereyi tutan uygulamanın süreç kimliği."},
+    "window_id": {
+        "type": "integer",
+        "description": "desktop_window_focus / desktop_background_windows ile doğrulanan kimlik.",
+    },
+    "pid": {
+        "type": "integer",
+        "description": "Aynı gözlemde window_id ile birlikte dönen süreç kimliği; birlikte kullan.",
+    },
 }
 BACKGROUND_TOOL_SCHEMAS: dict[str, dict[str, object]] = {
     "desktop_background_windows": {
@@ -86,9 +92,58 @@ async def _invoke(
         target["request"] = {"ref": ref, "action": action, "value": value}
     result = await SwiftDesktop().invoke(operation, target)
     if not result.get("ok"):
-        return ToolResult.failure(str(result.get("metin", "Hedef pencereye erişilemedi.")))
+        message = str(result.get("metin", "Hedef pencereye erişilemedi."))
+        checks = result.get("action_checks")
+        if operation == "action" and isinstance(checks, dict):
+            safe_checks = {
+                key: checks[key]
+                for key in (
+                    "tree_complete",
+                    "fingerprint_matches",
+                    "identity_unique",
+                    "path_identity_matches",
+                )
+                if type(checks.get(key)) is bool
+            }
+            raw_kinds = result.get("value_kinds")
+            kinds = raw_kinds if isinstance(raw_kinds, dict) else {}
+            safe_kinds = {
+                key: kinds[key]
+                for key in (
+                    "absent",
+                    "string",
+                    "boolean",
+                    "number",
+                    "ax_value",
+                    "element",
+                    "array",
+                    "other",
+                )
+                if type(kinds.get(key)) is int and 0 <= kinds[key] <= 500
+            }
+            payload = {
+                "ok": False,
+                "metin": message,
+                "action_checks": safe_checks,
+                "value_kinds": safe_kinds,
+            }
+            return ToolResult.failure(json.dumps(payload, ensure_ascii=False), structured=payload)
+        return ToolResult.failure(message)
     if settings is not None:
         _visible_windows(result, settings)
+    windows = result.get("windows")
+    if operation == "list" and isinstance(windows, list):
+        # App icons belong to the native dock, not model/event text. Project
+        # fresh rows so native UI consumers retain their binary metadata.
+        result = {
+            **result,
+            "windows": [
+                {key: value for key, value in row.items() if key != "icon"}
+                if isinstance(row, dict)
+                else row
+                for row in windows
+            ],
+        }
     image = result.pop("image", None)
     content: tuple[ToolContent, ...] = ()
     if isinstance(image, str) and image.startswith("data:image/png;base64,"):

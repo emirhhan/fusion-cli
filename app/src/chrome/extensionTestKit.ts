@@ -18,8 +18,8 @@ export function chromeKit(options: { granted?: (origin: string) => boolean; back
     },
     storage: {
       session: {
-        get: vi.fn(async (key: string | string[]) => {
-          const keys = Array.isArray(key) ? key : [key];
+        get: vi.fn(async (key: string | string[] | null) => {
+          const keys = key === null ? [...session.keys()] : Array.isArray(key) ? key : [key];
           return Object.fromEntries(keys.filter((k) => session.has(k)).map((k) => [k, session.get(k)]));
         }),
         set: vi.fn(async (values: Record<string, unknown>) => {

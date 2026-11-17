@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
 
+from .chrome_command_lease import CommandLease
 from .chrome_devices import LOCAL_DEVICE_ID, BrowserDevices, parse_device
 from .chrome_feed import panel_item
 from .chrome_host import (
@@ -31,6 +32,7 @@ from .chrome_host import (
     read_bridge_state,
     write_bridge_state,
 )
+from .chrome_task_scope import BLOCKED, SCOPE_VERSION, ChromeTaskScope
 
 _LOG = logging.getLogger(__name__)
 
@@ -54,6 +56,10 @@ _REF_IN_OUTPUT = re.compile(r'"ref":\s*"(e\d+)"')
 #: Hatırlanan ref→belge eşlemesinin üst sınırı (uzun oturumda bellek büyümesin).
 _MAX_REF_DOCS = 5_000
 COMMAND_TIMEOUT_SECONDS = 30
+#: İnsan okuma süresi ağ taşıma süresinden ayrıdır; kalıcı task bırakılmaz.
+HUMAN_PERMISSION_TIMEOUT_SECONDS = 300.0
+PERMISSION_HEARTBEAT_TIMEOUT_SECONDS = 5.0
+COMMAND_WAIT_POLL_SECONDS = 0.5
 #: Oturum sekme grubunun kapanışında beklenen en uzun süre (çıkışı geciktirmesin).
 GROUP_CLOSE_TIMEOUT_SECONDS = 3.0
 CONNECTION_STALE_SECONDS = 35
@@ -80,8 +86,8 @@ ELEMENT_NAME_LIMIT = 120
 class ChromeBridge:
     def __init__(
         self,
-        on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
-        on_cancel: Callable[[], dict[str, Any]] | None = None,
+        on_turn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+        on_cancel: Callable[..., dict[str, Any]] | None = None,
         on_answer: Callable[[str, dict[str, Any]], bool] | None = None,
         on_settings: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         installer: Callable[[], Awaitable[dict[str, Any]]] | None = None,
@@ -91,6 +97,7 @@ class ChromeBridge:
         #: Bağlı tarayıcılar ve her birinin komut kuyruğu (#432).
         self._devices = BrowserDevices()
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._command_leases: dict[str, CommandLease] = {}
         self._token = ""
         self._port = 0
         self._connected = False
@@ -105,6 +112,10 @@ class ChromeBridge:
         #: Yan panelin canlı akışı: adımlar, sorular, tur başı/sonu (bkz. `chrome_feed`).
         self._feed: list[dict[str, Any]] = []
         self._feed_seq = 0
+        self._panel_turn_id: str | None = None
+        self._questions: dict[str, dict[str, Any]] = {}
+        self._switch_question_id: str | None = None
+        self._switch_lock = asyncio.Lock()
         self._feed_changed = asyncio.Event()
         #: Son `describe` sonuçları (ref → öğe adı); izin kartı adı gösterir.
         self._element_names: dict[str, str] = {}
@@ -135,6 +146,7 @@ class ChromeBridge:
             "anahtar": self._token if self.running and reveal_token else None,
             # Yeni açılan panel eski turları baştan oynatmasın diye akışın ucu.
             "son": self._feed_seq,
+            "sorular": list(self._questions.values()),
             "tarayicilar": self._devices.describe(),
             "secili": self._devices.selected,
         }
@@ -163,12 +175,47 @@ class ChromeBridge:
         return None if device is None else {"deviceId": device.device_id, "name": device.name}
 
     async def request_switch(self, wait_s: float) -> dict[str, Any] | None:
-        """Claude `switch_browser`: bütün panellere bağlanma isteği yayar, seçimi bekler."""
-        self.publish({"tur": "tarayici_sec", "metin": "Fusion'ın kullanacağı tarayıcıyı seç."})
-        chosen = await self._devices.wait_switch(wait_s)
-        if chosen is None:
-            return None
-        return next((b for b in self._devices.describe() if b["deviceId"] == chosen), None)
+        """Tarayıcı seçimi bütün yüzeylerde aynı kimlikli, sahipli pending sorudur."""
+        async with self._switch_lock:
+            identifier = f"tarayici-sec-{secrets.token_urlsafe(12)}"
+            self._switch_question_id = identifier
+            self.publish(
+                {
+                    "tur": "tarayici_sec",
+                    "id": identifier,
+                    "veri": {
+                        "tur": "soru",
+                        "tarayici_sec": True,
+                        "soru": "Fusion bu tarayıcıyı kullansın mı?",
+                        "secenekler": [
+                            {
+                                "etiket": "Bu tarayıcıyı kullan",
+                                "aciklama": "Komutlar bundan sonra bu tarayıcıya gider",
+                            }
+                        ],
+                    },
+                }
+            )
+            try:
+                chosen = await self._devices.wait_switch(wait_s)
+                return next(
+                    (
+                        browser
+                        for browser in self._devices.describe()
+                        if browser["deviceId"] == chosen
+                    ),
+                    None,
+                )
+            finally:
+                self._switch_question_id = None
+                self.publish({"tur": "soru_kapandi", "id": identifier})
+
+    def _select(self, body: dict[str, Any]) -> dict[str, Any]:
+        identifier = body.get("soru_id")
+        if identifier is not None and identifier != self._switch_question_id:
+            return {"ok": False, "hata": "Tarayıcı seçim sorusu artık etkin değil."}
+        chosen = self.select_browser(parse_device(body)[0])
+        return {"ok": chosen is not None, "tarayici": chosen}
 
     async def start(self) -> dict[str, Any]:
         # Başlatma ve kapatma sıralanır. Ölçüldü (27 Eylül): sekmeler geri yüklenirken
@@ -221,6 +268,8 @@ class ChromeBridge:
             if not future.done():
                 future.set_exception(ConnectionError("Chrome bağlantısı kapandı."))
         self._pending.clear()
+        self._command_leases.clear()
+        self._questions.clear()
         self._devices.close()
         self._connected = False
         self._last_seen = 0.0
@@ -242,8 +291,20 @@ class ChromeBridge:
         self._publish_now(item)
 
     def _publish_now(self, item: dict[str, Any]) -> None:
+        if item.get("tur") == "basladi":
+            self._panel_turn_id = item.get("turnId")
+        if self._panel_turn_id is not None:
+            item = {"turnId": self._panel_turn_id, **item}
+        if item.get("tur") in {"soru", "tarayici_sec"} and isinstance(item.get("id"), str):
+            self._questions[item["id"]] = dict(item)
+        elif item.get("tur") == "soru_kapandi":
+            self._questions.pop(item.get("id", ""), None)
+        elif item.get("tur") == "bitti":
+            self._questions.clear()
         self._feed_seq += 1
         self._feed.append({"seq": self._feed_seq, **item})
+        if item.get("tur") == "bitti" and item.get("turnId") == self._panel_turn_id:
+            self._panel_turn_id = None
         del self._feed[:-FEED_LIMIT]
         changed, self._feed_changed = self._feed_changed, asyncio.Event()
         changed.set()
@@ -265,7 +326,12 @@ class ChromeBridge:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._feed_changed.wait(), EVENTS_WAIT_SECONDS)
         items = [item for item in self._feed if item["seq"] > start]
-        return {"ok": True, "olaylar": items, "son": self._feed_seq}
+        return {
+            "ok": True,
+            "olaylar": items,
+            "son": self._feed_seq,
+            "sorular": list(self._questions.values()),
+        }
 
     def _answer(self, body: dict[str, Any]) -> dict[str, Any]:
         identifier = body.get("id")
@@ -279,7 +345,11 @@ class ChromeBridge:
             for key, value in data.items()
             if key in ANSWER_FIELDS and isinstance(value, str)
         }
-        return {"ok": self._on_answer(identifier, clean)}
+        accepted = self._on_answer(identifier, clean)
+        if accepted:
+            self._questions.pop(identifier, None)
+            return {"ok": True}
+        return {"ok": False, "hata": "Bu soru artık yanıt kabul etmiyor. Güncel soruyu kontrol et."}
 
     def element_name(self, ref: object) -> str | None:
         """Tıklamadan önce okunan öğe adı; bilinmiyorsa `None`."""
@@ -301,34 +371,126 @@ class ChromeBridge:
                 kind = str(veri.get("role") or veri.get("tag") or "öğe")[:40]
                 self._element_names[ref] = f"adı okunamayan {kind}"
 
-    async def invoke(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def invoke(
+        self, operation: str, args: dict[str, Any], *, task_scope: ChromeTaskScope | None = None
+    ) -> dict[str, Any]:
+        if task_scope is not None and not task_scope.allows(operation, args):
+            return {"ok": False, "hata": BLOCKED, "neden_kodu": "task_scope"}
         if not self.running:
             raise ConnectionError(
                 "Chrome eklentisi bağlı değil. Ayarlar > Tarayıcı bölümünden bağla."
             )
+        target = None
+        if task_scope is not None:
+            target = next(
+                (d for d in self._devices.connected() if d.device_id == task_scope.device_id), None
+            )
+            if target is None:
+                return {"ok": False, "hata": "Görevin başlangıçtaki tarayıcı bağlantısı koptu."}
         if not self.status()["bagli"]:
             # Tek uçuşlu bağlanma: paralel araç çağrıları Chrome'u / kılavuzlu kurulumu
             # birer kez değil, her biri ayrı ayrı başlatıyordu.
             async with self._connect_lock:
                 if not self.status()["bagli"]:
                     await self._connect_browser()
-        target = self._devices.target()
+        if task_scope is None:
+            target = self._devices.target()
         identifier = secrets.token_urlsafe(12)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[identifier] = future
         args = self._with_ref_doc(args)
         device_id = target.device_id if target is not None else LOCAL_DEVICE_ID
-        await self._devices.queue(device_id).put(
-            {"id": identifier, "islem": operation, "veri": args}
+        self._command_leases[identifier] = CommandLease(
+            device_id, time.monotonic() + COMMAND_TIMEOUT_SECONDS
         )
+        command = {"id": identifier, "islem": operation, "veri": args}
+        if task_scope is not None:
+            command["taskScope"] = task_scope.packet()
+        await self._devices.queue(device_id).put(command)
         try:
-            result = await asyncio.wait_for(future, COMMAND_TIMEOUT_SECONDS)
+            result = await self._await_command(identifier, future)
         finally:
             self._pending.pop(identifier, None)
+            self._command_leases.pop(identifier, None)
+            if not future.done():
+                future.cancel()
         if operation == "describe":
             self._remember_element(args, result)
         self._remember_ref_docs(result)
         return result
+
+    async def _await_command(
+        self,
+        identifier: str,
+        future: asyncio.Future[dict[str, Any]],
+    ) -> dict[str, Any]:
+        lease = self._command_leases[identifier]
+        while not future.done():
+            remaining = lease.remaining(
+                time.monotonic(),
+                human_timeout=HUMAN_PERMISSION_TIMEOUT_SECONDS,
+                heartbeat_timeout=PERMISSION_HEARTBEAT_TIMEOUT_SECONDS,
+            )
+            if remaining <= 0:
+                raise TimeoutError("Tarayıcı komutu ağ süresinde yanıt vermedi.")
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.shield(future), min(remaining, COMMAND_WAIT_POLL_SECONDS)
+                )
+        return future.result()
+
+    def _progress(self, body: dict[str, Any], device_id: str) -> dict[str, Any]:
+        """İnsan bekleme bildirimi yalnız kendi canlı komutunu uzatabilir."""
+        identifier, wait_id = body.get("id"), body.get("bekleme_id")
+        lease = self._command_leases.get(identifier) if isinstance(identifier, str) else None
+        future = self._pending.get(identifier) if isinstance(identifier, str) else None
+        if (
+            lease is None
+            or future is None
+            or future.done()
+            or lease.device_id != device_id
+            or not isinstance(wait_id, str)
+            or not wait_id
+            or len(wait_id) > 64
+        ):
+            return {
+                "ok": False,
+                "aktif": False,
+                "hata": "Komut artık etkin değil veya bu tarayıcıya ait değil.",
+            }
+        now = time.monotonic()
+        try:
+            remaining = lease.remaining(
+                now,
+                human_timeout=HUMAN_PERMISSION_TIMEOUT_SECONDS,
+                heartbeat_timeout=PERMISSION_HEARTBEAT_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            return {"ok": False, "aktif": False, "hata": "Komutun bekleme süresi doldu."}
+        if remaining <= 0:
+            return {"ok": False, "aktif": False, "hata": "Komutun ağ süresi doldu."}
+        state = body.get("durum")
+        if state == "permission_wait" and (
+            not lease.permission_id or lease.permission_id == wait_id
+        ):
+            if not lease.permission_id:
+                lease.permission_id, lease.human_started = wait_id, now
+            lease.last_progress = now
+        elif state == "permission_done" and lease.permission_id == wait_id:
+            lease.permission_id = ""
+            lease.network_deadline = now + COMMAND_TIMEOUT_SECONDS
+        else:
+            return {
+                "ok": False,
+                "aktif": True,
+                "hata": "İzin bekleme kimliği veya durumu geçersiz.",
+            }
+        name = next(
+            (device.name for device in self._devices.connected() if device.device_id == device_id),
+            "Chrome",
+        )
+        self._mark_command_channel_alive(device_id, name)
+        return {"ok": True, "aktif": True}
 
     async def close_tab_group(self, *, only_empty: bool) -> int:
         """Oturumun "Fusion" sekme grubunu kapat (#436); eklenti bağlı değilse 0.
@@ -451,13 +613,25 @@ class ChromeBridge:
             if method == "GET" and target == "/status":
                 result: dict[str, Any] = self.status()
             elif method == "POST" and target == "/poll":
-                result = await self._poll(*parse_device(body))
+                result = await self._poll(
+                    *parse_device(body), task_scope_version=body.get("taskScopeVersion")
+                )
+            elif method == "POST" and target == "/progress":
+                result = self._progress(body, parse_device(body)[0])
             elif method == "POST" and target == "/result":
                 self._mark_command_channel_alive(*parse_device(body))
                 identifier = body.get("id")
                 future = self._pending.get(identifier) if isinstance(identifier, str) else None
-                if future is None or future.done():
-                    result = {"ok": False, "hata": "Komut bulunamadı."}
+                lease = (
+                    self._command_leases.get(identifier) if isinstance(identifier, str) else None
+                )
+                if (
+                    future is None
+                    or future.done()
+                    or lease is None
+                    or lease.device_id != parse_device(body)[0]
+                ):
+                    result = {"ok": False, "hata": "Komut bulunamadı veya başka tarayıcıya ait."}
                 else:
                     future.set_result(body)
                     result = {"ok": True}
@@ -465,9 +639,29 @@ class ChromeBridge:
                 prompt = body.get("prompt")
                 if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
                     raise ValueError("Geçersiz görev metni")
-                result = await self._on_turn(prompt.strip())
+                turn_id = body.get("turnId")
+                if turn_id is not None and (
+                    not isinstance(turn_id, str) or not turn_id.strip() or len(turn_id) > 200
+                ):
+                    raise ValueError("Geçersiz görev kimliği")
+                if "target" in body:
+                    raw_target = body["target"]
+                    if not isinstance(raw_target, dict):
+                        raise ValueError("Geçersiz başlangıç sekmesi")
+                    initial_target = {
+                        key: raw_target.get(key) for key in ("tabId", "url", "scopeVersion")
+                    }
+                    initial_target["deviceId"] = parse_device(body)[0]
+                    result = await self._on_turn(prompt.strip(), turn_id, target=initial_target)
+                else:
+                    result = (
+                        await self._on_turn(prompt.strip(), turn_id)
+                        if turn_id is not None
+                        else await self._on_turn(prompt.strip())
+                    )
             elif method == "POST" and target == "/cancel" and self._on_cancel is not None:
-                result = self._on_cancel()
+                turn_id = body.get("turnId")
+                result = self._on_cancel(turn_id) if isinstance(turn_id, str) else self._on_cancel()
             elif method == "POST" and target == "/events":
                 result = await self._events(body.get("after"))
             elif method == "POST" and target == "/answer":
@@ -475,13 +669,20 @@ class ChromeBridge:
             elif method == "POST" and target == "/settings" and self._on_settings is not None:
                 allowed = {
                     key: body[key]
-                    for key in ("model", "kaynak", "mod", "yeni", "bypass_onay")
+                    for key in (
+                        "model",
+                        "kaynak",
+                        "mod",
+                        "yeni",
+                        "bypass_onay",
+                        "izinler",
+                        "izin_sil",
+                    )
                     if key in body
                 }
                 result = await self._on_settings(allowed)
             elif method == "POST" and target == "/select":
-                chosen = self.select_browser(parse_device(body)[0])
-                result = {"ok": chosen is not None, "tarayici": chosen}
+                result = self._select(body)
             elif method == "POST" and target == "/disconnect":
                 self._devices.forget(parse_device(body)[0])
                 if not self._devices.connected():
@@ -505,7 +706,9 @@ class ChromeBridge:
             with contextlib.suppress(OSError):
                 await writer.wait_closed()
 
-    async def _poll(self, device_id: str, name: str) -> dict[str, Any]:
+    async def _poll(
+        self, device_id: str, name: str, *, task_scope_version: object = None
+    ) -> dict[str, Any]:
         """Cihazın kendi kuyruğundan bir komut (yoksa 20 sn sonra boş yanıt)."""
         self._mark_command_channel_alive(device_id, name)
         queue = self._devices.queue(device_id)
@@ -518,6 +721,19 @@ class ChromeBridge:
                 result = queue.get_nowait()
             except asyncio.QueueEmpty:
                 result = {}
+        if "taskScope" in result and (
+            type(task_scope_version) is not int or task_scope_version != SCOPE_VERSION
+        ):
+            future = self._pending.get(result["id"])
+            if future is not None and not future.done():
+                future.set_result(
+                    {
+                        "ok": False,
+                        "hata": "Görev kapsamı için Chrome eklentisini yenileyip tekrar gönder.",
+                        "neden_kodu": "task_scope",
+                    }
+                )
+            return {}
         return result
 
     @staticmethod

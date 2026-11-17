@@ -224,14 +224,14 @@ async def test_sohbet_kipi_proje_taramasini_zorunlu_kilmaz(tmp_path):
     """ "merhaba" bir keşif turu başlatmamalı.
 
     Kullanıcı boş bir sohbette "merhaba" yazdı ve Fusion "önce proje yapısını
-    görmek üzere dosya listesini alıyorum" diye başladı. Sebep: agent sistem
-    istemi Fusion'ı "çalışma dizininde iş yapan mühendis" olarak tanımlıyor.
-    Sohbet kipi ayrı bir kimlik kullanır; kod kipi eskisi gibi kalır.
+    görmek üzere dosya listesini alıyorum" diye başladı. Eski agent kimliği
+    çalışma dizinindeki mühendislik işlerine odaklanıyordu. Güncel çalışma
+    kimliği genel görevlere hizmet eder; sohbet kimliği yine ayrıdır ve
+    kendiliğinden proje taraması istemez.
     """
     from fusion_cli.engines.agent.loop import CHAT_SYSTEM_PROMPT, SYSTEM_PROMPT
 
-    assert "çalışma dizininde gerçek iş yaparsın" in SYSTEM_PROMPT
-    assert "çalışma dizininde gerçek iş yaparsın" not in CHAT_SYSTEM_PROMPT
+    assert SYSTEM_PROMPT != CHAT_SYSTEM_PROMPT
     assert "kendiliğinden çalışma dizinini taramaz" in CHAT_SYSTEM_PROMPT
     # Sohbet kipi onay sözleşmesini GEVŞETMEZ; bu açıkça yazılı olmalı.
     assert "onay sözleşmesine tabidir" in CHAT_SYSTEM_PROMPT

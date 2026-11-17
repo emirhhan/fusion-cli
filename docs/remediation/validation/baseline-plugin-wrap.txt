@@ -1,0 +1,65 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+__________________ test_validate_eklenti_uyari_strict_ve_json __________________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-227/test_validate_eklenti_uyari_st0')
+
+    def test_validate_eklenti_uyari_strict_ve_json(tmp_path):
+        root = _plugin(tmp_path / "p", "Rapor_Araci")
+        (root / "CLAUDE.md").write_text("x", encoding="utf-8")
+
+        loose = runner.invoke(app, ["validate", str(root)])
+        assert loose.exit_code == 0, loose.output
+        assert "Doğrulama uyarılarla başarılı" in loose.output
+>       assert "description alanı yok" in loose.output and "CLAUDE.md" in loose.output
+E       AssertionError: assert ('description alanı yok' in 'Eklenti bildirimi doğrulanıyor: \n/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pyte\ns...in.json: eklenti \nkökünde CLAUDE.md var; Claude Code eklentiden CLAUDE.md yüklemez\n✔ Doğrulama uyarılarla başarılı\n')
+E        +  where 'Eklenti bildirimi doğrulanıyor: \n/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pyte\ns...in.json: eklenti \nkökünde CLAUDE.md var; Claude Code eklentiden CLAUDE.md yüklemez\n✔ Doğrulama uyarılarla başarılı\n' = <Result okay>.output
+
+tests/test_plugin_scopes.py:214: AssertionError
+____________ test_workflows_ve_mods_desteklenmiyor_diye_raporlanir _____________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-227/test_workflows_ve_mods_destekl0')
+
+    def test_workflows_ve_mods_desteklenmiyor_diye_raporlanir(tmp_path):
+        root = _plugin(tmp_path / "p")
+        (root / "workflows").mkdir()
+        (root / "workflows" / "yayinla.js").write_text("export default 1", encoding="utf-8")
+        (root / "hooks").mkdir()
+        (root / "hooks" / "hooks.json").write_text(
+            json.dumps({"hooks": {}, "modules": ["./mod.js"]}), encoding="utf-8"
+        )
+        result = runner.invoke(app, ["validate", str(root)])
+>       assert "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor" in result.output
+E       assert "workflows/ (Claude iş akışları) Fusion'da desteklenmiyor" in 'Eklenti bildirimi doğrulanıyor: \n/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pyte\ns...27/test_workflows_ve_mods_destekl0/p/.claude-plugin/plugin.json: author \nalanı yok\n✔ Doğrulama uyarılarla başarılı\n'
+E        +  where 'Eklenti bildirimi doğrulanıyor: \n/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pyte\ns...27/test_workflows_ve_mods_destekl0/p/.claude-plugin/plugin.json: author \nalanı yok\n✔ Doğrulama uyarılarla başarılı\n' = <Result okay>.output
+
+tests/test_plugin_scopes.py:257: AssertionError
+_________ test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir __________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-227/test_validate_girdi_surumu_plu0')
+
+    def test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir(tmp_path):
+        """Claude: `Entry declares version "x" but <yol>/plugin.json says "y"…` uyarısı (#398)."""
+        market = tmp_path / "pazar"
+        (market / ".claude-plugin").mkdir(parents=True)
+        _plugin(market / "plugins" / "rapor")  # plugin.json version 1.0.0
+        entry = {"name": "rapor", "source": "./plugins/rapor", "version": "2.0.0"}
+        (market / ".claude-plugin" / "marketplace.json").write_text(
+            json.dumps(
+                {"name": "ekip", "owner": {"name": "E"}, "description": "d", "plugins": [entry]}
+            ),
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["validate", str(market)])
+        assert result.exit_code == 0, result.output
+        assert 'Entry declares version "2.0.0" but' in result.output
+>       assert 'plugin.json says "1.0.0". At install time, plugin.json wins' in result.output
+E       assert 'plugin.json says "1.0.0". At install time, plugin.json wins' in 'Pazar bildirimi doğrulanıyor: \n/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pyte\nst-.../rapor/.claude-plugin/plugin\n.json says "1.0.0". At install time, plugin.json wins\n✔ Doğrulama uyarılarla başarılı\n'
+E        +  where 'Pazar bildirimi doğrulanıyor: \n/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pyte\nst-.../rapor/.claude-plugin/plugin\n.json says "1.0.0". At install time, plugin.json wins\n✔ Doğrulama uyarılarla başarılı\n' = <Result okay>.output
+
+tests/test_plugin_scopes.py:276: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_plugin_scopes.py::test_validate_eklenti_uyari_strict_ve_json
+FAILED tests/test_plugin_scopes.py::test_workflows_ve_mods_desteklenmiyor_diye_raporlanir
+FAILED tests/test_plugin_scopes.py::test_validate_girdi_surumu_plugin_json_ile_celisirse_uyarir
+3 failed, 12 deselected in 3.59s

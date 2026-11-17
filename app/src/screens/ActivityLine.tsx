@@ -58,7 +58,7 @@ export function useElapsedSeconds(running: boolean, baslangicZamani: number | un
   return Math.floor((Date.now() - baslangicZamani) / TICK_MS);
 }
 
-function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
+export function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
   return (
     <details className="activity__steps">
       <summary>{adimlar.length} adım · detaylar</summary>
@@ -95,7 +95,7 @@ const DURUM_ADI: Record<string, string> = {
 };
 
 /** Adımın açılınca gösterdiği kanıt: diff, komut ve çıktı. Akışta görünmez. */
-function StepDetail({ adim }: { adim: OlayAdimi }) {
+function StepDetail({ adim, showThinking = false }: { adim: OlayAdimi; showThinking?: boolean }) {
   return (
     <div className="activity__trail-body">
       {adim.ayrinti && !adim.arac && <p className="activity__trail-note">{adim.ayrinti}</p>}
@@ -108,42 +108,37 @@ function StepDetail({ adim }: { adim: OlayAdimi }) {
         </pre>
       )}
       {adim.cikti && <pre className="activity__trail-output">{adim.cikti}</pre>}
+      {showThinking && adim.dusunme && <pre className="activity__step-thinking">{adim.dusunme}</pre>}
     </div>
   );
 }
 
-/** Adımın açılacak bir ayrıntısı var mı? Yoksa satır düz kalır, › çizilmez. */
-function acilabilir(adim: OlayAdimi): boolean {
-  return Boolean(adim.diff || adim.cikti || adim.komut || (!adim.arac && adim.ayrinti));
+/** Her işlem açılabilir; eksik kanıt başarı gibi sunulmaz. */
+export function ActivityStep({ adim, expanded, onExpandedChange, stepId, showThinking = false }: {
+  adim: OlayAdimi;
+  expanded?: boolean;
+  onExpandedChange?: (open: boolean) => void;
+  stepId?: string;
+  showThinking?: boolean;
+}) {
+  const hasDetail = Boolean(adim.diff || adim.cikti || adim.komut || (!adim.arac && adim.ayrinti) || (showThinking && adim.dusunme));
+  return <li data-state={adim.durum ?? (adim.kalici ? "ok" : "running")}>
+    <details className="activity__trail-item" data-step-id={stepId} open={expanded}>
+      <summary onClick={onExpandedChange ? event => { event.preventDefault(); onExpandedChange(!expanded); } : undefined}>
+        <span className="activity__trail-text">{adim.metin}</span>
+        {adim.durum && <span aria-label={DURUM_ADI[adim.durum] ?? adim.durum} className="activity__trail-mark" role="img">{DURUM_ISARETI[adim.durum] ?? "?"}</span>}
+      </summary>
+      {hasDetail ? <StepDetail adim={adim} showThinking={showThinking} /> : <p className="activity__trail-note activity__trail-body">{adim.basladi
+        ? "İşlem sürüyor; çıktı henüz gelmedi." : "Bu işlem için ek ayrıntı yok."}</p>}
+    </details>
+  </li>;
 }
 
 /** Claude'daki gibi kalıcı adım izi: her adım tek satır, tıklayınca açılır. */
 export function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
   return (
     <ol className="activity__trail">
-      {adimlar.map((adim, index) => {
-        const isaret = adim.durum && (
-          <span aria-label={DURUM_ADI[adim.durum]} className="activity__trail-mark" role="img">{DURUM_ISARETI[adim.durum] ?? ""}</span>
-        );
-        return (
-          <li data-state={adim.durum ?? (adim.kalici ? "ok" : "running")} key={index}>
-            {acilabilir(adim) ? (
-              <details className="activity__trail-item">
-                <summary>
-                  <span className="activity__trail-text">{adim.metin}</span>
-                  {isaret}
-                </summary>
-                <StepDetail adim={adim} />
-              </details>
-            ) : (
-              <>
-                <span className="activity__trail-text">{adim.metin}</span>
-                {isaret}
-              </>
-            )}
-          </li>
-        );
-      })}
+      {adimlar.map((adim, index) => <ActivityStep adim={adim} key={index} />)}
     </ol>
   );
 }
@@ -167,6 +162,8 @@ function ToolSummary({ adimlar }: { adimlar: OlayAdimi[] }) {
 
 export interface ActivityLineProps {
   compact?: boolean;
+  /** Tur seviyesindeki panel araç izini zaten gösteriyorsa yalnız durum çizilir. */
+  hideTrail?: boolean;
   /** Bu blok turun o an çalışan son bloğu mu? Değilse iz olarak çizilir. */
   aktif?: boolean;
   adimlar: OlayAdimi[];
@@ -179,7 +176,7 @@ export interface ActivityLineProps {
 }
 
 export function ActivityLine({
-  adimlar, aktif = true, baslangicZamani, showSteps = false, tokenSayisi, compact = false,
+  adimlar, aktif = true, baslangicZamani, showSteps = false, tokenSayisi, compact = false, hideTrail = false,
 }: ActivityLineProps) {
   const durum = activityState(adimlar);
   const running = durum === "running" && aktif;
@@ -195,7 +192,7 @@ export function ActivityLine({
     const bitenler = sonuncu?.basladi && araclar[araclar.length - 1] === sonuncu ? araclar.slice(0, -1) : araclar;
     // Biten araç zaten izde durur; canlı satır onu tekrar etmez, modelin sıradaki
     // adımı düşündüğünü söyler.
-    const canli = sonuncu && (sonuncu.basladi || !sonuncu.arac) ? sonuncu.metin : "Düşünüyor";
+    const canli = hideTrail && sonuncu?.arac ? "Çalışıyor" : sonuncu && (sonuncu.basladi || !sonuncu.arac) ? sonuncu.metin : "Düşünüyor";
     // Claude'un durum satırı: "9m 14s · 2.0k tokens · Running tools…". Ham
     // saniye ("1313 sn") okunmuyordu; süre dakika/saat olarak yazılır.
     const olculer = [
@@ -204,7 +201,7 @@ export function ActivityLine({
     ].filter(Boolean).join(" · ");
     return (
       <div className="activity" data-state="running">
-        {bitenler.length > 0 && (compact ? <ToolTrail adimlar={bitenler} /> : <ToolSummary adimlar={bitenler} />)}
+        {!hideTrail && bitenler.length > 0 && (compact ? <ToolTrail adimlar={bitenler} /> : <ToolSummary adimlar={bitenler} />)}
         <div className="activity__now">
           <span aria-hidden="true" className="activity__spark">✳</span>
           <span className="activity__pulse">{ilkHarfBuyuk(canli ?? "Çalışıyor")}…</span>
@@ -218,11 +215,11 @@ export function ActivityLine({
   if (durum === "completed" || durum === "running") {
     if (showSteps && adimlar.length > 0) {
       return <div className="activity" data-state="completed">
-        {compact && araclar.length > 0 && <ToolTrail adimlar={araclar} />}
+        {!hideTrail && compact && araclar.length > 0 && <ToolTrail adimlar={araclar} />}
         <StepList adimlar={adimlar} />
       </div>;
     }
-    return araclar.length > 0 ? (
+    return !hideTrail && araclar.length > 0 ? (
       <div className="activity" data-state="completed">{compact ? <ToolTrail adimlar={araclar} /> : <ToolSummary adimlar={araclar} />}</div>
     ) : null;
   }
@@ -231,7 +228,7 @@ export function ActivityLine({
   // `role="status"` taşırken ekran okuyucu aynı sonucu iki kez okuyordu.
   return (
     <div className="activity" data-state={durum}>
-      {compact && araclar.length > 0 && <ToolTrail adimlar={araclar} />}
+      {!hideTrail && compact && araclar.length > 0 && <ToolTrail adimlar={araclar} />}
       <span className="activity__result">{SONUC_METNI[durum]}</span>
       {sonuncu?.ayrinti && <span className="activity__detail">{sonuncu.ayrinti}</span>}
       {showSteps && adimlar.length > 0 && <StepList adimlar={adimlar} />}

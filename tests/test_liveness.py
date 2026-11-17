@@ -39,19 +39,19 @@ def _yoklama(*cevaplar):
 
 
 async def test_sessizlikte_saglıksiz_yoklama_nedeni_doner():
-    ping, sayac = _yoklama("Service temporarily overloaded")
+    ping, sayac = _yoklama("yoklama bağlantı hatası: ConnectionRefusedError")
 
     neden = await asyncio.wait_for(liveness.watch(lambda: 0, ping), 2)
 
-    assert neden == "Service temporarily overloaded" and sayac["n"] == 1
+    assert neden == "yoklama bağlantı hatası: ConnectionRefusedError" and sayac["n"] == 1
 
 
 async def test_saglikli_sunucu_yeniden_yoklanir_sonra_cokerse_yakalanir():
-    ping, sayac = _yoklama(None, None, "yoklamaya 30 sn içinde cevap yok")
+    ping, sayac = _yoklama(None, None, "yoklama bağlantı hatası: ConnectionRefusedError")
 
     neden = await asyncio.wait_for(liveness.watch(lambda: 0, ping), 2)
 
-    assert "cevap yok" in neden and sayac["n"] == 3
+    assert "ConnectionRefusedError" in neden and sayac["n"] == 3
 
 
 async def test_parca_gelen_akista_yoklama_yapilmaz():
@@ -90,7 +90,7 @@ class _AsiliSaglayici:
 async def test_saglıksiz_sunucuda_asili_cagri_kesilir_ve_yeniden_denenir(monkeypatch, tmp_path):
     sink = RecordingSink()
     saglayici = _kur(monkeypatch, _AsiliSaglayici())
-    ping, _ = _yoklama("Service temporarily overloaded")
+    ping, _ = _yoklama("yoklama bağlantı hatası: ConnectionRefusedError")
     monkeypatch.setattr(liveness, "ping_for", lambda spec: ping)
 
     sonuc = await asyncio.wait_for(
@@ -99,7 +99,9 @@ async def test_saglıksiz_sunucuda_asili_cagri_kesilir_ve_yeniden_denenir(monkey
 
     durumlar = [e.message for e in sink.events if isinstance(e, StatusChanged)]
     assert sonuc.ok and saglayici.cagri == 2
-    assert any("sunucu sağlıksız (Service temporarily overloaded)" in d for d in durumlar)
+    assert any(
+        "sunucu sağlıksız (yoklama bağlantı hatası: ConnectionRefusedError)" in d for d in durumlar
+    )
 
 
 async def test_saglikli_sunucuda_sessiz_cagri_beklenir(monkeypatch, tmp_path):

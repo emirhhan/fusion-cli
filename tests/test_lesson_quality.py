@@ -461,7 +461,7 @@ async def test_ogrenme_adimi_celisen_eski_dersin_guvenini_dusurur(monkeypatch):
     from fusion_cli.engines.agent import learning_steps
 
     eski = _lesson("multi_edit araci kullan")
-    yeni = _lesson("multi_edit araci kullanma")
+    yeni = _lesson("multi_edit araci kullanma", kind=LessonKind.MISTAKE)
     reinforce_cagrilari: list[tuple[tuple[str, ...], bool]] = []
 
     class _Bellek:
@@ -496,7 +496,7 @@ async def test_ogrenme_adimi_celisen_eski_dersin_guvenini_dusurur(monkeypatch):
     monkeypatch.setattr(learning_steps, "lesson_tags", lambda deps: ())
 
     await learning_steps._extract_and_store(
-        "gorev", [Message("tool", "ok", tool_call_id="1")], deps
+        "gorev", [Message("tool", "unknown option", tool_call_id="1", ok=False)], deps
     )
 
     assert reinforce_cagrilari == [((eski.text,), False)]

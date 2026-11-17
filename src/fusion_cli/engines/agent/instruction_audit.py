@@ -25,6 +25,7 @@ from .instruction_layers import (
     read_text_limited,
 )
 from .instruction_rules import discover_rules
+from .project_instructions import load_startup_instruction_files
 
 #: `/init` hedefleri ve varsayılan (CLAUDE.md; #155) `init_prompt`'ta.
 INIT_TARGETS = init_prompt.INIT_TARGETS
@@ -68,6 +69,7 @@ class InstructionAudit:
     notes: tuple[str, ...]
     suspicious: tuple[SuspiciousLine, ...]
     suggestions: tuple[str, ...]
+    trimmed_chars_exact: bool = True
 
 
 def audit_instructions(
@@ -78,7 +80,7 @@ def audit_instructions(
     max_chars: int = TOTAL_MAX_CHARS,
 ) -> InstructionAudit:
     """Tur başında bağlama girecek talimatları ölç ve öneri üret; dosya yazmaz."""
-    load = load_instruction_layers(root, home, merge=merge, max_chars=max_chars)
+    load = load_startup_instruction_files(root, home, merge=merge, max_chars=max_chars)
     rules = discover_rules(root, home) if merge else ()
     total = sum(item.chars for item in load.files)
     suspicious = tuple(_scan_suspicious(item) for item in load.files if not item.trusted)
@@ -116,6 +118,7 @@ def audit_instructions(
         notes=load.notes,
         suspicious=flat,
         suggestions=tuple(suggestions),
+        trimmed_chars_exact=load.trimmed_chars_exact,
     )
 
 
@@ -151,12 +154,24 @@ def render_audit(audit: InstructionAudit) -> str:
     lines = [
         f"Talimat denetimi: {len(audit.files)} dosya, {audit.rules} kural dosyası, "
         f"{audit.total_chars}/{audit.budget} karakter"
-        + (f", {audit.trimmed_chars} kırpıldı" if audit.trimmed_chars else "")
+        + (
+            f", en az {audit.trimmed_chars} kırpıldı (kesin sayı bilinmiyor)"
+            if not audit.trimmed_chars_exact
+            else f", {audit.trimmed_chars} kırpıldı"
+            if audit.trimmed_chars
+            else ""
+        )
         + "."
     ]
     for item in audit.files:
         etiket = "güvenilir" if item.trusted else "depo içeriği"
-        ek = f", {item.trimmed} kırpıldı" if item.trimmed else ""
+        ek = (
+            f", en az {item.trimmed} kırpıldı (kesin sayı bilinmiyor)"
+            if not item.trimmed_exact
+            else f", {item.trimmed} kırpıldı"
+            if item.trimmed
+            else ""
+        )
         lines.append(f"  · {item.label} [{item.layer}, {etiket}] {item.chars} karakter{ek}")
     for note in audit.notes:
         lines.append(f"  ! {note}")

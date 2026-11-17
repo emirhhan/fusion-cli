@@ -158,6 +158,8 @@ namespace FusionListen
 
             try
             {
+                recognizer.EndSilenceTimeout = TimeSpan.FromMilliseconds(2100);
+                recognizer.EndSilenceTimeoutAmbiguous = TimeSpan.FromMilliseconds(3300);
                 recognizer.LoadGrammar(new DictationGrammar());
                 recognizer.SpeechDetected += (_, __) => StartSpeech();
                 recognizer.SpeechHypothesized += (_, eventArgs) =>

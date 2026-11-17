@@ -54,7 +54,7 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
   // Ölçüldü (29 Ekim, U2-36): okuma başarısızken metin boş kalıyordu ve Kaydet, mevcut
   // talimatın üzerine boş/yeni metni yazabiliyordu. Yüklenmeden düzenleme/kaydetme kapalı.
   const [loaded, setLoaded] = useState(false);
-  // Tur başında bağlama giren talimat katmanları (~/.claude/CLAUDE.md, CLAUDE.md, kurallar…).
+  // Başlangıç talimatları ve dosya erişiminde etkinleşen kapsamlı kurallar.
   const [layers, setLayers] = useState<InstructionLayer[]>([]);
   const [layerNotes, setLayerNotes] = useState<string[]>([]);
   // `/doctor prompt` önerileri (P-021): kırpma, şüpheli satır, eksik doğrulama bölümü.
@@ -166,7 +166,7 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
       {notice && <p className="settings__hint" role="status">{notice}</p>}
       {layers.length === 0 ? (
         <>
-          <h4 className="instructions__layers-title">Tur başında yüklenen talimat dosyaları</h4>
+          <h4 className="instructions__layers-title">Talimat dosyaları ve kurallar</h4>
           <p className="settings__hint">
             Bu klasörde CLAUDE.md / AGENTS.md ya da ~/.claude/CLAUDE.md bulunmadı. Sohbette <code>/init</code> ile oluşturabilirsin.
           </p>
@@ -175,8 +175,8 @@ export function Instructions({ client, onRunCommand }: { client: ProtocolClient;
         // Kural dosyaları çoğalınca liste ekranı boyluyordu: varsayılan kapalı, başlıkta sayı;
         // açılınca kendi içinde kayar ve uzun yollar satırı taşırmadan kırılır.
         <details className="instructions__layers">
-          <summary>Tur başında yüklenen talimat dosyaları ({layers.length})</summary>
-          <ul aria-label="Yüklenen talimat katmanları" className="instructions__layer-list">
+          <summary>Talimat dosyaları ve kurallar ({layers.length})</summary>
+          <ul aria-label="Talimat dosyaları ve kurallar" className="instructions__layer-list">
             {layers.map((layer) => (
               <li key={`${layer.katman}:${layer.kaynak}`}>
                 <strong title={layer.kaynak}>{layer.kaynak}</strong>

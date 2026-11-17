@@ -65,6 +65,17 @@ _FILE_REFERENCE = re.compile(r"(?:[\w.@~-]+(?:/[\w.@~-]+)+|[\w.@~/-]+\.[A-Za-z][
 _QUOTED = re.compile(r'```.*?```|`[^`]*`|^[ \t]*>[^\n]*|["“][^"”\n]*["”]', re.M | re.S)
 
 
+def effect_request(task: str, history: Sequence[Message] = ()) -> str:
+    """Resolve a bare continuation to its genuine user request, including source scope."""
+    if _CONTINUATION.fullmatch(task.strip()):
+        for message in reversed(history):
+            if message.role != "user" or message.harness_note or is_summary_message(message):
+                continue
+            if not _CONTINUATION.fullmatch(message.content.strip()):
+                return message.content
+    return task
+
+
 def task_effect(task: str, history: Sequence[Message] = ()) -> str | None:
     """Yalnız devam talebinde en son gerçek kullanıcı görevini çözümle."""
     effect = required_effect_for(task)
@@ -78,14 +89,8 @@ def task_effect(task: str, history: Sequence[Message] = ()) -> str | None:
         return "tool_action"
     if not _CONTINUATION.fullmatch(task.strip()):
         return None
-    for message in reversed(history):
-        # Özet mesajı da görev değildir (eski kayıtlarda `harness_note` olmayabilir).
-        if message.role != "user" or message.harness_note or is_summary_message(message):
-            continue
-        if _CONTINUATION.fullmatch(message.content.strip()):
-            continue
-        return task_effect(message.content)
-    return None
+    request = effect_request(task, history)
+    return task_effect(request) if request != task else None
 
 
 def claimed_effects(text: str) -> tuple[str, ...]:

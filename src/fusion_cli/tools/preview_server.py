@@ -40,6 +40,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import BinaryIO
 
+from ..core.process_control import terminate_async_process_tree
 from .wordpress_setup import has_core, is_wordpress_project, php_env
 
 #: Sunucunun yanıt vermeye başlaması için tanınan süre. `next dev` soğuk başlangıçta
@@ -84,6 +85,8 @@ class RunningPreview:
     last_probe: dict[str, object] = field(default_factory=dict)
     #: Süreç bizim değil: zaten çalışan sunucuya bağlanıldı (`launch.json` yalnız `url`).
     attached: bool = False
+    #: Eşzamanlı başlatmalar aynı readiness sonucuna katılır; hazır olmadan URL verilmez.
+    starting: asyncio.Future[RunningPreview] | None = None
     #: Başlatma anı (monotonik); "en son başlatılan önizleme" seçimi buna bakar.
     started_at: float = field(default_factory=time.monotonic)
 
@@ -137,7 +140,7 @@ def static_entry(root: Path) -> str | None:
 
 def running(root: Path) -> RunningPreview | None:
     preview = _RUNNING.get(root.resolve())
-    return preview if preview is not None and preview.alive else None
+    return preview if preview is not None and preview.alive and preview.starting is None else None
 
 
 def needs_wordpress_setup(root: Path) -> bool:
@@ -170,29 +173,71 @@ async def start(
 ) -> RunningPreview:
     """Sunucuyu başlat ve yanıt verene kadar bekle. Çalışan varsa onu döndür."""
     root = await asyncio.to_thread(root.resolve)
+    pending = _RUNNING.get(root)
+    if pending is not None and pending.starting is not None:
+        return await asyncio.shield(pending.starting)
     existing = running(root)
     if existing is not None:
         return existing
-    base = f"http://127.0.0.1:{port}"
+    ready = asyncio.get_running_loop().create_future()
+    preview = RunningPreview(root, kind, f"http://127.0.0.1:{port}/", starting=ready)
+    _RUNNING[root] = preview
+    try:
+        command = await _launch_preview(preview, port, php=php, entry=entry)
+        if not await wait_until_serving(preview.url, process=preview.process):
+            raise PreviewError(_failure_message(preview, command))
+        preview.starting = None
+        ready.set_result(preview)
+        return preview
+    except BaseException as error:
+        try:
+            await dispose(preview)
+        finally:
+            if isinstance(error, asyncio.CancelledError):
+                ready.cancel()
+            else:
+                ready.set_exception(error)
+                ready.exception()  # Bekleyen başka çağrı olmasa da hata tüketilmiş olsun.
+        raise
+
+
+async def _launch_preview(
+    preview: RunningPreview, port: int, *, php: str | None, entry: str
+) -> list[str]:
+    """Kaynak sahipliği kaydedilmiş örneği başlat; await boşluğunda ikinci süreç açılmaz."""
+    root, kind = preview.root, preview.kind
     if kind is PreviewKind.STATIC:
-        preview = RunningPreview(root, kind, f"{base}/{entry}", httpd=_static_server(root, port))
-    elif kind in (PreviewKind.PHP, PreviewKind.WORDPRESS):
+        preview.url += entry
+        preview.httpd = _static_server(root, port)
+        return []
+    if kind in (PreviewKind.PHP, PreviewKind.WORDPRESS):
         if php is None:
             raise PreviewError("PHP bulunamadı. Kurmak için: `brew install php`.")
         command = [
             php, "-d", "display_errors=1", "-S", f"127.0.0.1:{port}", "-t", str(root),
             str(PHP_ROUTER),
         ]  # fmt: skip
-        process, log_path = await spawn_logged(command, root)
-        preview = RunningPreview(root, kind, f"{base}/", process=process, log_path=log_path)
+        preview.process, preview.log_path = await spawn_logged(command, root)
     else:
         command = await _node_command(root, port)
-        process, log_path = await spawn_logged(command, root, extra_env={"PORT": str(port)})
-        preview = RunningPreview(root, kind, f"{base}/", process=process, log_path=log_path)
-    if not await wait_until_serving(preview.url, process=preview.process):
-        raise PreviewError(_failure_message(preview, command))
-    _RUNNING[root] = preview
-    return preview
+        preview.process, preview.log_path = await spawn_logged(
+            command, root, extra_env={"PORT": str(port)}
+        )
+    return command
+
+
+async def dispose(preview: RunningPreview) -> None:
+    """Başlatılamayan önizlemenin sahipli kaynaklarını kapat ve gerçek çıkışını bekle."""
+    try:
+        if preview.process is not None:
+            await terminate_async_process_tree(preview.process)
+        if preview.httpd is not None:
+            await asyncio.to_thread(terminate, preview)
+    finally:
+        if preview.log_path is not None:
+            preview.log_path.unlink(missing_ok=True)
+        if _RUNNING.get(preview.root) is preview:
+            _RUNNING.pop(preview.root, None)
 
 
 def stop(preview: RunningPreview) -> None:
@@ -245,7 +290,6 @@ def _failure_message(preview: RunningPreview, command: list[str]) -> str:
     """
     process = preview.process
     tail = _log_tail(preview.log_path)
-    stop(preview)
     kind = preview.kind.value
     if process is not None and process.returncode is not None:
         head = f"Sunucu süreci hemen kapandı (çıkış kodu {process.returncode}, {kind})."
@@ -368,15 +412,24 @@ async def _spawn(
     env_base: dict[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
     env = {**(env_base if env_base is not None else php_env()), **(extra_env or {})}
-    return await asyncio.create_subprocess_exec(
-        *command,
-        cwd=str(root),
-        env=env,
-        stdout=output if output is not None else asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.STDOUT if output is not None else asyncio.subprocess.DEVNULL,
-        # Kendi süreç grubu: npm'in başlattığı alt süreçler de birlikte kapanır.
-        start_new_session=sys.platform != "win32",
+    creation = asyncio.create_task(
+        asyncio.create_subprocess_exec(
+            *command,
+            cwd=str(root),
+            env=env,
+            stdout=output if output is not None else asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.STDOUT if output is not None else asyncio.subprocess.DEVNULL,
+            # Kendi süreç grubu: npm'in başlattığı alt süreçler de birlikte kapanır.
+            start_new_session=sys.platform != "win32",
+        )
     )
+    try:
+        return await asyncio.shield(creation)
+    except asyncio.CancelledError:
+        # Oluşturma await'i iptal olsa da başlamış süreç bize aittir.
+        process = await creation
+        await terminate_async_process_tree(process)
+        raise
 
 
 def _node_script(root: Path) -> str | None:
@@ -398,8 +451,11 @@ async def _node_command(root: Path, port: int) -> list[str]:
         try:
             await asyncio.wait_for(install.wait(), timeout=NPM_INSTALL_TIMEOUT_S)
         except TimeoutError as exc:
-            install.kill()
+            await terminate_async_process_tree(install)
             raise PreviewError("`npm install` zaman aşımına uğradı.") from exc
+        except BaseException:
+            await terminate_async_process_tree(install)
+            raise
         if install.returncode != 0:
             raise PreviewError("`npm install` başarısız oldu; kabukta çalıştırıp hataya bak.")
     return ["npm", "run", script, "--", "--port", str(port)]

@@ -94,7 +94,7 @@ def inspect_web_output_by_severity(
     blocking.extend(layout_animations(f"{css}\n{html}"))
 
     # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
-    warnings.extend(_eksik_main(html))
+    advisories.extend(_eksik_main(html))
     warnings.extend(size_animations(f"{css}\n{html}"))
 
     # Görsel/tasarım sistemi önerileri genel kapıda blocking olamaz.
@@ -181,14 +181,91 @@ def _bos_baglantilar(html: str) -> list[str]:
     ]
 
 
+class _MainLandmarkParser(HTMLParser):
+    """Narrow static landmark hint, not a CSS/ARIA accessibility-tree engine."""
+
+    _NONRENDERED = frozenset(
+        {"head", "script", "style", "template", "title", "meta", "link", "base"}
+    )
+    _VOID = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.found = False
+        self._ancestors: list[tuple[str, bool]] = []
+        self._open_positions: dict[str, list[int]] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        style = attributes.get("style") or ""
+        excluded = (
+            (bool(self._ancestors) and self._ancestors[-1][1])
+            or tag in self._NONRENDERED
+            or "hidden" in attributes
+            or "inert" in attributes
+            or (attributes.get("aria-hidden") or "").strip().lower() == "true"
+            or bool(
+                re.search(
+                    r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b", style, re.I
+                )
+            )
+        )
+        # Only unambiguous role markers: override roles remove implicit main.
+        role = (attributes.get("role") or "").strip()
+        if not excluded and (role == "main" or (tag == "main" and not role)):
+            self.found = True
+        if tag not in self._VOID:
+            self._open_positions.setdefault(tag, []).append(len(self._ancestors))
+            self._ancestors.append((tag, excluded))
+
+    def handle_endtag(self, tag: str) -> None:
+        positions = self._open_positions.get(tag)
+        if not positions:
+            return
+        # Unknown closers are O(1); matching closers pop each open ancestor once
+        # over the entire parse, including descendants closed by an ancestor tag.
+        boundary = positions[-1]
+        while len(self._ancestors) > boundary:
+            closed_tag, _ = self._ancestors.pop()
+            closed_positions = self._open_positions[closed_tag]
+            closed_positions.pop()
+            if not closed_positions:
+                del self._open_positions[closed_tag]
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+
 def _eksik_main(html: str) -> list[str]:
-    # Yalnızca TAM belgede anlamlı: bir şablon/bileşen parçasında <main> olmaz ve
-    # orada aramak yanlış pozitif üretir (Django/Rails şablonları, e-posta parçaları).
     if not _tam_belge(html):
         return []
-    if re.search(r"<main[\s>]", html, re.I):
+    parser = _MainLandmarkParser()
+    parser.feed(html)
+    parser.close()
+    if parser.found:
         return []
-    return ["Sayfanın ana içeriği <main> etiketiyle sarılmamış; semantic HTML eksik."]
+    return [
+        "Ana içerik için <main> veya role=main landmark'ı eklemeyi değerlendirin; "
+        "bu bir semantik gezinme önerisidir, tek başına WCAG ihlali değildir."
+    ]
 
 
 #: Sınıfları yerel CSS dışında bir yerden getiren çerçeveler: harici stylesheet

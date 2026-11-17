@@ -197,7 +197,9 @@ class _GezinenKopru(_Kopru):
         return await super().invoke(name, data)
 
 
-async def test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler(tmp_path):
+async def test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler(
+    tmp_path, public_example_dns
+):
     """Onay anında sıradan görünen alan önceki öğeden sonra parola alanı olduysa durur (#432)."""
     kopru = _GezinenKopru()
     context = _ctx(tmp_path, kopru)

@@ -39,6 +39,7 @@ from .history import (
     total_chars,
     unseen_tool_indexes,
 )
+from .research_evidence import bounded_evidence, is_research_result
 
 #: Yer tutucunun başlığı; yeniden maskelemeyi önler ve testlerde tanıma işaretidir.
 MASK_PREFIX = "[eski araç çıktısı gizlendi"
@@ -169,6 +170,9 @@ def mask_view(
     yeni = bekleyen if len(bekleyen) >= batch_size(window) else []
     maskeli = {i for i in adaylar if messages[i] in ledger} | set(yeni)
     gorunum = list(messages)
+    for index, evidence in bounded_evidence(messages).items():
+        if index not in unseen:
+            gorunum[index] = evidence
     for index in pins:
         gorunum[index] = pin_tool_output(messages[index], pin_chars)
     for i in maskeli:
@@ -197,6 +201,8 @@ def _paired_calls(messages: Sequence[Message]) -> dict[int, ToolCall]:
 
 
 def _maskable(message: Message, call: ToolCall | None) -> bool:
+    if is_research_result(message):
+        return False
     if message.ok is False:
         return False
     if message.name in EXEMPT_TOOLS:

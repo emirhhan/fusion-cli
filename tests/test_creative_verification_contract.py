@@ -224,7 +224,7 @@ def _klip(yol, *, boyut="1920x1080", sure=3, fps=30):
 def _baglam(kok, *, kare=90, sozlesme=True):
     baglam = ToolContext(root=kok)
     baglam.requested_outputs.add("out/video.mp4")
-    baglam.touched.add(kok / "src.tsx")
+    baglam.touched.update({kok / "src.tsx", kok / "out/video.mp4"})
     if sozlesme:
         plan = KitVerificationPlan("src/index.tsx", "Video", ("src",), 10.0, ())
         baglam.remotion_contract.register(

@@ -110,22 +110,31 @@ pub(crate) fn kendi_grubunda(command: &mut std::process::Command) -> &mut std::p
     command
 }
 
-pub(crate) fn stop_child(mut child: Child) {
-    let baslangic = Instant::now();
+pub(crate) fn stop_child(child: Child) {
+    stop_children(vec![child]);
+}
+
+/// All owned children share one grace period; no child delays signalling the next.
+pub(crate) fn stop_children(mut children: Vec<Child>) {
+    let deadline = Instant::now() + DURDURMA_ZAMAN_ASIMI;
     loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) => {
-                if baslangic.elapsed() >= DURDURMA_ZAMAN_ASIMI {
-                    grubu_oldur(&child);
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return;
-                }
-                std::thread::sleep(YOKLAMA_ARALIGI);
-            }
-            Err(_) => return,
+        // Reaped/error children are removed before any group signal: their PID
+        // ownership must never be inferred later from a stale numeric identifier.
+        children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
+        if children.is_empty() {
+            return;
         }
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(YOKLAMA_ARALIGI);
+    }
+    for child in &mut children {
+        grubu_oldur(child);
+        let _ = child.kill();
+    }
+    for mut child in children {
+        let _ = child.wait();
     }
 }
 

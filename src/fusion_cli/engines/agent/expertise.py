@@ -124,7 +124,7 @@ def is_game_task(task: str) -> bool:
 _DESKTOP_TASK = re.compile(
     r"masa(ü|u)st(ü|u)|pencere\b|arka\s*plan(da|daki)?\s+(?:uygulama|pencere|app|window)"
     r"|finder|safari|takvim|notlar\b"
-    r"|(?<!web )(?<!mobil )(?<!mobile )uygulama(y(ı|i)|s(ı|i))?\b"
+    r"|(?<!web )(?<!mobil )(?<!mobile )uygulama(y(ı|i)|s(ı|i)(n(ı|i))?)?\b"
     r"|\bdesktop\b|background app|bilgisayar(ım|im)?da|ekran(ı|i)?mda"
     r"|chatgpt|codex|claude|slack|whatsapp|telegram|spotify|vs\s*code|xcode|figma|canva"
     r"|\bmail\b|chrome|tarayıcı",

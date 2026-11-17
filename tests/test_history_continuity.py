@@ -108,6 +108,44 @@ def test_ic_tur_sistemsiz_gecmiste_metni_hesaplar() -> None:
     assert "dersler" in mesajlar[0].content
 
 
+def test_ic_duzeltme_kullanici_istegi_olarak_kaydedilmez() -> None:
+    mesajlar = _initial_messages(
+        "Yalnız JSON döndür",
+        _biten_tur("dersler"),
+        plan_mode=False,
+        extra_system="",
+        inherit_system=True,
+    )
+
+    assert mesajlar[-1].harness_note is True
+    assert mesajlar[-1].content == "Yalnız JSON döndür"
+
+
+def test_dis_kullanici_istegi_ic_not_olarak_isaretlenmez() -> None:
+    mesajlar = _initial_messages(
+        "Yalnız JSON döndür",
+        None,
+        plan_mode=False,
+        extra_system="",
+    )
+
+    assert mesajlar[-1].harness_note is False
+
+
+def test_gecmissiz_ic_gorev_sikistirmada_kok_olarak_korunur() -> None:
+    from fusion_cli.engines.agent.history import task_anchor_length
+
+    mesajlar = _initial_messages(
+        "Planı üret",
+        None,
+        plan_mode=True,
+        extra_system="",
+        inherit_system=True,
+    )
+
+    assert task_anchor_length(mesajlar) == 2
+
+
 def test_dis_tur_sistem_metnini_miras_almaz() -> None:
     """Kullanıcının yeni mesajı yeni bir görevdir; dersleri yeniden hatırlanır."""
     onceki = _biten_tur("asıl turda hatırlanan dersler")

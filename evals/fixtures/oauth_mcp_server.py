@@ -27,8 +27,9 @@ def build_server(*, port: int = 8765) -> FastMCP:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--stdio", action="store_true")
     args = parser.parse_args()
-    build_server(port=args.port).run("streamable-http")
+    build_server(port=args.port).run("stdio" if args.stdio else "streamable-http")
 
 
 if __name__ == "__main__":

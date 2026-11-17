@@ -390,6 +390,7 @@ def test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly(tmp_path: Path):
             "guven": None,
             "speech_ms": 0,
             "segment": 0,
+            "surekli_tur": True,
         }
         helper.terminate()
         assert helper.wait(timeout=3) == 0

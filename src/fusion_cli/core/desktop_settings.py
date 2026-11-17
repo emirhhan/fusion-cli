@@ -93,6 +93,9 @@ class DesktopTarget:
     warning: str = ""
     #: Tıklanan/odaktaki öğenin adı (rol + başlık); yoksa boş.
     element: str = ""
+    #: Yalnız yerel süreç sorgusundan: gerçek, sistem bölümündeki Apple Calculator.
+    #: Araç argümanları ve hatırlanmış uygulama izinleri bu kanıtı sağlayamaz.
+    system_calculator: bool = False
 
     @property
     def key(self) -> str:

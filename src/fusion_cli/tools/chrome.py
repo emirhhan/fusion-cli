@@ -11,10 +11,20 @@ import re
 import weakref
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
+from ..core.clock import SystemClock
 from ..core.constants import MAX_UPLOAD_BYTES
+from ..core.research_grounding import SourceReceipt
 from ..core.tool_content import ToolContent
-from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import (
+    SourceReadScope,
+    ToolArgs,
+    ToolContext,
+    ToolEffect,
+    ToolEvidenceRole,
+    ToolResult,
+)
 from . import chrome_guard, chrome_images, chrome_inspect, chrome_record
 from .args import require_str
 from .chrome_claude_args import limit_output, parse_modifiers, tabs_create_if_empty
@@ -24,6 +34,7 @@ from .key_spec import key_base
 from .preview_origins import allowed_local
 from .risk_words import LOGOUT_PATTERN, RISKY_ACTION_PATTERN
 from .web import browser_block_reason
+from .web_evidence import timestamp
 
 __all__ = ["MONITOR_LIMIT", "NETWORK_IDLE_VALUES"]
 
@@ -36,6 +47,56 @@ _READ_ONLY_OPERATIONS = frozenset(
 )  # fmt: skip
 #: Eylem komutunun sonucu gelmediğinde döndürülen metnin başı (izlenebilir ve test edilebilir).
 UNKNOWN_OUTCOME_PREFIX = "SONUÇ BİLİNMİYOR:"
+
+
+def _source_read_url(operation: str, data: object) -> str:
+    """Bind a nonempty content read to its actual document URL, not caller arguments."""
+    field = {"snapshot": "text", "tree": "tree", "text_page": "text"}.get(operation)
+    if field is None or not isinstance(data, dict):
+        return ""
+    content, url = data.get(field), data.get("url")
+    if not isinstance(content, str) or not content.strip() or not isinstance(url, str):
+        return ""
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return ""
+        _ = parsed.port
+    except ValueError:
+        return ""
+    return url
+
+
+def _source_read_scope(operation: str, args: Mapping[str, object], data: object) -> SourceReadScope:
+    """A tree is scoped evidence, not a complete visible-document text receipt."""
+    if not _source_read_url(operation, data) or not isinstance(data, dict):
+        return "none"
+    if data.get("truncated") is True:
+        return "truncated"
+    if operation == "tree":
+        if args.get("ref"):
+            return "subtree"
+        if args.get("depth"):
+            return "depth_limited"
+        if args.get("filter") == "interactive" or data.get("filter") == "interactive":
+            return "interactive"
+        # Legacy all-trees can clip text nodes/depth without truncated=True.
+        return "partial"
+    if (
+        operation == "text_page"
+        and type(args.get("page", 1)) is int
+        and args.get("page", 1) == 1
+        and type(data.get("page")) is int
+        and data["page"] == 1
+        and data.get("has_more") is False
+        # Already-loaded legacy readers can lose the lookahead at this boundary.
+        # Match JavaScript String.length on raw bridge text, including lone surrogates.
+        and isinstance(data.get("text"), str)
+        and len(data["text"].encode("utf-16-le", errors="surrogatepass")) < 40_000
+    ):
+        return "document"
+    # Snapshot text has a fixed legacy limit without a text completeness receipt.
+    return "partial"
 
 
 async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolResult:
@@ -62,7 +123,34 @@ async def _call(context: ToolContext, name: str, data: dict[str, Any]) -> ToolRe
         return ToolResult.failure(f"Chrome köprüsü hatası: {type(exc).__name__}: {exc}")
     if not result.get("ok"):
         return ToolResult.failure(str(result.get("hata") or "Chrome komutu başarısız."))
-    return ToolResult(json.dumps(result.get("veri", {}), ensure_ascii=False))
+    observed = result.get("veri", {})
+    output = json.dumps(observed, ensure_ascii=False)
+    source_url = _source_read_url(name, observed) if result.get("ok") is True else ""
+    scope = _source_read_scope(name, data, observed)
+    receipt = None
+    if source_url and scope in {"document", "partial", "truncated"}:
+        receipt = SourceReceipt(
+            source_url,
+            source_url,
+            timestamp(SystemClock()),
+            output,
+            completeness="complete" if scope == "document" else "truncated",
+        )
+    return ToolResult(
+        output,
+        source_receipt=receipt,
+        source_read_url=_source_read_url(name, observed) if result.get("ok") is True else "",
+        source_read_scope=_source_read_scope(name, data, observed),
+    )
+
+
+def action_evidence_role(args: ToolArgs, _result: ToolResult) -> ToolEvidenceRole:
+    """Only locally parsed content/state reads, never wait or action acknowledgements."""
+    return (
+        ToolEvidenceRole.DATA_OBSERVATION
+        if args.get("action") in {"text", "screenshot", "tabs", "assets", "console", "network"}
+        else ToolEvidenceRole.UNCLASSIFIED
+    )
 
 
 async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:

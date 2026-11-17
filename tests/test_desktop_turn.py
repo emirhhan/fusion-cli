@@ -144,7 +144,7 @@ def test_klavye_araci_on_plan_hazirligini_tetikler(tmp_path, monkeypatch):
     monkeypatch.setattr(desktop_lock, "claim", lambda **_: None)
     monkeypatch.setattr(desktop, "_framework", lambda: object())
     monkeypatch.setattr(desktop, "_trusted", lambda loaded: True)
-    monkeypatch.setattr(desktop, "_post_text", lambda loaded, value: None)
+    monkeypatch.setattr(desktop, "_post_text", lambda loaded, value, **kwargs: len(value))
     context = ToolContext(root=tmp_path)
     context.desktop.turn = _Turn()
 

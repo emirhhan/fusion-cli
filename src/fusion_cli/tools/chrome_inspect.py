@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from ..core.redaction import redact
@@ -94,13 +95,21 @@ def format_tree(result: ToolResult) -> ToolResult:
         f"{veri.get('lines', 0)} satır)"
     )
     lines = [head, summary]
+    if result.source_read_url:
+        lines.append(
+            f"GÖZLEM KAPSAMI: {result.source_read_scope}. Bu sınırlı erişilebilirlik ağacında "
+            "metin görülmemesi sayfada bulunmadığını kanıtlamaz. Görev sayfa içeriğini "
+            "soruyorsa yalnız yetkilendirilmiş mevcut sayfanın metni için get_page_text "
+            "kullan; has_more veya sonraki parçalar varsa kapsamın eksik olduğunu koru. "
+            "Yalnız kontroller istenmişse bu kapsamı aşma."
+        )
     if veri.get("truncated"):
         lines.append(
             "NOT: Ağaç kırpıldı. Daha azını görmek için tree=interactive, bir bölüm için ref "
             "ver ya da depth'i küçült."
         )
     lines.append(veri["tree"])
-    return ToolResult("\n".join(lines))
+    return replace(result, output="\n".join(lines))
 
 
 async def run_shortcut(value: object, context: ToolContext, call: Invoke) -> ToolResult:

@@ -72,6 +72,175 @@ def _login_required(name: str) -> McpConnectionStatus:
     )
 
 
+async def test_selected_admission_reconciles_full_catalog_without_opening_unused(fake_client):
+    pool = McpToolPool()
+    configs = _configs("one", "two", "unused")
+    try:
+        assert await pool.clients_for(configs, selected_names=()) == ()
+        assert fake_client.opened == []
+        first = await pool.clients_for(configs, selected_names=("one",))
+        second = await pool.clients_for(configs, selected_names=("two",))
+        assert [client.name for client in first] == ["one"]
+        assert [client.name for client in second] == ["two"]
+        assert fake_client.opened == ["one", "two"]
+        assert fake_client.closed == []
+        await pool.clients_for(configs[1:], selected_names=())
+        assert fake_client.closed == ["one"]
+    finally:
+        await pool.aclose()
+
+
+async def test_selected_duplicate_alias_uses_existing_canonical_connection(fake_client):
+    configs = tuple(
+        McpServerConfig(name=name, command="local-fixture", args=("same",))
+        for name in ("canonical", "alias")
+    )
+    pool = McpToolPool()
+    try:
+        clients = await pool.clients_for(configs, selected_names=("alias",))
+        assert [client.name for client in clients] == ["canonical"]
+        assert fake_client.opened == ["canonical"]
+    finally:
+        await pool.aclose()
+
+
+async def test_catalog_removal_cancels_pending_selected_start_before_publication(monkeypatch):
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class Slow(_FakeClient):
+        async def __aenter__(self):
+            started.set()
+            await release.wait()
+            return await super().__aenter__()
+
+    monkeypatch.setattr(pool_module, "McpClient", Slow)
+    monkeypatch.setattr(pool_module, "startup_wait", lambda *a, **kw: (("one",), 0))
+    pool = McpToolPool()
+    try:
+        await pool.clients_for(_configs("one", "two"), selected_names=("one",))
+        await started.wait()
+        await pool.clients_for(_configs("two"), selected_names=())
+        assert "one" not in pool.connecting_tasks()
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert pool.connected_client("one") is None
+    finally:
+        release.set()
+        await pool.aclose()
+
+
+async def test_selected_reauthentication_keeps_other_catalog_connections(fake_client):
+    pool = McpToolPool()
+    configs = _configs("one", "two")
+    try:
+        await pool.clients_for(configs, selected_names=("one", "two"))
+        second = pool.connected_client("two")
+        await pool._reauth("one")
+        assert pool.connected_client("two") is second
+        assert fake_client.closed == ["one"]
+    finally:
+        await pool.aclose()
+
+
+async def test_selected_helper_skips_prompt_resource_catalog_and_unowned_late_jobs(
+    monkeypatch, fake_client
+):
+    pool = McpToolPool()
+    monkeypatch.setattr(pool_module, "_POOL", pool)
+
+    async def forbidden_refresh(client):
+        pytest.fail("selected tools discovery must not list prompts/resources")
+
+    def forbidden_schedule(*args):
+        pytest.fail("caller owns selected discovery publication")
+
+    monkeypatch.setattr(pool, "refresh_catalog", forbidden_refresh)
+    monkeypatch.setattr(pool_module._LATE, "schedule", forbidden_schedule)
+    try:
+        added = await pool_module.ensure_mcp_tools(
+            _configs("one", "unused"),
+            ToolRegistry(),
+            selected_names=("one",),
+            refresh_references=False,
+            schedule_late=False,
+        )
+        assert added == ("one__arac",)
+        assert fake_client.opened == ["one"]
+    finally:
+        await pool.aclose()
+
+
+async def test_selected_helper_can_use_private_pool_without_global_reconciliation(
+    monkeypatch, fake_client
+):
+    private = McpToolPool()
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("private inline selection touched the process-global pool")
+
+    monkeypatch.setattr(pool_module._POOL, "clients_for", forbidden)
+    try:
+        added = await pool_module.ensure_mcp_tools(
+            _configs("inline", "unused"),
+            ToolRegistry(),
+            pool=private,
+            selected_names=("inline",),
+            refresh_references=False,
+            schedule_late=False,
+        )
+        assert added == ("inline__arac",)
+        assert fake_client.opened == ["inline"]
+    finally:
+        await private.aclose()
+
+
+async def test_selected_hosted_discovery_keeps_full_channel_identity(monkeypatch):
+    import json
+    from dataclasses import replace
+
+    from fusion_cli.config.models import HostedConnectorConfig
+    from fusion_cli.mcp_bridge.hosted import RESULT_CLOSE, RESULT_OPEN
+
+    from .fakes import make_config
+
+    channels, asked = [], []
+
+    class Channel:
+        def __init__(self, config):
+            channels.append(config)
+
+        async def __call__(self, connector, prompt):
+            asked.append(connector.name)
+            payload = json.dumps({"araclar": [{"ad": "read", "sema": {}}]})
+            return f"{RESULT_OPEN}\n{payload}\n{RESULT_CLOSE}"
+
+    monkeypatch.setattr(pool_module, "_hosted_channel_factory", Channel)
+    monkeypatch.setattr(pool_module, "_HOSTED", None)
+    monkeypatch.setattr(pool_module, "_HOSTED_CLIENT", None)
+    config = replace(
+        make_config(),
+        hosted_connectors=tuple(
+            HostedConnectorConfig(
+                name=name,
+                url=f"https://fixture.invalid/{name}",
+                provider="claude_web",
+                verified=name != "unverified",
+            )
+            for name in ("one", "two", "unverified")
+        ),
+    )
+    assert await pool_module.ensure_hosted_tools(config, ToolRegistry(), selected_names=()) == ()
+    assert channels == [] and asked == []
+    await pool_module.ensure_hosted_tools(config, ToolRegistry(), selected_names=("one",))
+    client = pool_module._HOSTED_CLIENT[1]
+    await pool_module.ensure_hosted_tools(config, ToolRegistry(), selected_names=("two",))
+    await pool_module.ensure_hosted_tools(config, ToolRegistry(), selected_names=("unverified",))
+    assert pool_module._HOSTED_CLIENT[1] is client
+    assert channels == [config]
+    assert asked == ["one", "two"]
+
+
 async def test_ayni_yapilandirmada_ikinci_tur_yeniden_baglanmaz(fake_client):
     """Ölçülmüş maliyet: her tur stdio sunucusunu yeniden başlatıyordu."""
     havuz = McpToolPool()

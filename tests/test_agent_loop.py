@@ -88,9 +88,11 @@ def _kur(monkeypatch, provider):
         clock=None,
         sleeper=None,
         background=False,
+        purpose="other",
         health=None,
         key_pools=None,
         web_sessions=None,
+        model_specs=(),
     ):
         return provider
 
@@ -2392,7 +2394,7 @@ def test_ogretmen_tanimliyken_esik_asilinca_onerilir():
     assert "ask_teacher" in gec
 
 
-def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
+def test_uzun_okuma_dongusu_somut_takilma_olmadan_ogretmene_yonlendirilmez():
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
     from fusion_cli.engines.agent.loop import _exploration_note, _State
 
@@ -2402,6 +2404,9 @@ def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
 
     assert note is not None
     assert "ilk somut değişikliği" in note
+    assert "ask_teacher" not in note
+    state.repeat_blocked = True
+    note = _exploration_note(state, policy, plan_mode=False, teacher_available=True)
     assert "ask_teacher" in note
     state.exploration_pushes = 1
     assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None
@@ -3197,3 +3202,39 @@ async def test_arac_mesaji_yalniz_basarili_gercek_olay_diffini_korur(monkeypatch
     mesaj = next(message for message in sonuc.messages if message.role == "tool")
     assert olay.diff is not None
     assert mesaj.tool_diff == olay.diff
+
+
+@pytest.mark.parametrize("changes_file", [True, False])
+@pytest.mark.parametrize("target", ["a.py", "dist/a.py"])
+async def test_self_review_remeasures_gate_only_after_actual_change(
+    monkeypatch, tmp_path, sink, changes_file, target
+):
+    """Son öz-denetim değişikliği eski kapı başarısını kullanamaz."""
+    from fusion_cli.core.verification import VerificationResult
+
+    calls = []
+
+    class ContentVerifier:
+        async def verify(self):
+            content = (tmp_path / target).read_text()
+            calls.append(content)
+            return VerificationResult(
+                ok=content == "valid", findings=() if content == "valid" else ("bozuk",)
+            )
+
+    replies = [
+        model_result(tool_calls=[tool_call("write_file", path=target, content="valid")]),
+        model_result("ilk cevap"),
+    ]
+    if changes_file:
+        replies.append(
+            model_result(tool_calls=[tool_call("write_file", path=target, content="invalid")])
+        )
+    replies.append(model_result("düzeltildi"))
+    _kur(monkeypatch, ScriptedProvider(replies))
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("düzelt"))
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps.verifier = ContentVerifier()
+    result = await run_agent("a.py üret", deps)
+    assert calls == (["valid", "invalid"] if changes_file else ["valid"])
+    assert result.ok is (not changes_file)

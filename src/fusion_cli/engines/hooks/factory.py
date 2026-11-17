@@ -50,6 +50,7 @@ def open_hook_session(
     source: str = "startup",
     transcript_dir: Path | None = None,
     interactive: bool = True,
+    existing: HookSession | None = None,
 ) -> HookSession:
     """Yapılandırmaya göre kanca oturumu kur (dosyalar ilk kullanımda okunur).
 
@@ -75,23 +76,23 @@ def open_hook_session(
         notices = deprecated_runtime_notices(runtime)
         return replace(hooks, notices=(*hooks.notices, *notices)) if notices else hooks
 
-    session = HookSession(
-        root=root,
-        loader=_load,
-        permission_mode=permission_mode,
-        next_source=source,
-        transcript_dir=transcript_dir or _config().memory_dir / HOOK_TRANSCRIPT_DIR,
-        hidden_env=lambda: mcp_secret_env_names(_config().mcp_servers),
-        http_allow_private=lambda: (
-            getattr(_config().runtime, "hook_http_allow_private", True) is not False
-        ),
-        project_dir=root,
-        effort=lambda: str(getattr(_config().runtime.reasoning_effort, "value", "auto")),
-        model=lambda: str(getattr(getattr(_config(), "agent", None), "model", "") or ""),
-        interactive=interactive,
-        terminal_writer=tty_writer() if interactive else None,
-        home=home,
+    # Rebinding an accepted owner must retain its opening task, watcher and
+    # background jobs. Rebuilding only callbacks avoids cloning live lifecycle.
+    session = existing or HookSession(root=root, loader=_load, next_source=source, project_dir=root)
+    session.root = root
+    session.loader = _load
+    session.permission_mode = permission_mode
+    session.transcript_dir = transcript_dir or _config().memory_dir / HOOK_TRANSCRIPT_DIR
+    session.hidden_env = lambda: mcp_secret_env_names(_config().mcp_servers)
+    session.http_allow_private = lambda: (
+        getattr(_config().runtime, "hook_http_allow_private", True) is not False
     )
+    session.effort = lambda: str(getattr(_config().runtime.reasoning_effort, "value", "auto"))
+    session.model = lambda: str(getattr(getattr(_config(), "agent", None), "model", "") or "")
+    session.interactive = interactive
+    if existing is None:
+        session.terminal_writer = tty_writer() if interactive else None
+    session.home = home
     if session_id:
         session.session_id = session_id
         session.conversation_id = session_id

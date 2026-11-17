@@ -216,6 +216,7 @@ _TOOL_LEVELS = {
 _FULL_MOUSE_ACTIONS = frozenset({"drag", "down", "up"})
 _POINT_TOOLS = frozenset({"desktop_mouse", "desktop_click", "desktop_scroll"})
 _NAMED_TOOLS = frozenset({"desktop_open", "desktop_window_focus"})
+_INTERACTIVE_TOOLS = _POINT_TOOLS | {"desktop_type", "desktop_key"}
 
 
 def required_level(tool_name: str, args: ToolArgs) -> DesktopLevel | None:
@@ -305,23 +306,39 @@ def _named_target(raw: str) -> tuple[str, str, int, str]:
 
 async def resolve_target(
     tool_name: str, args: ToolArgs, context: ToolContext, probe: TargetProbe | None = None
-) -> tuple[str, str, int, str] | None:
-    """(uygulama, paket, pid, öğe) — çözülemezse None."""
+) -> tuple[str, str, int, str, bool] | None:
+    """(uygulama, paket, pid, öğe, sistem Calculator kanıtı); çözülemezse None."""
     if tool_name in _NAMED_TOOLS:
         app = args.get("app")
-        return _named_target(app) if isinstance(app, str) and app.strip() else None
+        return (*_named_target(app), False) if isinstance(app, str) and app.strip() else None
     if tool_name.startswith("desktop_background_") and background_pid(args) is None:
         # Geçersiz pid'de öndeki uygulamayı yoklamak yanlış hedefi değerlendirirdi.
         return None
     answer = await (probe or _swift_probe)(_probe_request(tool_name, args, context))
     if answer.get("ok") is not True or not isinstance(answer.get("app"), str):
         return None
+    focused = context.desktop.focused_window
+    if tool_name in _INTERACTIVE_TOOLS and focused is not None:
+        window = answer.get("window")
+        if (
+            not isinstance(window, Mapping)
+            or type(window.get("id")) is not int
+            or context.desktop.focused_window_id <= 0
+            or window.get("id") != context.desktop.focused_window_id
+            or window.get("title") != context.desktop.focused_window_title
+            or window.get("bounds") != list(focused[1:])
+        ):
+            return None
     pid = answer.get("pid")
     return (
         str(answer["app"]),
         str(answer.get("bundle") or ""),
         pid if type(pid) is int else 0,
         _element_label(answer.get("element")),
+        answer.get("system_calculator") is True
+        and answer.get("bundle") == "com.apple.calculator"
+        and type(pid) is int
+        and pid > 0,
     )
 
 
@@ -333,20 +350,39 @@ async def assess(
     if required is None:
         return None
     context.desktop.target_pid = 0
+    if tool_name in _INTERACTIVE_TOOLS and context.desktop.focus_required:
+        return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
     resolved = await resolve_target(tool_name, args, context, probe)
     if resolved is None and tool_name.startswith("desktop_background_"):
         # Arka plan araçları zaten yardımcıyla çalışır: hedef doğrulanamıyorsa kapat (fail-closed).
         return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
     if resolved is None:
+        if tool_name in _INTERACTIVE_TOOLS and context.desktop.focused_window is not None:
+            return DesktopAssessment(required, blocked=UNVERIFIED_REASON)
         return DesktopAssessment(required)
-    app, bundle, pid, element = resolved
+    app, bundle, pid, element, system_calculator = resolved
+    focused = context.desktop.focused_window
+    if tool_name in _INTERACTIVE_TOOLS and focused is not None and pid != focused[0]:
+        return DesktopAssessment(
+            required,
+            blocked=(
+                "Koordinattaki uygulama doğrulanmış odak hedefiyle uyuşmuyor; "
+                "desktop_window_focus ve yeni desktop_screenshot ile hedefi yeniden doğrula."
+            ),
+        )
     # Gizleme (desktop.background=false) değerlendirilen hedefi korur (`desktop_turn`).
     context.desktop.target_pid = pid
     settings = context.desktop_settings
     level, category, reason = app_level(settings, app, bundle)
     warning = category.warning if category is not None else ""
     target = DesktopTarget(
-        app or bundle, bundle, pid, level or DesktopLevel.OBSERVE, warning, element
+        app or bundle,
+        bundle,
+        pid,
+        level or DesktopLevel.OBSERVE,
+        warning,
+        element,
+        system_calculator=system_calculator,
     )
     if level is None:
         return DesktopAssessment(required, target, blocked=reason)

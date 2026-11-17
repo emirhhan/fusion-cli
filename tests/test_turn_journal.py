@@ -362,7 +362,7 @@ async def test_devam_turu_iptal_gunlugu_kalici_olana_kadar_baslamaz(tmp_path, mo
 
     async def thread(function, *args, **kwargs):
         if (
-            function.__name__ == "save"
+            function.__name__ == "save_finished"
             and args
             and any(m.content.startswith(RESUME_PREFIX) for m in args[0])
             and not saving.is_set()
@@ -870,3 +870,121 @@ async def test_published_original_record_is_validated_before_append(
     next_scope = OriginalTraceScope("chat1", "turn1", ("next",))
     assert await journal.append_original(next_scope, [Message("assistant", "sonraki kısa kayıt")])
     assert (await journal.read_original(next_scope)).status == "redacted_original"
+
+
+@pytest.mark.parametrize("ending", ["partial", "failed", "cancelled"])
+async def test_terminal_unsuccessful_turn_restores_context_without_app_close_claim(
+    tmp_path, monkeypatch, ending
+):
+    """A returned partial/failed outcome or explicit stop is not a process crash."""
+    import asyncio
+
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    lines = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "terminal-owner"}))
+    answer = "Öğretmen bulgularının giderildiği doğrulanamadı."
+
+    async def run(*_args, journal=None, **_kwargs):
+        journal.save(_konusma())
+        if ending == "cancelled":
+            raise asyncio.CancelledError()
+        return AgentOutcome(answer, _konusma(), ok=False)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    await session.handle(Request("turn", "tur.calistir", {"gorev": "siteyi yap"}))
+    assert _sonuc(lines, "turn")["ok"] is False
+
+    for _ in range(2):
+        reopened = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+        await reopened.handle(Request("start", "oturum.baslat", {"sohbet_id": "terminal-owner"}))
+        assert any(m.role == "tool" and m.name == "write_file" for m in reopened._state.history)
+        transcript = load_transcript_messages(
+            reopened._state.config.memory_dir, tmp_path, conversation_id="terminal-owner"
+        )
+        assert not any("uygulama kapandığı için" in m.content for m in transcript)
+        if ending != "cancelled":
+            assert any(m.content == answer for m in reopened._state.history)
+            assert not any("Kullanıcı turu durdurdu" in m.content for m in reopened._state.history)
+
+
+async def test_terminal_journal_does_not_hide_another_conversations_real_interruption(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "finished"}))
+
+    async def run(*_args, journal=None, **_kwargs):
+        journal.save(_konusma())
+        return AgentOutcome("Doğrulanamadı", _konusma(), ok=False)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    await session.handle(Request("turn", "tur.calistir", {"gorev": "siteyi yap"}))
+    await session.handle(Request("switch", "oturum.baslat", {"sohbet_id": "orphan"}))
+    session._turn_journal("gerçekten kesilen iş").save(_konusma())
+    reopened = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await reopened.handle(Request("start", "oturum.baslat", {"sohbet_id": "orphan"}))
+    transcript = load_transcript_messages(
+        reopened._state.config.memory_dir, tmp_path, conversation_id="orphan"
+    )
+    assert sum("uygulama kapandığı için" in m.content for m in transcript) == 1
+    assert any("gerçekten kesilen iş" in m.content for m in transcript)
+
+
+def test_new_running_snapshot_replaces_finished_marker(tmp_path):
+    journal = FileTurnJournal(tmp_path / "journal.json", task="first")
+    journal.save_finished(_konusma())
+    finished = journal.load()
+    assert finished is not None and finished.execution_finished
+    journal.mark_notified(finished)
+    notified = journal.load()
+    assert notified is not None and notified.execution_finished
+    # A new turn can crash before returning; the previous finish must not hide it.
+    FileTurnJournal(journal.path, task="next").save([Message("user", "next")])
+    running = journal.load()
+    assert running is not None and not running.execution_finished
+    assert running.task == "next"
+    journal.mark_notified(finished)
+    assert journal.load() == running
+
+
+@pytest.mark.parametrize("marker", [None, "true", 1, [], {}])
+def test_legacy_or_invalid_finished_marker_keeps_crash_recovery(tmp_path, marker):
+    journal = FileTurnJournal(tmp_path / "journal.json", task="task")
+    journal.save(_konusma())
+    raw = json.loads(journal.path.read_text())
+    raw["execution_finished"] = marker
+    journal.path.write_text(json.dumps(raw))
+    entry = journal.load()
+    assert entry is not None and not entry.execution_finished
+
+
+async def test_finished_snapshot_closes_unresolved_tool_calls_before_continuation(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    session = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await session.handle(Request("start", "oturum.baslat", {"sohbet_id": "budget-stopped"}))
+    pending = [
+        Message("user", "dosyayı yaz"),
+        Message("assistant", "", tool_calls=(ToolCall("unresolved", "write_file", "{}"),)),
+    ]
+
+    async def run(*_args, journal=None, **_kwargs):
+        journal.save(pending)
+        # A round limit can stop after the model proposed a call, before execution.
+        return AgentOutcome("Araç bütçesi doldu", pending, ok=False)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", run)
+    await session.handle(Request("turn", "tur.calistir", {"gorev": "dosyayı yaz"}))
+    reopened = AppSession(lambda _line: None, root=tmp_path, home=tmp_path / "home")
+    await reopened.handle(Request("start", "oturum.baslat", {"sohbet_id": "budget-stopped"}))
+    history = reopened._state.history
+    result = next((m for m in history if m.tool_call_id == "unresolved"), None)
+    assert result is not None and result.role == "tool" and result.ok is False
+    assert history.index(result) == 2  # Close the call before the terminal answer.
+    assert not any("Kullanıcı turu durdurdu" in m.content for m in history)

@@ -5,7 +5,11 @@ from __future__ import annotations
 import re
 
 from ...core.text_fold import lower_tr_aware
+from .current_facts import current_fact_text, needs_current_lookup
 from .model import CONTRACTS, EffectContract, EffectKind
+
+# Positive file actions and their explicit rejections must never drift apart.
+_EN_MUTATION_VERBS = r"(?:implement|repair|fix|create|modify|update|add|write|generate|save|edit)"
 
 _EXPLICIT_NO_TOOL_MARKERS = (
     "araç kullanma",
@@ -51,13 +55,15 @@ _CLAUSE_FINAL_POLITE = r"(?:\s+(?:lütfen|lutfen|sakın|sakin|asla))?\s*$"
 # istek açıkça "span ekle, edit_file kullan" diyordu. Dosya adı geçen hemen her
 # gerçek görev bu yoldan geçiyor.
 _ACTION_CLAUSE_SPLIT = re.compile(
-    r"(?:[.!?;](?=\s|$)|[!?;\n]+"
-    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra|but|however)\b)",
+    r"(?:[.!?;](?=\s|$)|[!?;,\n]+"
+    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra|but|however)\b"
+    rf"|\band\b(?=\s+(?:(?:then|also)\s+)?"
+    rf"(?:{_EN_MUTATION_VERBS}|research|read|fetch|consult|verify|check|explain|tell)\b))",
     re.IGNORECASE,
 )
 
 _EN_NEGATED_MUTATION = re.compile(
-    r"\b(?:do\s+not|don't|never)\s+(?:implement|repair|fix|create|modify|update|add|write)\b",
+    rf"\b(?:do\s+not|don't|never)\s+{_EN_MUTATION_VERBS}\b",
     re.IGNORECASE,
 )
 
@@ -133,9 +139,8 @@ _SHELL_ACTION_PATTERNS = (
 #: hiç araç çağırmadan "dosyayı oluşturdum" diyebiliyor ve kanıt kapısı hiç
 #: kurulmadığı için tur BAŞARILI sayılıyordu.
 #
-# Ayraç nokta VEYA boşluktur: `_positive_action_clauses` noktalama işaretlerini
-# siliyor ve normalize edilmiş metinde "index.html" → "index html" oluyor. Yalnızca
-# noktayı arayan bir desen bu yüzden HİÇ eşleşmez — ölçüldü.
+# Dosya adındaki nokta cümle sınırı değildir; geçmişte normalize edilmiş
+# "index html" biçimiyle de uyumlu kalmak için nokta veya boşluk kabul edilir.
 _FILENAME = (
     r"\b[\w/-]+[\s.](?:py|js|mjs|ts|tsx|jsx|html?|css|scss|json|ya?ml|md|txt|toml|ini|cfg|"
     r"sh|sql|go|rs|java|kt|rb|php|swift|c|cc|cpp|h|hpp)\b"
@@ -162,17 +167,32 @@ _ANSWER_FORMAT_PATTERN = re.compile(
 _MUTATION_VERBS = (
     r"(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir|"
     r"değiştir|degistir|düzenle|duzenle|güncelle|guncelle|oluştur|olustur|ekle|yaz|"
-    r"yap|kur|hazırla|hazirla|dönüştür|donustur)"
+    r"yap|kur|hazırla|hazirla|kaydet|dönüştür|donustur)"
 )
+# A mutation-looking word immediately naming a pressed UI control is a label,
+# not a filesystem predicate. Independent mutations remain in the request.
+_UI_CONTROL_LABEL_VERB = re.compile(
+    rf"\b{_MUTATION_VERBS}\b(?=\s+(?:düğme|dugme|buton|button)[a-zçğıöşü]*"
+    r"\s+(?:bas|tıkla|tikla|press|click)\b)",
+    re.IGNORECASE,
+)
+
 #: Kod üretimi istendiği ANLAŞILAN nesneler. "dosya" demeyen ama dosya yazdıran
 #: istekler ("spor sitesi yap", "açılış sayfası hazırla") buradan yakalanır.
 # Ölçüldü: "rozetin yanına ... bir span ekle" isteği hiçbir nesneye uymuyordu ve
 # görev `workspace_read` sanılıp beş turluk keşif bütçesine düşüyordu — oysa
 # istek açıkça bir öğe EKLEMEYİ söylüyor. Arayüz öğeleri ve metin parçaları da
 # dosya değiştirir.
+# An existing application's location is context, not the object of "yap".
+# Keep genitives as build objects unless they explicitly introduce an inside
+# location: "uygulamanın aynısını yap" still requests an application.
+_APPLICATION_BUILD_OBJECT = (
+    r"uygulama(?!(?:s[ıi])?(?:nda|nde|da|de)"
+    r"|(?:s[ıi])?n[ıi]n\s+(?:içinde|icinde|içerisinde|icerisinde)\b)"
+)
 _MUTATION_OBJECTS = (
     r"(?:dosya|klasör|klasor|dizin|kod|proje|site|websit[a-zçğıöşü]*|sayfa|"
-    r"uygulama|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik|"
+    rf"{_APPLICATION_BUILD_OBJECT}|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik|"
     r"metin|satır|satir|alan|buton|span|div|eleman|element|etiket|rozet|başlık|baslik|"
     r"import|bağımlılık|bagimlilik|ayar|seçenek|secenek|kural|komut)"
 )
@@ -186,7 +206,26 @@ _REQUEST_SUFFIX = (
     r"abilir misin|ebilir misin)"
 )
 
+# Counted response length is formatting, not a line-edit object. A "satırlık"
+# phrase requires an explicit reply noun; locatives may directly qualify "yaz".
+# Retain the write verb so an explicit file/code object still binds to it.
+_REPLY_LINE_FORMAT_PATTERN = re.compile(
+    r"\b(?:\d+|bir|iki|üç|uc|dört|dort|beş|bes|altı|alti|yedi|sekiz|dokuz|on)"
+    r"\s+(?:k[ıi]sa\s+)?sat[ıi]r(?:"
+    rf"da\b(?=\s+(?:(?:bir\s+)?(?:yan[ıi]t|cevap)\s+)?yaz(?:{_REQUEST_SUFFIX})?\b)"
+    rf"|l[ıi]k\b(?=\s+(?:k[ıi]sa\s+)?(?:bir\s+)?(?:yan[ıi]t|cevap)\s+"
+    rf"yaz(?:{_REQUEST_SUFFIX})?\b))",
+    re.IGNORECASE,
+)
+
 _FILE_MUTATION_PATTERNS = (
+    # An application can be the source of a new copy, rather than its location.
+    # Require both an explicit clone object and an affirmative creation verb.
+    (
+        r"\buygulama(?:s[ıi]n|n)?dan\b.{0,40}\b"
+        r"(?:kopya(?:s[ıi]n[ıi])?|klon(?:unu)?|ayn[ıi]s[ıi]n[ıi]|benzerini)\s+"
+        rf"(?:yap|oluştur|olustur|hazırla|hazirla)(?:{_REQUEST_SUFFIX})?\b"
+    ),
     rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}\b",
     rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}{_REQUEST_SUFFIX}\b",
     # Dosya adı fiilden ÖNCE ya da SONRA gelebilir: "index.html yaz" / "yaz index.html".
@@ -251,7 +290,7 @@ _FILE_MUTATION_PATTERNS = (
 # koşusundaki "Implement a coherent stock import flow" hiçbir Türkçe fiile
 # uymadığı için mutasyon gereksinimi kurulmamış, ajan salt keşifte oyalanmıştı.
 _EN_FILE_MUTATION_PATTERNS = (
-    r"\b(?:implement|repair|fix|create|modify|update|add)\b.{0,80}"
+    rf"\b{_EN_MUTATION_VERBS}\b.{{0,80}}"
     r"\b(?:module|route|service|test|file|integration|feature|flow|bug|code|"
     r"website|app|import|authorization|authentication|access control|"
     r"security guard|permission check)\b",
@@ -395,16 +434,167 @@ def explicitly_disallows_tools(task: str) -> bool:
     return any(marker in lowered for marker in _EXPLICIT_NO_TOOL_MARKERS)
 
 
+_SOURCE_READING_ACTION = re.compile(
+    r"\b(?:okuyarak|okuyup|(?:oku|incele|doğrula|dogrula|başvur|basvur)"
+    r"(?:yun|yın|yin|in|ın|iniz|ınız|yabilir misin)?|kontrol et|"
+    r"read|fetch|open|browse|consult|verify|check|cite)\b"
+)
+_RESEARCH_DIRECTIVE = re.compile(
+    r"(?:^|:)\s*(?:(?:please|then|first|also)\s+)?"
+    r"(?:research|(?:do|conduct|perform)\s+(?:some\s+)?research)\b"
+    r"(?!\s+(?:works|means|is|was|refers)\b)|"
+    r"\b(?:can you|could you|would you|i want you to|you (?:must|should|need to))\s+research\b|"
+    r"\b(?:araştır|arastir)(?:ıp|ip|arak|ın|in)?\b(?!\s+(?:ne demek|kelimesi|sözcüğü)\b)"
+)
+_NEGATED_SOURCE_ACTION = re.compile(
+    r"\b(?:do not|don't|never)\s+(?:use|visit|read|fetch|open|access|browse|"
+    r"research|consult|verify|check|cite)\b|"
+    r"\b(?:okuma|inceleme|doğrulama|açma|acma|araştırma|arastirma)\s*(?:lütfen)?$"
+)
+_SOURCE_DATA_QUOTE = re.compile(
+    r"```.*?```|`[^`]*`|\"[^\"\n]*\"|“[^”\n]*”|"
+    r"(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*",
+    re.S | re.M,
+)
+# A filename object may have arbitrary modifiers. Prepositions/complement
+# boundaries end that object: an input mentioned "using/from X" is not X's output.
+_EN_OBJECT_BOUNDARY = (
+    r"(?:from|using|via|about|how|to|as|into|of|with|in|on|for|without|based|"
+    r"that|which|where|whose)"
+)
+# The legacy spaced alias ("index html") must respect the same boundary as
+# modifiers: "about HTML" is a topic, while "about.html" is an explicit file.
+_EN_OUTPUT_FILENAME = rf"(?!{_EN_OBJECT_BOUNDARY}\s){_FILENAME}"
+_EN_FILE_OBJECT = rf"(?:(?!{_EN_OBJECT_BOUNDARY}\s)[\w-]+\s+){{0,8}}{_EN_OUTPUT_FILENAME}"
+_DIRECT_EN_FILE_MUTATION = re.compile(rf"\b{_EN_MUTATION_VERBS}\s+{_EN_FILE_OBJECT}")
+_DESTINATION_EN_FILE_MUTATION = re.compile(
+    rf"\b{_EN_MUTATION_VERBS}\b.{{0,160}}\b(?:to|as|into)\s+"
+    rf"(?:(?:a|an|the)\s+)?(?:file\s+)?{_EN_OUTPUT_FILENAME}"
+)
+_OUTPUT_FILE_TARGET = re.compile(
+    rf"{_FILENAME}(?:['’]?(?:ya|ye|a|e))?(?:\s+dosya\w*)?\s+"
+    r"(?:oluştur|olustur|yaz|kaydet|aktar)\w*\b|"
+    rf"\b(?:create|write|generate|save)\s+{_EN_FILE_OBJECT}|"
+    rf"\b(?:to|as|into)\s+(?:(?:a|an|the)\s+)?(?:file\s+)?{_EN_OUTPUT_FILENAME}(?:\s+file)?"
+)
+_LOCAL_RESEARCH_INPUT = re.compile(
+    r"\b(?:yerel|local|workspace|readme|changelog|dosya\w*|git diff|git log)\b|"
+    rf"\b(?:read|from|inside|in)\s+(?:the\s+)?{_FILENAME}"
+)
+
+
+def _request_prose(task: str) -> str:
+    """Keep quoted file/URL objects, but never execute quoted example instructions."""
+
+    def quoted(match: re.Match[str]) -> str:
+        inner = match.group().strip("`\"“”'")
+        if re.fullmatch(r"https?://[^\s<>]+", inner, re.I) or re.fullmatch(_FILENAME, inner, re.I):
+            return inner
+        return " "
+
+    return _SOURCE_DATA_QUOTE.sub(quoted, task)
+
+
+def requested_web_research(task: str) -> bool:
+    """Research remains an obligation even when creating a file has primary priority."""
+    prose = _request_prose(lower_tr_aware(task))
+    # URL paths/queries are data, not research verbs or temporal fact requests.
+    # Explicitly requested reads are bound against the original task below.
+    prose = re.sub(r"https?://[^\s<>\"'`]+", " ", prose)
+    for part in _positive_action_parts(prose, merge_objects=False):
+        for clause in re.split(r"\band\b", part):
+            if _NEGATED_SOURCE_ACTION.search(clause):
+                continue
+            facts = _OUTPUT_FILE_TARGET.sub(" ", clause)
+            if _LOCAL_RESEARCH_INPUT.search(facts):
+                continue
+            if needs_current_lookup(facts) or _matches(facts, _WEB_LOOKUP_PATTERNS):
+                return True
+            if _RESEARCH_DIRECTIVE.search(facts):
+                return True
+    return bool(requested_web_urls(task, source_reads_only=True))
+
+
+def _source_read_parts(protected: str, prefix: str) -> tuple[str, ...]:
+    """Bind read verbs to URL objects; a separate link/literal is not a read."""
+    accepted: list[str] = []
+    for sentence in re.split(r"[;!?\n]|\.(?=\s|$)", protected):
+        # Keep quoted examples and translation instructions out of the contract.
+        if re.search(r"^\s*(?:translate|çevir|tercüme et)\b", sentence):
+            continue
+        clauses = tuple(
+            part
+            for part in _positive_action_parts(sentence, merge_objects=False)
+            for part in re.split(r"\band\b", part)
+            if not _NEGATED_SOURCE_ACTION.search(part)
+        )
+        reading = [
+            part
+            for part in clauses
+            if (_SOURCE_READING_ACTION.search(part) or _RESEARCH_DIRECTIVE.search(part))
+        ]
+        accepted.extend(reading)
+        if reading:
+            # Coordinated URL-only objects share their read verb, in either
+            # language/order: "read A and B" / "A ve B sayfalarını oku".
+            for part in clauses:
+                residue = re.sub(rf"\b{re.escape(prefix)}\d+_end\b", " ", part)
+                residue = re.sub(r"\b(?:sayfa\w*|pages?|sources?|as|the|kaynak\w*)\b", " ", residue)
+                if not residue.strip(" ,:"):
+                    accepted.append(part)
+    return tuple(accepted)
+
+
+def requested_web_urls(task: str, *, source_reads_only: bool = False) -> tuple[str, ...]:
+    """Keep the case-sensitive URLs in affirmative source requests, without fetching them."""
+    if source_reads_only:
+        task = _request_prose(task)
+    prefix = "fusion_source_url_"
+    while prefix in lower_tr_aware(task):
+        prefix = "_" + prefix
+    references: list[tuple[str, str]] = []
+
+    def protect(match: re.Match[str]) -> str:
+        raw = match.group()
+        url = raw.rstrip(".,;")
+        for closing, opening in ((")", "("), ("]", "["), ("}", "{")):
+            while url.endswith(closing) and url.count(closing) > url.count(opening):
+                url = url[:-1]
+        token = f"{prefix}{len(references)}_end"
+        references.append((token, url))
+        return token + raw[len(url) :]
+
+    # URL punctuation belongs to the URL. In particular '?' must not terminate a
+    # request clause before its query has been associated with source evidence.
+    protected = re.sub(r"https?://[^\s<>\"'`]+", protect, task, flags=re.IGNORECASE)
+    parts = (
+        _source_read_parts(lower_tr_aware(protected), prefix)
+        if source_reads_only
+        else _positive_action_parts(lower_tr_aware(protected))
+    )
+    positive = " ".join(clause for clause in parts if not _NEGATED_SOURCE_ACTION.search(clause))
+    return tuple(dict.fromkeys(url for token, url in references if token in positive))
+
+
 def required_effect_for(task: str, kind: object | None = None) -> str | None:
     """İstek gerçek bir araç etkisi istiyorsa kararlı effect kimliğini döndür."""
 
     del kind  # Eski çağrı imzasıyla uyumluluk; karar tamamen metinden çıkarılır.
-    lowered = " ".join(lower_tr_aware(task).split())
-    lowered = _positive_action_clauses(lowered)
+    # Preserve sentence/newline/conjunction boundaries for object→verb binding.
+    # External-effect priority still consumes the complete positive request.
+    clauses = tuple(
+        _ANSWER_FORMAT_PATTERN.sub(" ", _REPLY_LINE_FORMAT_PATTERN.sub(" ", clause))
+        for clause in _positive_action_parts(_UI_CONTROL_LABEL_VERB.sub("", lower_tr_aware(task)))
+    )
+    lowered = " ".join(clauses)
     if not lowered:
         return None
-    lowered = _ANSWER_FORMAT_PATTERN.sub(" ", lowered)
-    if any(marker in f" {lowered}" for marker in _EXPLANATION_MARKERS):
+    research_clauses = _positive_action_parts(current_fact_text(lower_tr_aware(task)))
+    current_fact = any(needs_current_lookup(clause) for clause in research_clauses)
+    explicit_web = any(_matches(clause, _WEB_LOOKUP_PATTERNS) for clause in research_clauses)
+    if not (current_fact or explicit_web) and any(
+        marker in f" {lowered}" for marker in _EXPLANATION_MARKERS
+    ):
         return None
     if is_history_question(lowered):
         return EffectKind.WORKSPACE_READ.value
@@ -414,22 +604,44 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         return EffectKind.GIT_COMMIT.value
     if _matches(lowered, _SHELL_ACTION_PATTERNS):
         return EffectKind.SHELL_ACTION.value
-    if _matches(lowered, _FILE_MUTATION_PATTERNS):
+    if any(_matches(clause, _FILE_MUTATION_PATTERNS) for clause in clauses):
         return EffectKind.WORKSPACE_MUTATION.value
     if not re.match(
         r"^(?:how\b|what\b|why\b|when\b|where\b|should i\b|can i\b|"
         r"could i\b|would i\b|is it\b|do you think\b|explain\b|describe\b|"
         r"tell me how\b)",
         lowered,
-    ) and _matches(lowered, _EN_FILE_MUTATION_PATTERNS):
+    ) and (
+        any(_matches(clause, _EN_FILE_MUTATION_PATTERNS) for clause in clauses)
+        or any(
+            _DIRECT_EN_FILE_MUTATION.search(clause) or _DESTINATION_EN_FILE_MUTATION.search(clause)
+            for clause in _positive_action_parts(_request_prose(lower_tr_aware(task)))
+        )
+    ):
         return EffectKind.WORKSPACE_MUTATION.value
-    if _matches(lowered, _BULK_COUNT_PATTERNS):
+    if _matches(lowered, _BULK_COUNT_PATTERNS) and not _pure_runtime_catalog_count(task):
         return _BULK_COUNT_EFFECT
-    if _matches(lowered, _WEB_LOOKUP_PATTERNS):
+    if current_fact or explicit_web:
         return EffectKind.WEB_LOOKUP.value
     if _matches(lowered, _WORKSPACE_READ_PATTERNS):
         return EffectKind.WORKSPACE_READ.value
     return None
+
+
+def _pure_runtime_catalog_count(task: str) -> bool:
+    """Only a whole, explicit current-runtime inventory request is introspection.
+
+    Match the original clause, not extracted prose: quoted instructions, external
+    collections and mixed requests must retain the business evidence gate.
+    """
+    return (
+        re.fullmatch(
+            r"\s*kullanılabilir\s+(?:mcp\s+)?(?:araçlarının|ajanların)\s+"
+            r"(?:sayısını|adedini)\s+ver\s*[.?]?\s*",
+            lower_tr_aware(task),
+        )
+        is not None
+    )
 
 
 def detect_contract(task: str) -> EffectContract | None:
@@ -517,22 +729,50 @@ def _is_negated_clause(clause: str) -> bool:
     )
 
 
-def _positive_action_clauses(text: str) -> str:
+def _positive_action_parts(text: str, *, merge_objects: bool = True) -> tuple[str, ...]:
     """Olumlu cümlecikleri koru, açık olumsuz talimatları at.
 
     ``repoyu pushla ama araç kullanma`` gerçek bir push isteği olarak KALIR: kullanıcı
     aracı yasaklamış olabilir ama istediği etki ortadan kalkmaz. Buna karşılık
     ``git kullanma; dosya oluştur`` yalnızca dosya cümleciğini bırakır.
     """
-    clauses = [part.strip() for part in _ACTION_CLAUSE_SPLIT.split(text) if part.strip()]
-    positive = [
-        clause
-        for clause in clauses
-        # Tam sözcük aranır: alt dize araması "website yapmanı istiyorum" isteğini
-        # "yapma" sanıp atıyordu (ölçüldü, 2 Ekim).
-        if not _is_negated_clause(clause) and not _EN_NEGATED_MUTATION.search(clause)
-    ]
-    return " ".join(positive)
+    positive: list[str] = []
+    start = 0
+    previous_separator = ""
+    previous_positive = False
+    for boundary in [*_ACTION_CLAUSE_SPLIT.finditer(text), None]:
+        end = boundary.start() if boundary is not None else len(text)
+        clause = " ".join(text[start:end].split())
+        keep = (
+            bool(clause)
+            and not _is_negated_clause(clause)
+            and not _EN_NEGATED_MUTATION.search(clause)
+        )
+        if keep:
+            # Coordinated objects keep their shared verb ("uygulama ve oyun yap").
+            # A completed predicate ("uygulamayı aç ve ... yap") cannot lend its
+            # object to the next predicate. Sentence boundaries never merge.
+            if (
+                merge_objects
+                and previous_positive
+                and previous_separator in {"ve", "veya", ","}
+                and _ends_with_build_object(positive[-1])
+            ):
+                positive[-1] = f"{positive[-1]} {clause}"
+            else:
+                positive.append(clause)
+        previous_positive = keep
+        if boundary is not None:
+            previous_separator = boundary.group().strip().lower()
+            start = boundary.end()
+    return tuple(positive)
+
+
+def _ends_with_build_object(clause: str) -> bool:
+    tail = clause.rsplit(maxsplit=1)[-1]
+    return bool(re.fullmatch(rf"{_MUTATION_OBJECTS}[a-zçğıöşü]*", tail)) or (
+        tail.rsplit(".", 1)[-1] in _FILE_EXTENSIONS
+    )
 
 
 def _matches(text: str, patterns: tuple[str, ...]) -> bool:

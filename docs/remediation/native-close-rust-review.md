@@ -1,0 +1,11 @@
+# Native main-window close — independent Rust review
+
+Verdict: **APPROVE**, zero actionable findings, exact commit `e3915cfe`. Only `app/src-tauri/src/lib.rs` and `kapanis.rs` and their immediate cleanup/runtime handoffs were reviewed. Other uncommitted frontend changes were excluded.
+
+The main native `CloseRequested` handler prevents default window destruction and directly starts `NativeMainClose`, without waiting for a JavaScript dialog. The shared state transition admits exactly one cleanup owner, reuses an existing confirmation watchdog or starts one for direct close, requests hiding all owned windows, and starts existing full cleanup on a background thread. The existing 10-second watchdog remains active before hiding/cleanup, and repeated requests do not reset its deadline or spawn a second cleanup. Cmd+Q/tray confirmation and detached/voice window close scopes retain their existing behavior.
+
+The actual application cleanup fixture now covers `NativeMainClose`; speech, sessions and PTYs retain their existing cleanup order. Session EOF/graceful shutdown logic and subsequent ExitRequested/Exit Kits shutdown are unchanged. Dependency source for the cached Tauri 2.11.5 / tauri-runtime-wry 2.11.4 confirms that `run_on_main_thread` executes immediately when already on the native event thread and queues off-thread calls without waiting; this avoids blocking the watchdog on window dispatch. The shutdown state mutex is released before callbacks execute.
+
+Independent checks on the reviewed Rust source all passed using the authorized existing Cargo target cache: `cargo check`, `cargo clippy -- -D warnings`, `cargo fmt --check`, and full `cargo test` (158 passed, 6 intentionally ignored; main/doc test targets also passed). Commit whitespace checks passed, and the two reviewed Rust files still match the reviewed commit.
+
+No actual UI/native button, package build/install, private data, network/model call, or original-source edit was used. Hiding is best effort and the bounded exit path remains the fallback; first-click disappearance and process exit must still be checked in the installed app. This review does not claim a green remote CI, cross-platform UI acceptance, or measured shutdown latency.

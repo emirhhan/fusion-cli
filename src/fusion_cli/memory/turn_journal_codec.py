@@ -6,13 +6,14 @@ import json
 from dataclasses import asdict
 
 from ..core.agent_runtime_state import AgentRunState
+from ..core.image_input import MAX_IMAGES, valid_image_uri
 from ..core.original_trace import ORIGINAL_TRACE_ROLES
 from ..core.redaction import redact, redact_value
 from ..core.types import Message, ToolCall
 
 
-def message_to(message: Message) -> dict[str, object]:
-    return {
+def message_to(message: Message, *, include_images: bool = False) -> dict[str, object]:
+    payload: dict[str, object] = {
         "rol": message.role,
         "icerik": redact(message.content),
         "araclar": [
@@ -29,6 +30,14 @@ def message_to(message: Message) -> dict[str, object]:
         "tool_diff": redact(message.tool_diff) if message.tool_diff is not None else None,
         "harness": message.harness_note,
     }
+    if include_images and message.images:
+        images = [image for image in message.images[:MAX_IMAGES] if valid_image_uri(image)]
+        payload["gorseller"] = images
+        if len(images) != len(message.images):
+            payload["icerik"] = str(payload["icerik"]) + (
+                "\n[Günlük: geçersiz veya sınırı aşan görseller geri yüklenemedi; yeniden ekleyin.]"
+            )
+    return payload
 
 
 def _redact_arguments(raw: str) -> str:
@@ -62,6 +71,14 @@ def message_from(item: object) -> Message | None:
         for call in raw_calls
         if isinstance(call, dict)
     )
+    raw_images = item.get("gorseller", [])
+    images = (
+        tuple(image for image in raw_images[:MAX_IMAGES] if valid_image_uri(image))
+        if isinstance(raw_images, list)
+        else ()
+    )
+    if not isinstance(raw_images, list) or len(images) != len(raw_images):
+        content += "\n[Günlük: bazı görseller doğrulanamadı; yeniden ekleyin.]"
     tool_call_id = item.get("arac_id")
     name = item.get("ad")
     ok = item.get("ok")
@@ -74,6 +91,7 @@ def message_from(item: object) -> Message | None:
         ok=ok if isinstance(ok, bool) else None,
         tool_diff=item["tool_diff"] if isinstance(item.get("tool_diff"), str) else None,
         harness_note=bool(item.get("harness", False)),
+        images=images,
     )
 
 

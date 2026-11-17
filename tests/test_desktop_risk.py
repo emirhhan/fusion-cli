@@ -191,3 +191,200 @@ def test_metin_kutusu_aciklamasi_riskli_sayilmaz_rol_oneki_aranmaz():
     assert risky_reason("desktop_click", {}, button, "")
     # Rol adı ("Button") tek başına riskli değil; ad yoksa eşleşme yapılmaz.
     assert risky_reason("desktop_click", {}, DesktopTarget("Notes", element="Button"), "") is None
+
+
+def _label_ref(*, title="", identifier="", description="", role="AXButton"):
+    token = {
+        "path": [0],
+        "identity": "\x1f".join((role, title, identifier, description)),
+        "fingerprint": "current",
+        "id": 100,
+        "pid": 9,
+    }
+    return base64.b64encode(json.dumps(token).encode()).decode()
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    ["Delete", "Gönder", "Öde", "DeleteAccount", "Delete_Account", "SendMessage", "PayNow"],
+)
+def test_identifier_only_exported_button_label_requires_destructive_gate(identifier):
+    args = {"action": "press", "ref": _label_ref(identifier=identifier)}
+    assert risky_reason("desktop_background_action", args, _MAIL, "") is not None
+
+
+@pytest.mark.parametrize(
+    "title,description,identifier",
+    [
+        ("Cancel", "", "DeleteCancel"),
+        ("Cancel", "", "Delete"),
+        ("", "Cancel", "Delete"),
+        ("Cancel", "", "DeleteAccount"),
+        ("", "Cancel", "SendMessage"),
+        ("Cancel", "", "PayNow"),
+        ("", "", "Archive"),
+    ],
+)
+def test_human_label_priority_and_harmless_identifier_remain_ordinary(
+    title, description, identifier
+):
+    args = {
+        "action": "press",
+        "ref": _label_ref(title=title, description=description, identifier=identifier),
+    }
+    assert risky_reason("desktop_background_action", args, _MAIL, "") is None
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+@pytest.mark.parametrize(
+    "identifier",
+    ["Delete", "Send", "Pay", "DeleteAccount", "Delete_Account", "SendMessage", "PayNow"],
+)
+async def test_identifier_only_press_is_destructive_and_never_reuses_session_consent(
+    tmp_path,
+    probe,
+    mode,
+    identifier,
+):
+    memory = ApprovalMemory()
+    context = _context(tmp_path)
+    probe["answer"] = _answer("Mail", "com.apple.mail", "Arşivle")
+    await _decide("desktop_click", {"x": 1, "y": 1}, context, ApprovalMode.AUTO, memory)
+    args = {"window_id": 100, "pid": 9, "action": "press", "ref": _label_ref(identifier=identifier)}
+    for _ in range(2):
+        request, decision, prompter = await _decide(
+            "desktop_background_action", args, context, mode, memory
+        )
+        assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE
+        assert not request.can_remember
+        assert decision is Decision.ALLOW and len(prompter.asked) == 1
+
+
+def test_identifier_fallback_applies_only_to_exported_button_role():
+    args = {"action": "press", "ref": _label_ref(identifier="Delete", role="AXTextField")}
+    assert risky_reason("desktop_background_action", args, _MAIL, "") is None
+
+
+def _calculator_ref(**changes):
+    token = {
+        "path": [0, 0, 1, 0, 2],
+        "identity": "\x1f".join(("AXButton", "", "AllClear", "Tümünü Sil")),
+        "fingerprint": "f" * 64,
+        "id": 100,
+        "pid": 9,
+    }
+    token.update(changes)
+    return base64.b64encode(json.dumps(token).encode()).decode()
+
+
+async def _calculator_session(tmp_path, probe, *, native=None):
+    answer = _answer("Hesap Makinesi", "com.apple.calculator", "7")
+    answer["system_calculator"] = True
+    if native:
+        answer.update(native)
+    probe["answer"] = answer
+    context, memory = _context(tmp_path), ApprovalMemory()
+    await _decide("desktop_click", {"x": 1, "y": 1}, context, ApprovalMode.AUTO, memory)
+    return context, memory
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+async def test_verified_system_calculator_allclear_reuses_app_consent(tmp_path, probe, mode):
+    context, memory = await _calculator_session(tmp_path, probe)
+    args = {"window_id": 100, "pid": 9, "action": "press", "ref": _calculator_ref()}
+    for _ in range(2):
+        request, decision, prompter = await _decide(
+            "desktop_background_action", args, context, mode, memory
+        )
+        assert request.effect is ToolEffect.REMOTE_INTERACT
+        assert request.can_remember is True
+        assert decision is Decision.ALLOW and prompter.asked == []
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+@pytest.mark.parametrize(
+    "native,args_changes,ref_changes",
+    [
+        ({"system_calculator": False}, {"system_calculator": True}, {}),
+        ({"system_calculator": None}, {}, {}),
+        ({"system_calculator": "true"}, {}, {}),
+        ({"bundle": "evil.calculator"}, {}, {}),
+        ({"bundle": "com.apple.mail"}, {}, {}),
+        ({"pid": 88}, {}, {}),
+        ({}, {}, {"pid": 88}),
+        ({}, {}, {"id": 101}),
+        ({}, {}, {"identity": "AXButton\x1f\x1fClearHistory\x1fTümünü Sil"}),
+        ({}, {}, {"identity": "AXButton\x1f\x1fClearHistory\x1f"}),
+        ({}, {}, {"identity": "AXButton\x1f\x1fDelete\x1fSil"}),
+        ({}, {}, {"identity": "AXMenuItem\x1f\x1fAllClear\x1fTümünü Sil"}),
+        ({}, {}, {"identity": "AXUnknown\x1f\x1fAllClear\x1fTümünü Sil"}),
+        ({}, {}, {"identity": "AXCustom\x1f\x1fUnrecognized\x1f"}),
+        ({}, {}, {"identity": "AXButton\x1f\x1fUnrecognized\x1f"}),
+        ({}, {}, {"identity": "AXButton\x1f\x1f\x1f"}),
+        ({}, {}, {"fingerprint": "not-a-native-fingerprint"}),
+        ({}, {}, {"path": [True]}),
+    ],
+)
+async def test_calculator_clear_exception_requires_native_proof_and_bound_exact_control(
+    tmp_path, probe, mode, native, args_changes, ref_changes
+):
+    context, memory = await _calculator_session(tmp_path, probe, native=native)
+    args = {"window_id": 100, "pid": 9, "action": "press", "ref": _calculator_ref(**ref_changes)}
+    args.update(args_changes)
+    request, decision, prompter = await _decide(
+        "desktop_background_action", args, context, mode, memory
+    )
+    assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE
+    assert request.can_remember is False
+    assert decision is Decision.ALLOW and len(prompter.asked) == 1
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+@pytest.mark.parametrize("description", ["", "7"])
+async def test_known_calculator_math_buttons_remain_ordinary(tmp_path, probe, mode, description):
+    context, memory = await _calculator_session(tmp_path, probe)
+    ref = _calculator_ref(identity=f"AXButton\x1f\x1fSeven\x1f{description}")
+    args = {"window_id": 100, "pid": 9, "action": "press", "ref": ref}
+    request, decision, prompter = await _decide(
+        "desktop_background_action", args, context, mode, memory
+    )
+    assert request.effect is ToolEffect.REMOTE_INTERACT
+    assert decision is Decision.ALLOW and prompter.asked == []
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+async def test_remembered_calculator_consent_does_not_remember_native_attestation(
+    tmp_path, probe, mode
+):
+    context, memory = await _calculator_session(tmp_path, probe)
+    answer = dict(probe["answer"])
+    answer.pop("system_calculator")
+    probe["answer"] = answer
+    args = {
+        "window_id": 100,
+        "pid": 9,
+        "action": "press",
+        "ref": _calculator_ref(),
+        "system_calculator": True,
+    }
+    request, decision, prompter = await _decide(
+        "desktop_background_action", args, context, mode, memory
+    )
+    assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE
+    assert not request.can_remember
+    assert decision is Decision.ALLOW and len(prompter.asked) == 1
+
+
+@pytest.mark.parametrize("mode", [ApprovalMode.AUTO, ApprovalMode.BYPASS])
+@pytest.mark.parametrize("ref", ["bozuk", "", _calculator_ref(identity="")])
+async def test_verified_calculator_unknown_reference_still_requires_per_action_consent(
+    tmp_path, probe, mode, ref
+):
+    context, memory = await _calculator_session(tmp_path, probe)
+    args = {"window_id": 100, "pid": 9, "action": "press", "ref": ref}
+    request, decision, prompter = await _decide(
+        "desktop_background_action", args, context, mode, memory
+    )
+    assert request.effect is ToolEffect.REMOTE_DESTRUCTIVE
+    assert request.can_remember is False
+    assert decision is Decision.ALLOW and len(prompter.asked) == 1

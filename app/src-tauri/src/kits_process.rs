@@ -76,6 +76,8 @@ struct Running {
 #[derive(Default)]
 pub struct KitsManager {
     running: Mutex<Option<Running>>,
+    /// Node --version is an owned startup child too, before a server exists.
+    probe: Mutex<Option<Child>>,
     /// Başlatıcıları sıraya dizer; `running` kilidi bekleme boyunca TUTULMAZ, yoksa uygulama
     /// kapanırken `stop()` 30+ sn bloke olurdu (R2-07).
     start_gate: Mutex<()>,
@@ -106,11 +108,12 @@ impl KitsManager {
                 .lock()
                 .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
             if let Some(running) = slot.as_mut() {
-                if matches!(running.child.try_wait(), Ok(None)) {
+                if matches!(child_exited(&mut running.child), Ok(false)) {
                     return Ok(KitsStatus {
                         url: running.url.clone(),
                     });
                 }
+                terminate_gracefully(&mut running.child);
                 *slot = None;
             }
         }
@@ -118,7 +121,7 @@ impl KitsManager {
             return Err("Uygulama kapanıyor; Kits başlatılmadı.".to_string());
         }
         let kits_dir = find_kits_dir(&kits_dir_candidates(data_dir, resource_dir))?;
-        let node = find_node(&node_candidates(home, resource_dir))?;
+        let node = self.find_node(&node_candidates(home, resource_dir))?;
         let port = free_port()?;
         let mut nonce_bytes = [0u8; 16];
         getrandom::fill(&mut nonce_bytes)
@@ -161,36 +164,57 @@ impl KitsManager {
             .stdin(Stdio::null())
             .stdout(log_sink(data_dir))
             .stderr(log_sink(data_dir));
-        let mut child = crate::core_process::pencere_acmadan(&mut command)
-            .spawn()
-            .map_err(|error| format!("Kits sunucusu başlatılamadı: {error}"))?;
-        if let Err(error) = wait_ready_owned(
-            &mut child,
-            port,
-            READY_TIMEOUT,
-            &data_dir.join(KITS_LOG_FILE),
-            &nonce,
-            &self.stopping,
-        ) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
+        crate::core_process::kendi_grubunda(&mut command);
         let url = format!("http://127.0.0.1:{port}");
+        {
+            // Publish ownership at spawn, before readiness. stop() never needs
+            // the startup worker to finish after the native host has exited.
+            let mut slot = self
+                .running
+                .lock()
+                .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
+            if self.stopping.load(Ordering::SeqCst) {
+                return Err("Uygulama kapanıyor; Kits başlatılmadı.".to_string());
+            }
+            let child = crate::core_process::pencere_acmadan(&mut command)
+                .spawn()
+                .map_err(|error| format!("Kits sunucusu başlatılamadı: {error}"))?;
+            *slot = Some(Running {
+                child,
+                url: url.clone(),
+            });
+        }
+        let ready = wait_ready_check(READY_TIMEOUT, &self.stopping, || {
+            let mut slot = self
+                .running
+                .lock()
+                .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
+            let running = slot
+                .as_mut()
+                .ok_or_else(|| "Uygulama kapanıyor; Kits durduruldu.".to_string())?;
+            check_ready_owned(
+                &mut running.child,
+                port,
+                &data_dir.join(KITS_LOG_FILE),
+                &nonce,
+            )
+        });
         let mut slot = self
             .running
             .lock()
             .map_err(|_| "Kits süreç kilidi alınamadı.".to_string())?;
+        if let Err(error) = ready {
+            if let Some(mut running) = slot.take() {
+                terminate_gracefully(&mut running.child);
+            }
+            return Err(error);
+        }
         if self.stopping.load(Ordering::SeqCst) {
-            // Hazır olurken uygulama kapanmaya başladı: çocuk yetim kalmasın.
-            drop(slot);
-            terminate_gracefully(&mut child);
+            if let Some(mut running) = slot.take() {
+                terminate_gracefully(&mut running.child);
+            }
             return Err("Uygulama kapanıyor; Kits durduruldu.".to_string());
         }
-        *slot = Some(Running {
-            child,
-            url: url.clone(),
-        });
         Ok(KitsStatus { url })
     }
 
@@ -198,6 +222,11 @@ impl KitsManager {
     /// süre dolarsa zorla sonlandırılır.
     pub fn stop(&self) {
         self.stopping.store(true, Ordering::SeqCst);
+        if let Ok(mut probe) = self.probe.lock() {
+            if let Some(mut child) = probe.take() {
+                terminate_gracefully(&mut child);
+            }
+        }
         let Ok(mut slot) = self.running.lock() else {
             return;
         };
@@ -219,20 +248,59 @@ fn log_sink(data_dir: &Path) -> Stdio {
         .unwrap_or_else(|_| Stdio::null())
 }
 
+/// Observe exit without reaping on Unix: the owned leader reserves its PID/PGID
+/// until the last group signal. No group signal may be sent after `Child::wait`.
+fn child_exited(child: &mut Child) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        // SAFETY: zero is a valid initial siginfo_t; waitid writes only this value.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        loop {
+            // SAFETY: this is our unreaped child; WNOWAIT preserves ownership.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    child.id() as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result == 0 {
+                // SAFETY: waitid initialized siginfo_t; zero means no exit yet.
+                return Ok(unsafe { info.si_pid() } != 0);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        child.try_wait().map(|status| status.is_some())
+    }
+}
+
+/// Only children launched with `kendi_grubunda` are admitted here.
 fn terminate_gracefully(child: &mut Child) {
     #[cfg(unix)]
     {
-        // PATH'e bağlı `kill` komutu yerine doğrudan sistem çağrısı (GUI'de PATH minimaldir).
         if let Ok(pid) = i32::try_from(child.id()) {
-            // SAFETY: `pid` bu işlemin kendi çocuğunun kimliğidir; sinyal göndermek bellek güvenliğini etkilemez.
-            unsafe { libc::kill(pid, libc::SIGTERM) };
+            // SAFETY: the owned unreaped child is its group leader. Signals never
+            // include the host group, independently started Kits or name matches.
+            unsafe { libc::killpg(pid, libc::SIGTERM) };
         }
         let deadline = Instant::now() + crate::core_process::DURDURMA_ZAMAN_ASIMI;
         while Instant::now() < deadline {
-            if !matches!(child.try_wait(), Ok(None)) {
-                return;
+            if !matches!(child_exited(child), Ok(false)) {
+                break;
             }
             std::thread::sleep(crate::core_process::YOKLAMA_ARALIGI);
+        }
+        if let Ok(pid) = i32::try_from(child.id()) {
+            // SAFETY: the leader has not been reaped, so the PGID cannot be reused.
+            // Even if the leader exited promptly, a descendant may ignore TERM.
+            unsafe { libc::killpg(pid, libc::SIGKILL) };
         }
     }
     let _ = child.kill();
@@ -291,6 +359,7 @@ fn readiness_logged(log: &Path, nonce: &str, pid: u32, port: u16) -> Result<bool
     }))
 }
 
+#[cfg(test)]
 fn wait_ready_owned(
     child: &mut Child,
     port: u16,
@@ -299,25 +368,47 @@ fn wait_ready_owned(
     nonce: &str,
     abort: &AtomicBool,
 ) -> Result<(), String> {
+    wait_ready_check(timeout, abort, || {
+        check_ready_owned(child, port, log, nonce)
+    })
+}
+
+fn check_ready_owned(
+    child: &mut Child,
+    port: u16,
+    log: &Path,
+    nonce: &str,
+) -> Result<bool, String> {
+    match child_exited(child) {
+        Ok(true) => return Err("Fusion Kits başlatılamadı (sunucu kapandı). Yeniden dene; sorun sürerse Fusion uygulama paketini güncelle.".into()),
+        Err(_) => return Err("Kits süreç durumu okunamadı.".to_string()),
+        Ok(false) => {},
+    }
     let address = SocketAddr::from(([127, 0, 0, 1], port));
+    if readiness_logged(log, nonce, child.id(), port)?
+        && TcpStream::connect_timeout(&address, READY_POLL_MAX).is_ok()
+    {
+        return match child_exited(child) {
+            Ok(false) => Ok(true),
+            _ => Err("Kits sunucusu hazır olurken kapandı.".to_string()),
+        };
+    }
+    Ok(false)
+}
+
+fn wait_ready_check(
+    timeout: Duration,
+    abort: &AtomicBool,
+    mut ready: impl FnMut() -> Result<bool, String>,
+) -> Result<(), String> {
     let deadline = Instant::now() + timeout;
     let mut poll = READY_POLL_FIRST;
     while Instant::now() < deadline {
         if abort.load(Ordering::SeqCst) {
             return Err("Uygulama kapanıyor; Kits beklemesi bırakıldı.".to_string());
         }
-        match child.try_wait() {
-            Ok(Some(status)) => return Err(format!("Fusion Kits başlatılamadı ({status}). Yeniden dene; sorun sürerse Fusion uygulama paketini güncelle.")),
-            Err(_) => return Err("Kits süreç durumu okunamadı.".to_string()),
-            Ok(None) => {},
-        }
-        if readiness_logged(log, nonce, child.id(), port)?
-            && TcpStream::connect_timeout(&address, READY_POLL_MAX).is_ok()
-        {
-            return match child.try_wait() {
-                Ok(None) => Ok(()),
-                _ => Err("Kits sunucusu hazır olurken kapandı.".to_string()),
-            };
+        if ready()? {
+            return Ok(());
         }
         std::thread::sleep(poll);
         poll = next_poll(poll);
@@ -421,46 +512,80 @@ fn node_name() -> &'static str {
     }
 }
 
-fn find_node(candidates: &[PathBuf]) -> Result<PathBuf, String> {
-    candidates
-        .iter()
-        .filter(|path| path.is_file())
-        .find(|path| node_major(path).is_some_and(|major| major >= MIN_NODE_MAJOR))
-        .cloned()
-        .ok_or_else(|| {
-            format!("Node.js {MIN_NODE_MAJOR} veya üzeri bulunamadı. Kits bunu gerektirir.")
-        })
-}
-
-fn node_major(node: &Path) -> Option<u32> {
-    node_major_within(node, NODE_PROBE_TIMEOUT)
-}
-
-fn node_major_within(node: &Path, timeout: Duration) -> Option<u32> {
-    let mut child = crate::core_process::pencere_acmadan(Command::new(node).arg("--version"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(20));
+impl KitsManager {
+    fn find_node(&self, candidates: &[PathBuf]) -> Result<PathBuf, String> {
+        for path in candidates {
+            if self.stopping.load(Ordering::SeqCst) {
+                return Err("Uygulama kapanıyor; Node yoklaması iptal edildi.".into());
             }
-            _ => {
-                // Takılan aday: öldür ve atla (R2-07).
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
+            if path.is_file()
+                && self
+                    .node_major_within(path, NODE_PROBE_TIMEOUT)
+                    .is_some_and(|major| major >= MIN_NODE_MAJOR)
+            {
+                if self.stopping.load(Ordering::SeqCst) {
+                    return Err("Uygulama kapanıyor; Node yoklaması iptal edildi.".into());
+                }
+                return Ok(path.clone());
             }
         }
+        if self.stopping.load(Ordering::SeqCst) {
+            return Err("Uygulama kapanıyor; Node yoklaması iptal edildi.".into());
+        }
+        Err(format!(
+            "Node.js {MIN_NODE_MAJOR} veya üzeri bulunamadı. Kits bunu gerektirir."
+        ))
     }
-    let mut output = String::new();
-    child.stdout.take()?.read_to_string(&mut output).ok()?;
-    parse_node_major(&output)
+
+    fn node_major_within(&self, node: &Path, timeout: Duration) -> Option<u32> {
+        // A regular anonymous file avoids a blocking pipe read if the probe
+        // exits while a descendant still holds stdout. Only a short version is read.
+        let mut output = tempfile::tempfile().ok()?;
+        let mut command = Command::new(node);
+        command
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(output.try_clone().ok()?))
+            .stderr(Stdio::null());
+        crate::core_process::kendi_grubunda(&mut command);
+        {
+            let mut slot = self.probe.lock().ok()?;
+            // Admission and publication serialize with stop, as for the server.
+            if self.stopping.load(Ordering::SeqCst) {
+                return None;
+            }
+            *slot = Some(
+                crate::core_process::pencere_acmadan(&mut command)
+                    .spawn()
+                    .ok()?,
+            );
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            let mut slot = self.probe.lock().ok()?;
+            let child = slot.as_mut()?;
+            let exited = child_exited(child);
+            if matches!(exited, Ok(true)) && !self.stopping.load(Ordering::SeqCst) {
+                let mut child = slot.take()?;
+                terminate_gracefully(&mut child);
+                break;
+            }
+            if !matches!(exited, Ok(false))
+                || Instant::now() >= deadline
+                || self.stopping.load(Ordering::SeqCst)
+            {
+                let mut child = slot.take()?;
+                terminate_gracefully(&mut child);
+                return None;
+            }
+            drop(slot);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        output.seek(SeekFrom::Start(0)).ok()?;
+        let mut version = String::new();
+        output.take(256).read_to_string(&mut version).ok()?;
+        parse_node_major(&version)
+    }
 }
 
 fn parse_node_major(version: &str) -> Option<u32> {
@@ -473,9 +598,339 @@ fn parse_node_major(version: &str) -> Option<u32> {
         .ok()
 }
 
+#[cfg(all(test, unix))]
+pub(crate) mod test_support {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::sync::Arc;
+
+    /// Only this fixture's shell and its child are signalled; no process lookup.
+    pub(crate) struct OwnedKitsFixture {
+        pub(crate) manager: Arc<KitsManager>,
+        descendant: i32,
+    }
+
+    impl OwnedKitsFixture {
+        pub(crate) fn new(manager: Arc<KitsManager>) -> Self {
+            Self::with_script(manager, "trap 'kill \"$runtime_pid\"; wait \"$runtime_pid\"; exit 0' TERM; sleep 30 & runtime_pid=$!; echo $runtime_pid; wait $runtime_pid")
+        }
+
+        pub(crate) fn with_script(manager: Arc<KitsManager>, script: &str) -> Self {
+            let mut command = Command::new("/bin/sh");
+            command
+                .args(["-c", script])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            let mut child = crate::core_process::kendi_grubunda(&mut command)
+                .spawn()
+                .expect("owned Kits fixture starts");
+            let mut line = String::new();
+            BufReader::new(child.stdout.take().unwrap())
+                .read_line(&mut line)
+                .expect("fixture child ready");
+            let descendant = line.trim().parse().expect("fixture descendant PID");
+            *manager.running.lock().unwrap() = Some(Running {
+                child,
+                url: "http://127.0.0.1:1".into(),
+            });
+            Self {
+                manager,
+                descendant,
+            }
+        }
+
+        pub(crate) fn is_running(&self) -> bool {
+            self.manager
+                .running
+                .lock()
+                .unwrap()
+                .as_mut()
+                .is_some_and(|running| matches!(child_exited(&mut running.child), Ok(false)))
+        }
+
+        pub(crate) fn descendant_alive(&self) -> bool {
+            // SAFETY: signal 0 observes the PID published by this fixture only.
+            unsafe { libc::kill(self.descendant, 0) == 0 }
+        }
+    }
+
+    impl Drop for OwnedKitsFixture {
+        fn drop(&mut self) {
+            self.manager.stop();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_during_version_probe_cleans_owned_probe_and_descendant_before_return() {
+        use std::{os::unix::fs::PermissionsExt, sync::Arc};
+        let temp = tempfile::tempdir().unwrap();
+        let resources = temp.path().join("resources");
+        let entry = resources.join("kits/app").join(SERVER_ENTRY);
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(entry, "fixture").unwrap();
+        let marker = temp.path().join("version-probe.pids");
+        let node = resources.join("kits/node");
+        let quoted_marker = marker.to_string_lossy().replace('\'', "'\\''");
+        std::fs::write(&node, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then sleep 2 & runtime_pid=$!; echo $$ $runtime_pid > '{quoted_marker}'; wait $runtime_pid; echo v24.0.0; exit 0; fi\nexit 3\n")).unwrap();
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let home = temp.path().join("home");
+        let data = temp.path().join("data");
+        let manager = Arc::new(KitsManager::new());
+        let sentinel = test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
+        let starter = manager.clone();
+        let worker = std::thread::spawn(move || {
+            starter.ensure_started(&home, &data, Some(&resources), Path::new("/unused-core"))
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let pids: Vec<i32> = std::fs::read_to_string(marker)
+            .unwrap()
+            .split_whitespace()
+            .map(|v| v.parse().unwrap())
+            .collect();
+        assert_eq!(pids.len(), 2);
+        let started = Instant::now();
+        manager.stop();
+        let survivors: Vec<bool> = pids
+            .iter()
+            .map(|pid| unsafe { libc::kill(*pid, 0) == 0 })
+            .collect();
+        let elapsed = started.elapsed();
+        // Join before asserting so the old buggy probe self-expires on RED.
+        assert!(worker.join().unwrap().unwrap_err().contains("kapanıyor"));
+        assert!(
+            survivors.iter().all(|alive| !alive),
+            "stop returned while owned version probe or descendant was alive: {survivors:?}"
+        );
+        assert!(elapsed < Duration::from_secs(3));
+        assert!(sentinel.is_running());
+        assert!(sentinel.descendant_alive());
+        let later_marker = temp.path().join("later-probe-ran");
+        let later_node = temp.path().join("later-node");
+        let quoted_marker = later_marker.to_string_lossy().replace('\'', "'\\''");
+        std::fs::write(
+            &later_node,
+            format!("#!/bin/sh\necho ran > '{quoted_marker}'\necho v24.0.0\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&later_node, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(manager
+            .find_node(&[later_node])
+            .unwrap_err()
+            .contains("kapanıyor"));
+        assert!(!later_marker.exists(), "a new probe started after stop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "Only the owning readiness lifecycle test starts this child"]
+    fn owned_node_fixture_server() {
+        let port: u16 = std::env::var("PORT").unwrap().parse().unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let marker = format!("{}.child", std::env::var("DATABASE_PATH").unwrap());
+        std::fs::write(marker, child.id().to_string()).unwrap();
+        println!(
+            "{}",
+            serde_json::json!({
+                "fusion_kits_ready": 1,
+                "nonce": std::env::var("KITS_DESKTOP_READY_NONCE").unwrap(),
+                "pid": std::process::id(), "port": port
+            })
+        );
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            let _ = listener.accept();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ready_owned_server_is_reused_then_group_stopped_and_reaped() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let resources = temp.path().join("resources");
+        let entry = resources.join("kits/app").join(SERVER_ENTRY);
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(entry, "fixture").unwrap();
+        let node = resources.join("kits/node");
+        let executable = std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\'', "'\\''");
+        std::fs::write(&node, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo v24.0.0; exit 0; fi\nexec '{executable}' --ignored --exact kits_process::tests::owned_node_fixture_server --nocapture\n")).unwrap();
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let manager = KitsManager::new();
+        let home = temp.path().join("home");
+        let data = temp.path().join("data");
+        let first = manager
+            .ensure_started(&home, &data, Some(&resources), Path::new("/unused-core"))
+            .unwrap();
+        let leader = manager.running.lock().unwrap().as_ref().unwrap().child.id();
+        assert_eq!(
+            manager
+                .ensure_started(&home, &data, Some(&resources), Path::new("/unused-core"))
+                .unwrap(),
+            first
+        );
+        assert_eq!(
+            manager.running.lock().unwrap().as_ref().unwrap().child.id(),
+            leader
+        );
+        let descendant: i32 = std::fs::read_to_string(data.join("fusion-kits.sqlite.child"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        manager.stop();
+        manager.stop();
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while unsafe { libc::kill(descendant, 0) == 0 } && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(manager.running.lock().unwrap().is_none());
+        assert_ne!(unsafe { libc::kill(descendant, 0) }, 0);
+        // waitpid must report ECHILD: production stop already reaped the leader.
+        assert_eq!(
+            unsafe { libc::waitpid(leader as i32, std::ptr::null_mut(), libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_kits_stop_cleans_descendant_after_leader_exits_or_ignores_term() {
+        use std::sync::Arc;
+        for trap in ["trap 'exit 0' TERM", "trap '' TERM"] {
+            let manager = Arc::new(KitsManager::new());
+            // The descendant ignores TERM but self-expires, even with the old buggy cleanup.
+            let fixture = test_support::OwnedKitsFixture::with_script(manager.clone(), &format!(
+                "{trap}; /bin/sh -c 'trap \"\" TERM; echo $$; exec sleep 3' & runtime_pid=$!; wait $runtime_pid"
+            ));
+            let started = Instant::now();
+            manager.stop();
+            manager.stop();
+            let deadline = Instant::now() + Duration::from_millis(300);
+            while fixture.descendant_alive() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let survivor = fixture.descendant_alive();
+            // Let the deliberately self-expiring child finish before a failing assertion.
+            if survivor {
+                std::thread::sleep(Duration::from_secs(4));
+            }
+            assert!(!survivor, "owned runtime survived Kits stop ({trap})");
+            assert!(!fixture.is_running());
+            assert!(started.elapsed() < Duration::from_secs(3));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_cancellation_cleans_owned_descendant_before_readiness() {
+        use std::{os::unix::fs::PermissionsExt, sync::Arc};
+        assert!(
+            developer_override("FUSION_KITS_DIR").is_none(),
+            "test needs no developer Kits override"
+        );
+        assert!(
+            developer_override("FUSION_KITS_NODE").is_none(),
+            "test needs no developer Node override"
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let resources = temp.path().join("resources");
+        let entry = resources.join("kits/app").join(SERVER_ENTRY);
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(entry, "fixture").unwrap();
+        let node = resources.join("kits/node");
+        // No TERM handler or readiness receipt: the same early-startup window as
+        // the packaged Node server while it awaits its gateway runtime.
+        std::fs::write(&node, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo v24.0.0; exit 0; fi\nsleep 3 & runtime_pid=$!\necho $runtime_pid > \"$DATABASE_PATH.child\"\nwait $runtime_pid\n").unwrap();
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let home = temp.path().join("home");
+        let data = temp.path().join("data");
+        let marker = data.join("fusion-kits.sqlite.child");
+        let manager = Arc::new(KitsManager::new());
+        let worker_manager = manager.clone();
+        let worker = std::thread::spawn(move || {
+            worker_manager.ensure_started(&home, &data, Some(&resources), Path::new("/unused-core"))
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let started = Instant::now();
+        let pid: i32 = std::fs::read_to_string(&marker)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        manager.stop();
+        let pending_when_stop_returned = unsafe { libc::kill(pid, 0) == 0 };
+        assert!(worker.join().unwrap().unwrap_err().contains("kapanıyor"));
+        let deadline = Instant::now() + Duration::from_millis(300);
+        // SAFETY: signal 0 observes only the descendant published by our fixture.
+        while unsafe { libc::kill(pid, 0) == 0 } && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let survivor = unsafe { libc::kill(pid, 0) == 0 };
+        if survivor {
+            std::thread::sleep(Duration::from_secs(4));
+        }
+        assert!(
+            !survivor,
+            "startup cancellation left its owned runtime alive"
+        );
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(
+            !pending_when_stop_returned,
+            "stop returned while startup cleanup still needed its background worker"
+        );
+        manager.stop();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readiness_timeout_keeps_child_owned_until_group_cleanup_and_reap() {
+        use std::sync::Arc;
+        let manager = Arc::new(KitsManager::new());
+        let fixture = test_support::OwnedKitsFixture::new(manager.clone());
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("empty.log");
+        std::fs::write(&log, "").unwrap();
+        let result = {
+            let mut slot = manager.running.lock().unwrap();
+            wait_ready_owned(
+                &mut slot.as_mut().unwrap().child,
+                free_port().unwrap(),
+                Duration::from_millis(30),
+                &log,
+                "fixture",
+                &AtomicBool::new(false),
+            )
+        };
+        assert!(result.unwrap_err().contains("zamanında"));
+        manager.stop();
+        manager.stop();
+        assert!(!fixture.is_running());
+        assert!(!fixture.descendant_alive());
+    }
 
     #[test]
     fn kits_veri_klasoru_python_ile_ayni_kurali_izler() {
@@ -526,7 +981,9 @@ mod tests {
 
     #[test]
     fn olmayan_node_adaylari_hata_verir() {
-        let hata = find_node(&[PathBuf::from("/yok/node")]).unwrap_err();
+        let hata = KitsManager::new()
+            .find_node(&[PathBuf::from("/yok/node")])
+            .unwrap_err();
         assert!(hata.contains("Node.js 24"));
     }
 
@@ -713,7 +1170,10 @@ mod tests {
         std::fs::write(&betik, "#!/bin/sh\nexec sleep 30\n").unwrap();
         std::fs::set_permissions(&betik, std::fs::Permissions::from_mode(0o755)).unwrap();
         let baslangic = Instant::now();
-        assert_eq!(node_major_within(&betik, Duration::from_millis(300)), None);
+        assert_eq!(
+            KitsManager::new().node_major_within(&betik, Duration::from_millis(300)),
+            None
+        );
         assert!(baslangic.elapsed() < Duration::from_secs(5));
     }
 

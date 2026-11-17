@@ -34,6 +34,7 @@ class _Completer(Protocol):
 
 def _provider(state: ReplState) -> _Completer:
     """Agent modelinin sağlayıcısı; testte sahte verilir."""
+    from ...config.model_lookup import configured_model_specs
     from ...providers.factory import build_provider
     from ...providers.web_registry import web_registry_for
 
@@ -42,6 +43,7 @@ def _provider(state: ReplState) -> _Completer:
         publisher=None,
         retry_delays_s=state.config.runtime.retry_delays_s,
         web_sessions=web_registry_for(state.config),
+        model_specs=configured_model_specs(state.config),
     )
 
 

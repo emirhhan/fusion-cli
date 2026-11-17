@@ -29,9 +29,10 @@ async def test_elle_compact_esik_altinda_da_ozetler_ve_odagi_iletir(monkeypatch)
         _kisa_konusma(), config=None, manual=True, focus="test kararlarına odaklan"
     )
 
-    # Kök tur (sistem + ilk soru-cevap) birebir kalır; geri kalanın tamamı özete iner.
+    # Kök tur ve ara kullanıcı düzeltmesi birebir kalır; eski asistan açıklaması özetlenir.
     assert [m.content for m in sonuc[:3]] == ["sistem", "oyun yaz", "yazdım"]
-    assert len(sonuc) == 4 and "özet" in sonuc[3].content
+    assert "özet" in sonuc[3].content and sonuc[3].harness_note
+    assert sonuc[4:] == [Message("user", "testleri ekle")]
     assert compaction.FOCUS_HEADER in istemler[0]
     assert "test kararlarına odaklan" in istemler[0]
 

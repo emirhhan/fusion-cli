@@ -156,11 +156,17 @@ async def restart_after_end(page: Page, state_script: str) -> tuple[str, ...]:
     Durum kancası yoksa ya da oyun süre içinde bitmezse ölçülemedi: boş döner.
     """
     gecen = 0
-    while not _ended(await page.evaluate(state_script)):
+    state = await page.evaluate(state_script)
+    while state is not None and not _ended(state):
         if gecen >= END_WAIT_MS:
             return ()
         await page.wait_for_timeout(END_POLL_MS)
         gecen += END_POLL_MS
+        state = await page.evaluate(state_script)
+    if state is None:
+        # No hook means the end state cannot be observed. Polling for 45 seconds
+        # cannot establish a restart result and needlessly stalls non-game pages.
+        return ()
     await page.keyboard.press("r")
     await page.wait_for_timeout(RESTART_SETTLE_MS)
     if _ended(await page.evaluate(state_script)):

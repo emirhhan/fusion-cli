@@ -1,0 +1,114 @@
+........................................................................ [  1%]
+........................................................................ [  3%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+.........ssss........................................................... [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 51%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+.....F.................................................................. [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+..F..................................................................... [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+........................................................................ [ 93%]
+........................................................................ [ 95%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+.........................                                                [100%]
+=================================== FAILURES ===================================
+________ test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler _________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-218/test_toplu_cagri_calisma_anind0')
+
+    async def test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler(tmp_path):
+        """Onay anında sıradan görünen alan önceki öğeden sonra parola alanı olduysa durur (#432)."""
+        kopru = _GezinenKopru()
+        context = _ctx(tmp_path, kopru)
+        args = {"actions": [
+            {"name": "chrome_navigate", "input": {"url": "https://example.com/login"}},
+            {"name": "chrome_type", "input": {"ref": "e5", "text": "gizli"}},
+        ]}  # fmt: skip
+        request = await resolve_request(_REGISTRY.get("chrome_batch"), args, root=tmp_path,
+                                        context=context)  # fmt: skip
+        assert request.effect is not ToolEffect.REMOTE_DESTRUCTIVE
+        result = await chrome_script.chrome_batch(args, context)
+>       assert not result.ok and "ayrı onay" in result.output
+E       AssertionError: assert (not False and 'ayrı onay' in '[1] chrome_navigate: Bu adrese erişilemez: alan adı çözülemedi: example.com\n1. öğede durdu; kalan 1 eylem yapılmadı.')
+E        +  where False = ToolResult(output='[1] chrome_navigate: Bu adrese erişilemez: alan adı çözülemedi: example.com\n1. öğede durdu; kalan ...ct_path='', failure_evidence=(), is_observation=False, job_completion=None, workspace_effect=None, output_shaped=False).ok
+E        +  and   '[1] chrome_navigate: Bu adrese erişilemez: alan adı çözülemedi: example.com\n1. öğede durdu; kalan 1 eylem yapılmadı.' = ToolResult(output='[1] chrome_navigate: Bu adrese erişilemez: alan adı çözülemedi: example.com\n1. öğede durdu; kalan ...ct_path='', failure_evidence=(), is_observation=False, job_completion=None, workspace_effect=None, output_shaped=False).output
+
+tests/test_chrome_script_batch.py:212: AssertionError
+________________________ test_surum_tek_kaynaktan_gelir ________________________
+
+    def test_surum_tek_kaynaktan_gelir():
+        """`fusion version` ile paket sürümü AYNI olmalı.
+
+        Gerçek hata: pyproject 0.3.0a1 derken `__init__` 0.2.0.dev0'da kalmıştı ve
+        `fusion version` eski sürümü basıyordu. İki yerde elle tutulan sürüm zamanla
+        ayrışır; hata raporlarında yanlış sürüm görünür.
+        """
+        from importlib.metadata import version
+
+        import fusion_cli
+
+>       assert fusion_cli.__version__ == version("fusion-cli")
+E       AssertionError: assert '0.8.1' == '0.7.18'
+E
+E         - 0.7.18
+E         + 0.8.1
+
+tests/test_packaging.py:93: AssertionError
+=============================== warnings summary ===============================
+tests/test_agent_loop.py::test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler
+  /Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:1507: UserWarning: Item 'summary' on TypedDict class 'ChatCompletionReasoningItem' is using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+tests/test_profile_login.py::test_alt_surec_girisi_fusion_hatasini_iz_basmadan_bildirir
+  /Users/motogate/.codex/worktrees/fusion-deep-fixes/fusion-cli/src/fusion_cli/providers/profile_login.py:115: RuntimeWarning: coroutine 'open_profile_login' was never awaited
+    return 1
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_chrome_script_batch.py::test_toplu_cagri_calisma_aninda_hassas_alani_yeniden_denetler
+FAILED tests/test_packaging.py::test_surum_tek_kaynaktan_gelir - AssertionErr...
+2 failed, 3907 passed, 4 skipped, 7 deselected, 2 warnings in 1602.31s (0:26:42)

@@ -13,6 +13,7 @@ mod session_manager;
 mod speech;
 mod tepsi;
 mod terminal;
+mod talk_transcript;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -468,19 +469,38 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 ///
 /// Temizlik en çok `TEMIZLIK_UST_SINIRI` sürer; aşılırsa bekçi süreci sonlandırır (R2-14).
 #[tauri::command]
-async fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
-    let donus = app
-        .state::<KapanisDurumu>()
-        .onayla(std::time::Instant::now());
-    if donus.bekci_gerekli() {
-        kapatma_bekcisi_baslat(app.clone());
-    }
-    engelleyen(move || {
-        cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
-        app.exit(0);
-        Ok(())
-    })
-    .await
+fn kapatmayi_onayla(app: tauri::AppHandle) -> Result<(), String> {
+    kapatmayi_baslat(&app, ShutdownRoute::ConfirmedMainClose);
+    Ok(())
+}
+
+/// Yerel ana pencere düğmesi, onaylanmış çıkış ve yanıtsız arayüz aynı kapanış
+/// sahibini kullanır. Hiçbiri temizlik sırasında pencereyi/JS yanıtını beklemez.
+fn kapatmayi_baslat(app: &tauri::AppHandle, route: ShutdownRoute) {
+    kapanis::baslat_tam_kapanis(
+        app.state::<KapanisDurumu>().inner(),
+        std::time::Instant::now(),
+        || kapatma_bekcisi_baslat(app.clone()),
+        || {
+            let gizlenecek = app.clone();
+            // Yerel pencere olayında ana iş parçacığındayız: anında uygulanır.
+            // Bekçi/IPC yolunda yalnız ana iş parçacığına iletilir; bekçi bloklanmaz.
+            if let Err(error) = app.run_on_main_thread(move || {
+                for window in gizlenecek.webview_windows().into_values() {
+                    let _ = window.hide();
+                }
+            }) {
+                eprintln!("[fusion][kapanis] pencere gizleme isteği iletilemedi: {error}");
+            }
+        },
+        || {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                cleanup_route_from_app(route, &app);
+                app.exit(0);
+            });
+        },
+    );
 }
 
 /// Kapatma sorusu açıkken arayüzün canlı olduğunu bildirir (R2-14). Arayüz soruyu gösterdiği
@@ -496,7 +516,7 @@ fn kapatma_vazgec(durum: tauri::State<KapanisDurumu>) {
     durum.vazgec();
 }
 
-/// Kapatmayı arayüze sordurur (ana pencere kapatma düğmesi, `ExitRequested`, macOS Cmd+Q menüsü).
+/// Kapatmayı arayüze sordurur (`ExitRequested`, macOS Cmd+Q menüsü ve tepsi).
 ///
 /// Ana pencere simge durumundaysa (konuşma kipi) önce geri açılır; görünmeyen bir soru kimseden
 /// yanıt alamazdı. İlk istekte bekçi başlar: arayüz yanıtsızsa kapanış onaysız sürer (R2-14).
@@ -527,14 +547,7 @@ fn kapatma_bekcisi_baslat(app: tauri::AppHandle) {
             Karar::Bekle => {}
             Karar::ArayuzYanitsiz => {
                 eprintln!("[fusion][kapanis] arayüz nabız vermiyor; kapanış onaysız sürdürülüyor");
-                let donus = durum.onayla(std::time::Instant::now());
-                if donus != kapanis::OnayDonusu::ZatenOnayli {
-                    let app = app.clone();
-                    std::thread::spawn(move || {
-                        cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
-                        app.exit(0);
-                    });
-                }
+                kapatmayi_baslat(&app, ShutdownRoute::ConfirmedMainClose);
             }
             Karar::TemizlikAsildi => {
                 eprintln!("[fusion][kapanis] temizlik süre sınırını aştı; süreç sonlandırılıyor");
@@ -582,6 +595,7 @@ enum ShutdownScope {
 
 #[derive(Clone, Copy)]
 enum ShutdownRoute {
+    NativeMainClose,
     ConfirmedMainClose,
     ExitRequested,
     Exit,
@@ -591,9 +605,10 @@ enum ShutdownRoute {
 
 fn shutdown_scope_for_route(route: ShutdownRoute) -> ShutdownScope {
     match route {
-        ShutdownRoute::ConfirmedMainClose | ShutdownRoute::ExitRequested | ShutdownRoute::Exit => {
-            ShutdownScope::Application
-        }
+        ShutdownRoute::NativeMainClose
+        | ShutdownRoute::ConfirmedMainClose
+        | ShutdownRoute::ExitRequested
+        | ShutdownRoute::Exit => ShutdownScope::Application,
         ShutdownRoute::TalkClose | ShutdownRoute::TalkDestroyed => ShutdownScope::Talk,
     }
 }
@@ -603,13 +618,21 @@ enum CleanupStep {
     Speech,
     Session,
     Terminal,
+    Kits,
 }
 
 fn cleanup_scope(scope: ShutdownScope, owners: &AppCleanupOwners<'_>) {
-    owners.stop_speech();
-    if matches!(scope, ShutdownScope::Application) {
-        owners.stop_sessions();
-        owners.close_terminals();
+    if matches!(scope, ShutdownScope::Talk) {
+        owners.stop_speech();
+    } else {
+        // Independent owners must all begin cleanup before any slow owner uses
+        // the application's global shutdown deadline.
+        std::thread::scope(|scope| {
+            scope.spawn(|| owners.stop_speech());
+            scope.spawn(|| owners.stop_sessions());
+            scope.spawn(|| owners.close_terminals());
+            scope.spawn(|| owners.stop_kits());
+        });
     }
 }
 
@@ -621,6 +644,7 @@ struct AppCleanupOwners<'a> {
     speech: &'a SpeechManager,
     sessions: &'a SessionManager,
     terminals: &'a TerminalManager,
+    kits: &'a KitsManager,
     order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
 }
 
@@ -629,12 +653,14 @@ impl<'a> AppCleanupOwners<'a> {
         speech: &'a SpeechManager,
         sessions: &'a SessionManager,
         terminals: &'a TerminalManager,
+        kits: &'a KitsManager,
         order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
     ) -> Self {
         Self {
             speech,
             sessions,
             terminals,
+            kits,
             order,
         }
     }
@@ -662,18 +688,26 @@ impl<'a> AppCleanupOwners<'a> {
         self.record(CleanupStep::Terminal);
         self.terminals.close_all();
     }
+
+    fn stop_kits(&self) {
+        self.record(CleanupStep::Kits);
+        self.kits.stop();
+    }
 }
 
 fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
     let speech = app.state::<SpeechManager>();
     let sessions = app.state::<SessionManager>();
     let terminals = app.state::<TerminalManager>();
-    let owners =
-        AppCleanupOwners::from_managers(speech.inner(), sessions.inner(), terminals.inner(), None);
+    let kits = app.state::<Arc<KitsManager>>();
+    let owners = AppCleanupOwners::from_managers(
+        speech.inner(),
+        sessions.inner(),
+        terminals.inner(),
+        kits.inner(),
+        None,
+    );
     cleanup_route(route, &owners);
-    if matches!(route, ShutdownRoute::ExitRequested | ShutdownRoute::Exit) {
-        app.state::<Arc<KitsManager>>().stop();
-    }
 }
 
 #[tauri::command]
@@ -995,7 +1029,13 @@ pub fn run() {
             ));
             let resources = RuntimeResources::from_app(app.handle())?;
             let ev_dizini = app.path().home_dir()?;
-            let paths = RuntimePaths::for_current_user(&ev_dizini);
+            let paths = if app.config().identifier == "com.fusion.desktop" {
+                RuntimePaths::for_current_user(&ev_dizini)
+            } else {
+                let data_dir = app.path().app_local_data_dir()?;
+                let _ = session_manager::APP_LOG_DIR.set(data_dir.join("logs"));
+                RuntimePaths::from_root(data_dir.join("runtime"))
+            };
             let manager = RuntimeManager::new(
                 resources,
                 paths,
@@ -1050,6 +1090,8 @@ pub fn run() {
             tanima_baslat,
             tanima_durdur,
             tanima_durum,
+            talk_transcript::talk_transcript_read,
+            talk_transcript::talk_transcript_append,
             kapatmayi_onayla,
             kapatma_nabzi,
             kapatma_vazgec,
@@ -1067,13 +1109,12 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Kapatma ONAYSIZ yapılmaz: çalışan tur ve açık sohbetler
-                // kaybolur. Yanlışlıkla kapatmak (Cmd+Q, Alt+F4, kırmızı düğme)
-                // iş kaybettiriyordu. Karar arayüzde sorulur; onaylanırsa
-                // arayüz `kapatmayi_onayla` çağırır.
+                // Yerel ana pencere kapatma düğmesi tam kapanışı doğrudan
+                // başlatır. Pencere anında gizlenir; mevcut sınırlı temizlik
+                // oturumların EOF/journal kapanışına fırsat verir. JS gerekmez.
                 if window.label() == "main" {
                     api.prevent_close();
-                    kapatma_iste(window.app_handle());
+                    kapatmayi_baslat(window.app_handle(), ShutdownRoute::NativeMainClose);
                     return;
                 }
                 if window.label() == SES_PENCERESI {
@@ -1244,8 +1285,11 @@ mod shutdown_tests {
         speech: Arc<SpeechManager>,
         sessions: Arc<SessionManager>,
         terminals: Arc<TerminalManager>,
+        kits: Arc<KitsManager>,
         terminal_id: String,
         terminal_pid: u32,
+        #[cfg(unix)]
+        kits_child: kits_process::test_support::OwnedKitsFixture,
         _cwd: tempfile::TempDir,
     }
 
@@ -1258,6 +1302,9 @@ mod shutdown_tests {
                 .start_test_child("shutdown-session")
                 .expect("session child başlamalı");
             let terminals = Arc::new(TerminalManager::new(|_| {}, |_| {}));
+            let kits = Arc::new(KitsManager::new());
+            #[cfg(unix)]
+            let kits_child = kits_process::test_support::OwnedKitsFixture::new(kits.clone());
             let cwd = tempfile::tempdir().expect("terminal cwd oluşmalı");
             let terminal = terminals
                 .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
@@ -1266,8 +1313,11 @@ mod shutdown_tests {
                 speech,
                 sessions,
                 terminals,
+                kits,
                 terminal_id: terminal.terminal_id,
                 terminal_pid: terminal.pid.expect("PTY child PID sağlamalı"),
+                #[cfg(unix)]
+                kits_child,
                 _cwd: cwd,
             }
         }
@@ -1280,9 +1330,15 @@ mod shutdown_tests {
             let speech = self.speech.clone();
             let sessions = self.sessions.clone();
             let terminals = self.terminals.clone();
+            let kits = self.kits.clone();
             run_with_deadline(Duration::from_secs(2), move || {
-                let owners =
-                    AppCleanupOwners::from_managers(&speech, &sessions, &terminals, Some(&order));
+                let owners = AppCleanupOwners::from_managers(
+                    &speech,
+                    &sessions,
+                    &terminals,
+                    &kits,
+                    Some(&order),
+                );
                 cleanup_route(route, &owners);
             })
             .expect("production cleanup route iki saniye içinde dönmeli");
@@ -1293,6 +1349,11 @@ mod shutdown_tests {
             assert!(self.sessions.test_is_running("shutdown-session"));
             assert!(self.terminals.test_is_running(&self.terminal_id));
             assert!(!self.terminals.test_has_exited(self.terminal_pid));
+            #[cfg(unix)]
+            {
+                assert!(self.kits_child.is_running());
+                assert!(self.kits_child.descendant_alive());
+            }
         }
 
         fn assert_terminal_exited_within(&self, timeout: Duration) {
@@ -1339,8 +1400,12 @@ mod shutdown_tests {
     }
 
     #[test]
-    fn cleanup_route_for_every_application_event_stops_actual_managers_in_order() {
+    fn cleanup_route_for_every_application_event_stops_each_actual_manager_once() {
+        #[cfg(unix)]
+        let foreign_kits =
+            kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
         for route in [
+            ShutdownRoute::NativeMainClose,
             ShutdownRoute::ConfirmedMainClose,
             ShutdownRoute::ExitRequested,
             ShutdownRoute::Exit,
@@ -1356,19 +1421,84 @@ mod shutdown_tests {
             assert!(!fixture.sessions.test_is_running("shutdown-session"));
             assert!(!fixture.terminals.test_is_running(&fixture.terminal_id));
             fixture.assert_terminal_exited_within(Duration::from_secs(2));
-            assert_eq!(
-                *order.lock().expect("cleanup order kilidi"),
-                [
-                    CleanupStep::Speech,
-                    CleanupStep::Session,
-                    CleanupStep::Terminal,
-                    CleanupStep::Speech,
-                    CleanupStep::Session,
-                    CleanupStep::Terminal,
-                ]
-            );
+            #[cfg(unix)]
+            {
+                assert!(
+                    !fixture.kits_child.is_running(),
+                    "application cleanup left owned Kits alive"
+                );
+                assert!(
+                    !fixture.kits_child.descendant_alive(),
+                    "Kits runtime child survived cleanup"
+                );
+                assert!(foreign_kits.is_running(), "unowned Kits must be preserved");
+                assert!(foreign_kits.descendant_alive());
+            }
+            let recorded = order.lock().expect("cleanup order kilidi");
+            assert_eq!(recorded.len(), 8);
+            for step in [
+                CleanupStep::Speech,
+                CleanupStep::Session,
+                CleanupStep::Terminal,
+                CleanupStep::Kits,
+            ] {
+                assert_eq!(recorded.iter().filter(|actual| **actual == step).count(), 2);
+            }
             fixture.cleanup_and_assert_no_children();
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn application_cleanup_stops_nine_stubborn_sessions_and_kits_with_one_grace_period() {
+        let fixture = LifecycleFixture::new();
+        for index in 0..9 {
+            fixture
+                .sessions
+                .start_test_child_stdin_okumayan(&format!("stubborn-{index}"))
+                .expect("owned stubborn session starts");
+        }
+        let foreign_kits =
+            kits_process::test_support::OwnedKitsFixture::new(Arc::new(KitsManager::new()));
+        let speech = fixture.speech.clone();
+        let sessions = fixture.sessions.clone();
+        let terminals = fixture.terminals.clone();
+        let kits = fixture.kits.clone();
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            let owners =
+                AppCleanupOwners::from_managers(&speech, &sessions, &terminals, &kits, None);
+            cleanup_route(ShutdownRoute::NativeMainClose, &owners);
+        });
+        let kits_deadline = started + Duration::from_secs(1);
+        while fixture.kits_child.is_running() && Instant::now() < kits_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let kits_stopped_before_deadline =
+            !fixture.kits_child.is_running() && !fixture.kits_child.descendant_alive();
+        let deadline = started + Duration::from_secs(4);
+        while !worker.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let finished_before_deadline = worker.is_finished();
+        // Even the red run must finish/reap every owned fixture before asserting.
+        worker.join().expect("owned cleanup worker finishes");
+        assert!(foreign_kits.is_running(), "unowned Kits must remain alive");
+        assert!(foreign_kits.descendant_alive());
+        assert!(
+            kits_stopped_before_deadline,
+            "serial session waits starved Kits cleanup"
+        );
+        assert!(
+            finished_before_deadline,
+            "per-session waits multiplied the grace period: {:?}",
+            started.elapsed()
+        );
+        assert!(fixture
+            .sessions
+            .list()
+            .iter()
+            .all(|snapshot| snapshot.durum == "kapandi"));
     }
 
     #[test]
@@ -1385,6 +1515,14 @@ mod shutdown_tests {
             assert!(fixture.sessions.test_is_running("shutdown-session"));
             assert!(fixture.terminals.test_is_running(&fixture.terminal_id));
             assert!(!fixture.terminals.test_has_exited(fixture.terminal_pid));
+            #[cfg(unix)]
+            {
+                assert!(
+                    fixture.kits_child.is_running(),
+                    "talk close must preserve owned Kits"
+                );
+                assert!(fixture.kits_child.descendant_alive());
+            }
             assert_eq!(
                 *order.lock().expect("cleanup order kilidi"),
                 [CleanupStep::Speech, CleanupStep::Speech]

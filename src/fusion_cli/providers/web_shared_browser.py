@@ -54,6 +54,7 @@ POLL_INTERVAL_S = 0.1
 #: Chrome'la paylaşılır; görünmez açılmış bir Chrome'u "gizlemeye" çalışmak hem
 #: anlamsız hem de sahte bir izin uyarısı üretirdi.
 WINDOW_MODE_FILE = ".fusion-window-mode"
+HIDDEN_STARTUP_MODE = "hidden-no-startup-window"
 #: Pencere kipiyle ilgili kullanıcıya gösterilecek son uyarı (ör. gizleme izni yok).
 #: Dosyada durur çünkü turu çalıştıran süreç ile paneli çizen süreç farklıdır.
 WINDOW_NOTICE_FILE = ".fusion-window-notice"
@@ -72,7 +73,7 @@ class SharedBrowserHooks:
     #: Profili bu süreç açmadan önce hazırla; profil başka bir Chrome'daysa hata ver.
     prepare_launch: Callable[[Path], None]
     #: Profille hata ayıklama portu açık Chrome başlat (beklemeden döner).
-    launch: Callable[[Path, bool], Awaitable[None]]
+    launch: Callable[[Path, WindowMode], Awaitable[None]]
     #: Uç nokta gerçekten yanıt veriyor mu?
     is_alive: Callable[[str], Awaitable[bool]]
     #: Uç noktadaki Chrome'u düzgünce kapat.
@@ -108,12 +109,19 @@ def _write_window_notice(profile: Path, notice: str | None) -> None:
         path.unlink(missing_ok=True)
 
 
+def _startup_mode(profile: Path) -> str:
+    try:
+        return (profile / WINDOW_MODE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _running_window_mode(profile: Path) -> WindowMode | None:
     """Çalışan Chrome'un açıldığı kip; kayıt yoksa ya da bozuksa None."""
+    slug = _startup_mode(profile)
     try:
-        slug = (profile / WINDOW_MODE_FILE).read_text(encoding="utf-8").strip()
-        return WindowMode[slug.upper()]
-    except (OSError, KeyError):
+        return WindowMode.HIDDEN if slug == HIDDEN_STARTUP_MODE else WindowMode[slug.upper()]
+    except KeyError:
         return None
 
 
@@ -180,6 +188,24 @@ class SharedProfileBrowser:
         _restrict_profile_dir(self._profile)
         async with self._locked(deadline):
             endpoint = await self._running_endpoint()
+            if (
+                endpoint is not None
+                and mode is WindowMode.HIDDEN
+                and _startup_mode(self._profile)
+                not in (HIDDEN_STARTUP_MODE, WindowMode.HEADLESS.slug)
+            ):
+                if self._live_leases():
+                    raise SharedBrowserError(
+                        "Eski Fusion Chrome oturumu kullanımda. "
+                        "Oturumu kullanan Fusion pencerelerini kapatıp tekrar dene."
+                    )
+                if (
+                    self._hooks.verify_identity is not None
+                    and read_browser_path(self._profile) is None
+                ):
+                    raise SharedBrowserError("Eski Fusion Chrome oturumunun kimliği doğrulanamadı.")
+                await self._hooks.close(endpoint)
+                endpoint = None
             if endpoint is None:
                 endpoint = await self._launch(mode=mode, deadline=deadline)
             await self._settle_window(requested=requested, mode=mode)
@@ -282,10 +308,9 @@ class SharedProfileBrowser:
         self._hooks.prepare_launch(self._profile)
         with contextlib.suppress(FileNotFoundError):
             (self._profile / DEVTOOLS_PORT_FILE).unlink()
-        (self._profile / WINDOW_MODE_FILE).write_text(mode.slug, encoding="utf-8")
-        # Gizli kip Chrome'u headless BAYRAĞI OLMADAN açar; pencere açıldıktan
-        # sonra işletim sistemi düzeyinde gizlenir.
-        await self._hooks.launch(self._profile, mode is WindowMode.HEADLESS)
+        startup_mode = HIDDEN_STARTUP_MODE if mode is WindowMode.HIDDEN else mode.slug
+        (self._profile / WINDOW_MODE_FILE).write_text(startup_mode, encoding="utf-8")
+        await self._hooks.launch(self._profile, mode)
         while time.monotonic() < deadline:
             endpoint = await self._running_endpoint()
             if endpoint is not None:
@@ -467,5 +492,16 @@ def chrome_launch_arguments(
         # sistemi düzeyinde gizler (`macos_window.hide_profile_window`). Görünür
         # kipte pencere kullanıcının önünde kalır; o kip bunu bilerek seçer.
         arguments.append("--window-position=-32000,-32000")
-    arguments.append("about:blank")
-    return arguments
+    if mode is WindowMode.HIDDEN and sys.platform == "darwin":
+        bundle = next(
+            (parent for parent in Path(executable).parents if parent.suffix == ".app"),
+            None,
+        )
+        if bundle is None:
+            raise SharedBrowserError("Chrome uygulama paketi bulunamadı, gizli kip açılamadı.")
+        # Açılış sekmesi varsa arka plan CDP hedefi bile o pencereyi gösterebiliyor.
+        return [
+            "/usr/bin/open", "-g", "-j", "-n", "-a", str(bundle), "--args",
+            *arguments[1:], "--no-startup-window",
+        ]
+    return [*arguments, "about:blank"]

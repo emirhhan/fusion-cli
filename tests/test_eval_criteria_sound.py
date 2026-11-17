@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import base64
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,20 +39,18 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
             '{"player.png":{"source_url":"https://example.com/player.png","license":"CC0-1.0"}}'
         ),
     },
-    "oauth-mcp-yasam-dongusu": {
+    "mcp-stdio-listele-cagir": {
         "smoke_test.py": (
-            "from oauth_mcp_server import TOOLS\n"
-            "\n"
-            "if __name__ == '__main__':\n"
-            "    print('Araçlar:', ', '.join(TOOLS))\n"
-            "    print('ping:', TOOLS['ping']())\n"
+            "async def smoke(client):\n"
+            "    await client.list_tools()\n"
+            "    await client.call_tool('ping', {})\n"
         )
     },
     "yanlis-hedefte-yeniden-planla": {"config.json": '{"enabled": true}'},
     "buyuk-artifact-korumali-duzenleme": {
         "large.py": 'HEADER = "keep"\nTARGET = 42\nFOOTER = "keep-too"\n'
     },
-    "sohbet-izolasyonu": {
+    "json-dosya-izolasyonu": {
         "conversation-a.json": '{"status": "done", "owner": "a"}',
         "conversation-b.json": '{"status": "pending", "owner": "b"}',
     },
@@ -406,7 +403,12 @@ async def test_olcut_dogru_cozumu_kabul_eder(case, tmp_path: Path, monkeypatch):
         )
         assert result.model_calls > 0
         return
-    _check_file_reference(case.task, REFERANS_COZUMLER[case.task.id], tmp_path)
+    solution = REFERANS_COZUMLER[case.task.id]
+    if case.task.id == "buyuk-artifact-korumali-duzenleme":
+        solution = {
+            "large.py": case.task.setup["large.py"].replace("TARGET = 1\n", "TARGET = 42\n")
+        }
+    _check_file_reference(case.task, solution, tmp_path)
 
 
 def _check_file_reference(task, solution, root: Path):
@@ -417,9 +419,20 @@ def _check_file_reference(task, solution, root: Path):
             target.write_bytes(base64.b64decode(content.removeprefix("base64:")))
         else:
             target.write_text(content, encoding="utf-8")
-    command = (task.criterion.command or "").replace("python ", f"{sys.executable} ")
+    from evals.acceptance_command import plan_acceptance
+    from evals.executor import _verification_env
+
+    acceptance = plan_acceptance(task.criterion.command or "")
+    assert acceptance.command is not None, acceptance.unavailable_reason
+    command = acceptance.command
     result = subprocess.run(
-        command, shell=True, cwd=root, capture_output=True, text=True, timeout=120
+        command,
+        shell=True,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=_verification_env(),
     )
     assert result.returncode == task.criterion.expected_exit_code, (
         task.id,

@@ -1,4 +1,4 @@
-"""Anahtar doğrulaması: sabit resmî uçlara kimlik doğrulamalı okuma isteği."""
+"""Sabit resmî uçlara anahtarla erişim sınaması; herkese açık katalog istisnası vardır."""
 
 from __future__ import annotations
 
@@ -26,7 +26,11 @@ class ValidationResult:
 async def validate_api_key(
     provider: str, key: str, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> ValidationResult:
-    """Anahtarın kabulünü sına; model üretimi/kota garantisi vermez."""
+    """API erişimini sına; NIM'in açık kataloğu anahtar kabulünü kanıtlamaz.
+
+    Başarılı sonuç model üretimi veya kota garantisi değildir. NIM için yalnız
+    katalog yanıtının alındığını gösterir; kimlik ve çıkarım yetkisi bilinmez.
+    """
     endpoint = ENDPOINTS.get(provider)
     if endpoint is None:
         return ValidationResult(
@@ -65,6 +69,12 @@ async def validate_api_key(
     expected = "models" if provider == "gemini" else "data"
     if not isinstance(payload, dict) or expected not in payload:
         return ValidationResult(False, "Sağlayıcı beklenen yanıtı vermedi.")
+    if provider == "nvidia_nim":
+        return ValidationResult(
+            True,
+            "NVIDIA model kataloğuna erişildi. Bu test API anahtarının kabulünü, "
+            "çıkarım yetkisini, model kullanılabilirliğini veya kotayı doğrulamaz.",
+        )
     return ValidationResult(
         True, "API anahtarı doğrulandı. Model kullanılabilirliği ve kota ayrıca geçerlidir."
     )

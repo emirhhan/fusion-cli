@@ -1,6 +1,6 @@
 import type { GorevMaddesi, Mesaj, TakipOnerisi } from "../screens/Conversation";
-import { adimiEkle } from "./adimBirlestir";
-import { olayAdimi } from "./olayMetni";
+import { adimiEkle, ayniAracCagrisi, bitenAracAdimi } from "./adimBirlestir";
+import { olayAdimi, type OlayAdimi } from "./olayMetni";
 import { ekipOlayi } from "../team/ekipOlaylari";
 
 /**
@@ -59,6 +59,9 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const adim = olayAdimi(event);
   if (!adim) return messages;
 
+  const eslesen = aracCagrisiniGuncelle(messages, adim);
+  if (eslesen) return eslesen;
+
   if (adim.sonuc) {
     return [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
   }
@@ -91,6 +94,35 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const guncel = [...messages];
   guncel[sonIndeks] = { ...(son as Mesaj), adimlar, metin: adim.metin };
   return guncel;
+}
+
+/** Kartlar/anlatım araç çağrısını bölmez; eşleştirme yalnız mevcut kullanıcı turundadır. */
+function aracCagrisiniGuncelle(messages: Mesaj[], incoming: OlayAdimi): Mesaj[] | null {
+  if (!incoming.callId || !incoming.arac) return null;
+  let previousTurn = false;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.rol === "kullanici") {
+      if (!incoming.sessionId || !incoming.turnId || !incoming.attemptId) break;
+      previousTurn = true;
+      continue;
+    }
+    for (let stepIndex = 0; stepIndex < (message.adimlar?.length ?? 0); stepIndex++) {
+      const step = message.adimlar![stepIndex];
+      // A queued user message may follow a terminal turn's uncertain placeholder.
+      // Only that placeholder and a complete matching wire identity cross the boundary.
+      if (previousTurn && !step.sonucAlinamadi) continue;
+      if (!ayniAracCagrisi(step, incoming)) continue;
+      if (incoming.eventId && incoming.eventId === step.eventId) return messages;
+      if (incoming.basladi || (!step.basladi && !step.sonucAlinamadi)) continue;
+      const steps = [...message.adimlar!];
+      steps[stepIndex] = bitenAracAdimi(step, incoming);
+      const result = [...messages];
+      result[index] = {...message, adimlar: steps, metin: incoming.metin};
+      return result;
+    }
+  }
+  return null;
 }
 
 /** Sondaki görev listesi kartı atlanarak son mesajın konumu. */

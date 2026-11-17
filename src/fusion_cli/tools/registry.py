@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 import time
-from collections.abc import Awaitable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import replace
 from threading import Event
 from typing import Literal, cast
@@ -76,6 +76,9 @@ class ToolRegistry:
         self._tools: dict[str, Tool] = {}
         #: `register_or_replace` ile gelen (uzak/eklenti) araç adları; sıkı yüzeyde sayılır.
         self._remote: set[str] = set()
+        # Runtime-owned admission is deliberately not copied with tool objects.
+        # Search state can be shared; authority cannot be shared across clones.
+        self._tool_search_permitted: Callable[[], set[str]] | None = None
 
     def register(self, tool: Tool) -> None:
         if tool.name in self._tools:
@@ -121,6 +124,8 @@ class ToolRegistry:
                 run=tool.run,
                 mutating=tool.mutating,
                 advertised=False,
+                evidence_role=tool.evidence_role,
+                evidence_role_resolver=tool.evidence_role_resolver,
             )
         )
 
@@ -188,6 +193,13 @@ class ToolRegistry:
                 f"Bilinmeyen araç: {name}. Kullanılabilir araçlar: "
                 f"{', '.join(self.advertised_names())}"
             )
+        return await self.execute_registered(tool, args, context)
+
+    async def execute_registered(
+        self, tool: Tool, args: ToolArgs, context: ToolContext
+    ) -> ToolResult:
+        """Dispatch the exact already-admitted immutable tool, without another lookup."""
+        name = tool.name
         args = adapt_arguments(tool, args)
         try:
             if _is_async(tool.run):
@@ -253,4 +265,9 @@ def _offload(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
     )
     if path is None:
         return result
-    return replace(result, output=output, artifact_path=str(path))
+    return replace(
+        result,
+        output=output,
+        artifact_path=str(path),
+        source_read_scope="truncated" if result.source_read_url else result.source_read_scope,
+    )

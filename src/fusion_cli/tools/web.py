@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
 
+from ..core.clock import SystemClock
 from ..core.constants import (
     CAPABILITY_WALL_PREFIX,
     MAX_OUTPUT_CHARS,
@@ -30,9 +31,20 @@ from ..core.constants import (
     truncate_notice,
 )
 from ..core.network_address import is_public_ip
+from ..core.protocols import Clock
+from ..core.research_grounding import SourceReceipt
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .pinned_http import PinnedTransport
+from .url_input import has_explicit_scheme
+from .web_evidence import (
+    CONTENT_SUMMARY_CHARS,
+    DATE_UNKNOWN,
+    PageDates,
+    SearchEntries,
+    search_date_filter,
+    timestamp,
+)
 
 _USER_AGENT = "Mozilla/5.0 (fusion-cli)"
 
@@ -66,7 +78,7 @@ _EXTRA_BLANK_LINES = re.compile(r"\n\s*\n\s*\n+")
 _DDG_RESULT = re.compile(r'(?is)<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>')
 
 
-def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
+def web_fetch(args: ToolArgs, context: ToolContext, *, clock: Clock | None = None) -> ToolResult:
     url = _normalize_url(require_str(args, "url"))
     reason = url_block_reason(url)
     if reason is not None:
@@ -85,10 +97,46 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
             "Dosyayı projeye indirmek için download_file kullan (PDF/ZIP için sonra "
             "extract_archive ya da uygun araç)."
         )
-    text = page_text(body, final_url) if _looks_like_html(content_type, body) else body
+    if _looks_like_html(content_type, body):
+        text, rendering_truncated = _page_text_with_truncation(body, final_url)
+    else:
+        text, rendering_truncated = body, False
     govde = truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)"
     duvar = access_wall_notice(text)
-    return ToolResult(f"{duvar}\n\n{govde}" if duvar else govde)
+    fetched_at = timestamp(clock or SystemClock())
+    dates = PageDates()
+    if _looks_like_html(content_type, body):
+        dates.feed(body)
+    source = {
+        "url": url,
+        "final_url": final_url,
+        "fetched_at": fetched_at,
+        "published_at": dates.published_at,
+        "updated_at": dates.updated_at,
+        "date_evidence": "page_metadata" if dates.published_at or dates.updated_at else "unknown",
+        "content_summary": text[:CONTENT_SUMMARY_CHARS],
+    }
+    provenance = f"Kaynak: {final_url}\nİstenen URL: {url}\nErişim zamanı: {fetched_at}"
+    output = f"{provenance}\n\n{govde}"
+    if duvar:
+        # Kısıt öneki başarı kararının protokolüdür; provenance bunun önüne geçemez.
+        output = f"{duvar}\n\n{output}"
+    receipt = SourceReceipt(
+        url,
+        final_url,
+        fetched_at,
+        govde,
+        completeness="blocked"
+        if duvar
+        else "truncated"
+        if rendering_truncated
+        or len(text) > MAX_OUTPUT_CHARS
+        or len(body.encode("utf-8")) >= MAX_FETCH_BYTES
+        else "complete",
+        published_at=dates.published_at or "",
+        updated_at=dates.updated_at or "",
+    )
+    return ToolResult(output, structured={"source": source}, source_receipt=receipt)
 
 
 #: Erişim duvarı işaretleri. Sayfa 200 döner ve METİN gelir; ama gelen metin istenen
@@ -203,18 +251,32 @@ def _read_capped(response: httpx.Response) -> str:
     return b"".join(parts).decode(response.encoding or "utf-8", errors="replace")
 
 
-def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:
+def web_search(args: ToolArgs, context: ToolContext, *, clock: Clock | None = None) -> ToolResult:
     query = require_str(args, "query")
+    searched_at = timestamp(clock or SystemClock())
+    try:
+        date_filter = search_date_filter(args, searched_at)
+    except ValueError as error:
+        return ToolResult.failure(str(error))
     failures: list[str] = []
 
     for endpoint in SEARCH_ENDPOINTS:
         try:
-            results = endpoint(query)
+            results = endpoint(query, date_filter) if date_filter else endpoint(query)
         except httpx.HTTPError as exc:
             failures.append(f"{endpoint.__name__}: {type(exc).__name__}")
             continue
         if results:
-            return ToolResult("\n".join(results))
+            metadata = {
+                "query": query,
+                "searched_at": searched_at,
+                "date_filter": date_filter,
+                "date_filter_status": "requested" if date_filter else "not_requested",
+            }
+            heading = f"Arama zamanı: {searched_at}\n{DATE_UNKNOWN}"
+            if date_filter:
+                heading += f"\nİstenen tarih filtresi: {date_filter} (sağlayıcıya iletildi)"
+            return ToolResult(f"{heading}\n\n" + "\n".join(results), structured=metadata)
 
     if failures:
         return ToolResult.failure(f"Arama başarısız (denenen: {'; '.join(failures)})")
@@ -239,28 +301,39 @@ class _PageLinks(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.base_url = base_url
         self.urls: list[str] = []
+        self.truncated = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         href = dict(attrs).get("href")
-        if tag != "a" or not href or len(self.urls) >= 80:
+        if tag != "a" or not href:
             return
         url = urljoin(self.base_url, href)
         if urlparse(url).scheme in _ALLOWED_SCHEMES and url not in self.urls:
-            self.urls.append(url)
+            if len(self.urls) >= 80:
+                self.truncated = True
+            else:
+                self.urls.append(url)
 
 
 def page_text(body: str, base_url: str) -> str:
     """Sayfa temizlenirken indirme bağlantıları kaybolup model URL uydurmasın."""
+    return _page_text_with_truncation(body, base_url)[0]
+
+
+def _page_text_with_truncation(body: str, base_url: str) -> tuple[str, bool]:
+    """Preserve actual rendering loss separately from the public string output."""
     links = _PageLinks(base_url)
     links.feed(body)
     text = strip_html(body)
     if not links.urls:
-        return text
+        return text, False
     # Bağlantılara ayrı yer ayır: uzun sayfa metni indirme hedeflerini kesmesin.
     body_budget = MAX_OUTPUT_CHARS // 2
-    targets = truncate_notice("\n".join(links.urls), body_budget - 100, ne="bağlantılar")
+    link_text = "\n".join(links.urls)
+    targets = truncate_notice(link_text, body_budget - 100, ne="bağlantılar")
     summary = truncate_notice(text, body_budget, ne="sayfa metni")
-    return f"{summary}\n\nSayfadaki bağlantılar:\n{targets}"
+    truncated = links.truncated or len(text) > body_budget or len(link_text) > body_budget - 100
+    return f"{summary}\n\nSayfadaki bağlantılar:\n{targets}", truncated
 
 
 def strip_html(html: str) -> str:
@@ -285,52 +358,24 @@ def clean_result_url(href: str) -> str:
     return href
 
 
-class _ClassAnchors(HTMLParser):
-    """Belirli sınıfı taşıyan `<a>` etiketlerinin (href, metin) çiftleri.
-
-    Düzenli ifade çift tırnağı ve `class`/`href` sırasını varsayıyordu; DuckDuckGo
-    Lite gerçekte tek tırnak ve farklı sıra kullanabilir. HTML ayrıştırıcısı ikisinden
-    de bağımsızdır.
-    """
-
-    def __init__(self, css_class: str) -> None:
-        super().__init__(convert_charrefs=True)
-        self._css_class = css_class
-        self.found: list[tuple[str, str]] = []
-        self._href = ""
-        self._text: list[str] = []
-        self._open = False
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag != "a":
-            return
-        values = dict(attrs)
-        if self._css_class in (values.get("class") or "").split() and values.get("href"):
-            self._open, self._href, self._text = True, values["href"] or "", []
-
-    def handle_data(self, data: str) -> None:
-        if self._open:
-            self._text.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "a" and self._open:
-            self.found.append((self._href, "".join(self._text)))
-            self._open = False
-
-
 def parse_anchor_results(html: str, css_class: str) -> list[str]:
-    """`css_class` taşıyan bağlantılardan "• başlık\n  url" satırları çıkar."""
-    parser = _ClassAnchors(css_class)
+    """Başlık/URL yanında varsa sağlayıcının snippet ve tarih beyanını koru."""
+    parser = SearchEntries(css_class)
     parser.feed(html)
     results: list[str] = []
     seen: set[str] = set()
-    for href, raw_title in parser.found:
-        url = clean_result_url(href)
-        title = strip_html(raw_title)
-        if not title or not url.startswith("http") or url in seen:
+    for entry in parser.entries:
+        url = clean_result_url(entry.href)
+        title = strip_html(entry.title)
+        if not title or not url.startswith(("http://", "https://")) or url in seen:
             continue
         seen.add(url)
-        results.append(f"• {title}\n  {url}")
+        result = f"• {title}\n  {url}"
+        if entry.published_at.strip():
+            result += f"\n  Sağlayıcının tarih beyanı: {entry.published_at.strip()}"
+        if entry.snippet.strip():
+            result += f"\n  {entry.snippet.strip()}"
+        results.append(result)
         if len(results) >= MAX_WEB_RESULTS:
             break
     return results
@@ -362,7 +407,13 @@ def url_block_reason(url: str) -> str | None:
     """
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
-        return f"yalnızca http/https desteklenir (verilen: {parsed.scheme or 'şema yok'})"
+        reason = f"yalnızca http/https desteklenir (verilen: {parsed.scheme or 'şema yok'})"
+        if parsed.scheme == "file":
+            reason += (
+                "; yerel HTML için start_preview kullan, ardından dönen HTTP adresini "
+                "browser_open ile aç"
+            )
+        return reason
     host = parsed.hostname
     if not host:
         return "adreste host yok"
@@ -417,6 +468,9 @@ def browser_block_reason(url: str, allowed_local: Collection[str] = ()) -> str |
     internete açan bir tünel kurdu. Diğer özel ağ adresleri, bulut metadata ucu ve
     izin verilmemiş yerel portlar kapalı kalır.
     """
+    # A preview grants only HTTP(S) access to its origin, never another protocol.
+    if urlparse(url).scheme not in _ALLOWED_SCHEMES:
+        return url_block_reason(url)
     origin = _loopback_origin(url)
     if origin is not None and origin in allowed_local:
         return None
@@ -429,16 +483,19 @@ def _is_blocked_ip(address: str) -> bool:
 
 
 def _normalize_url(url: str) -> str:
-    return url if url.startswith(("http://", "https://")) else f"https://{url}"
+    return url if has_explicit_scheme(url) else f"https://{url}"
 
 
 def _looks_like_html(content_type: str, body: str) -> bool:
     return "html" in content_type.lower() or "<html" in body[:2000].lower()
 
 
-def _post_search(url: str, query: str, css_class: str) -> list[str]:
+def _post_search(url: str, query: str, css_class: str, date_filter: str = "") -> list[str]:
     with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
-        response = client.post(url, data={"q": query}, headers={"User-Agent": _USER_AGENT})
+        payload = {"q": query}
+        if date_filter:
+            payload["df"] = date_filter
+        response = client.post(url, data=payload, headers={"User-Agent": _USER_AGENT})
         response.raise_for_status()
         return parse_anchor_results(response.text, css_class)
 
@@ -460,7 +517,14 @@ def parse_bing_rss(xml_text: str) -> list[str]:
         if not title or not link.startswith("http") or link in seen:
             continue
         seen.add(link)
-        results.append(f"• {title}\n  {link}")
+        result = f"• {title}\n  {link}"
+        published = (item.findtext("pubDate") or "").strip()
+        snippet = strip_html(item.findtext("description") or "")
+        if published:
+            result += f"\n  Sağlayıcının tarih beyanı: {published}"
+        if snippet:
+            result += f"\n  {snippet}"
+        results.append(result)
         if len(results) >= MAX_WEB_RESULTS:
             break
     return results
@@ -474,13 +538,16 @@ def _relevant_to_query(results: list[str], query: str) -> list[str]:
     return [r for r in results if any(w in r.lower() for w in words)]
 
 
-def _search_bing_rss(query: str) -> list[str]:
+def _search_bing_rss(query: str, date_filter: str = "") -> list[str]:
     """Bing'in herkese açık RSS sonuç biçimini kazımasız bir yedek olarak ara.
 
     Uç yapılandırılmış XML döndürür; bu yüzden bir arama-sonucu HTML sınıf adına
     bağlı kalmaktan daha dayanıklıdır. Hatalar `web_search` tarafından ele alınır ve
     DuckDuckGo uçları sonrasında yine kullanılabilir kalır.
     """
+    if date_filter:
+        # RSS ucunda tarih filtresi doğrulanmadı; filtreyi sessizce düşürme.
+        return []
     url = f"https://www.bing.com/search?format=rss&q={quote_plus(query)}"
     with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
         response = client.get(url, headers={"User-Agent": _USER_AGENT})
@@ -490,12 +557,12 @@ def _search_bing_rss(query: str) -> list[str]:
     return _relevant_to_query(parse_bing_rss(response.text), query)
 
 
-def _search_html(query: str) -> list[str]:
-    return _post_search("https://html.duckduckgo.com/html/", query, "result__a")
+def _search_html(query: str, date_filter: str = "") -> list[str]:
+    return _post_search("https://html.duckduckgo.com/html/", query, "result__a", date_filter)
 
 
-def _search_lite(query: str) -> list[str]:
-    return _post_search("https://lite.duckduckgo.com/lite/", query, "result-link")
+def _search_lite(query: str, date_filter: str = "") -> list[str]:
+    return _post_search("https://lite.duckduckgo.com/lite/", query, "result-link", date_filter)
 
 
 #: Testlerin uç değiştirmeden kazıma mantığını sınayabilmesi için açık liste.
@@ -506,7 +573,7 @@ def _search_lite(query: str) -> list[str]:
 #: OLMAYAN ilk sonucu kabul ettiği için bu alakasız sonuçlar DDG'ye hiç düşmeden
 #: kullanıcıya gidiyordu. Bing yapılandırılmış XML döndürdüğü için DDG çöktüğünde
 #: son çare olarak tutulur, ama artık öncelik değildir.
-SEARCH_ENDPOINTS: tuple[Callable[[str], list[str]], ...] = (
+SEARCH_ENDPOINTS: tuple[Callable[..., list[str]], ...] = (
     _search_html,
     _search_lite,
     _search_bing_rss,

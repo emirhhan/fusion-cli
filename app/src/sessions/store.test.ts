@@ -1,10 +1,62 @@
 import { describe, expect, it } from "vitest";
 import { ProtocolClient } from "../protocol/client";
 import { initialSessionState, sessionReducer } from "./store";
+import { historyMessages } from "./history";
+import type { Mesaj } from "../screens/Conversation";
 
 function client() {
   return new ProtocolClient(() => undefined, () => undefined);
 }
+
+describe("geç geçmişte kalıcı mesaj kimliği", () => {
+  const proof={schema_version:1,dogrulandi:true,engelliyor:false,yanlis_iddia:false,
+    degisen:["rapor.html"],degisen_sayisi:1,sorunlar:[],sunum:"document"};
+  function hydrate(live:Mesaj[], rows:unknown[]) {
+    let state=sessionReducer(initialSessionState,{type:"created",session:{id:"bir",title:"Bir",source:"fusion",root:"/",client:client()}});
+    for(const message of live) state=sessionReducer(state,{type:"messageAdded",id:"bir",message});
+    return sessionReducer(state,{type:"historyLoaded",id:"bir",messages:historyMessages(rows)}).sessions.bir.messages;
+  }
+  it.each(["Rapor hazır",""])("geç gelen aynı yanıt tek kanıt kartı olarak kalır: %s", text=>{
+    const rows=[{id:"r:assistant",rol:"asistan",metin:text,kanit:proof}];
+    const messages=hydrate(historyMessages(rows),rows);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({id:"r:assistant",metin:text,delivery:{presentation:"document"}});
+    expect(new Set(messages.map(m=>m.id)).size).toBe(messages.length);
+  });
+  it.each(["","Eski kısa cevap"])("geçmiş canlı metni ve kanıtı ezmez: %s", text=>{
+    const live=historyMessages([{id:"r:assistant",rol:"asistan",metin:"Tam canlı cevap",kanit:proof}]);
+    expect(hydrate(live,[{id:"r:assistant",rol:"asistan",metin:text,kanit:proof}]))
+      .toEqual(live);
+  });
+  it("canlı yanıt boşsa geçmiş metni ve eksik kanıtı tamamlar",()=>{
+    const live:Mesaj[]=[{id:"r:assistant",rol:"asistan",metin:""}];
+    expect(hydrate(live,[{id:"r:assistant",rol:"asistan",metin:"Kalıcı cevap",kanit:proof}]))
+      .toMatchObject([{id:"r:assistant",metin:"Kalıcı cevap",delivery:{presentation:"document"}}]);
+  });
+  it("eski eksik kanıt canlı kanıtı değiştirmez",()=>{
+    const live=historyMessages([{id:"r:assistant",rol:"asistan",metin:"Tam cevap",kanit:proof}]);
+    expect(hydrate(live,[{id:"r:assistant",rol:"asistan",metin:"Eski cevap",
+      kanit:{...proof,dogrulandi:null,sunum:undefined}}])).toEqual(live);
+  });
+  it("tekrarlanan geçmiş yüklemesi eski normal satırları çoğaltmaz",()=>{
+    const rows=[{rol:"kullanici",metin:"Eski"},{rol:"asistan",metin:"Eski cevap"}];
+    const first=hydrate([],rows);
+    expect(hydrate(first,rows)).toEqual(first);
+  });
+  it("aynı metinli farklı makbuzlar ve araç geçmişi sırayla korunur",()=>{
+    const rows=[{id:"old:user",rol:"kullanici",metin:"Rapor yap"},
+      {id:"old:tool",rol:"olay",olay:{olay:"ToolExecuted",name:"Shell",outcome:"ok",output:"ok"}},
+      {id:"old:assistant",rol:"asistan",metin:"Hazır",kanit:proof}];
+    const live:Mesaj[]=[{id:"new:user",rol:"kullanici",metin:"Rapor yap"},{id:"new:assistant",rol:"asistan",metin:"Hazır"}];
+    expect(hydrate(live,rows)).toEqual([...historyMessages(rows),...live]);
+  });
+  it("eski kimliksiz kullanıcı eşleşmesi ve eski normal satırlar korunur",()=>{
+    const messages=hydrate([{rol:"kullanici",metin:"Yeni"}],
+      [{rol:"kullanici",metin:"Eski"},{rol:"asistan",metin:"Eski cevap"},{rol:"kullanici",metin:"Yeni"}]);
+    expect(messages.map(m=>m.metin)).toEqual(["Eski","Eski cevap","Yeni"]);
+    expect(new Set(messages.map(m=>m.id)).size).toBe(3);
+  });
+});
 
 describe("sessionReducer", () => {
   it("Chrome panelinden cevaplanan soru kartını yalnız kimlik eşleşirse kapatır", () => {
@@ -165,4 +217,49 @@ describe("tur bitince bekleyen soru", () => {
 
     expect(state.sessions.bir.messages.filter((m) => m.rol === "asistan")).toHaveLength(1);
   });
+});
+
+
+it("geç yaratılan geri yükleme kaydı seçili çalışan sohbeti değiştirmez", () => {
+  let state = sessionReducer(initialSessionState, { type: "created", session: {
+    id: "fresh", title: "Yeni iş", source: "fusion", root: "/project", client: client(),
+  } });
+  state = sessionReducer(state, { type: "runningChanged", id: "fresh", running: true });
+  const owner = state.sessions.fresh;
+  state = sessionReducer(state, { type: "created", activate: false, session: {
+    id: "old", title: "Yeni görev", source: "fusion", root: "/outputs", client: client(),
+  } });
+  expect(state.activeId).toBe("fresh");
+  expect(state.sessions.fresh).toBe(owner);
+  expect(state.sessions.old.root).toBe("/outputs");
+});
+
+it("tekrarlanan created çalışan turun kökünü mesajını veya istemcisini ezemez", () => {
+  let state = sessionReducer(initialSessionState, { type: "created", session: {
+    id: "same", title: "Yeni iş", source: "fusion", root: "/project", client: client(),
+  } });
+  state = sessionReducer(state, { type: "submissionStarted", id: "same", requestId: "owner" });
+  state = sessionReducer(state, { type: "messageAdded", id: "same", message: { rol: "kullanici", metin: "Hesabı temizle" } });
+  state = sessionReducer(state, { type: "runningChanged", id: "same", running: true });
+  const owner = state.sessions.same;
+  state = sessionReducer(state, { type: "created", activate: false, session: {
+    id: "same", title: "Yeni görev", source: "fusion", root: "/outputs", client: client(),
+  } });
+  expect(state.sessions.same).toBe(owner);
+  expect(state.sessions.same.requestId).toBe("owner");
+  expect(state.sessions.same.root).toBe("/project");
+  expect(state.sessions.same.running).toBe(true);
+  expect(state.sessions.same.messages[0].metin).toBe("Hesabı temizle");
+});
+
+it("geçmiş bildirimi yeniden yüklemede çoğalmaz ve yeni sonuçta temizlenir", () => {
+  let state = sessionReducer(initialSessionState, {type:"created", session:{id:"a", title:"A", source:"fusion", root:"/a", client:client()}});
+  const messages = [{rol:"bildirim" as const, id:"history-notice", metin:"Geçmiş kısaltıldı"}];
+  state = sessionReducer(state, {type:"historyLoaded", id:"a", messages});
+  state = sessionReducer(state, {type:"historyLoaded", id:"a", messages});
+  expect(state.sessions.a.messages.filter(message=>message.rol==="bildirim")).toHaveLength(1);
+  state = sessionReducer(state, {type:"created", session:{id:"b", title:"B", source:"fusion", root:"/b", client:client()}});
+  expect(state.sessions.b.messages).toEqual([]);
+  state = sessionReducer(state, {type:"historyLoaded", id:"a", messages:[]});
+  expect(state.sessions.a.messages).toEqual([]);
 });

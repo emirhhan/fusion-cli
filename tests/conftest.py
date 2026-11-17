@@ -337,3 +337,15 @@ def git_ortamini_temizle(monkeypatch):
         "GIT_CONFIG_PARAMETERS",
     ):
         monkeypatch.delenv(degisken, raising=False)
+
+
+@pytest.fixture
+def public_example_dns(monkeypatch):
+    """Politika/batch birim testindeki example.com genel adresi ağsız çözülür."""
+    import socket
+
+    def lookup(host, port, *_args, **_kwargs):
+        assert host == "example.com", "Bu fixture yalnız sentetik example.com hedefini çözer"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)

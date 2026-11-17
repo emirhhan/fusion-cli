@@ -1,11 +1,13 @@
+import { SESSION_VIEW_KEY } from "./persistence";
 import { saveSubmission } from "./submissionPersistence";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
+import { useActiveModel } from "../screens/useActiveModel";
 import { GOAL_WAITING_USER } from "../goal/goalResult";
 import { initialSessionState, sessionReducer } from "./store";
 import { DEFAULT_TITLE } from "./title";
-import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
+import type { BackendSessionSnapshot, SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
 
 afterEach(() => localStorage.clear());
 
@@ -1081,4 +1083,202 @@ it("reddedilen komut isteği çağırana fırlamaz, hata mesajı gösterilir; ar
   await act(async () => { await result.current.close("varsayilan"); });
   await act(async () => { await expect(command).resolves.toMatchObject({ ok: false }); });
   expect(result.current.state.sessions.varsayilan.messages.at(-1)).toMatchObject({ hata: true });
+});
+
+
+it("geç gelen açılış geri yüklemesi kullanıcının yeni çalışan sohbetinden odağı alamaz", async () => {
+  localStorage.setItem(SESSION_VIEW_KEY, JSON.stringify({ version: 1, activeId: "saved-b", sessions: [
+    { id: "saved-a", title: "Eski A", source: "fusion", root: "/outputs", updatedAt: 1 },
+    { id: "saved-b", title: "Eski B", source: "fusion", root: "/outputs", updatedAt: 2 },
+  ] }));
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  let release!: () => Promise<void>;
+  fake.transport.create = vi.fn((id, root) => id === "saved-b"
+    ? new Promise<BackendSessionSnapshot>((resolve) => { release = async () => { resolve(await create(id, root)); }; })
+    : create(id, root));
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  await act(async () => { await result.current.create({ id: "fresh", title: "Yeni iş", root: "/project" }); });
+  act(() => { result.current.send("fresh", "Hesap Makinesi hesabını temizle"); });
+  await waitFor(() => expect(result.current.activeSession?.running).toBe(true));
+  const owner = result.current.state.sessions.fresh;
+  await act(async () => { await release(); });
+  await waitFor(() => expect(result.current.state.sessions["saved-b"]).toBeDefined());
+  expect(result.current.activeSession?.id).toBe("fresh");
+  expect(result.current.activeSession?.root).toBe("/project");
+  expect(result.current.activeSession?.client).toBe(owner.client);
+  expect(result.current.activeSession?.running).toBe(true);
+  expect(result.current.activeSession?.requestId).toBe(owner.requestId);
+  expect(result.current.activeSession?.messages).toEqual(owner.messages);
+});
+
+it("aynı sohbetin eşzamanlı açılması çalışan istemciyi ve tur sahipliğini değiştiremez", async () => {
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  const releases: (() => Promise<void>)[] = [];
+  fake.transport.create = vi.fn((id, root) => id === "shared"
+    ? new Promise<BackendSessionSnapshot>((resolve) => { releases.push(async () => { resolve(await create(id, root)); }); })
+    : create(id, root));
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  let first!: Promise<void>;
+  let second!: Promise<void>;
+  act(() => {
+    first = result.current.openStored("shared", "/project");
+    second = result.current.openStored("shared", "/project");
+  });
+  await waitFor(() => expect(releases.length).toBeGreaterThan(0));
+  await act(async () => { await releases[0](); await first; });
+  act(() => { result.current.send("shared", "Hesap Makinesi hesabını temizle"); });
+  const owner = result.current.state.sessions.shared;
+  await act(async () => { if (releases[1]) await releases[1](); await second; });
+  expect(result.current.activeSession?.client).toBe(owner.client);
+  expect(result.current.activeSession?.root).toBe("/project");
+  expect(result.current.activeSession?.running).toBe(true);
+  expect(result.current.activeSession?.requestId).toBe(owner.requestId);
+  expect(result.current.activeSession?.messages).toEqual(owner.messages);
+  expect(vi.mocked(fake.transport.create).mock.calls.filter(([id]) => id === "shared")).toHaveLength(1);
+  const turn = fake.sent.map(({ line }) => JSON.parse(line)).find((request) => request.ad === "tur.calistir");
+  const turnId = `${turn.veri.gonderim_id}:1`;
+  act(() => fake.emitLine({ oturum_id: "shared", satir: JSON.stringify({ tip: "olay", veri: {
+    olay: "GonderimMakbuzu", gonderim_id: turn.veri.gonderim_id, oturum_id: "shared", tur_id: turnId, durum: "running",
+  } }) }));
+  expect(result.current.activeSession?.turnId).toBe(turnId);
+  act(() => result.current.stop("shared"));
+  const stop = fake.sent.map(({ line }) => JSON.parse(line)).find((request) => request.ad === "tur.kes");
+  expect(stop.veri).toEqual({ turnId });
+});
+
+
+it.each(["send", "select"] as const)("geç geri yükleme açık sohbetteki %s niyetini geçersiz kılamaz", async (intent) => {
+  localStorage.setItem(SESSION_VIEW_KEY, JSON.stringify({ version: 1, activeId: "saved-b", sessions: [
+    { id: "saved-a", title: "Eski A", source: "fusion", root: "/project", updatedAt: 1 },
+    { id: "saved-b", title: "Eski B", source: "fusion", root: "/outputs", updatedAt: 2 },
+  ] }));
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  let release!: () => Promise<void>;
+  fake.transport.create = vi.fn((id, root) => id === "saved-b"
+    ? new Promise<BackendSessionSnapshot>((resolve) => { release = async () => { resolve(await create(id, root)); }; })
+    : create(id, root));
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  act(() => {
+    if (intent === "send") result.current.send("saved-a", "Hesabı temizle");
+    else result.current.select("saved-a");
+  });
+  await act(async () => { await release(); });
+  await waitFor(() => expect(result.current.state.sessions["saved-b"]).toBeDefined());
+  expect(result.current.activeSession?.id).toBe("saved-a");
+  expect(result.current.activeSession?.root).toBe("/project");
+  expect(result.current.activeSession?.running).toBe(intent === "send");
+});
+
+it("başarısız tek bağlantı kilidi sonraki açma denemesini engellemez", async () => {
+  const fake = fakeTransport();
+  const create = fake.transport.create;
+  let attempts = 0;
+  fake.transport.create = vi.fn(async (id, root) => {
+    if (id === "retry" && ++attempts === 1) throw new Error("başlatılamadı");
+    return create(id, root);
+  });
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.activeSession?.status).toBe("ready"));
+  await act(async () => { await expect(result.current.openStored("retry", "/project")).rejects.toThrow("başlatılamadı"); });
+  await act(async () => { await result.current.openStored("retry", "/project"); });
+  expect(result.current.activeSession?.id).toBe("retry");
+  expect(result.current.activeSession?.status).toBe("ready");
+});
+
+it("temizlemeden sonra geç dönen geçmiş bildirimi ve eski satırları diriltmez", async () => {
+  const fake = fakeTransport();
+  const originalSend = fake.transport.send;
+  let held: { id: string; requestId: string } | null = null;
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line);
+    if (request.ad === "oturum.gecmis") { held = { id, requestId: request.id }; return; }
+    return originalSend(id, line);
+  });
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(held).not.toBeNull());
+  const pending = held! as { id: string; requestId: string };
+  act(() => result.current.clear(pending.id));
+  act(() => fake.emitResult(pending.id, pending.requestId, {
+    ok: true, gecmis_kirpildi: true, mesajlar: [{rol:"asistan", metin:"Eski geçmiş"}],
+  }));
+  await act(async () => { await Promise.resolve(); });
+  expect(result.current.activeSession?.messages).toEqual([]);
+});
+
+// The session is published before oturum.baslat settles; ready alone is not bootstrap proof.
+it.each([true, false])("active model waits for owned bootstrap completion (success=%s)", async (success) => {
+  const fake = fakeTransport();
+  const original = fake.transport.send;
+  let bootstrapRequest: { id: string; requestId: string } | undefined;
+  const reads: string[] = [];
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line) as { id: string; ad: string };
+    if (request.ad === "oturum.baslat") {
+      bootstrapRequest = { id, requestId: request.id };
+      return;
+    }
+    if (request.ad === "kontrol.durum") {
+      reads.push(id);
+      queueMicrotask(() => fake.emitResult(id, request.id, { ok: true, model: { agent: "configured-model" } }));
+      return;
+    }
+    return original(id, line);
+  });
+  const { result } = renderHook(() => {
+    const sessions = useSessions(fake.transport);
+    const active = sessions.activeSession;
+    return { sessions, model: useActiveModel(active?.client, active?.id, 0, active?.bootstrap) };
+  });
+  await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("ready"));
+  expect(result.current.model.pending).toBe(true);
+  expect(reads).toEqual([]);
+  await act(async () => fake.emitResult(bootstrapRequest!.id, bootstrapRequest!.requestId, { ok: success }));
+  if (success) {
+    await waitFor(() => expect(result.current.model.model).toBe("configured-model"));
+    expect(reads).toEqual(["varsayilan"]);
+  } else {
+    await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("crashed"));
+    expect(reads).toEqual([]);
+    expect(result.current.model.error).toMatch(/okunamadı/);
+  }
+});
+
+it.each(["close", "unmount"])("delayed bootstrap after %s cannot publish a model or survive as ready", async (action) => {
+  const fake = fakeTransport();
+  const original = fake.transport.send;
+  let bootstrapRequest: { id: string; requestId: string } | undefined;
+  const reads: string[] = [];
+  fake.transport.send = vi.fn(async (id, line) => {
+    const request = JSON.parse(line) as { id: string; ad: string };
+    if (request.ad === "oturum.baslat") {
+      bootstrapRequest = { id, requestId: request.id };
+      return;
+    }
+    if (request.ad === "kontrol.durum") { reads.push(id); return; }
+    return original(id, line);
+  });
+  const { result, unmount } = renderHook(() => {
+    const sessions = useSessions(fake.transport);
+    const active = sessions.activeSession;
+    return { sessions, model: useActiveModel(active?.client, active?.id, 0, active?.bootstrap) };
+  });
+  await waitFor(() => expect(result.current.sessions.activeSession?.status).toBe("ready"));
+  const promise = result.current.sessions.activeSession!.bootstrap!;
+  // Ephemeral bootstrap is never serialized with stored session metadata.
+  expect(localStorage.getItem(SESSION_VIEW_KEY)).not.toContain("bootstrap");
+  if (action === "close") await act(async () => result.current.sessions.close("varsayilan"));
+  else unmount();
+  await act(async () => fake.emitResult(bootstrapRequest!.id, bootstrapRequest!.requestId, { ok: true }));
+  expect(await promise).toBe(false);
+  expect(reads).toEqual([]);
+  if (action === "close") {
+    expect(result.current.sessions.activeSession?.status).toBe("closed");
+    expect(result.current.model.error).toMatch(/okunamadı/);
+  }
 });

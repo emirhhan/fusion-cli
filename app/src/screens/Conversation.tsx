@@ -14,7 +14,8 @@ import { Markdown } from "../markdown/Markdown";
 import { PlanCard } from "./PlanCard";
 import { DiffCard } from "../markdown/DiffCard";
 import { VIEW_MODE_LABELS, type ViewMode } from "../settings/viewMode";
-import { ActivityLine, activityState } from "./ActivityLine";
+import { WorkActivityPanel } from "./WorkActivityPanel";
+import { ActivityLine, StepList, activityState } from "./ActivityLine";
 import { ChangeSummary, turnChanges } from "./ChangeSummary";
 import { AgentActivity } from "./AgentActivity";
 import { OrchestrationBoard } from "../team/OrchestrationBoard";
@@ -52,7 +53,7 @@ export interface Mesaj {
   /** `/code-review` bulguları (#214, Claude Code ReportFindings): kart olarak çizilir. */
   findings?: ReviewFinding[];
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
+  rol: "kullanici" | "asistan" | "bildirim" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme" | "plan";
   /** Yalnız `rol === "plan"` için: plan kipinde yazılan plan dosyası (P-025). */
   plan?: { yol: string; baslik: string };
   /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
@@ -328,6 +329,7 @@ export function Conversation({
 }: ConversationProps) {
   const stepsVisible = showSteps || viewMode === "verbose";
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
+  const sonOlaySirasi = sonOlay ? mesajlar.lastIndexOf(sonOlay) : -1;
   const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
   const sonCalisanOlay = mesajlar.reduce((last, message, index) => (
     message.rol === "olay" && activityState(message.adimlar ?? []) === "running"
@@ -346,7 +348,7 @@ export function Conversation({
   const icerikRef = useRef<HTMLDivElement>(null);
   const lastMessage = mesajlar[mesajlar.length - 1];
   const changes = useMemo(() => turnChanges(mesajlar, running), [mesajlar, running]);
-  const {enAltaIn, hasNewContent} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
+  const {enAltaIn, hasNewContent, pauseAutoFollow} = useStickToBottom(kutuRef, icerikRef, mesajlar, false, {
     content: lastMessage,
     ownSubmissionId: lastMessage?.rol === "kullanici" ? lastMessage.id : undefined,
   });
@@ -356,6 +358,11 @@ export function Conversation({
       <div className="conversation__stream" ref={icerikRef}>
         {(() => {
           const renderMessage = (message: Mesaj, index: number) => {
+          if (message.rol === "bildirim") {
+            return <div aria-label="Geçmiş bildirimi" role="note" className="conversation__message conversation__message--event" key={message.id}>
+              <p>{message.metin}</p>
+            </div>;
+          }
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={message.id}>
@@ -439,16 +446,22 @@ export function Conversation({
             // Eski bloklar KAYBOLMAZ: araç adımları kalıcı özet olarak kalır (Claude
             // gibi). Yalnız son çalışan blok canlı göstergeyi ve sayacı taşır.
             const aktif = running && index === sonCalisanOlay;
+            const state = activityState(message.adimlar ?? []);
+            const statusVisible = (viewMode === "verbose" || index === (running && sonCalisanOlay >= 0 ? sonCalisanOlay : sonOlaySirasi))
+              && (viewMode === "verbose" || (state !== "completed" && (state !== "running" || aktif)));
+            // Gizlenen eski olayın boş, marjlı kutusu sohbeti uzatmamalı.
+            if (!statusVisible && !changes.has(index)) return null;
             return (
               <div className="conversation__message conversation__message--event" key={message.id}>
-                <ActivityLine
+                {statusVisible && <ActivityLine
                   compact
+                  hideTrail={viewMode !== "verbose"}
                   aktif={aktif}
                   adimlar={message.adimlar ?? []}
                   baslangicZamani={message.baslangicZamani}
                   tokenSayisi={message.tokenSayisi}
-                  showSteps={stepsVisible}
-                />
+                  showSteps={viewMode === "verbose"}
+                />}
                 {changes.has(index) && <ChangeSummary files={changes.get(index)!} onOpenFile={onOpenFile} />}
               </div>
             );
@@ -482,10 +495,25 @@ export function Conversation({
             if (!group.work) return renderMessage(group.entries[0].message, group.entries[0].index);
             // Özet kipinde biten çalışma görünmez; yalnız sonuç kalır (Claude Desktop Summary).
             if (viewMode === "summary" && group.completed) return null;
-            const content = <div className="conversation__work-content">{group.entries.map(({message, index}) => renderMessage(message, index))}</div>;
-            return group.completed ? <details className="conversation__work-details" key={group.entries[0].index} open={viewMode === "verbose" || undefined}>
+            const entries = group.entries.flatMap(({message, index}) => message.rol === "olay"
+              ? (message.adimlar ?? []).flatMap((step, stepIndex) => step.arac || step.kalici
+                ? [{ id: `${message.id ?? index}:${stepIndex}`, step }] : []) : []);
+            const firstEvent = group.entries.find(entry => entry.message.rol === "olay")?.index;
+            const reasoning = stepsVisible && viewMode !== "verbose" ? group.entries.flatMap(({message}) => message.rol === "olay"
+              ? (message.adimlar ?? []).filter(step => !step.arac && !step.kalici) : []) : [];
+            const content = <div className="conversation__work-content">{group.entries.map(({message, index}) => {
+              const node = renderMessage(message, index);
+              const hasPanel = index === firstEvent && viewMode !== "verbose" && entries.length > 0;
+              // Null olaylar grid öğesi olursa gap her gizlenen çağrı için boşluk bırakır.
+              if (!node && !hasPanel) return null;
+              return <div key={message.id ?? index}>
+                {hasPanel && <WorkActivityPanel entries={entries} onInteract={pauseAutoFollow} showThinking={stepsVisible} />}
+                {node}
+              </div>;
+            })}{reasoning.length > 0 && <StepList adimlar={reasoning} />}</div>;
+            return group.completed && viewMode !== "normal" ? <details className="conversation__work-details" key={group.entries[0].message.id ?? group.entries[0].index} open={viewMode === "verbose" || undefined}>
               <summary>{workDuration(group.turn)}</summary>{content}
-            </details> : <div className="conversation__work" key={group.entries[0].index}>{content}</div>;
+            </details> : <div className="conversation__work" key={group.entries[0].message.id ?? group.entries[0].index}>{content}</div>;
           });
         })()}
         {gorselIstegi && (

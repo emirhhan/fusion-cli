@@ -1,4 +1,5 @@
 import type { VoiceRuntimeState } from "./bridge";
+import { voicePronunciation } from "./localVoice";
 import { splitIntoSpeechChunks } from "./sentenceStream";
 import { speakVoiceAnswerStreamed, type VoiceTurnHandle } from "./voiceTurn";
 
@@ -54,8 +55,9 @@ export function createVoicePlayback(
   let starting: Promise<Record<string, unknown>> | null = null;
   let fallback: VoiceTurnHandle | null = null;
   const prepared = new Set<string>();
-  const sentences = splitIntoSpeechChunks(text);
-  const queue = sentences.length ? sentences : [text];
+  const spoken = voicePronunciation(text) || "Sesli aktarabileceğim bir cevap gelmedi.";
+  const sentences = splitIntoSpeechChunks(spoken);
+  const queue = sentences.length ? sentences : [spoken];
   const prepare = async (sentence: string) => {
     const result = await sureAsimiyla(client.request("ses.hazirla", { metin: sentence, nesil: generation }),
       SES_ISTEGI_ZAMAN_ASIMI_MS, "Ses hizmeti yanıt vermedi.");
@@ -92,7 +94,8 @@ export function createVoicePlayback(
         if (cancelled) break;
         if (id === null) {
           if (index !== 0) throw new Error("Ses hazırlama desteği konuşma sırasında değişti.");
-          fallback = await speakVoiceAnswerStreamed(client, text, publish);
+          fallback = await speakVoiceAnswerStreamed(client, spoken, state =>
+            publish(state.durum === "talking" ? { ...state, metin: text } : state));
           if (cancelled) await fallback.cancel();
           await fallback.finished;
           return;

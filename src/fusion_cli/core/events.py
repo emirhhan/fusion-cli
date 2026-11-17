@@ -23,6 +23,8 @@ from .prompt_manifest import PromptManifest
 from .repair_ledger import FailureOrigin
 from .types import FusionResult, ModelResult
 
+ModelCallPurpose = Literal["actor", "other"]
+
 
 class Channel(Enum):
     """Metin akışının hangi konuşmaya ait olduğu."""
@@ -72,12 +74,139 @@ class ModelCallStarted(Event):
     background: bool = False
 
 
+ProviderDiagnosticPhase = Literal[
+    "call_enter",
+    "rate_admission_enter",
+    "rate_wait",
+    "rate_wait_end",
+    "rate_admitted",
+    "rate_rejected",
+    "provider_retry_wait",
+    "provider_retry_wait_end",
+    "leaf_enter",
+    "sdk_await_enter",
+    "sdk_stream_open",
+    "sdk_response_returned",
+    "sdk_first_chunk",
+    "call_end",
+    "call_cancelled",
+    "call_error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCallDiagnostic(Event):
+    """Trace-only provider boundaries; SDK chunks are not wire-byte measurements."""
+
+    call_id: str
+    phase: ProviderDiagnosticPhase
+    previous_phase: ProviderDiagnosticPhase | None
+    elapsed_ms: int
+    leaf_attempts: int
+    sdk_chunks: int
+    sdk_text_chunks: int
+    sdk_empty_text_chunks: int
+    max_tokens: int
+    timeout_s: float
+    requested_sdk_retries: int
+    stream: bool
+    purpose: ModelCallPurpose
+    background: bool
+    wait_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class McpDiscoveryDiagnostic(Event):
+    """Private phase clock: no identifiers, configuration or remote content."""
+
+    stage: Literal[
+        "catalog_preparation",
+        "selected_connection_wait",
+        "selected_schema_discovery",
+        "runtime_publication",
+        "explicit_reference_expansion",
+    ]
+    elapsed_ms: int
+    selected_count: int
+    outcome: Literal["ready", "cancelled", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class AutomaticRecallDiagnostic(Event):
+    """Private automatic-hint outcome; never serialized onto the native protocol."""
+
+    status: Literal[
+        "disabled_lessons",
+        "disabled_hints",
+        "no_memory",
+        "exhausted_budget",
+        "busy",
+        "timeout",
+        "cancelled",
+        "worker_start_error",
+        "error",
+        "cooldown",
+        "lock_unavailable",
+        "empty",
+        "rejected_format",
+        "ready",
+        "stale_owner",
+        "offer_error",
+        "offered",
+    ]
+    phase: Literal[
+        "gate",
+        "admission",
+        "scope_resolution",
+        "recall",
+        "format",
+        "backend_check",
+        "backend_cooldown",
+        "backend_lock",
+        "backend_call",
+        "backend_returned",
+        "unknown",
+    ]
+    elapsed_ms: int
+    backend_operation: Literal["", "count", "query", "get", "peek"] = ""
+    backend_status: Literal[
+        "",
+        "checking",
+        "cooldown",
+        "lock_wait",
+        "lock_unavailable",
+        "running",
+        "error",
+        "ok",
+    ] = ""
+    error_class: Literal[
+        "",
+        "ModuleNotFoundError",
+        "ImportError",
+        "AttributeError",
+        "TypeError",
+        "TimeoutError",
+        "PermissionError",
+        "OSError",
+        "ValueError",
+        "RuntimeError",
+        "OtherError",
+    ] = ""
+    count_result: int | None = None
+    returned_count: int = 0
+    formatted_count: int = 0
+    memory_kind: Literal["none", "null", "chroma", "other"] = "other"
+    source_version: str = "auto_recall_diag_v1"
+
+
 @dataclass(frozen=True, slots=True)
 class ModelCallFinished(Event):
     """Bir model çağrısı bitti (başarılı ya da değil)."""
 
     call_id: str = field(default="", kw_only=True)
     requested_model: str = field(default="", kw_only=True)
+    #: Çağrının amacı aday adından bağımsızdır; None eski olay kayıtları içindir.
+    purpose: ModelCallPurpose | None = field(default=None, kw_only=True)
 
     role: str
     result: ModelResult
@@ -394,7 +523,7 @@ class PlatformChecked(Event):
 
 @dataclass(frozen=True, slots=True)
 class TeacherLimitationFound(Event):
-    """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
+    """Doğrulanmamış öğretmen değerlendirmesi ve önerilen alternatif bildirildi."""
 
     topic: str
     reason: str

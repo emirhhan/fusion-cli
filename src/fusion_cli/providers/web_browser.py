@@ -36,6 +36,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from ..config.models import WebSessionConfig
 from ..config.paths import web_profile_dir
@@ -574,7 +575,7 @@ async def discover_browser_models(
     lock = _POOL.lock_for(session.provider, session.account)
     async with lock:
         context = await _POOL.context_for(session, credential or WebSessionCredential())
-        page = await context.new_page()
+        page = await _new_conversation_page(context, session)
         try:
             await _open_conversation(page, definition)
             if await _first_visible(page, definition.input_selectors, timeout_ms=12_000) is None:
@@ -995,17 +996,27 @@ async def _launch_profile_context(
 def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProfileBrowser:
     """Profilin süreçler arası paylaşılan Chrome'u için gerçek kancaları kur."""
 
-    async def launch(path: Path, headless: bool) -> None:
+    async def launch(path: Path, mode: WindowMode) -> None:
         executable = _native_login_executable() or (
             playwright.chromium.executable_path if playwright is not None else None
         )
         if not executable:
             raise WebBrowserError("Chrome bulunamadı. Google Chrome'u kurup tekrar dene.")
+        arguments = chrome_launch_arguments(executable, path, headless=mode)
+        if arguments[0] == "/usr/bin/open":
+            launcher = await asyncio.create_subprocess_exec(
+                *arguments,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if await launcher.wait():
+                raise SharedBrowserError("macOS, gizli Chrome başlatma isteğini reddetti.")
+            return
         # Chrome bu süreçten BAĞIMSIZ yaşar: sekme kapanınca diğer sekmelerin
         # sohbetleri düşmesin. Kapanışı kira kaydı yönetir.
         await asyncio.to_thread(
             subprocess.Popen,
-            chrome_launch_arguments(executable, path, headless=headless),
+            arguments,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -1020,6 +1031,11 @@ def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProf
         session = await browser.new_browser_cdp_session()
         with contextlib.suppress(Exception):  # Chrome kapanırken bağlantı kopabilir
             await session.send("Browser.close")
+        for _ in range(30):
+            if not _profile_process_alive(profile):
+                return
+            await asyncio.sleep(0.1)
+        raise SharedBrowserError("Fusion Chrome profili zamanında kapanmadı.")
 
     return SharedProfileBrowser(
         profile,
@@ -1051,6 +1067,32 @@ async def _connect_shared_context(
         raise
     context = browser.contexts[0] if browser.contexts else await browser.new_context()
     return browser, context
+
+
+async def _new_conversation_page(context: Any, session: WebSessionConfig) -> Any:
+    if WindowMode(session.headless) is not WindowMode.HIDDEN or sys.platform != "darwin":
+        return await context.new_page()
+
+    # CDP'nin varsayılanı sekmeyi seçer ve gizli Chrome'u öne getirebilir.
+    # Benzersiz URL, başka bir Fusion sürecinin sekmesini almamızı engeller.
+    url = f"about:blank#{uuid4().hex}"
+    cdp = await context.browser.new_browser_cdp_session()
+    try:
+        async with context.expect_page(lambda page: page.url == url) as opened:
+            await cdp.send("Target.createTarget", {"url": url, "background": True})
+        page = await opened.value
+    finally:
+        with contextlib.suppress(Exception):
+            await cdp.detach()
+    try:
+        await _shared_profile_browser(
+            None, browser_profile_dir(session.provider, session.account)
+        ).reassert_window(headless=session.headless)
+    except BaseException:
+        with contextlib.suppress(Exception):
+            await page.close()
+        raise
+    return page
 
 
 #: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
@@ -1228,15 +1270,23 @@ class BrowserSessionPool:
         self._pending_mode_note: dict[tuple[str, str], str] = {}
         self._guard = asyncio.Lock()
 
-    def schedule_idle_release(self, provider: str, account: str) -> None:
-        """Oturum boşta kalırsa bu sürecin tarayıcı kirasını bırak (bkz. `IDLE_RELEASE_S`).
+    def _has_open_chatgpt_turn(self, key: tuple[str, str]) -> bool:
+        return key[0] == "chatgpt_web" and any(
+            conversation_key[:2] == key and not state.page.is_closed()
+            for conversation_key, state in self._conversations.items()
+        )
 
-        Her kullanım süreyi sıfırlar. Son kiracı da bırakınca paylaşılan Chrome kapanır.
-        """
+    def _cancel_idle_release(self, key: tuple[str, str]) -> None:
+        timer = self._idle_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+
+    def schedule_idle_release(self, provider: str, account: str) -> None:
+        """Başarılı ChatGPT oturumunu açık tut, diğer boşta kiraları zamanla bırak."""
         key = (provider, account)
-        eski = self._idle_timers.pop(key, None)
-        if eski is not None:
-            eski.cancel()
+        self._cancel_idle_release(key)
+        if self._has_open_chatgpt_turn(key):
+            return
         loop = asyncio.get_running_loop()
         self._idle_timers[key] = loop.call_later(
             self._idle_release_s, lambda: self._start_idle_release(loop, key)
@@ -1256,6 +1306,8 @@ class BrowserSessionPool:
         # Bırakma boyunca hesap kilidi tutulur: `await`ler sırasında başka bir tur kilidi
         # alıp bağlamı kullanırken `_disconnect` onu tur ortasında kapatmasın.
         async with self.lock_for(*key):
+            if self._has_open_chatgpt_turn(key):
+                return
             await self.drop_account_conversations(*key)
             await self.flush_closed()
             await self._disconnect(key)
@@ -1423,7 +1475,9 @@ class BrowserSessionPool:
         açmadan ya da headless ayarını değiştirmeden önce bunu çağırır; diğer
         sekmelerin bağlantıları kopar ve sonraki turlarında yeniden bağlanırlar.
         """
+        self._cancel_idle_release((provider, account))
         await self.drop_account_conversations(provider, account)
+        await self.flush_closed()
         await self._disconnect((provider, account))
         await _shared_profile_browser(
             self._playwright, browser_profile_dir(provider, account)
@@ -1438,6 +1492,8 @@ class BrowserSessionPool:
                 await browser.close()
 
     async def close(self) -> None:
+        for key in tuple(self._idle_timers):
+            self._cancel_idle_release(key)
         for provider, account, root in tuple(self._conversations):
             await self.drop_conversation(provider, account, root)
         await self.flush_closed()
@@ -1785,19 +1841,12 @@ async def _open_past_human_verification(
     limit_s: float,
     step: Callable[[Any, BrowserProviderDefinition], Awaitable[None]],
 ) -> None:
-    """Adımı çalıştır; insan doğrulaması çıkarsa pencereyi kullanıcıya aç, çözülünce yinele.
-
-    Fusion captcha'yı AŞMAZ; kullanıcı çözer. Eskiden tur "fusion web-login çalıştır"
-    diyerek düşüyordu ve kullanıcı bunu her seferinde elle yapıyordu (ölçüldü: 2 Ekim
-    2026, ChatGPT oturumu günlerce doğrulama bekledi, öğretmen yedeği hiç çalışmadı).
-    Şimdi gizli pencere öne getirilir, panele not düşülür, sayfa temizlenene kadar
-    (tur bütçesi içinde) beklenir ve aynı adım bir kez daha denenir.
-    """
+    """Görünür tarayıcıda insan doğrulamasını bekle ve çözülünce adımı yinele."""
     try:
         await step(page, definition)
         return
     except WebBrowserAuthError as error:
-        if not _is_human_verification(error):
+        if WindowMode(session.headless) is WindowMode.HIDDEN or not _is_human_verification(error):
             raise
         hata = error
     browser = _shared_profile_browser(None, browser_profile_dir(session.provider, session.account))
@@ -1894,11 +1943,7 @@ async def _deliver_turn(
     else:
         await _pace_new_conversation(manager, session)
         await manager.drop_conversation(session.provider, session.account, root)
-        page = await context.new_page()
-        # Yeni sekme gizli pencereyi öne getirir; kipine yeniden oturt.
-        await _shared_profile_browser(
-            None, browser_profile_dir(session.provider, session.account)
-        ).reassert_window(headless=session.headless)
+        page = await _new_conversation_page(context, session)
         state = ConversationState(page=page)
         try:
             await _open_past_human_verification(
@@ -2889,9 +2934,8 @@ def _human_verification_message(definition: BrowserProviderDefinition, marker: s
     """İnsan doğrulaması. Bunu Fusion AŞAMAZ; kullanıcı bizzat tamamlamalıdır."""
     return (
         f"authentication: {definition.name} insan doğrulaması (captcha) istiyor. "
-        "Bunu otomatik aşmak mümkün değil — doğrulamayı görünür tarayıcıda KENDİN "
-        "tamamlaman gerekiyor. Oturum `hidden` (gizli) kipteyse Fusion pencereyi kendisi "
-        f"açıp bekler; `headless` kipte açamaz.\n{_cozum_adimlari(definition)}\n"
+        "Doğrulamayı görünür tarayıcıda kendin tamamlaman gerekiyor.\n"
+        f"{_cozum_adimlari(definition)}\n"
         f"[sayfa işareti: {marker}]"
     )
 

@@ -1,7 +1,8 @@
+import { mergeAttachments } from "./screens/attachmentLimits";
 import { createVoicePlayback } from "./voice/voicePlayback";
 import { recordScheduleRun, runNotice, runOutcome } from "./schedule/runHistory";
 import { dictationSendsOnFinal, isDictationCommand } from "./voice/dictationCommand";
-import { localVoiceReply } from "./voice/localVoice";
+import { isSpokenWorkRequest, isVoiceListenerCue, localVoiceReply, normalizeSpokenNames, normalizeVoiceWords, spokenTeacherAnswer } from "./voice/localVoice";
 import { closeUnfinishedAgents } from "./team/ekipOlaylari";
 import { BackgroundAgentsPanel } from "./team/BackgroundAgentsPanel";
 import { AgentPanel, agentCardsForMessages } from "./team/AgentPanel";
@@ -105,6 +106,7 @@ import { listen } from "@tauri-apps/api/event";
 import {
   kabukVar,
   onVoiceBargeIn,
+  onVoiceActivity,
   createVoiceMessageDeduper,
   onVoiceMessage,
   onVoiceAnswer,
@@ -115,7 +117,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { buildVoiceRequest, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { askVoiceQuestion, askVoiceResearch, buildVoiceRequest, followupVoiceResearch, incompleteVoiceRequest, needsVoiceResearch, voiceAnswerNeedsResearch, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { AccountProfile } from "./account/AccountProfile";
@@ -534,6 +536,18 @@ export function SessionUygulama({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const addAttachments = useCallback((id: string, additions: ComposerAttachment[]) => {
+    try {
+      const merged = mergeAttachments(attachmentsRef.current[id] ?? [], additions);
+      const next = { ...attachmentsRef.current, [id]: merged };
+      attachmentsRef.current = next;
+      setAttachments(next);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "Ek sınırı aşıldı.");
+    }
+  }, []);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
   const [controlRevision, setControlRevision] = useState(0);
   /** Beceri/MCP kataloğu değişmiş olabilir; slash menüsü listeleri yeniden okunur. */
@@ -626,16 +640,16 @@ export function SessionUygulama({
   const [cokmeKapatilan, setCokmeKapatilan] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const [voicePlaybackRevision, setVoicePlaybackRevision] = useState(0);
-  const voiceRequests = useRef<{
-    afterIndex: number;
-    requestId: string;
-    sawRunning: boolean;
-    sessionId: string;
-  }[]>([]);
+  const voiceRequests = useRef<{ requestId: string; sessionId: string }[]>([]);
+  const voiceReplies = useRef<{ text: string; sessionId: string; afterCue?: number; questionSignal?: AbortSignal }[]>([]);
+  const voiceQuestion = useRef<AbortController | null>(null);
+  const voiceResearchSubject = useRef<{ sessionId: string; text: string } | null>(null);
+  const voiceQuestionHistory = useRef<{ sessionId: string; turns: import("./sidechat/SideChat").SideTurn[] } | null>(null);
+  const voiceOccupied = useRef(false);
+  const voiceQuietTimer = useRef<number | undefined>(undefined);
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const manualVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const manualVoiceGeneration = useRef(0);
-  const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   useRemoteProjectSync(active?.client ?? null, projects.registry);
   // Başlıktaki "Uzaktan kontrol" anahtarı (P-066); uzaktan erişim kurulmamışsa yoklamaz.
@@ -1061,11 +1075,7 @@ export function SessionUygulama({
         return;
       }
       setAttachmentError(null);
-      setAttachments((current) => ({
-        ...current,
-        [activeSessionId]: [...(current[activeSessionId] ?? []), ...additions]
-          .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-      }));
+      addAttachments(activeSessionId, additions);
     }).then((stop) => {
       if (alive) unlisten = stop;
       else stop();
@@ -1073,12 +1083,12 @@ export function SessionUygulama({
       if (alive) setAttachmentError("Sürükle-bırak dinleyicisi başlatılamadı. Uygulamayı yeniden dene.");
     });
     return () => { alive = false; unlisten?.(); };
-  }, [activeSessionId]);
+  }, [activeSessionId, addAttachments]);
 
   // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
   // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
   // composer'daki ad da tazelenmeli, yoksa eski model yazılı kalırdı.
-  const { model: activeModel, label: activeModelLabel } = useActiveModel(activeClient, activeSessionId, controlRevision);
+  const { model: activeModel, label: activeModelLabel, pending: activeModelPending, error: activeModelError, retry: retryActiveModel } = useActiveModel(activeClient, activeSessionId, controlRevision, active?.bootstrap);
 
   const modelCatalog = useModelCatalog(activeClient, activeSessionId, workspaceMode);
   const modelOptions = modelCatalog.options;
@@ -1237,79 +1247,165 @@ export function SessionUygulama({
     };
   }, []);
 
-  // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
-  // kullanıcı yazışmış gibi tam dökümü görür.
+  // Talk soruları yan sohbet yolundan, açık eylem istekleri ana oturumdan geçer.
   useEffect(() => {
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
       const current = activeRef.current;
       if (!current) return;
       if (!firstTimeVoiceMessage.current(mesaj.id)) return;
-      const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
-      const requestId = nextSessionId();
-      const accepted = controllerRef.current.send(current.id, gorev.text, [], true, gorev.voice, requestId);
-      if (!accepted) {
-        void publishVoiceRuntimeState({
-          durum: "error",
-          metin: "Bu konuşmada bir görev zaten çalışıyor. Bitmesini bekleyip yeniden konuş.",
-        });
+      if (isVoiceListenerCue(mesaj.metin)) return;
+      if (/^(?:dur|sus|bekle)$/u.test(normalizeVoiceWords(mesaj.metin))) {
+        voiceQuestion.current?.abort();
+        void publishVoiceRuntimeState({ durum: "listening", pending: voiceRequests.current.length > 0 });
         return;
       }
-      voiceRequests.current.push({
-        afterIndex: current.messages.length,
-        requestId,
-        sawRunning: false,
-        sessionId: current.id,
-      });
-      void publishVoiceRuntimeState({ durum: localVoiceReply(mesaj.metin) ? "transcribing" : "thinking" });
+      const local = localVoiceReply(mesaj.metin, voiceRequests.current.length > 0 || current.running);
+      if (local) {
+        voiceReplies.current.push({ text: local, sessionId: current.id });
+        setVoicePlaybackRevision(value => value + 1);
+        return;
+      }
+      voiceQuestion.current?.abort();
+      voiceQuestion.current = null;
+      if (incompleteVoiceRequest(mesaj.metin)) {
+        voiceReplies.current.push({ text: "Cümlenin sonunu duyamadım. Baştan söyler misin?", sessionId: current.id });
+        setVoicePlaybackRevision(value => value + 1);
+        return;
+      }
+      const sendToFusion = () => {
+        const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
+        const requestId = nextSessionId();
+        const accepted = controllerRef.current.send(current.id, gorev.text, [], true, gorev.voice, requestId);
+        if (!accepted) {
+          const metin = current.status === "ready"
+            ? "Sesli mesaj kaydedilemedi. Ana penceredeki bildirimi kontrol et."
+            : "Fusion sohbetinin bağlantısı kapalı. Ana pencereden sohbeti yeniden aç.";
+          void publishVoiceRuntimeState({ durum: "error", metin });
+          return;
+        }
+        if (!voiceRequests.current.length) {
+          voiceReplies.current.push({
+            text: "Bir saniye, Fusion’a sorayım.",
+            sessionId: current.id,
+            afterCue: Date.now() + 1_050,
+          });
+        }
+        voiceRequests.current.push({ requestId, sessionId: current.id });
+        if (!activeVoiceTurn.current) void publishVoiceRuntimeState({ durum: "thinking", pending: true });
+        setVoicePlaybackRevision(value => value + 1);
+      };
+      const priorResearch = voiceResearchSubject.current?.sessionId === current.id
+        ? voiceResearchSubject.current.text : undefined;
+      const followup = followupVoiceResearch(mesaj.metin, priorResearch);
+      const isWork = isSpokenWorkRequest(mesaj.metin);
+      const research = !isWork && (!!followup || needsVoiceResearch(mesaj.metin));
+      if (!research) voiceResearchSubject.current = null;
+      if (!isWork) {
+        const question = new AbortController();
+        voiceQuestion.current = question;
+        const history = voiceQuestionHistory.current?.sessionId === current.id
+          ? voiceQuestionHistory.current.turns : [];
+        const context = mesaj.kesilen
+          ? [...history, { rol: "asistan" as const, metin: mesaj.kesilen.slice(0, 1_200) }]
+          : history;
+        const answer = (text: string) => {
+          if (question.signal.aborted) return;
+          voiceReplies.current.push({ text, sessionId: current.id, questionSignal: question.signal });
+          setVoicePlaybackRevision(value => value + 1);
+        };
+        const rememberAndSpeak = (text: string) => {
+          if (question.signal.aborted) return;
+          voiceQuestionHistory.current = { sessionId: current.id, turns: [
+            ...history.slice(-6), { rol: "kullanici", metin: mesaj.metin }, { rol: "asistan", metin: text },
+          ] };
+          answer(spokenTeacherAnswer(text, false));
+        };
+        const researchInBackground = async () => {
+          answer("Bir saniye, Fusion arka planda kaynaklara bakıyor.");
+          const subject = followup ?? normalizeSpokenNames(mesaj.metin);
+          voiceResearchSubject.current = { sessionId: current.id, text: followup && priorResearch ? priorResearch : subject };
+          rememberAndSpeak(await askVoiceResearch(current.client, subject, question.signal, !!followup));
+        };
+        const pending = research ? researchInBackground()
+          : askVoiceQuestion(current.client, mesaj.metin, context, question.signal).then(text => {
+            if (question.signal.aborted) return;
+            if (voiceAnswerNeedsResearch(text)) return researchInBackground();
+            rememberAndSpeak(text);
+          });
+        void pending.catch(() => answer("Şu an soruna yanıt alamadım."));
+        return;
+      }
+      sendToFusion();
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const remove = onVoiceBargeIn(() => {
-      pendingBargeIn.current = true;
+    const removeBargeIn = onVoiceBargeIn(() => {
       const turn = activeVoiceTurn.current;
       if (turn) void turn.cancel().catch(() => undefined);
     });
+    const removeActivity = onVoiceActivity((activity) => {
+      window.clearTimeout(voiceQuietTimer.current);
+      if (activity === "closed") {
+        voiceOccupied.current = false;
+        voiceQuestion.current?.abort();
+        voiceQuestion.current = null;
+        voiceQuestionHistory.current = null;
+        voiceResearchSubject.current = null;
+        voiceRequests.current = [];
+        voiceReplies.current = [];
+        void activeVoiceTurn.current?.cancel().catch(() => undefined);
+      } else {
+        voiceOccupied.current = true;
+        if (activity === "silent") {
+          // Tanıma sonu ve yeni sözün ana pencereye ulaşması için kısa boşluk.
+          voiceQuietTimer.current = window.setTimeout(() => {
+            voiceOccupied.current = false;
+            setVoicePlaybackRevision(value => value + 1);
+          }, 140);
+        }
+      }
+    });
     return () => {
-      void remove.then((unlisten) => unlisten()).catch(() => undefined);
+      for (const listener of [removeBargeIn, removeActivity])
+        void listener.then((unlisten) => unlisten()).catch(() => undefined);
+      window.clearTimeout(voiceQuietTimer.current);
+      voiceQuestion.current?.abort();
       void activeVoiceTurn.current?.cancel().catch(() => undefined);
     };
   }, []);
 
-  // Yalnız Talk'tan başlayan turun nihai cevabı seslendirilir. Kullanıcının
-  // normal yazışmaları sessiz kalır; sohbet değişse bile istek başladığı
-  // oturumun kendi çekirdeği kullanılır. Tur kimliği hemen alınır; gerçek
-  // bitiş ayrı `ses.bekle` isteğiyle izlenir ve zaman tahmini kullanılmaz.
+  // Ses, görev sırasından bağımsızdır. İstek kimliği yalnız Talk'tan
+  // gelen sonuçları seçer. Yazılı sohbet ve arka plan turları kendi yolunda ilerler.
   useEffect(() => {
-    if (activeVoiceTurn.current) return;
-    const pending = voiceRequests.current[0];
-    if (!pending) return;
-    const session = controller.state.sessions[pending.sessionId];
-    if (!session) {
+    if (activeVoiceTurn.current || voiceOccupied.current) return;
+    while (voiceReplies.current[0]?.questionSignal?.aborted) voiceReplies.current.shift();
+    const cueWait = (voiceReplies.current[0]?.afterCue ?? 0) - Date.now();
+    if (cueWait > 0) {
+      const timer = window.setTimeout(() => setVoicePlaybackRevision(value => value + 1), cueWait);
+      return () => window.clearTimeout(timer);
+    }
+    let next = voiceReplies.current.shift();
+    while (!next && voiceRequests.current.length) {
+      const pending = voiceRequests.current[0];
+      const session = controller.state.sessions[pending.sessionId];
+      const response = session?.messages.find(message => message.id === `${pending.requestId}:assistant`);
+      if (session && !response && !session.completedRequestIds?.includes(pending.requestId)) return;
       voiceRequests.current.shift();
+      if (session) next = { sessionId: session.id, text: response?.metin.trim() ? spokenTeacherAnswer(response.metin) : "Fusion’dan yanıt gelmedi." };
+    }
+    if (!next) return;
+    const session = controller.state.sessions[next.sessionId];
+    if (!session) {
       setVoicePlaybackRevision(value => value + 1);
       return;
     }
-    const response = session.messages.find(message => message.id === `${pending.requestId}:assistant`);
-    if (!response && !session.completedRequestIds?.includes(pending.requestId) && session.running) {
-      pending.sawRunning = true;
-      return;
-    }
-    if (!response && !session.completedRequestIds?.includes(pending.requestId)) return;
-    voiceRequests.current.shift();
-    const answer = response?.metin.trim();
-    if (!answer) {
-      void publishVoiceRuntimeState({ durum: "error", metin: "Fusion yanıt üretmedi." });
-      setVoicePlaybackRevision(value => value + 1);
-      return;
-    }
-    pendingBargeIn.current = false;
-    // Cevap cümle cümle seslendirilir: ilk cümle hazır olur olmaz ses başlar.
-    const turn = createVoicePlayback(session.client, answer, publishVoiceRuntimeState);
+    const turn = createVoicePlayback(session.client, next.text, state =>
+      publishVoiceRuntimeState({ ...state, pending: voiceRequests.current.length > 0 }),
+    );
     activeVoiceTurn.current = turn;
-    if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);
     void turn.finished.finally(() => {
       if (activeVoiceTurn.current === turn) {
         activeVoiceTurn.current = null;
@@ -1736,6 +1832,7 @@ export function SessionUygulama({
   sendRef.current = send;
   const conversationContent = active.messages.length > 0 ? (
     <Conversation
+      key={active.id}
       mesajlar={active.messages}
       running={active.running}
       showSteps={showSteps}
@@ -1839,6 +1936,7 @@ export function SessionUygulama({
             onThemeChange={changeTheme}
             themePreference={themePreference}
             turnRunning={Boolean(active.running)}
+            availableUpdateVersion={guncellemeSurumu}
           />
         )
       : page === "help"
@@ -1930,6 +2028,9 @@ export function SessionUygulama({
           onWorkspaceModeChange={(mode) => void changeWorkspace(mode)}
           activeModel={activeModel}
           activeModelLabel={activeModelLabel}
+          activeModelPending={activeModelPending}
+          activeModelError={activeModelError}
+          onActiveModelRetry={retryActiveModel}
           modelOptions={modelOptions}
           modelsError={modelsError}
           modelSelectionPending={commandBusy}
@@ -1962,11 +2063,7 @@ export function SessionUygulama({
                 setAttachmentError("Seçimde geçerli bir dosya yolu bulunamadı.");
                 return;
               }
-              setAttachments((current) => ({
-                ...current,
-                [active.id]: [...(current[active.id] ?? []), ...additions]
-                  .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-              }));
+              addAttachments(active.id, additions);
             }).catch(() => setAttachmentError("Dosya seçici açılamadı. Erişimi kontrol edip yeniden dene."));
           }}
           onDropFiles={(files) => {
@@ -1977,11 +2074,7 @@ export function SessionUygulama({
               return;
             }
             if (unresolved > 0) setAttachmentError(`${unresolved} öğenin yolu çözülemedi; Ekle düğmesiyle seçebilirsin.`);
-            setAttachments((current) => ({
-              ...current,
-              [active.id]: [...(current[active.id] ?? []), ...additions]
-                .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
-            }));
+            addAttachments(active.id, additions);
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}
@@ -2243,11 +2336,9 @@ export function SessionUygulama({
           onBrowserPick={(pick) => {
             // Görüntü proje köküne göreli yazılır; ek mutlak yol ister (dosya seçiciyle aynı).
             if (pick.yol) {
+              setAttachmentError(null);
               const image = attachmentFromPath(`${active.root.replace(/\/$/, "")}/${pick.yol}`);
-              setAttachments((current) => ({
-                ...current,
-                [active.id]: [...(current[active.id] ?? []).filter((item) => item.path !== image.path), image],
-              }));
+              addAttachments(active.id, [image]);
             }
             if (pick.metin) {
               setDrafts((current) => {
@@ -2338,7 +2429,7 @@ export function SessionUygulama({
           ]}
           guncellemeSurumu={guncellemeSurumu}
           prDurumlari={prDurumlari}
-          onGuncellemeAc={() => setPage("settings")}
+          onGuncellemeAc={() => { setSettingsSection("guncellemeler"); setPage("settings"); }}
           hesap={etkinHesap}
           onCikis={() => {
             // Çıkış sonrası pencere yeniden yüklenir: hesabın yapılandırması

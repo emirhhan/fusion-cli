@@ -1,0 +1,720 @@
+diff --git a/chrome-extension/panel.js b/chrome-extension/panel.js
+index fabdba7e..0c8fa667 100644
+--- a/chrome-extension/panel.js
++++ b/chrome-extension/panel.js
+@@ -226,9 +226,11 @@ async function renderTab() {
+ // --- Canlı akış ---------------------------------------------------------------
+ 
+ async function applyItem(item) {
+-  if (item.tur === "basladi" && !running()) {
+-    return { ...thread, mesajlar: [...thread.mesajlar, { rol: "asistan", adimlar: [], durum: "calisiyor" }] };
++  if (item.tur === "basladi") {
++    if (!item.turnId || thread.mesajlar.some((message) => message.turnId === item.turnId) || running()) return thread;
++    return { ...thread, mesajlar: [...thread.mesajlar, { rol: "asistan", turnId: item.turnId, adimlar: [], durum: "calisiyor" }] };
+   }
++  if (item.turnId && thread.mesajlar.at(-1)?.turnId !== item.turnId) return thread;
+   if (item.tur === "dusunuyor") return withLastAssistant(() => ({ etiket: "Düşünüyor…" }));
+   if (item.tur === "adim" || item.tur === "hata") {
+     if (running()) void setGlow(true);
+@@ -240,7 +242,7 @@ async function applyItem(item) {
+   if (item.tur === "soru") return { ...thread, soru: { id: item.id, veri: item.veri } };
+   if (item.tur === "tarayici_sec") return { ...thread, soru: {id: item.id, veri: item.veri} };
+   if (item.tur === "soru_kapandi") return thread.soru?.id === item.id ? { ...thread, soru: null } : thread;
+-  if (item.tur === "bitti" && !inflight) {
++  if (item.tur === "bitti" && typeof item.turnId === "string" && item.turnId === thread.mesajlar.at(-1)?.turnId) {
+     void setGlow(false);
+     return { ...withLastAssistant(() => ({ metin: item.metin || "", durum: item.ok ? "bitti" : "hata" })), soru: null };
+   }
+@@ -351,30 +353,36 @@ async function sendPrompt(text) {
+   error();
+   $("prompt").value = "";
+   autoGrow();
+-  inflight = true;
++  const turnId = crypto.randomUUID();
++  inflight = turnId;
+   await saveThread({
+     ...thread,
+-    mesajlar: [...thread.mesajlar, { rol: "kullanici", metin: prompt }, { rol: "asistan", adimlar: [], durum: "calisiyor" }],
++    mesajlar: [...thread.mesajlar, { rol: "kullanici", metin: prompt }, { rol: "asistan", turnId, adimlar: [], durum: "calisiyor" }],
+   });
+   void setGlow(true);
+   try {
+-    const result = await request("/turn", { prompt });
++    const result = await request("/turn", { prompt, turnId });
++    if (thread.mesajlar.at(-1)?.turnId !== turnId) return;
+     const durum = result.ok ? "bitti" : thread.mesajlar.at(-1)?.durum === "iptal" ? "iptal" : "hata";
+     await saveThread({ ...withLastAssistant(() => ({ metin: result.metin || "", durum })), soru: null });
+   } catch (cause) {
+-    await saveThread({ ...withLastAssistant(() => ({ metin: "", durum: "hata" })), soru: null });
++    if (thread.mesajlar.at(-1)?.turnId === turnId && running()) await saveThread({ ...withLastAssistant(() => ({ metin: "", durum: "hata" })), soru: null });
+     throw cause;
+   } finally {
+-    inflight = false;
+-    void setGlow(false);
++    if (inflight === turnId) inflight = false;
++    if (!running()) void setGlow(false);
+   }
+ }
+ 
+ async function cancel() {
+   $("cancel").disabled = true;
+   try {
+-    await request("/cancel");
+-    await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
++    const turnId = thread.mesajlar.at(-1)?.turnId;
++    const result = await request("/cancel", { turnId });
++    if (!result.ok) throw new Error(result.metin || "Durdurma kabul edilmedi.");
++    if (thread.mesajlar.at(-1)?.turnId === turnId && running()) {
++      await saveThread({ ...withLastAssistant(() => ({ durum: "iptal" })), soru: null });
++    }
+   } finally {
+     $("cancel").disabled = false;
+   }
+diff --git a/src/fusion_cli/appserver/chrome_bridge.py b/src/fusion_cli/appserver/chrome_bridge.py
+index 3d8f1e9b..e597abc4 100644
+--- a/src/fusion_cli/appserver/chrome_bridge.py
++++ b/src/fusion_cli/appserver/chrome_bridge.py
+@@ -85,8 +85,8 @@ ELEMENT_NAME_LIMIT = 120
+ class ChromeBridge:
+     def __init__(
+         self,
+-        on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+-        on_cancel: Callable[[], dict[str, Any]] | None = None,
++        on_turn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
++        on_cancel: Callable[..., dict[str, Any]] | None = None,
+         on_answer: Callable[[str, dict[str, Any]], bool] | None = None,
+         on_settings: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
+         installer: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+@@ -111,6 +111,7 @@ class ChromeBridge:
+         #: Yan panelin canlı akışı: adımlar, sorular, tur başı/sonu (bkz. `chrome_feed`).
+         self._feed: list[dict[str, Any]] = []
+         self._feed_seq = 0
++        self._panel_turn_id: str | None = None
+         self._questions: dict[str, dict[str, Any]] = {}
+         self._switch_question_id: str | None = None
+         self._switch_lock = asyncio.Lock()
+@@ -289,6 +290,10 @@ class ChromeBridge:
+         self._publish_now(item)
+ 
+     def _publish_now(self, item: dict[str, Any]) -> None:
++        if item.get("tur") == "basladi":
++            self._panel_turn_id = item.get("turnId")
++        if self._panel_turn_id is not None:
++            item = {"turnId": self._panel_turn_id, **item}
+         if item.get("tur") in {"soru", "tarayici_sec"} and isinstance(item.get("id"), str):
+             self._questions[item["id"]] = dict(item)
+         elif item.get("tur") == "soru_kapandi":
+@@ -297,6 +302,8 @@ class ChromeBridge:
+             self._questions.clear()
+         self._feed_seq += 1
+         self._feed.append({"seq": self._feed_seq, **item})
++        if item.get("tur") == "bitti" and item.get("turnId") == self._panel_turn_id:
++            self._panel_turn_id = None
+         del self._feed[:-FEED_LIMIT]
+         changed, self._feed_changed = self._feed_changed, asyncio.Event()
+         changed.set()
+@@ -616,9 +623,19 @@ class ChromeBridge:
+                 prompt = body.get("prompt")
+                 if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
+                     raise ValueError("Geçersiz görev metni")
+-                result = await self._on_turn(prompt.strip())
++                turn_id = body.get("turnId")
++                if turn_id is not None and (
++                    not isinstance(turn_id, str) or not turn_id.strip() or len(turn_id) > 200
++                ):
++                    raise ValueError("Geçersiz görev kimliği")
++                result = (
++                    await self._on_turn(prompt.strip(), turn_id)
++                    if turn_id is not None
++                    else await self._on_turn(prompt.strip())
++                )
+             elif method == "POST" and target == "/cancel" and self._on_cancel is not None:
+-                result = self._on_cancel()
++                turn_id = body.get("turnId")
++                result = self._on_cancel(turn_id) if isinstance(turn_id, str) else self._on_cancel()
+             elif method == "POST" and target == "/events":
+                 result = await self._events(body.get("after"))
+             elif method == "POST" and target == "/answer":
+diff --git a/src/fusion_cli/appserver/session.py b/src/fusion_cli/appserver/session.py
+index cf9294b4..7b75b6ca 100644
+--- a/src/fusion_cli/appserver/session.py
++++ b/src/fusion_cli/appserver/session.py
+@@ -33,6 +33,7 @@ from functools import partial
+ from itertools import count
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Any
++from uuid import uuid4
+ 
+ from ..cli.repl import code_review_findings, cron_store, goal_flow, goal_store, linked_pr, macros
+ from ..cli.repl.agent_link import close_link
+@@ -70,7 +71,7 @@ from ..core.clock import SystemClock
+ from ..core.concurrency import BackgroundTasks
+ from ..core.constants import MODEL_SELECTION_CLOSE_WAIT_S
+ from ..core.errors import ConfigError
+-from ..core.events import Event, EventSink, StatusChanged
++from ..core.events import Event, EventSink, StatusChanged, ToolExecuted, ToolStarted
+ from ..core.owned_thread import await_owned_thread
+ from ..core.plan_switch import PlanModeSwitch
+ from ..core.reasoning import ReasoningEffort, resolve_reasoning
+@@ -353,39 +354,10 @@ def findings_payload(text: str) -> dict[str, Any]:
+ 
+ 
+ def _attachment_images(value: object) -> tuple[str, ...]:
+-    """Görsel ekleri modele iliştirilebilir veri URI'lerine çevir.
++    """Validate and read attachments through the shared bounded adapter."""
++    from .attachments import attachment_images
+ 
+-    Eskiden ek olarak YALNIZ dosya yolu metin bağlamına giriyordu; görebilen bir
+-    model bile resmi hiç görmüyordu. Okunamayan, çok büyük ya da tanınmayan
+-    türdeki dosyalar sessizce atlanır — yol bilgisi metin bağlamında zaten
+-    kalır ve model gerektiğinde dosyayı araçla okuyabilir.
+-
+-    `read_bytes` + base64 (≈ 53 MB'a kadar) senkron diskte çalışır: çağıranlar bunu
+-    `asyncio.to_thread` ile çağırır, olay döngüsü bloklanmaz (ölçüldü 30 Ekim).
+-    """
+-    if not isinstance(value, list):
+-        return ()
+-    import base64
+-
+-    uriler: list[str] = []
+-    for raw in value[:8]:
+-        if not isinstance(raw, dict) or raw.get("kind") != "image":
+-            continue
+-        path = raw.get("path")
+-        if not isinstance(path, str):
+-            continue
+-        local_path = Path(path).expanduser()
+-        tur = _GORSEL_TURLERI.get(local_path.suffix.casefold())
+-        if tur is None:
+-            continue
+-        try:
+-            if local_path.stat().st_size > MAX_GORSEL_BAYT:
+-                continue
+-            ham = local_path.read_bytes()
+-        except OSError:
+-            continue
+-        uriler.append(f"data:{tur};base64,{base64.b64encode(ham).decode('ascii')}")
+-    return tuple(uriler)
++    return attachment_images(value)
+ 
+ 
+ async def _attachment_images_async(value: object) -> tuple[str, ...]:
+@@ -400,47 +372,10 @@ async def _attachment_images_async(value: object) -> tuple[str, ...]:
+ 
+ 
+ def _attachment_context(value: object) -> tuple[str, str | None]:
+-    """Eklerin yalnız güvenli metadata'sını tur bağlamına dönüştürür.
++    """Validate all attachments before admitting a turn."""
++    from .attachments import attachment_context
+ 
+-    Dosya içeriği burada okunmaz; arayüz mutlak yolu verir ve agent standart
+-    dosya araçları/izinleri üzerinden gerektiğinde kendisi okur.
+-    """
+-    if not isinstance(value, list):
+-        return "", None
+-    attachments: list[dict[str, str]] = []
+-    unavailable: list[str] = []
+-    for raw in value[:20]:
+-        if not isinstance(raw, dict):
+-            continue
+-        path = raw.get("path")
+-        if not isinstance(path, str) or not path.strip() or len(path) > 4096:
+-            continue
+-        local_path = Path(path).expanduser()
+-        if not local_path.is_absolute() or not local_path.is_file():
+-            unavailable.append(str(raw.get("name") or path)[:512])
+-            continue
+-        attachments.append(
+-            {
+-                "path": str(local_path),
+-                "name": str(raw.get("name", ""))[:512],
+-                "kind": "image" if raw.get("kind") == "image" else "file",
+-            }
+-        )
+-    if unavailable:
+-        names = ", ".join(unavailable[:3])
+-        suffix = "…" if len(unavailable) > 3 else ""
+-        return "", f"Ek açılamadı veya artık mevcut değil: {names}{suffix}"
+-    if not attachments:
+-        return "", None
+-    payload = json.dumps(attachments, ensure_ascii=False)
+-    return (
+-        "<kullanici_ekleri>\n"
+-        "Bu yolları kullanıcı bu tur için açıkça ekledi. İçerikleri yalnız görev "
+-        "gerektiriyorsa standart izin ve araç kurallarıyla oku.\n"
+-        f"{payload}\n"
+-        "</kullanici_ekleri>",
+-        None,
+-    )
++    return attachment_context(value)
+ 
+ 
+ def _discard_line(_line: str) -> None:
+@@ -473,6 +408,26 @@ def _should_auto_continue(outcome: object, auto_continues: int) -> bool:
+     return bekleyen and getattr(outcome, "mutating_tool_calls_made", 0) > 0
+ 
+ 
++class _RetryEffectSink:
++    """Conservative evidence for graceful cancellation; unknown tools require observation."""
++
++    # Only fixed local readers are eligible. Shell, browser, MCP and dynamic tools
++    # remain unsafe even when a particular invocation looks read-only.
++    READERS = frozenset({"read_file", "list_dir", "search_code"})
++
++    def __init__(self, inner: EventSink) -> None:
++        self.inner = inner
++        self.safe = True
++
++    def handle(self, event: Event) -> None:
++        if isinstance(event, (ToolStarted, ToolExecuted)) and (
++            event.name not in self.READERS
++            or (isinstance(event, ToolExecuted) and event.mutating is True)
++        ):
++            self.safe = False
++        self.inner.handle(event)
++
++
+ class _MeteredSink:
+     """Olayları yazan sink'i sarar ve tüketimi sayar.
+ 
+@@ -481,7 +436,7 @@ class _MeteredSink:
+     """
+ 
+     def __init__(
+-        self, inner: ProtocolSink, meter: UsageMeter, usage_log: UsageLog | None = None
++        self, inner: EventSink, meter: UsageMeter, usage_log: UsageLog | None = None
+     ) -> None:
+         self._inner = inner
+         self._meter = meter
+@@ -675,9 +630,10 @@ class AppSession:
+         self._usage_log = open_usage_log(self._state.config, session_id=new_session_id("masaustu"))
+         #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
+         self._chrome_history: list[Message] = []
++        self._chrome_turn_id: str | None = None
+         self._chrome = ChromeBridge(
+             self._chrome_turn,
+-            self._cancel_turn,
++            self._chrome_cancel,
+             self._chrome_answer,
+             self._chrome_settings,
+             installer=auto_install_async,
+@@ -721,6 +677,7 @@ class AppSession:
+         #: Son değerlendirmenin ürettiği devam görevi: hedef kipi YALNIZ bu metinle gelen
+         #: tura uygulanır, ilgisiz sonraki mesaja sızmaz.
+         self._goal_continuation: str | None = None
++        self._goal_turn_id: str | None = None
+         #: Seçilen beceri `context: fork` istedi (P-054): sonraki tur fork alt ajanda koşar.
+         self._fork_requested = False
+ 
+@@ -750,18 +707,42 @@ class AppSession:
+             )
+         return self._remote
+ 
+-    async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
+-        """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
+-        self._chrome.publish({"tur": "basladi"})
+-        result = await self._run_turn(prompt, browser_only=True)
++    async def _chrome_turn(self, prompt: str, turn_id: str | None = None) -> dict[str, Any]:
++        """Execute only admitted panel work; terminal events share its owner."""
++        owner = turn_id or f"chrome:{uuid4().hex}"
++        try:
++            result = await self._run_turn(prompt, browser_only=True, chrome_turn_id=owner)
++        except (Exception, asyncio.CancelledError):
++            if self._chrome_turn_id == owner:
++                self._chrome.publish(
++                    {
++                        "tur": "bitti",
++                        "turnId": owner,
++                        "ok": False,
++                        "metin": messages.APP_TURN_NO_ANSWER,
++                    }
++                )
++                self._chrome_turn_id = None
++            raise
++        result.pop("_retry_safe", None)
++        result.pop("_cancelled", None)
+         answer = result.get("metin")
+         if isinstance(answer, str):
+-            # Açılışsız `</think>` de `strip_thinking` içinde ayıklanır.
+             result["metin"] = strip_thinking(answer).strip()
+-        # Panel tur sürerken kapanıp açılabilir: sonuç akışta da durur.
+-        self._chrome.publish({"tur": "bitti", "ok": result.get("ok"), "metin": result.get("metin")})
++        if self._chrome_turn_id == owner:
++            self._chrome.publish({"tur": "bitti", "turnId": owner, **result})
++            self._chrome_turn_id = None
++        if turn_id is not None:
++            result["turnId"] = owner
+         return result
+ 
++    def _chrome_cancel(self, turn_id: str | None = None) -> dict[str, Any]:
++        # Old panels without ownership can still run tasks but must reconnect to
++        # the current protocol before stopping one; never stop native work.
++        if not turn_id or turn_id != self._chrome_turn_id:
++            return {"ok": False, "metin": "Durdurma isteği etkin panel göreviyle eşleşmiyor."}
++        return self._cancel_turn()
++
+     async def _chrome_settings(self, data: dict[str, Any]) -> dict[str, Any]:
+         """Yan panelin model seçici ve "Önce sor / Sormadan yap" anahtarı.
+ 
+@@ -1622,22 +1603,33 @@ class AppSession:
+             attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
+             if attachment_error:
+                 return {"ok": False, "metin": attachment_error}
++            try:
++                attachment_images = await _attachment_images_async(request.data.get("ekler"))
++            except ValueError as error:
++                return {"ok": False, "metin": str(error)}
+             direct = await self._run_turn(
+                 str(request.data.get("gorev", "")),
+                 attachment_context,
+-                await _attachment_images_async(request.data.get("ekler")),
++                attachment_images,
+                 voice_context=voice_context,
+                 deadline=deadline,
+             )
++            direct.pop("_retry_safe", None)
+             direct.pop("_cancelled", None)  # makbuzsuz yolda iç işaret tele çıkmaz
+             return self._with_steering_leftover(direct)
+         if request.name == "tur.kes":
+-            if self._goal_task is not None and not self._goal_task.done():
+-                # Tur bitti, hedef değerlendiriliyor: Durdur devam zincirini keser.
++            owner = self._goal_turn_id if self._goal_judging() else self._steering_turn
++            if "turnId" in request.data and (
++                not isinstance(request.data["turnId"], str)
++                or not owner
++                or request.data["turnId"] != owner
++            ):
++                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
++            # Requests without turnId retain the explicit legacy stop-current behavior.
++            if self._goal_judging():
++                assert self._goal_task is not None
+                 self._goal_task.cancel()
+                 return {"ok": True, "state": "stopping", "metin": messages.GOAL_STOPPED}
+-            if "turnId" in request.data and request.data["turnId"] != self._steering_turn:
+-                return {"ok": False, "metin": "Durdurma isteği etkin görevle eşleşmiyor."}
+             return self._cancel_turn()
+         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
+ 
+@@ -3056,6 +3048,10 @@ class AppSession:
+                     self._submission_task is not None and not self._submission_task.done()
+                 ):
+                     return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
++                try:
++                    attachment_images = await _attachment_images_async(request.data.get("ekler"))
++                except ValueError as error:
++                    return {"ok": False, "metin": str(error)}
+                 claim = await (
+                     self._submission_store.retry(key)
+                     if is_retry
+@@ -3077,7 +3073,7 @@ class AppSession:
+                         claim.receipt,
+                         task,
+                         attachment_context,
+-                        await _attachment_images_async(request.data.get("ekler")),
++                        attachment_images,
+                         voice_context,
+                         deadline,
+                         self._state.config,
+@@ -3169,6 +3165,7 @@ class AppSession:
+         *,
+         voice_context: VoiceTurnContext | None = None,
+         browser_only: bool = False,
++        chrome_turn_id: str | None = None,
+         auto_continues: int = 0,
+         deadline: TurnDeadline | None = None,
+         receipt: SubmissionReceipt | None = None,
+@@ -3249,9 +3246,10 @@ class AppSession:
+         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
+         writer = self._chrome.tee(_discard_line) if browser_only else self._writer
+         protocol_sink = ProtocolSink(writer, receipt=receipt, sequence=event_sequence)
++        effect_sink = _RetryEffectSink(protocol_sink)
+         sink = LibrarySink(
+             _MeteredSink(
+-                protocol_sink,
++                effect_sink,
+                 self._usage,
+                 self._usage_log,
+             ),
+@@ -3272,7 +3270,7 @@ class AppSession:
+         child_runs = self._state.child_runs
+         self._child_runs = child_runs
+         self._steering = steering
+-        self._steering_turn = receipt.attempt_id if receipt else None
++        self._steering_turn = receipt.attempt_id if receipt else chrome_turn_id
+         self._steering_requests.clear()
+         config = config_snapshot or self._state.config
+         if self._disabled_mcp:
+@@ -3427,12 +3425,16 @@ class AppSession:
+         trace_sinks: tuple[EventSink, ...] = (trace,) if trace is not None else ()
+         owned_turn = asyncio.ensure_future(execute_turn())
+         self._turn = owned_turn
++        if browser_only:
++            self._chrome_turn_id = chrome_turn_id
++            self._chrome.publish({"tur": "basladi", "turnId": chrome_turn_id})
+         self._ensure_idle_watch()
+         self._turn_settled.clear()
+         try:
+             outcome = await owned_turn
+         except asyncio.CancelledError:
+             self._iptal_bekliyor = True
++            interrupted_entry = journal.load() if journal is not None else None
+             # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
+             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
+             if not browser_only:
+@@ -3444,16 +3446,38 @@ class AppSession:
+                 # dendiğinde model neyin yarıda kaldığını hiç görmüyordu.
+                 from ..core.turn_resume import interrupted_history
+ 
+-                entry = journal.load() if journal is not None else None
+                 preserved = (
+-                    list(entry.messages) if entry is not None else [*history, Message("user", task)]
++                    list(interrupted_entry.messages)
++                    if interrupted_entry is not None
++                    else [*history, Message("user", task)]
+                 )
+                 self._state.history = interrupted_history(
+                     preserved, task=task, root=str(self._state.root.resolve())
+                 )
+                 if journal is not None:
+                     await await_owned_thread(journal.save, self._state.history)
+-            return {"ok": False, "metin": messages.APP_TURN_CANCELLED, "_cancelled": True}
++            retry_safe = effect_sink.safe
++            if journal is not None:
++                # Snapshot may contain a proposed/incomplete tool call even if the
++                # event was not delivered. Old history is outside this attempt.
++                durable = interrupted_entry
++                previous = {call.id for message in history for call in message.tool_calls}
++                retry_safe = (
++                    retry_safe
++                    and durable is not None
++                    and all(
++                        call.name in _RetryEffectSink.READERS
++                        for message in durable.messages
++                        for call in message.tool_calls
++                        if call.id not in previous
++                    )
++                )
++            return {
++                "ok": False,
++                "metin": messages.APP_TURN_CANCELLED,
++                "_cancelled": True,
++                "_retry_safe": retry_safe,
++            }
+         finally:
+             record_agent_changes(self._state.root, self._workspace_journal, changes.snapshots)
+             self._desktop_activity.clear()
+@@ -3548,7 +3572,11 @@ class AppSession:
+                 continued["_retry_safe"] = False
+             return {**root_payload, **continued}
+         self._cron_save()
+-        goal_payload = await self._evaluate_goal(sink)
++        self._goal_turn_id = receipt.attempt_id if receipt else None
++        try:
++            goal_payload = await self._evaluate_goal(sink)
++        finally:
++            self._goal_turn_id = None
+         if switched:
+             metin = f"{metin}\n\n{switched}".strip()
+         cevap: dict[str, Any] = {
+diff --git a/tests/e2e/chrome_panel_ownership_unit.mjs b/tests/e2e/chrome_panel_ownership_unit.mjs
+index 41b309a0..c83db953 100644
+--- a/tests/e2e/chrome_panel_ownership_unit.mjs
++++ b/tests/e2e/chrome_panel_ownership_unit.mjs
+@@ -45,3 +45,32 @@ assert.equal(run('thread.soru?.id'),'switch-owned','switch sorusu canlı olay ve
+ run('thread={mesajlar:[],seq:null,soru:null};connection=async()=>null;request=async()=>({son:1,sorular:[{tur:"tarayici_sec",id:"switch-owned",veri:{tur:"soru",tarayici_sec:true}}]});');
+ await run('listen()');
+ assert.equal(run('thread.soru?.id'),'switch-owned','yeni panel switch sorusunu snapshot üzerinden geri alır');
++
++// HTTP and event completion can arrive in either order; old events cannot revive a turn.
++context.setGlow = async () => {};
++run('thread={mesajlar:[{rol:"asistan",turnId:"panel:1",durum:"calisiyor"}],seq:1,soru:null}; inflight=true;');
++await run('applyItem({tur:"bitti",turnId:"panel:1",ok:true,metin:"done"}).then(next=>{thread=next;})');
++assert.equal(run('running()'), false, 'terminal event settles even while HTTP is pending');
++await run('applyItem({tur:"basladi",turnId:"panel:1"}).then(next=>{thread=next;})');
++assert.equal(run('running()'), false, 'delayed started event cannot resurrect completed owner');
++run('thread={mesajlar:[{rol:"asistan",turnId:"panel:2",durum:"calisiyor"}],seq:2,soru:null};');
++await run('applyItem({tur:"bitti",turnId:"panel:1",ok:true}).then(next=>{thread=next;})');
++assert.equal(run('running()'), true, 'old completion cannot settle a newer owner');
++run('request=async(path,data)=>{globalThis.cancelBody=data;return {ok:false,metin:"wrong owner"};};');
++await assert.rejects(run('cancel()'), /wrong owner/);
++assert.equal(run('cancelBody.turnId'), 'panel:2');
++assert.equal(run('running()'), true, 'rejected stop does not claim cancellation');
++
++// Finish over HTTP, then drain queued started+finished events: exactly one final row.
++context.crypto = {randomUUID: () => 'http:1'};
++context.expandShortcut = async (value) => value;
++context.autoGrow = () => {};
++run('thread={mesajlar:[],seq:0,soru:null}; request=async()=>({ok:false,turnId:"http:1",metin:"busy"});');
++await run('sendPrompt("request")');
++assert.equal(run('running()'), false, 'busy HTTP rejection leaves the composer idle');
++run('thread={mesajlar:[],seq:0,soru:null}; request=async()=>({ok:true,turnId:"http:1",metin:"done"});');
++await run('sendPrompt("request")');
++await run('applyItem({tur:"basladi",turnId:"http:1"}).then(next=>{thread=next;})');
++await run('applyItem({tur:"bitti",turnId:"http:1",ok:true,metin:"done"}).then(next=>{thread=next;})');
++assert.equal(run('running()'), false);
++assert.equal(run('thread.mesajlar.length'), 2, 'event replay cannot append a phantom assistant');
+diff --git a/tests/test_appserver_session.py b/tests/test_appserver_session.py
+index 02a7db94..157a4e46 100644
+--- a/tests/test_appserver_session.py
++++ b/tests/test_appserver_session.py
+@@ -119,7 +119,7 @@ async def test_masaustu_turu_oturumun_kalici_bellegini_ajana_verir(tmp_path, mon
+ async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path, monkeypatch):
+     oturum = _session(tmp_path, [])
+ 
+-    async def fake_run_turn(_task, *, browser_only):
++    async def fake_run_turn(_task, *, browser_only, chrome_turn_id):
+         assert browser_only
+         return {"ok": True, "metin": "internal reasoning\n</think>\nİşlem tamamlandı."}
+ 
+diff --git a/tests/test_session_turn_ownership.py b/tests/test_session_turn_ownership.py
+new file mode 100644
+index 00000000..6d5ca52b
+--- /dev/null
++++ b/tests/test_session_turn_ownership.py
+@@ -0,0 +1,146 @@
++"""Stop ownership and cancellation retry regressions without external services."""
++
++import asyncio
++from types import SimpleNamespace
++
++import pytest
++
++from fusion_cli.appserver.protocol import Request
++from fusion_cli.appserver.session import AppSession
++from fusion_cli.core.events import ToolStarted
++
++
++async def test_stale_stop_cannot_cancel_goal_judging(tmp_path):
++    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
++    session._goal_turn_id = "current:1"
++    task = asyncio.create_task(asyncio.Event().wait())
++    session._goal_task = task
++    try:
++        result = await session._dispatch(Request(id="s", name="tur.kes", data={"turnId": "old:1"}))
++        assert result["ok"] is False
++        assert not task.cancelling()
++        result = await session._dispatch(
++            Request(id="s2", name="tur.kes", data={"turnId": "current:1"})
++        )
++        assert result["ok"] is True
++    finally:
++        task.cancel()
++        await asyncio.gather(task, return_exceptions=True)
++
++
++async def test_chrome_busy_does_not_emit_started_or_cancel_native(tmp_path):
++    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
++    task = asyncio.create_task(asyncio.Event().wait())
++    session._turn = task
++    session._steering_turn = "native:1"
++    try:
++        result = await session._chrome_turn("read page", "panel:1")
++        assert result["ok"] is False
++        assert not session._chrome._feed
++        assert session._chrome_cancel("panel:1")["ok"] is False
++        assert not task.cancelling()
++    finally:
++        task.cancel()
++        await asyncio.gather(task, return_exceptions=True)
++
++
++@pytest.mark.parametrize(
++    "tool,safe", [(None, True), ("read_file", True), ("run_shell", False), ("unknown_tool", False)]
++)
++async def test_cancel_retry_requires_no_possible_effect(tmp_path, monkeypatch, tool, safe):
++    entered = asyncio.Event()
++    calls = 0
++
++    async def execute(task, config, **kwargs):
++        nonlocal calls
++        calls += 1
++        if calls > 1:
++            return SimpleNamespace(
++                ok=True, final_text="done", messages=[], tool_calls_made=0, tool_uses=()
++            )
++        if tool:
++            kwargs["sinks"][0].handle(ToolStarted(name=tool, args={}, call_id="t1"))
++        entered.set()
++        await asyncio.Event().wait()
++
++    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
++    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
++    data = {"gorev": "today", "gonderim_id": "retry"}
++    waiting = asyncio.create_task(
++        session._dispatch(Request(id="a", name="tur.calistir", data=data))
++    )
++    await entered.wait()
++    session._cancel_turn()
++    first = await waiting
++    assert (first["makbuz"]["hata_kodu"] == "no_tool_effect") is safe
++    await session._dispatch(
++        Request(id="b", name="tur.calistir", data={**data, "yeniden_dene": True})
++    )
++    assert (calls == 2) is safe
++
++
++async def test_stale_explicit_stop_cannot_cancel_unidentified_legacy_turn(tmp_path):
++    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
++    task = asyncio.create_task(asyncio.Event().wait())
++    session._turn = task
++    try:
++        for identifier in ("old:1", None, ""):
++            result = await session._dispatch(
++                Request(id="s", name="tur.kes", data={"turnId": identifier})
++            )
++            assert result["ok"] is False
++            assert not task.cancelling()
++        result = await session._dispatch(Request(id="s", name="tur.kes", data={}))
++        assert result["ok"] is True
++    finally:
++        task.cancel()
++        await asyncio.gather(task, return_exceptions=True)
++
++
++async def test_panel_cancel_requires_current_admitted_owner(tmp_path, monkeypatch):
++    entered = asyncio.Event()
++
++    async def execute(*args, **kwargs):
++        entered.set()
++        await asyncio.Event().wait()
++
++    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
++    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
++    waiting = asyncio.create_task(session._chrome_turn("read", "panel:2"))
++    await entered.wait()
++    assert session._chrome._feed[0]["turnId"] == "panel:2"
++    for identifier in ("panel:1", None, ""):
++        assert session._chrome_cancel(identifier)["ok"] is False
++        assert not session._turn.cancelling()
++    assert session._chrome_cancel("panel:2")["ok"] is True
++    assert (await waiting)["turnId"] == "panel:2"
++    assert session._chrome._feed[-1]["tur"] == "bitti"
++    assert session._chrome._feed[-1]["turnId"] == "panel:2"
++
++
++async def test_durable_unfinished_write_blocks_retry_without_start_event(tmp_path, monkeypatch):
++    from fusion_cli.core.types import Message, ToolCall
++
++    entered = asyncio.Event()
++
++    async def execute(task, config, **kwargs):
++        kwargs["journal"].save(
++            [
++                Message("user", task),
++                Message("assistant", "", tool_calls=(ToolCall("pending", "write_file", "{}"),)),
++            ]
++        )
++        entered.set()
++        await asyncio.Event().wait()
++
++    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", execute)
++    session = AppSession(lambda _: None, root=tmp_path, home=tmp_path / "home")
++    waiting = asyncio.create_task(
++        session._dispatch(
++            Request(id="a", name="tur.calistir", data={"gorev": "write", "gonderim_id": "durable"})
++        )
++    )
++    await entered.wait()
++    session._cancel_turn()
++    result = await waiting
++    assert result["makbuz"]["hata_kodu"] == "executor_failed"

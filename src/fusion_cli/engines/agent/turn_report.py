@@ -16,12 +16,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ...core.artifact_kind import artifact_only
 from ...core.constants import (
     EXIT_CODE_PREFIX,
     TOOL_CALL_BLOCKED_PREFIX,
     TOOL_CALL_DUPLICATE_PREFIX,
 )
 from ...core.evidence import CriterionEvidence, EvidenceStatus, ToolUse, summarize_criteria
+from ...core.execution_plan import VerificationCheckKind
 from ...core.job_evidence import JobCurrentSnapshot, JobPhase
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import UNVERIFIABLE_COMMAND_PREFIX, VerificationResult
@@ -192,6 +194,13 @@ class TurnReport:
     #: ("değiştirmiş olabilir" varsayımı).
     last_shell_changes: tuple[str, ...] | None = None
     criteria: tuple[CriterionEvidence, ...] = ()
+    #: Presentation only: trusted implicit captures remain in changed_paths/verification.
+    internal_observation_paths: tuple[str, ...] = ()
+
+    @property
+    def presentation_paths(self) -> tuple[str, ...]:
+        internal = frozenset(self.internal_observation_paths)
+        return tuple(path for path in self.changed_paths if path not in internal)
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -287,13 +296,18 @@ class TurnReport:
             return True
         # Çıkış kodu okunamayan (zaman aşımı) davranış komutu da başarı iddiasını engeller:
         # `None` bir başarı kanıtı değildir (A4-26).
-        return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence) or any(
+        return any(run.exit_code not in (None, 0) for run in self._unresolved_evidence) or any(
             run.exit_code is None for run in self._unresolved_evidence
         )
 
     def render(self) -> str:
         """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
-        if not self.changed_paths and not self.job_deliveries and not self.test_tamper:
+        if (
+            not self.presentation_paths
+            and not self.job_deliveries
+            and not self.test_tamper
+            and not (self.changed_paths and (self._gate_blocks() or self.blocks_success))
+        ):
             return ""
         jobs = tuple(
             (
@@ -306,9 +320,9 @@ class TurnReport:
             for item in self.job_deliveries
         )
         blocks = [*jobs, *self._gate_blocks()]
-        if self.changed_paths:
+        if self.presentation_paths or (self.changed_paths and self.blocks_success):
             blocks.append(self._evidence_block())
-        if self.change_lines:
+        if self.change_lines and self.presentation_paths:
             blocks.append("Değişen satırlar (gerçek fark):\n" + "\n".join(self.change_lines))
         blocks.append(render_findings(self.test_tamper))
         return "\n\n".join(block for block in blocks if block) + "\n\n"
@@ -326,13 +340,67 @@ class TurnReport:
                 report + "⚠ Ajanın dosya değişikliği beyanı araç kaydıyla çeliştiği için "
                 "açıklaması gösterilmedi."
             )
-        if self.is_verified is False and model_text.strip():
-            uyari = f"{self._claim_warning()}\n\n" if claims_verification(model_text) else ""
+        if (self.is_verified is False or self.false_claim) and model_text.strip():
+            if self.false_claim and self.unsupported_contact_delivery_claim(model_text):
+                uyari = (
+                    "⚠ Mesaj teslimatı doğrulanmadı; alındı/gönderildi beyanı desteklenmiyor.\n\n"
+                )
+            else:
+                uyari = f"{self._claim_warning()}\n\n" if claims_verification(model_text) else ""
             return report + uyari + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
         return report + model_text
 
+    @property
+    def _passed_behavioral_criteria(self) -> tuple[CriterionEvidence, ...]:
+        return tuple(
+            item
+            for item in summarize_criteria(self.criteria)
+            if item.status is EvidenceStatus.PASSED and item.behavioral
+        )
+
+    def unsupported_contact_delivery_claim(self, text: str) -> bool:
+        """Çevrimdışı form ölçümü gerçek mesajın teslim edildiğini kanıtlamaz."""
+        from .contact_form_probe import _claims_receipt
+
+        if not any(item.criterion_id == "contact_receipt_truth" for item in self.criteria):
+            return False
+        prose = re.sub(r'```.*?```|`[^`]*`|["“][^"”\n]*["”]', " ", text, flags=re.S)
+        return _claims_receipt(prose)
+
+    def unsupported_command_claim(self, text: str) -> bool:
+        """Geçen tarayıcı kontrolü, yalnız o kapsamdaki test beyanını destekler."""
+        browser_passed = any(
+            item.criterion_id == "tarayici_sayfalari" for item in self._passed_behavioral_criteria
+        )
+        if browser_passed:
+            text = re.sub(
+                r"(?:tarayıcıda|browser|website|web sitesi|site|sayfa)"
+                r"[^.!?;\n]{0,60}?\btest (?:edildi|ettim|edilmiştir)\b",
+                lambda match: re.sub(
+                    r"\btest (?:edildi|ettim|edilmiştir)\b", "", match.group(), flags=re.I
+                ),
+                text,
+                flags=re.IGNORECASE,
+            )
+        if not self.changed_paths or not claims_command_success(text):
+            return False
+        if self.is_verified is False:
+            return True
+        command_proven = any(run.exit_code == 0 for run in self._unresolved_evidence) or any(
+            item.kind is VerificationCheckKind.COMMAND and item.status is EvidenceStatus.PASSED
+            for item in self.criteria
+        )
+        return not command_proven
+
     def _claim_warning(self) -> str:
         """Kanıt hiç yoksa sert uyarı; yalnız bayatladıysa (önceden geçmişti) doğru olanı."""
+        if self._passed_behavioral_criteria or any(
+            run.exit_code == 0 for run in self._unresolved_evidence
+        ):
+            return (
+                "ⓘ Bazı kontroller geçti; doğrulanmayan ölçütler için "
+                "genel başarı beyanı desteklenmiyor."
+            )
         if self._passed_before_last_mutation and not self._unresolved_evidence:
             return stale_claim_warning(self.last_shell_mutation, self.last_shell_changes)
         return UNVERIFIED_CLAIM_WARNING
@@ -351,6 +419,26 @@ class TurnReport:
         gate = self.gate
         if gate is None:
             return ()
+        if (
+            not gate.ok
+            and gate.summary
+            in {
+                "Olgusal kaynak denetimi tamamlanamadı.",
+                "Kaynaklarla uyuşmayan olgusal iddialar var.",
+            }
+            and any(
+                e.criterion_id == "research_grounding" and e.status is not EvidenceStatus.PASSED
+                for e in gate.evidence
+            )
+            and not any(
+                e.criterion_id != "research_grounding" and e.status is not EvidenceStatus.PASSED
+                for e in gate.evidence
+            )
+        ):
+            factual = next(e for e in gate.evidence if e.criterion_id == "research_grounding")
+            if factual.status is EvidenceStatus.UNVERIFIED:
+                return ("Olgusal kaynak denetimi tamamlanamadı.",)
+            return ("Kaynaklarla uyuşmayan olgusal iddialar giderilemedi.",)
         if not gate.ok:
             findings = "\n".join(f"- {finding}" for finding in gate.findings[:5])
             return (
@@ -379,7 +467,7 @@ class TurnReport:
         return block
 
     def _evidence_block_text(self) -> str:
-        dosyalar = ", ".join(self.changed_paths)
+        dosyalar = ", ".join(self.presentation_paths or self.changed_paths)
         evidence = self._unresolved_evidence
         kapi_kaniti = self._gate_passed_evidence
         if not evidence and kapi_kaniti:
@@ -389,6 +477,24 @@ class TurnReport:
             return (
                 f"ⓘ Yalnız sözdizimi denetlendi: {bicim}.\nDeğişen dosyalar: {dosyalar}\n"
                 "Site çalıştırılıp açılmadı; çalıştığı DOĞRULANMADI (start_preview ile görülür)."
+            )
+        if not evidence and self._passed_behavioral_criteria:
+            passed = "; ".join(item.summary for item in self._passed_behavioral_criteria)
+            pending = "; ".join(
+                item.summary
+                for item in summarize_criteria(self.criteria)
+                if item.status is not EvidenceStatus.PASSED
+            )
+            return (
+                f"ⓘ Geçen alt kontroller: {passed}.\n"
+                f"Diğer ölçütler: {pending or 'toplam doğrulama tamamlanmadı'}.\n"
+                f"Değişen dosyalar: {dosyalar}"
+            )
+        if not evidence and artifact_only(self.presentation_paths):
+            return (
+                f"ⓘ Görsel / belge çıktıları: {dosyalar}\n"
+                "Dosyanın kaydedilmesi görev sonucunun doğrulandığı anlamına gelmez; "
+                "görsel veya içerik kontrolü ayrıca ölçülmeli."
             )
         if not evidence:
             return (
@@ -406,6 +512,11 @@ class TurnReport:
         if self.gate is not None and not self.gate.ok:
             return (
                 f"ⓘ Geçen alt kontroller: {komutlar}. Toplam doğrulama başarısız.\n"
+                f"Değişen dosyalar: {dosyalar}"
+            )
+        if self.is_verified is False:
+            return (
+                f"ⓘ Geçen alt kontroller: {komutlar}. Diğer kabul ölçütleri doğrulanmadı.\n"
                 f"Değişen dosyalar: {dosyalar}"
             )
         return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
@@ -460,6 +571,7 @@ def build_turn_report(
     current_jobs: tuple[JobCurrentSnapshot, ...] = (),
     test_tamper: tuple[TamperFinding, ...] = (),
     change_lines: tuple[str, ...] = (),
+    internal_observation_paths: tuple[str, ...] = (),
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
@@ -503,6 +615,7 @@ def build_turn_report(
         change_lines=change_lines,
         last_shell_mutation=last_shell,
         last_shell_changes=last_shell_changes,
+        internal_observation_paths=internal_observation_paths,
     )
 
 
@@ -674,7 +787,7 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
     gate = report.gate
     verified: list[str] = []
     unmeasured: list[str] = []
-    if gate is not None and gate.ok:
+    if gate is not None:
         verified.extend(
             _gate_label(item)
             for item in gate.evidence
@@ -688,13 +801,23 @@ def summarize_evidence(report: TurnReport) -> EvidenceSummary:
         for run in runs
     )
     if gate is not None:
+        if any(
+            item.criterion_id == "research_grounding" and item.status is EvidenceStatus.UNVERIFIED
+            for item in gate.evidence
+        ):
+            unmeasured.append("Olgusal kaynak denetimi tamamlanamadı.")
         for warning in gate.warnings:
             reason = _unmeasured_reason(warning)
             if reason is not None:
                 unmeasured.append(reason)
         if not runs and report._static_only_evidence is not None:
             unmeasured.append("yalnız sözdizimi denetlendi; sayfa çalıştırılıp görülmedi")
-    if not verified and not unmeasured and report.is_verified is False:
+    if (
+        not verified
+        and not unmeasured
+        and report.presentation_paths
+        and report.is_verified is False
+    ):
         unmeasured.append("son değişiklikten sonra doğrulama komutu çalıştırılmadı")
     return EvidenceSummary(tuple(dict.fromkeys(verified)), tuple(dict.fromkeys(unmeasured)))
 

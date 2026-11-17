@@ -95,3 +95,18 @@ def _changed_lines(old: list[str], new: list[str]) -> list[tuple[str, str]]:
 def _clip(text: str) -> str:
     text = redact(text.strip())
     return text if len(text) <= LINE_CHARS else text[: LINE_CHARS - 1] + "…"
+
+
+def changed_file_versions(context: ToolContext) -> tuple[tuple[str, int, int, int], ...] | None:
+    """İzlenen dosyalar dist/build/.fusion içinde olsa da öz-denetim sürümünü ölç."""
+    versions: list[tuple[str, int, int, int]] = []
+    for path in sorted(set(context.changes.paths) | context.touched):
+        try:
+            current = path.stat()
+        except FileNotFoundError:
+            versions.append((str(path), -1, -1, -1))
+            continue
+        except OSError:
+            return None
+        versions.append((str(path), current.st_size, current.st_mtime_ns, current.st_ctime_ns))
+    return tuple(versions)

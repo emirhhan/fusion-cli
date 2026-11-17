@@ -11,11 +11,40 @@ on:
   workflow_dispatch:
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: version
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          config=app/src-tauri/tauri.conf.json
+          current=$(jq -er '.version' "$config")
+          tag="v$current"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            test "$GITHUB_REF_NAME" = "$tag"
+          elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]]; then
+            previous=$(git show "$BEFORE:$config" | jq -r '.version')
+            [[ "$previous" != "$current" ]] || exit 0
+            tagged=$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}" || true)
+            if [[ -n "$tagged" && "$tagged" != "$GITHUB_SHA" ]]; then
+              exit 0
+            fi
+          else
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
   # Sürüm etiketinde kalite kapısı (lint + tip + test + kilitlenme ağı) yeniden koşar;
   # `release` bu işe bağlıdır. Ölçüldü (28 Ekim): release yalnız paket işlerine
   # bağlıydı ve kırmızı testlerle de yayımlanabiliyordu.
   quality:
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: version
+    if: needs.version.outputs.tag != ''
     uses: ./.github/workflows/ci.yml
   terminal:
     runs-on: ubuntu-latest
@@ -71,6 +100,7 @@ jobs:
         working-directory: app
         run: npm run check:pty
   macos:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -166,7 +196,7 @@ jobs:
           if-no-files-found: error
 
       - name: İmzalı uygulama içi güncelleme paketi
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.version.outputs.tag != ''
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -174,13 +204,14 @@ jobs:
           python desktop_build/macos/build_update.py --app app/src-tauri/target/release/bundle/macos/Fusion.app --output guncelleme
           mv guncelleme/latest.json guncelleme/latest-${{ matrix.target }}.json
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.version.outputs.tag != ''
         with:
           name: fusion-update-${{ matrix.target }}
           path: guncelleme/*
           if-no-files-found: error
 
   windows:
+    needs: version
     runs-on: windows-latest
     timeout-minutes: 150
     # Türkçe çıktı Windows'ta cp1252'ye sığmıyor. Ölçüldü (alpha.11): konuşma
@@ -266,7 +297,7 @@ jobs:
             Select-Object -First 1 |
             Copy-Item -Destination dagitim/Fusion-Windows-Kurulum.exe
       - name: İmzalı Windows güncelleme paketi
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.version.outputs.tag != ''
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -278,7 +309,7 @@ jobs:
             --output guncelleme --version $surum
           Move-Item guncelleme/latest.json guncelleme/latest-windows-x86_64.json
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.version.outputs.tag != ''
         with:
           name: fusion-update-windows-x86_64
           path: guncelleme/*
@@ -294,16 +325,21 @@ jobs:
   # toplayıp herkese açık bir Release oluşturur. Arkadaşlara verilecek tek adres
   # budur; Actions artefaktları erişim ister ve süresi dolar, Release dolmaz.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [quality, macos, windows, terminal]
+    if: needs.version.outputs.tag != ''
+    needs: [version, quality, macos, windows, terminal]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: write
+    concurrency:
+      group: fusion-desktop-publish
+      cancel-in-progress: false
     steps:
       # release_manifest.py, known-gaps.json ve kilit dosyaları (uv.lock, package-lock,
       # Cargo.lock) depodan gelir.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -338,6 +374,8 @@ jobs:
           PY
           ls -lh dagitim
       - name: Kanıt paketi (SHA256SUMS, SBOM, manifest)
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
         # Q1-05: kanıt YAYINLANAN dosyalar için üretilir. Eskiden ayrı iş akışı
         # yalnız wheel/sdist'i özetliyordu; DMG/EXE/güncelleme paketi hiç
         # girmiyordu. `dagitim/` Release'e yüklenen klasörün kendisidir; özetler
@@ -345,19 +383,43 @@ jobs:
         # kendi özetlerini içermesin.
         run: |
           python scripts/release_manifest.py \
-            --version "${GITHUB_REF_NAME#v}" \
+            --version "${RELEASE_TAG#v}" \
             --commit "$GITHUB_SHA" \
             --artifacts dagitim \
             --out kanit
           (cd dagitim && sha256sum -c ../kanit/SHA256SUMS)
+      - name: Sürüm etiketini paketlenen commit'e sabitle
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          pin=$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+          if [[ -z "$pin" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
+          fi
+          actual=$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}" | tail -n1 | cut -f1)
+          test "$actual" = "$GITHUB_SHA"
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName || true)
+          make_latest=true
+          if [[ -n "$latest" && "$latest" != "$RELEASE_TAG" ]]; then
+            git fetch --no-tags origin "refs/tags/$latest"
+            if git merge-base --is-ancestor "$GITHUB_SHA" 'FETCH_HEAD^{commit}'; then
+              make_latest=false
+            fi
+          fi
+          echo "make_latest=$make_latest" >> "$GITHUB_OUTPUT"
       - name: Release oluştur ve dosyaları yükle
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             dagitim/*
             kanit/*
           generate_release_notes: true
-          make_latest: true
+          make_latest: ${{ steps.pin.outputs.make_latest }}
           body: |
             Fusion masaüstü uygulaması. Kurulum yalnız indirip açmaktır; Python,
             Terminal ya da başka bir kurulum gerekmez.

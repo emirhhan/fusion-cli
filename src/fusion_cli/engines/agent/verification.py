@@ -27,6 +27,7 @@ from dataclasses import astuple, dataclass, replace
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.artifact_kind import artifact_only
 from ...core.constants import SHELL_TIMEOUT_S
 from ...core.diagnosis import diagnose
 from ...core.errors import CleanupFailedError
@@ -55,6 +56,7 @@ from ...core.verification import (
 from ...core.workspace_fingerprint import content_digest
 from ...tools.preview_launch import auto_verify_enabled
 from ...tools.remotion_observe import observe_frame
+from .artifact_verify import ArtifactChangeVerifier
 from .browser_verify import BrowserVerifier
 from .coverage_verify import EcosystemCoverageVerifier
 from .domain_adapters.contract import ToolFailureMarkers
@@ -195,6 +197,7 @@ def build_verifier(
         verifiers.append(
             CommandVerifier(
                 commands,
+                tool_context=tool_context,
                 cwd=str(root),
                 timeout_s=SHELL_TIMEOUT_S,
                 failure_markers=registry.output_failure_markers(),
@@ -228,6 +231,8 @@ def build_verifier(
                 site=SiteVerifier(tool_context, php_path),
             )
         )
+    if config.runtime.web_verification and tool_context is not None:
+        verifiers.append(ArtifactChangeVerifier(tool_context))
     # Çıktı/Remotion/oyun kapıları üretilen işi ölçer: web doğrulamasıyla birlikte açılır
     # ve onunla kapatılır ("tüm kapılar kapatılabilir" sözleşmesi).
     if config.runtime.web_verification and tool_context is not None:
@@ -456,7 +461,9 @@ class CommandVerifier:
         runtime_identity: Callable[[], str] = lambda: sys.version,
         attempt_identity: Callable[[], str] = lambda: uuid.uuid4().hex,
         runner_paths: tuple[Path, ...] = (),
+        tool_context: ToolContext | None = None,
     ) -> None:
+        self._tool_context = tool_context
         self._commands = commands
         self._cwd = cwd
         self._timeout_s = timeout_s
@@ -496,10 +503,14 @@ class CommandVerifier:
             runtime_identity=self._runtime_identity,
             attempt_identity=self._attempt_identity,
             runner_paths=self._runner_paths,
+            tool_context=self._tool_context,
         )
         return await verifier.verify()
 
     async def verify(self) -> VerificationResult:
+        if self._tool_context is not None and artifact_only(self._tool_context.changes.paths):
+            return VerificationResult(ok=True)
+
         evidence: list[CriterionEvidence] = []
         warnings: list[str] = []
         failures: list[FailureEvidence] = []

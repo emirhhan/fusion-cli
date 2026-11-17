@@ -42,6 +42,13 @@ FUSION_PID = os.getpid()
 APP_PID = 900
 
 
+def test_carpma_tusu_windows_girdisine_donusur() -> None:
+    specs = desktop_win32.chord_inputs(KeyChord("*"))
+
+    assert [spec.vk for spec in specs] == [0x6A, 0x6A]
+    assert [bool(spec.flags & 0x2) for spec in specs] == [False, True]
+
+
 class FakeApi:
     """Win32Api'nin sahte eşi: girdileri kaydeder, pencere/süreç tablosu verilir."""
 

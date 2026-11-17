@@ -157,6 +157,8 @@ def startup_events(files: Iterable[object]) -> list[dict[str, object]]:
     result = []
     for item in items:
         layer = str(getattr(item, "layer", ""))
+        if layer == "kural":
+            layer = "kullanici" if getattr(item, "trusted", False) else "proje"
         reason = "include" if layer == "import" else "session_start"
         parent = getattr(item, "parent", None) if reason == "include" else None
         result.append(

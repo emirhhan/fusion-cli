@@ -1,0 +1,268 @@
+........................................................................ [  1%]
+........................................................................ [  3%]
+........................................s............................... [  5%]
+........................................................................ [  7%]
+................F.F..................................................... [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 51%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+......................................................FF................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 84%]
+...........F............................................................ [ 86%]
+.........................................................F.............. [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+........................................................................ [ 93%]
+........................................................................ [ 95%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+...........................                                              [100%]
+=================================== FAILURES ===================================
+____ test_olcut_dogru_cozumu_kabul_eder[production:mcp-stdio-listele-cagir] ____
+
+case = ReferenceCase(namespace='production', task=EvalTask(id='mcp-stdio-listele-cagir', request='smoke_test.py içinde async ...async def smoke(client):\n    pass\n'}, budget=TaskBudget(max_model_calls=30, timeout_s=180.0), runtime_scenario=None))
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_olcut_dogru_cozumu_kabul_51')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11b2bde50>
+
+    @pytest.mark.parametrize("case", _exit_code_gorevleri(), ids=lambda case: case.identity)
+    async def test_olcut_dogru_cozumu_kabul_eder(case, tmp_path: Path, monkeypatch):
+        """Her ad alanı aynı kapıda gerçek insan referansını kabul etmeli."""
+        assert _has_reference(case), f"'{case.identity}' için referans çözüm yok"
+        if case.namespace == "fusion_research":
+            from evals.executor import AgentTaskExecutor
+
+            from fusion_cli.core.clock import SystemClock
+            from tests.test_research_support import scripted_runner
+
+            runner = await scripted_runner(case.task, tmp_path, monkeypatch, True)
+            result = await AgentTaskExecutor(
+                runner, workspace_root=tmp_path / "work", clock=SystemClock()
+            ).run(case.task)
+            assert result.exit_code == case.task.criterion.expected_exit_code, (
+                case.identity,
+                (tmp_path / "work" / case.task.id / "_acceptance.stderr.txt").read_text(),
+            )
+            assert result.model_calls > 0
+            return
+        solution = REFERANS_COZUMLER[case.task.id]
+        if case.task.id == "buyuk-artifact-korumali-duzenleme":
+            solution = {
+                "large.py": case.task.setup["large.py"].replace("TARGET = 1\n", "TARGET = 42\n")
+            }
+>       _check_file_reference(case.task, solution, tmp_path)
+
+tests/test_eval_criteria_sound.py:412:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+task = EvalTask(id='mcp-stdio-listele-cagir', request='smoke_test.py içinde async smoke(client) yaz. Verilen gerçek MCP istem...'async def smoke(client):\n    pass\n'}, budget=TaskBudget(max_model_calls=30, timeout_s=180.0), runtime_scenario=None)
+solution = {'smoke_test.py': "async def smoke(client):\n    await client.list_tools()\n    await client.call_tool('ping', {})\n"}
+root = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_olcut_dogru_cozumu_kabul_51')
+
+    def _check_file_reference(task, solution, root: Path):
+        for path, content in {**task.setup, **solution}.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if content.startswith("base64:"):
+                target.write_bytes(base64.b64decode(content.removeprefix("base64:")))
+            else:
+                target.write_text(content, encoding="utf-8")
+        command = (task.criterion.command or "").replace("python ", f"{sys.executable} ")
+        result = subprocess.run(
+            command, shell=True, cwd=root, capture_output=True, text=True, timeout=120
+        )
+>       assert result.returncode == task.criterion.expected_exit_code, (
+            task.id,
+            command,
+            result.stdout,
+            result.stderr,
+        )
+E       AssertionError: ('mcp-stdio-listele-cagir', '/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python -m evals.fixtures.pro...ding module specification for 'evals.fixtures.production_acceptance' (ModuleNotFoundError: No module named 'evals')
+E         ")
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args='/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python -m evals.fixtures.productio...ding module specification for 'evals.fixtures.production_acceptance' (ModuleNotFoundError: No module named 'evals')\n").returncode
+E        +  and   0 = SuccessCriterion(kind=<CriterionKind.EXIT_CODE: 'exit_code'>, expected_exit_code=0, command='python -m evals.fixtures.production_acceptance mcp', expected_path=None, keyword=None, alternatives=()).expected_exit_code
+E        +    where SuccessCriterion(kind=<CriterionKind.EXIT_CODE: 'exit_code'>, expected_exit_code=0, command='python -m evals.fixtures.production_acceptance mcp', expected_path=None, keyword=None, alternatives=()) = EvalTask(id='mcp-stdio-listele-cagir', request='smoke_test.py içinde async smoke(client) yaz. Verilen gerçek MCP istem...'async def smoke(client):\n    pass\n'}, budget=TaskBudget(max_model_calls=30, timeout_s=180.0), runtime_scenario=None).criterion
+
+tests/test_eval_criteria_sound.py:427: AssertionError
+_ test_olcut_dogru_cozumu_kabul_eder[production:buyuk-artifact-korumali-duzenleme] _
+
+case = ReferenceCase(namespace='production', task=EvalTask(id='buyuk-artifact-korumali-duzenleme', request='large.py içindeki...nopqrstuvwxyz\nFOOTER = "keep-too"\n'}, budget=TaskBudget(max_model_calls=30, timeout_s=180.0), runtime_scenario=None))
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_olcut_dogru_cozumu_kabul_53')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11b2d6090>
+
+    @pytest.mark.parametrize("case", _exit_code_gorevleri(), ids=lambda case: case.identity)
+    async def test_olcut_dogru_cozumu_kabul_eder(case, tmp_path: Path, monkeypatch):
+        """Her ad alanı aynı kapıda gerçek insan referansını kabul etmeli."""
+        assert _has_reference(case), f"'{case.identity}' için referans çözüm yok"
+        if case.namespace == "fusion_research":
+            from evals.executor import AgentTaskExecutor
+
+            from fusion_cli.core.clock import SystemClock
+            from tests.test_research_support import scripted_runner
+
+            runner = await scripted_runner(case.task, tmp_path, monkeypatch, True)
+            result = await AgentTaskExecutor(
+                runner, workspace_root=tmp_path / "work", clock=SystemClock()
+            ).run(case.task)
+            assert result.exit_code == case.task.criterion.expected_exit_code, (
+                case.identity,
+                (tmp_path / "work" / case.task.id / "_acceptance.stderr.txt").read_text(),
+            )
+            assert result.model_calls > 0
+            return
+        solution = REFERANS_COZUMLER[case.task.id]
+        if case.task.id == "buyuk-artifact-korumali-duzenleme":
+            solution = {
+                "large.py": case.task.setup["large.py"].replace("TARGET = 1\n", "TARGET = 42\n")
+            }
+>       _check_file_reference(case.task, solution, tmp_path)
+
+tests/test_eval_criteria_sound.py:412:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+task = EvalTask(id='buyuk-artifact-korumali-duzenleme', request='large.py içindeki TARGET değerini 42 yap. Diğer sabitleri ve...mnopqrstuvwxyz\nFOOTER = "keep-too"\n'}, budget=TaskBudget(max_model_calls=30, timeout_s=180.0), runtime_scenario=None)
+solution = {'large.py': 'HEADER = "keep"\n# Korunacak kayit: abcdefghijklmnopqrstuvwxyz\n# Korunacak kayit: abcdefghijklmnopqrstu...\n# Korunacak kayit: abcdefghijklmnopqrstuvwxyz\n# Korunacak kayit: abcdefghijklmnopqrstuvwxyz\nFOOTER = "keep-too"\n'}
+root = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_olcut_dogru_cozumu_kabul_53')
+
+    def _check_file_reference(task, solution, root: Path):
+        for path, content in {**task.setup, **solution}.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if content.startswith("base64:"):
+                target.write_bytes(base64.b64decode(content.removeprefix("base64:")))
+            else:
+                target.write_text(content, encoding="utf-8")
+        command = (task.criterion.command or "").replace("python ", f"{sys.executable} ")
+        result = subprocess.run(
+            command, shell=True, cwd=root, capture_output=True, text=True, timeout=120
+        )
+>       assert result.returncode == task.criterion.expected_exit_code, (
+            task.id,
+            command,
+            result.stdout,
+            result.stderr,
+        )
+E       AssertionError: ('buyuk-artifact-korumali-duzenleme', '/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python -m evals.fi...ding module specification for 'evals.fixtures.production_acceptance' (ModuleNotFoundError: No module named 'evals')
+E         ")
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args='/Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/bin/python -m evals.fixtures.productio...ding module specification for 'evals.fixtures.production_acceptance' (ModuleNotFoundError: No module named 'evals')\n").returncode
+E        +  and   0 = SuccessCriterion(kind=<CriterionKind.EXIT_CODE: 'exit_code'>, expected_exit_code=0, command='python -m evals.fixtures.production_acceptance large', expected_path=None, keyword=None, alternatives=()).expected_exit_code
+E        +    where SuccessCriterion(kind=<CriterionKind.EXIT_CODE: 'exit_code'>, expected_exit_code=0, command='python -m evals.fixtures.production_acceptance large', expected_path=None, keyword=None, alternatives=()) = EvalTask(id='buyuk-artifact-korumali-duzenleme', request='large.py içindeki TARGET değerini 42 yap. Diğer sabitleri ve...mnopqrstuvwxyz\nFOOTER = "keep-too"\n'}, budget=TaskBudget(max_model_calls=30, timeout_s=180.0), runtime_scenario=None).criterion
+
+tests/test_eval_criteria_sound.py:427: AssertionError
+________ test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil _________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_vim_kipinde_esc_ardindan_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x126657790>
+
+    async def test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil(tmp_path, monkeypatch):
+        # Elle basılan Esc ayrı okumada gelir (ayrıştırıcı ~0,5 sn sonra salar); hemen ardından
+        # gelen `o` vim'in "alta satır aç" komutudur, Option+O (hızlı kip) değil.
+        sent, calls = await _vi_prompt(
+            tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("o", 0.1), ("x\r", 0.2)]
+        )
+>       assert calls == [] and sent == "abc\nx"
+E       AssertionError: assert (['hizli_kip'] == []
+E
+E         Left contains one more item: 'hizli_kip'
+E         Use -v to get more diff)
+
+tests/test_keybindings.py:211: AssertionError
+______________ test_vim_normal_kipinde_soru_isareti_geri_aramadir ______________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_vim_normal_kipinde_soru_i0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x126655d90>
+
+    async def test_vim_normal_kipinde_soru_isareti_geri_aramadir(tmp_path, monkeypatch):
+        sent, calls = await _vi_prompt(
+            tmp_path, monkeypatch, [("abc", 0.1), ("\x1b", 0.7), ("?", 0.3), ("b\r", 0.2), ("\r", 0.2)]
+        )
+>       assert calls == [] and sent == "abc"
+E       AssertionError: assert (['kisayollar'] == []
+E
+E         Left contains one more item: 'kisayollar'
+E         Use -v to get more diff)
+
+tests/test_keybindings.py:218: AssertionError
+____________________ test_dis_gezinme_kapali_localhost_acik ____________________
+
+tmp_path = PosixPath('/private/var/folders/jz/rsspmx5s63bg0dfg80wpn68c0000gn/T/pytest-of-motogate/pytest-217/test_dis_gezinme_kapali_localh0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x127080090>
+
+    async def test_dis_gezinme_kapali_localhost_acik(tmp_path, monkeypatch) -> None:
+        _managed(tmp_path, monkeypatch, {"disableBrowserExternalNavigation": True})
+        assert "disableBrowserExternalNavigation" in str(navigation_blocked("https://example.com"))
+        assert navigation_blocked("http://localhost:5173") is None
+        result = await browser.browser_open({"url": "https://example.com"}, ToolContext(root=tmp_path))
+>       assert not result.ok and "disableBrowserExternalNavigation" in result.output
+E       AssertionError: assert (not False and 'disableBrowserExternalNavigation' in 'Bu adrese erişilemez: alan adı çözülemedi: example.com')
+E        +  where False = ToolResult(output='Bu adrese erişilemez: alan adı çözülemedi: example.com', ok=False, content=(), structured=None, artifact_path='', failure_evidence=(), is_observation=False, job_completion=None, workspace_effect=None, output_shaped=False).ok
+E        +  and   'Bu adrese erişilemez: alan adı çözülemedi: example.com' = ToolResult(output='Bu adrese erişilemez: alan adı çözülemedi: example.com', ok=False, content=(), structured=None, artifact_path='', failure_evidence=(), is_observation=False, job_completion=None, workspace_effect=None, output_shaped=False).output
+
+tests/test_browser_admin_policy.py:48: AssertionError
+______________________ test_emulated_tool_prompt_budgeti _______________________
+
+    def test_emulated_tool_prompt_budgeti():
+        from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+        from fusion_cli.engines.agent.loop import _permitted
+
+        registry = build_registry()
+        sirada = _permitted(None, registry, ExecutionPolicy(is_web=False))
+>       assert len(render_tool_instructions(registry.schemas(sirada))) <= PROMPT_BUDGET
+E       assert 14682 <= 14600
+E        +  where 14682 = len('Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan.\n\nKısa değer çağrısı:\nFUSION_TOOL_CALL\n```json\n{"na...ağlı): task_stop(task_id), monitor(command?,description,timeout_ms?,ws?), enter_worktree(name?,path?), exit_worktree()')
+E        +    where 'Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan.\n\nKısa değer çağrısı:\nFUSION_TOOL_CALL\n```json\n{"na...ağlı): task_stop(task_id), monitor(command?,description,timeout_ms?,ws?), enter_worktree(name?,path?), exit_worktree()' = render_tool_instructions([{'function': {'description': 'macOS pencerelerini uygulama ve adla listele.', 'name': 'desktop_windows', 'parameters'...me': 'desktop_displays', 'parameters': {'properties': {}, 'required': [], 'type': 'object'}}, 'type': 'function'}, ...])
+E        +      where [{'function': {'description': 'macOS pencerelerini uygulama ve adla listele.', 'name': 'desktop_windows', 'parameters'...me': 'desktop_displays', 'parameters': {'properties': {}, 'required': [], 'type': 'object'}}, 'type': 'function'}, ...] = schemas({'bash', 'browser_click', 'browser_close', 'browser_mirror', 'browser_open', 'browser_read', ...})
+E        +        where schemas = <fusion_cli.tools.registry.ToolRegistry object at 0x127587850>.schemas
+
+tests/test_tool_emulation_diet.py:59: AssertionError
+=============================== warnings summary ===============================
+tests/test_agent_runtime_phase_b_resume.py::test_persistent_child_survives_turn_and_closed_bus_then_reaches_next_turn
+  /Users/motogate/Desktop/all/01-Projeler/fusion-cli/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py:1507: UserWarning: Item 'summary' on TypedDict class 'ChatCompletionReasoningItem' is using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_eval_criteria_sound.py::test_olcut_dogru_cozumu_kabul_eder[production:mcp-stdio-listele-cagir]
+FAILED tests/test_eval_criteria_sound.py::test_olcut_dogru_cozumu_kabul_eder[production:buyuk-artifact-korumali-duzenleme]
+FAILED tests/test_keybindings.py::test_vim_kipinde_esc_ardindan_harf_vim_komutudur_option_degil
+FAILED tests/test_keybindings.py::test_vim_normal_kipinde_soru_isareti_geri_aramadir
+FAILED tests/test_browser_admin_policy.py::test_dis_gezinme_kapali_localhost_acik
+FAILED tests/test_tool_emulation_diet.py::test_emulated_tool_prompt_budgeti
+6 failed, 3908 passed, 1 skipped, 59 deselected, 1 warning in 1688.43s (0:28:08)

@@ -14,16 +14,20 @@ yazmıyordu; sohbette yalnız alt alta adım satırları görünüyordu. Talimat
 from __future__ import annotations
 
 import asyncio
+import re
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
+from ...core.tool_emulation import CALL_OPEN, PAYLOAD_OPEN
 from ...core.tools import TodoItem, TodoStatus
 from ...core.types import CompletionRequest, Message, ModelSpec
 from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from ...ui.text import strip_thinking
+from .response_format import requested_response_format
 
 #: Giriş için üretim sınırı: iki üç cümle ~60-120 token; pay bırakılır.
 INTRO_MAX_TOKENS = 220
@@ -32,6 +36,12 @@ INTRO_MAX_TOKENS = 220
 INTRO_TIMEOUT_S = 30.0
 #: Görev metninden girişe verilen kesit: uzun istemin tamamı gerekmez.
 _TASK_CHARS = 2_000
+#: Cosmetic narration is a paragraph, never a place to carry executable output.
+_INTRO_MAX_CHARS = 1_000
+_INTRO_STRUCTURE = re.compile(
+    r"```|~~~|[{}\[\]]|<\s*[!/A-Za-z|]|"
+    r"(?m:^[ \t]*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s))|\n\s*\n"
+)
 
 _INTRO_PROMPT = (
     "Aşağıdaki isteğe işe başlamadan önce kullanıcıya bir iki cümlelik giriş yaz: "
@@ -59,6 +69,8 @@ async def intro_paragraph(
     Fusion Browser eklentisini kullanacağını yazdı; bu cümle modele "zaten
     söyledin" notu olarak geri verildiği için sonraki adımları da kirletebilir.
     """
+    if requested_response_format(task) is not None:
+        return ""
     istem = _INTRO_PROMPT.format(task=task[:_TASK_CHARS], tools=", ".join(tool_names) or "yok")
     request = CompletionRequest(
         messages=(Message("user", istem),),
@@ -66,6 +78,7 @@ async def intro_paragraph(
         max_tokens=INTRO_MAX_TOKENS,
         timeout_s=INTRO_TIMEOUT_S,
         max_retries=0,
+        disable_thinking=True,
     )
     try:
         provider = build_provider(
@@ -74,15 +87,28 @@ async def intro_paragraph(
             retry_delays_s=(),
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         async with asyncio.timeout(INTRO_TIMEOUT_S):
             result = await provider.complete(request)
     except (TimeoutError, ConfigError, ProviderError, WebBrowserError):
         # Giriş yardımcı bir çağrıdır; sağlayıcı kurulamazsa ana tur sürer.
         return ""
-    if not result.ok:
+    if not result.ok or result.tool_calls:
         return ""
     metin = strip_thinking(result.text).strip()
+    # A tool-free request is not proof of a tool-free answer. A live intro
+    # contained prose followed by a partial write_file JSON/HTML payload; it
+    # would otherwise be published and fed back to the main agent as its own
+    # prior statement. Reject even incomplete payloads before sentence trimming
+    # can disguise them as a valid intro. This cosmetic call is never retried.
+    if (
+        len(metin) > _INTRO_MAX_CHARS
+        or _INTRO_STRUCTURE.search(metin)
+        or any(marker in metin for marker in (CALL_OPEN, PAYLOAD_OPEN))
+        or any(re.search(rf"(?<!\w){re.escape(name)}\s*\(", metin) for name in tool_names if name)
+    ):
+        return ""
     # Token sınırında kesilen giriş cümle ortasında biter (A2-38): son TAM cümleye kadar kırp.
     return _drop_cut_sentence(metin) if result.truncated else metin
 

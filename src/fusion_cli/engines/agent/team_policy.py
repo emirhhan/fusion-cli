@@ -7,10 +7,11 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
-from ...core.mcp_tool_names import mcp_server_of
+from ...core.mcp_tool_names import canonical_mcp_name, mcp_server_of
 from ...tools.capabilities import expand_tool_patterns
 from .edit_hooks import EDIT_TOOLS
 from .execution_policy import ExecutionPolicy, policy_for
+from .runtime_surface import selected_metadata_servers
 from .team_scope import derive_sub_context
 from .team_settings import MEMORY_READ_FILE_TOOLS, MEMORY_WRITE_FILE_TOOLS
 from .team_tools_member import TEAM_MEMBER_TOOLS
@@ -43,6 +44,7 @@ def allowed_tools(
     subtask: SubTask,
     *,
     available: tuple[str, ...] = (),
+    registry: ToolRegistry | None = None,
 ) -> set[str] | None:
     """Üyenin araç kümesi: `tools` ∖ `disallowedTools`, MCP sunucu süzgeci, yazma alanı.
 
@@ -51,7 +53,7 @@ def allowed_tools(
     kümeye iner. Her adım yalnız çıkarır; alt ajan üstünden fazla araç göremez.
     """
     # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
-    registry = cast("ToolRegistry", deps.base_registry)
+    registry = registry or cast("ToolRegistry", deps.base_registry)
     allowed: set[str] | None = set(persona.tools) if persona.tools is not None else None
     if allowed is not None and available:
         allowed = expand_tool_patterns(allowed, available)
@@ -67,7 +69,14 @@ def allowed_tools(
                 allowed = {
                     name
                     for name in allowed
-                    if not registry.is_remote(name) or mcp_server_of(name) in persona.mcp_servers
+                    if not registry.is_remote(name)
+                    or mcp_server_of(canonical_mcp_name(name)) in persona.mcp_servers
+                    or (
+                        name == "WaitForMcpServers"
+                        and selected_metadata_servers(registry.get(name))
+                        and set(selected_metadata_servers(registry.get(name)))
+                        <= set(persona.mcp_servers)
+                    )
                 }
     # Ajan belleği olan üyenin bellek araçları (P-055): yasak listesindekiler açılmaz ve
     # salt-okur görevde yalnız okuma kalır (ölçüldü, 31 Ekim: `remember` 'dosya değiştirme'
@@ -115,7 +124,13 @@ def _warn_unknown_servers(deps: AgentDeps, persona: Persona, available: tuple[st
     yapılandırmada olmayan ad sessizce 'araç yok' sonucu verirdi, günlüğe uyarı düşer."""
     # AgentDeps.__post_init__ None değerini yapılandırılmış defterle tamamlar.
     registry = cast("ToolRegistry", deps.base_registry)
-    known = {mcp_server_of(name) for name in available if registry.is_remote(name)}
+    known = {
+        mcp_server_of(canonical_mcp_name(name)) for name in available if registry.is_remote(name)
+    }
+    # Lazy admission leaves configured servers without registered tools until selected.
+    config = getattr(deps, "config", None)
+    known.update(server.name for server in getattr(config, "mcp_servers", ()))
+    known.update(connector.name for connector in getattr(config, "hosted_connectors", ()))
     missing = sorted(set(persona.mcp_servers) - known)
     if missing:
         _LOG.warning(

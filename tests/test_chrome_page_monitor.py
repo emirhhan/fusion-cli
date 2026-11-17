@@ -28,8 +28,8 @@ def _read_monitor_source() -> str:
 
 def _monitor_state_source() -> str:
     core = (EXTENSION / "core.js").read_text(encoding="utf-8")
-    match = re.search(r"export function monitorState\(\) \{.*?\n\}\n", core, re.S)
-    assert match
+    match = re.search(r"export function monitorState\([^)]*\)\s*\{.*?\n\}\n", core, re.S)
+    assert match, "monitorState core.js içinde bulunamadı"
     return match.group(0).removeprefix("export ")
 
 
@@ -92,7 +92,9 @@ def _okuyuculu(page):
     okuyucu = _read_monitor_source()
     durum = _monitor_state_source()
     page.oku = lambda args: page.evaluate(f"(a) => ({okuyucu})(a)", args)
-    page.durum = lambda: page.evaluate(f"() => ({durum})()")
+    page.durum = lambda task_origin=None: page.evaluate(
+        f"(origin) => ({durum})(origin)", task_origin
+    )
     return page
 
 
@@ -157,6 +159,14 @@ def test_konsol_iletileri_yuklenirken_bile_yakalanir_ve_filtrelenir(sayfa):
     assert desen["matched"] == 1
     # Sayfanın kendi console'u çalışmaya devam eder (sarmalama özgün işlevi çağırır).
     assert sayfa.evaluate("typeof console.log") == "function"
+    # The adapter must execute the real optional-origin reader, including its guard.
+    assert sayfa.oku({"kind": "console", "__taskOrigin": "http://izle.test"}) == hepsi
+    assert sayfa.durum("http://izle.test")["present"] is True
+    with pytest.raises(playwright_sync.Error, match="başlangıçtaki sitesi değişti"):
+        sayfa.durum("http://foreign.test")
+    with pytest.raises(playwright_sync.Error, match="başlangıçtaki sitesi değişti"):
+        sayfa.oku({"kind": "console", "clear": True, "__taskOrigin": "http://foreign.test"})
+    assert sayfa.oku({"kind": "console"}) == hepsi, "foreign-origin guard cannot clear the buffer"
 
 
 def test_fetch_ve_xhr_istekleri_durum_tur_sure_ve_govdeyle_kaydedilir(sayfa):

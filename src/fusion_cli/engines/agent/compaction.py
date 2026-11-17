@@ -11,6 +11,7 @@ import logging
 import re
 from pathlib import Path
 
+from ...config.model_lookup import configured_model_specs
 from ...config.models import Config
 from ...core.errors import ConfigError, ProviderError
 from ...core.events import EventPublisher
@@ -20,6 +21,7 @@ from ...providers.factory import build_provider
 from ...providers.web_browser import WebBrowserError
 from ...providers.web_registry import web_registry_for
 from . import history
+from .research_evidence import bounded_evidence, can_bound_evidence
 
 _LOG = logging.getLogger(__name__)
 
@@ -104,7 +106,7 @@ async def compress(
     # olarak ayrılır ve `recent` gibi BİREBİR korunur.
     anchor_len = history.root_anchor_length(messages)
     anchor, old, recent = messages[:anchor_len], messages[anchor_len:cut], messages[cut:]
-    if not old:
+    if not old or not can_bound_evidence(old):
         return messages
     source_messages, provenance = await _original_messages(
         old, recent, original_source, original_scope
@@ -124,7 +126,7 @@ async def compress(
     # `harness_note`: bu bir kullanıcı görevi DEĞİL. Eksikken "devam et" sonrası
     # `task_effect` özet metnini en son gerçek görev sanıyordu (A1-03).
     ozet = Message("user", f"{history.CONVERSATION_SUMMARY_PREFIX}\n{summary}", harness_note=True)
-    return [*anchor, ozet, *_pinned_messages(old, pinned_call_ids), *recent]
+    return [*anchor, ozet, *_user_updates(old), *_pinned_messages(old, pinned_call_ids), *recent]
 
 
 async def compact_in_turn(
@@ -146,6 +148,9 @@ async def compact_in_turn(
     """
     if not history.needs_compression(messages, threshold_chars=threshold_chars):
         return messages
+    if not can_bound_evidence(messages):
+        _LOG.warning("Kaynak kimlikleri kanıt bütçesine sığmıyor; özgün geçmiş korundu.")
+        return messages
     temiz = history.clear_old_tool_outputs(
         messages, threshold_chars, pinned_call_ids=pinned_call_ids
     )
@@ -157,7 +162,7 @@ async def compact_in_turn(
         return temiz
     anchor, old, recent = temiz[:anchor_len], temiz[anchor_len:cut], temiz[cut:]
     source_messages, provenance = await _original_messages(
-        old, recent, original_source, original_scope
+        messages[anchor_len:cut], messages[cut:], original_source, original_scope
     )
     trace = history.transcript(
         source_messages, limit=TRACE_CHARS, message_chars=trace_message_chars(source_messages)
@@ -172,7 +177,7 @@ async def compact_in_turn(
     summary = _with_user_rules(summary, [*old, *source_messages])
     ozet = Message("user", f"{history.STEPS_SUMMARY_PREFIX}\n{summary}", harness_note=True)
     retained = _pinned_messages(old, pinned_call_ids)
-    return [*anchor, ozet, *retained, *recent]
+    return [*anchor, ozet, *_user_updates(old), *retained, *recent]
 
 
 def _pinned_messages(messages: list[Message], identities: frozenset[str]) -> list[Message]:
@@ -180,18 +185,29 @@ def _pinned_messages(messages: list[Message], identities: frozenset[str]) -> lis
     from dataclasses import replace
 
     retained: list[Message] = []
-    for message in messages:
+    evidence = bounded_evidence(messages)
+    evidence_ids = {message.tool_call_id for message in evidence.values()}
+    for index, message in enumerate(messages):
         if message.role == "assistant":
             calls = tuple(
-                replace(call, arguments=history._stub_arguments(call.arguments))
+                call
+                if call.id in evidence_ids
+                else replace(call, arguments=history._stub_arguments(call.arguments))
                 for call in message.tool_calls
-                if call.id in identities
+                if call.id in identities or call.id in evidence_ids
             )
             if calls:
                 retained.append(replace(message, content="", tool_calls=calls))
+        elif index in evidence:
+            retained.append(evidence[index])
         elif message.role == "tool" and message.tool_call_id in identities:
             retained.append(history.pin_tool_output(message))
     return retained
+
+
+def _user_updates(messages: list[Message]) -> list[Message]:
+    """Ara kullanıcı talimatları olasılıksal özete emanet edilmez; birebir taşınır."""
+    return [message for message in messages if message.role == "user" and not message.harness_note]
 
 
 async def _original_messages(
@@ -339,6 +355,7 @@ async def _summarize(
             retry_delays_s=config.runtime.retry_delays_s,
             background=True,
             web_sessions=web_registry_for(config),
+            model_specs=configured_model_specs(config),
         )
         async with asyncio.timeout(summary_timeout_s(config)):
             result = await provider.complete(request)

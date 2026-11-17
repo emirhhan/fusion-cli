@@ -45,6 +45,8 @@ def _deps(tmp_path, *, budget: TurnBudget | None = None):
     turn_budget = budget or _budget()
     return SimpleNamespace(
         steering=None,
+        conversation_id="",
+        attempt_id="",
         mutation_blocked_by_pending_input=lambda: False,
         approval_revision=None,
         policy_factory=None,
@@ -52,6 +54,7 @@ def _deps(tmp_path, *, budget: TurnBudget | None = None):
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),
         allowed_commands=frozenset(),
+        turn_forbidden_families=frozenset(),
         budget=turn_budget,
         require_budget=lambda: turn_budget,
     )

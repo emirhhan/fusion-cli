@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Event
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from .artifacts import ArtifactStore
@@ -28,7 +28,14 @@ from .background_events import BackgroundEvents
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .claude_chrome_names import CLAUDE_CHROME_TOOL_NAMES
-from .desktop_frame import DESKTOP_SCREENSHOT_MAX_WIDTH, DesktopView
+from .delivery_contract import DeliveryContractState
+from .desktop_frame import (
+    DESKTOP_SCREENSHOT_MAX_WIDTH,
+    DesktopCapture,
+    DesktopFrame,
+    DesktopMouseAction,
+    DesktopView,
+)
 from .desktop_settings import DesktopSettings
 from .job_evidence import JobCompletion
 from .localization import LocalizationState
@@ -36,6 +43,7 @@ from .plan_switch import PlanModeSwitch
 from .remotion_browser import RemotionBrowser
 from .remotion_contract import KitContractState
 from .repair_ledger import FailureEvidence
+from .research_grounding import SourceReceipt
 from .sandbox_policy import SandboxHostGate, SandboxPolicy
 from .session_cron import SessionCron
 from .shell_cwd import ShellCwd
@@ -46,6 +54,11 @@ from .worktree import WorktreeSwitch
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
 ToolArgs = Mapping[str, object]
+
+
+SourceReadScope = Literal[
+    "none", "document", "interactive", "subtree", "depth_limited", "truncated", "partial"
+]
 
 
 class ChromeControl(Protocol):
@@ -206,6 +219,13 @@ class ToolEffect(Enum):
     REMOTE_SESSION = "remote_session"
 
 
+class ToolEvidenceRole(Enum):
+    """Trusted adapter metadata; independent of permissions and untrusted output."""
+
+    UNCLASSIFIED = "unclassified"
+    DATA_OBSERVATION = "data_observation"
+
+
 def tool_family(name: str) -> ToolFamily:
     """Araç adını iş ailesine çevir.
 
@@ -236,6 +256,14 @@ class ToolResult:
     workspace_effect: WorkspaceEffect | None = None
     #: Araç çıktıyı kendi (Claude Code) sınırına göre biçimledi; genel diske alma atlanır.
     output_shaped: bool = False
+    #: Internal successful image-helper observation; never decoded from MCP data.
+    visual_observation: DesktopCapture | None = None
+    #: Internal receipt from an authorized Chrome content read, never MCP/model data.
+    source_read_url: str = ""
+    #: Trusted coverage; never decoded from page text, MCP or model arguments.
+    source_read_scope: SourceReadScope = "none"
+    #: Private typed reader payload, never included in public output/structured data.
+    source_receipt: SourceReceipt | None = field(default=None, repr=False)
 
     @property
     def images(self) -> tuple[str, ...]:
@@ -346,6 +374,10 @@ class ToolContext:
 
     #: Göreli yolların çözümleneceği kök dizin.
     root: Path
+    #: Yalnız kabul edilen kök istek bu sözleşmeyi değiştirebilir.
+    delivery_contract: DeliveryContractState = field(
+        default_factory=DeliveryContractState, kw_only=True
+    )
     localization: LocalizationState = field(default_factory=LocalizationState, kw_only=True)
     tool_phase: str = field(default="", kw_only=True)
     localization_step_id: str = field(default="", kw_only=True)
@@ -365,6 +397,8 @@ class ToolContext:
     preview_origins: set[str] = field(default_factory=set)
     #: Kullanıcının mesajında ÇIKTI olarak andığı göreli dosya yolları (`output_verify`).
     requested_outputs: set[str] = field(default_factory=set)
+    #: Kök tur başlangıcında istenen çıktının (boyut, mtime_ns) imzası; yoksa None.
+    output_baselines: dict[str, tuple[int, int] | None] = field(default_factory=dict)
     #: play_probe ile denenen oyun adresleri; kapanışta yeniden oynatılır (`game_verify`).
     probed_games: set[str] = field(default_factory=set)
     #: Bu isteğin türleri (ör. "oyun"): denenmemiş canvas sayfası da kapıda oynatılır.
@@ -469,6 +503,17 @@ class ToolContext:
     #: Modele giden masaüstü ekran görüntüsünün en fazla genişliği
     #: (`runtime.desktop_screenshot_max_width`).
     desktop_screenshot_max_width: int = field(default=DESKTOP_SCREENSHOT_MAX_WIDTH, kw_only=True)
+    #: Private invocation callback; never shared as an actor observation/permission.
+    desktop_mouse_observer: Callable[[DesktopMouseAction], None] | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_mouse_guard: Callable[[str, ToolArgs], str | None] | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_mouse_owner: object | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    desktop_coordinate_frame: DesktopFrame | None = field(default=None, kw_only=True, repr=False)
     #: Ekran görüntüsünden Fusion penceresini çıkar (`runtime.desktop_exclude_fusion_window`).
     desktop_exclude_fusion_window: bool = field(default=True, kw_only=True)
     #: Bilgisayar kullanımı ayarları (`desktop:`; kademe, reddedilen uygulamalar, tur davranışı).
@@ -515,6 +560,7 @@ class AuthorizationScope:
 
 
 ScopeResolver = Callable[[ToolArgs], AuthorizationScope | None]
+EvidenceRoleResolver = Callable[[ToolArgs, ToolResult], ToolEvidenceRole]
 
 
 @dataclass(frozen=True, slots=True)
@@ -552,6 +598,8 @@ class Tool:
     effect_resolver: EffectResolver | None = None
     #: Yalnız adaptörün bildiği hesap/eylem/hedef sınırını çözer.
     scope_resolver: ScopeResolver | None = None
+    evidence_role: ToolEvidenceRole = field(default=ToolEvidenceRole.UNCLASSIFIED, kw_only=True)
+    evidence_role_resolver: EvidenceRoleResolver | None = field(default=None, kw_only=True)
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""
@@ -563,6 +611,19 @@ class Tool:
                 "parameters": dict(self.parameters),
             },
         }
+
+
+def resolved_evidence_role(tool: Tool, args: ToolArgs, result: ToolResult) -> ToolEvidenceRole:
+    """Resolvers fail closed; strings and remote/model role claims grant nothing."""
+    try:
+        role = (
+            tool.evidence_role_resolver(args, result)
+            if tool.evidence_role_resolver
+            else tool.evidence_role
+        )
+    except Exception:
+        return ToolEvidenceRole.UNCLASSIFIED
+    return role if isinstance(role, ToolEvidenceRole) else ToolEvidenceRole.UNCLASSIFIED
 
 
 class ToolPreviewer(Protocol):

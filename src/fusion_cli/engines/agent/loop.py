@@ -26,13 +26,14 @@ import json
 import re
 import sys
 from collections.abc import Awaitable, Callable, Collection, Sequence
-from contextlib import AbstractAsyncContextManager, nullcontext
+from contextlib import AbstractAsyncContextManager, nullcontext, suppress
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from functools import partial
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
+from ...config.model_lookup import configured_model_specs
 from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
 from ...config.permission_rules import PermissionDecision, PermissionRuleSet
@@ -40,7 +41,7 @@ from ...config.tool_policy import mutation_policy_for_model
 from ...core import display_filter
 from ...core.active_context import ActiveContext
 from ...core.agent_runtime_state import AgentTranscriptCapture
-from ...core.budget import BudgetStop, TurnBudget
+from ...core.budget import BudgetStop, DataObservation, TurnBudget
 from ...core.checkpoint import CheckpointStore
 from ...core.claude_chrome_names import CLAUDE_CHROME_SCOPED
 from ...core.clock import SystemClock
@@ -52,7 +53,7 @@ from ...core.constants import (
     UNREACHABLE_RESOURCE_PREFIX,
 )
 from ...core.effects import EffectRecorder
-from ...core.errors import ConfigError, FusionError
+from ...core.errors import CleanupFailedError, ConfigError, FusionError
 from ...core.event_scope import TurnPublisher, new_trace_id
 from ...core.events import (
     ApprenticeHandoff,
@@ -125,7 +126,7 @@ from ...core.types import (
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_provenance import WebCallContext
 from ...core.web_response import classify_response
-from ...core.workspace_fingerprint import WorkspaceEffect
+from ...core.workspace_fingerprint import WorkspaceEffect, take_fingerprint
 from ...memory.plain_memory import PlainMemory
 from ...providers.capabilities import (
     TaskRequirements,
@@ -138,7 +139,7 @@ from ...providers.fallback_plan import live_fallbacks
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.auto_policy import is_read_only_command
-from ...tools.capabilities import CapabilityRegistry, expand_tool_patterns
+from ...tools.capabilities import Capability, CapabilityRegistry, expand_tool_patterns
 from ...tools.emulation import coerce_arguments, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.mcp_background import (
@@ -149,7 +150,7 @@ from ...tools.mcp_background import (
 from ...tools.outside_reads import reads_outside
 from ...tools.permission_match import evaluate
 from ...tools.preview import file_diff
-from ...tools.tool_search import visible_tool_names
+from ...tools.tool_search import bind_tool_search, visible_tool_names
 from ...tools.web import loopback_origins_in
 from ...ui.text import strip_thinking
 from ..effects.model import EffectKind
@@ -189,7 +190,7 @@ from .attempts import InvocationBudget
 from .auto_guard import AutoReviewState
 from .background_notes import append_background_events
 from .bare_deny import surface_denied
-from .change_digest import change_digest
+from .change_digest import change_digest, changed_file_versions
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .child_runs import ChildRuns
 from .clarify import clarification_hint, vague_fix_question
@@ -197,6 +198,7 @@ from .claude_chrome_call import claude_chrome_call
 from .computer_use_hint import computer_use_off_hint
 from .context_projection import OriginalCursor, compact_context, prepare_context, record_protection
 from .deferred_resume import take_deferred
+from .desktop_grounding import DesktopGrounding
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
@@ -214,6 +216,7 @@ from .expertise import (
     is_remotion_task,
     is_worktree_task,
 )
+from .harness_metadata import DISCOVERY_METADATA_NAMES
 from .history import history_chars, needs_compression, total_chars
 from .hook_batch import batch_hook
 from .hook_bridge import (
@@ -232,7 +235,7 @@ from .hook_display import message_display
 from .hook_permission_denied import classifier_reason, permission_denied, review_mark
 from .hook_services import bind_hook_services
 from .hook_stop import continue_until_stop_allowed
-from .instruction_layers import InstructionLoad
+from .instruction_layers import InstructionLoad, instruction_files_mode
 from .instruction_rules import discover_rules
 from .lesson_attribution import LessonTurnState
 from .loop_contract import (
@@ -274,13 +277,19 @@ from .loop_contract import (
 from .masking import MaskLedger, MaskView, mask_view
 from .memory_tools import memory_prompt_block
 from .narration import intro_paragraph, todo_transitions
+from .native_stale_recovery import (
+    NativeRecoveryInvocation,
+    NativeStaleRecovery,
+    is_native_mutation,
+)
+from .native_stale_recovery import recovery_note as native_recovery_note
 from .nested_skills import discover_nested_skills
 from .orchestration_tools import (
     ORCHESTRATION_KINDS,
     ORCHESTRATION_SCOPED_TOOLS,
     orchestration_task_kinds,
 )
-from .output_verify import requested_outputs_in
+from .output_verify import OutputPathVerifier, capture_output_baselines, requested_outputs_in
 from .parse_feedback import mutation_deferral, partial_repair_note
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
@@ -296,28 +305,39 @@ from .questions import PendingUserQuestions
 from .repair_flow import record_failure_evidence
 from .repo_context import RepoMapFocus, map_budget_for, repo_map_with_stats, task_focus
 from .risk_classifier import review_auto_request
-from .self_knowledge import GUIDE, knowledge_block
+from .runtime_surface import (
+    McpDiscovery,
+    RuntimeToolSurface,
+    bind_surface,
+    surface_for,
+    surface_task,
+    update_surface_task,
+)
+from .self_knowledge import GUIDE
 from .skill_index import description_limit, index_budget_for, skill_index_block
 from .tamper_check import collect_test_tampering
 from .task_availability import hidden_task_tools
 from .teacher_flow import (
+    _automatic_phase_deadline,
+    _notify_phase_expired,
+    _phase_expired,
     prepare_teacher_plan,
     review_teacher_changes,
     settle_teacher_plan,
     teacher_is_ready,
 )
 from .teacher_lessons import PendingAdvice
-from .teacher_plan import TeacherPlan, UnworkablePart
+from .teacher_plan import TeacherPlan, UnworkablePart, classify_teacher_task
 from .team import Persona
+from .tool_constraints import prohibited_tool
 from .tool_filter import is_denied_tool
 from .tool_profiles import WIDENED_KIND, hidden_tools
 from .tool_surface import measure_surface, narrow_to_compact_surface
 from .transient import MAX_TOOL_TRANSIENT_RETRIES, is_transient_failure
-from .turn_hints import design_hint, identity_hint, preview_hint, scope_hint, store_hint
+from .turn_hints import date_hint, design_hint, identity_hint, preview_hint, scope_hint, store_hint
 from .turn_report import (
     TurnReport,
     build_turn_report,
-    claims_command_success,
     summarize_evidence,
 )
 from .verifier_repair import observe_verifier_failures, should_repair_verifier
@@ -410,7 +430,7 @@ def _decision_message(
         return denial.DENIED_TOOL_RESULT
     if request is not None and request.pre_denied is not None and request.desktop_blocked:
         # Masaüstü engeli (ret listesi, engelli kategori, yetmeyen kademe; P-007).
-        return desktop_approval.DESKTOP_BLOCKED_RESULT.format(reason=request.pre_denied)
+        return desktop_approval.blocked_result(request)
     if request is not None and request.pre_denied is not None:
         # İzin kuralı / kök-dışı engel (P-001, P-002): plan kipinden de önce gelir.
         return denial.RULE_DENIED_TOOL_RESULT.format(reason=request.pre_denied)
@@ -478,6 +498,8 @@ class AgentOutcome:
     #: Nihai cevap akış sırasında ekrana ulaştı mı? Ulaştıysa `TurnAnswered`
     #: yayınlanmaz; aynı metin iki kez basılmaz.
     answer_streamed: bool = False
+    #: İç doğrulama onarımı yapıldı; son teslimat kök isteğe göre hazırlanır.
+    verification_repaired: bool = False
     #: Görevdeki dosyaların hiçbiri bulunamadı — muhtemelen yanlış çalışma dizini.
     wrong_workspace: bool = False
     #: Tur bir BÜTÇE sınırına çarparak bitti mi? Sebep ayrıca yayınlanmıştır;
@@ -557,6 +579,8 @@ class AgentDeps:
     #: `--disallowed-tools` (P-026): bu araçlar modele HİÇ sunulmaz, çağrılırsa `BLOCKED`.
     #: Salt-okunur araçları da kapsar; onay politikası yalnız değiştiricilere bakar.
     denied_tools: frozenset[str] = frozenset()
+    # Parsed only from the original root request; replans cannot erase this cap.
+    turn_forbidden_families: frozenset[ToolFamily] = frozenset()
     #: Tüm katmanlardan okunmuş izin kuralları (allow/ask/deny) ve kök-dışı engeller (P-001).
     #: `None` = kural yok (eski çağıranlar); `getattr(deps, "permission_rules", None)` ile okunur.
     permission_rules: PermissionRuleSet | None = None
@@ -570,10 +594,16 @@ class AgentDeps:
     runtime_agent_id: str = ""
     omit_git_snapshot: bool = False
     runtime_tool_cap: frozenset[str] | None = None
+    mcp_discovery: McpDiscovery | None = None
+    mcp_external_content: bool = False
+    runtime_surface: RuntimeToolSurface | None = None
+    mcp_surface_factory: Callable[[frozenset[str] | None], RuntimeToolSurface] | None = None
     agent_transcript: AgentTranscriptCapture | None = None
     interactive: bool = False
     main_config_applied: bool = False
-    mcp_connector: Callable[[Config, ToolRegistry], AbstractAsyncContextManager[None]] | None = None
+    mcp_connector: Callable[[Config, ToolRegistry], AbstractAsyncContextManager[object]] | None = (
+        None
+    )
     #: Alt ajanın türü (tanım adı); `SubagentStop` eşleştiricisi buna bakar.
     agent_type: str = ""
     #: Keşif/plan ilk bağlamında proje talimatı yok; dosya erişimindeki kurallar sürer.
@@ -766,6 +796,7 @@ async def run_agent(
                 id_factory=deps.trace_id_factory,
             )
         child_turn_token = deps.child_runs.begin_turn(deps.attempt_id or "")
+        deps.tool_context.desktop.begin_observation_turn(deps.attempt_id or "")
         deps.original_cursor = OriginalCursor(
             turn_id=deps.attempt_id or "",
             excluded_call_ids=frozenset(
@@ -775,6 +806,10 @@ async def run_agent(
     try:
         # Kancalar (P-009): kök turda SessionStart + UserPromptSubmit; engel istemi düşürür.
         root_turn = depth == 0 and not internal
+        if root_turn:
+            from .tool_constraints import forbidden_families
+
+            deps.turn_forbidden_families = forbidden_families(task)
         owns_learning = not internal and (depth == 0 or deps.channel is Channel.SUBAGENT)
         if owns_learning:
             if deps.capabilities is not None:
@@ -793,7 +828,7 @@ async def run_agent(
                 )
             deps.lesson_state = LessonTurnState()
             deps.recalled_lessons.clear()
-            hint = learning_steps.recall_hints(task, deps)
+            hint = await learning_steps.recall_hints(task, deps)
             if hint:
                 extra_system = "\n\n".join(part for part in (extra_system, hint) if part)
         if root_turn:
@@ -912,6 +947,17 @@ async def _run_agent(
     yalnız `workflow=True` (kullanıcı `/plan-yurut` seçti) ya da
     `workflow_mode: always` ile çalışır ve kök konuşmanın tamamını alır.
     """
+    from .response_format import effective_response_task
+
+    response_task = effective_response_task(task, history or ())
+    if depth == 0 and not internal:
+        deps.tool_context.delivery_contract.accepted = None
+        if deps.budget is not None:
+            deps.budget.research_required = False
+            deps.budget.research_sources.clear()
+            deps.budget.research_verdict = None
+            deps.budget.research_mechanical = None
+            deps.budget.research_contract = None
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
     # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
@@ -932,6 +978,9 @@ async def _run_agent(
                 deps,
             )
     if depth == 0 and not internal:
+        from .delivery_contract import accept_delivery_contract
+
+        accept_delivery_contract(deps.tool_context, response_task)
         deps.active_model_override = None
         deps.turn_effort_override = None
         # Kullanıcının mesajında AÇIKÇA yazdığı yerel adresler tarayıcı araçlarına
@@ -940,7 +989,10 @@ async def _run_agent(
         deps.tool_context.local_origins.update(loopback_origins_in(task))
         # İstenen çıktılar YALNIZ bu isteğe aittir; önceki isteğin yolları taşınmaz.
         deps.tool_context.requested_outputs.clear()
-        deps.tool_context.requested_outputs.update(requested_outputs_in(task))
+        deps.tool_context.requested_outputs.update(
+            requested_outputs_in(task, root=deps.tool_context.root)
+        )
+        await asyncio.to_thread(capture_output_baselines, deps.tool_context)
         deps.tool_context.task_kinds.difference_update(
             {
                 "oyun",
@@ -978,8 +1030,12 @@ async def _run_agent(
             return played
 
     deps.tool_context.localization.enabled = deps.config.runtime.localization_cards
+    original_allowed_tools = frozenset(allowed_tools) if allowed_tools is not None else None
+    incoming_execution_cap = (
+        deps.execution.allowed_tool_names if deps.execution is not None else None
+    )
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    if depth == 0 and deps.session_persona is not None:
+    if depth == 0 and deps.session_persona is not None and deps.mcp_discovery is None:
         from .team import SubTask
         from .team_policy import allowed_tools as persona_tools
 
@@ -1025,7 +1081,7 @@ async def _run_agent(
     # workflow'u post-condition (local HEAD == remote HEAD) kanıtını kendisi üretir.
     effect_result = (
         None
-        if chat_mode
+        if chat_mode or deps.turn_forbidden_families
         else await maybe_run_effect_workflow(task, deps, registry, plan_mode=plan_mode, depth=depth)
     )
     if effect_result is not None:
@@ -1065,18 +1121,7 @@ async def _run_agent(
         getattr(deps, "hooks", None),
         instructions_hook.after_compact(
             getattr(deps, "hooks", None),
-            [
-                *instructions_hook.startup_events(instruction_load.files),
-                *(
-                    instructions_hook.rule_startup_events(
-                        discover_rules(deps.tool_context.root, deps.home)
-                    )
-                    if deps.config.runtime.project_instructions
-                    and not deps.omit_initial_instructions
-                    and getattr(deps.config.runtime, "instruction_merge", True)
-                    else ()
-                ),
-            ],
+            instructions_hook.startup_events(instruction_load.files),
         ),
     )
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
@@ -1089,6 +1134,7 @@ async def _run_agent(
             index_budget_for(deps.config, root=deps.tool_context.root, home=deps.home),
             max_description=description_limit(deps.tool_context.root, deps.home),
             usage=skill_usage.load_counts(getattr(deps.config, "memory_dir", None)),
+            invocation_guidance=False,
         )
         if depth == 0 and not internal
         else ""
@@ -1163,7 +1209,7 @@ async def _run_agent(
                 ajan_baslangici,
                 teacher_hint,
                 netlestirme,
-                identity_hint(deps.config.agent.model),
+                date_hint(deps.clock),
                 f"Çalışma dizini: {deps.tool_context.root}" if depth > 0 else "",
                 *istek_notlari,
                 extra_system,
@@ -1192,6 +1238,11 @@ async def _run_agent(
             else dynamic_sections.user_context(proje_ve_dis_bellek, bellek_blogu)
         ),
         images=images,
+    )
+    from .learning import has_unverified_agent_context
+
+    deps.mcp_external_content = deps.mcp_external_content or has_unverified_agent_context(
+        (*messages, *(history or ()))
     )
     if deps.agent_transcript is not None:
         await deps.agent_transcript.begin(messages)
@@ -1227,11 +1278,19 @@ async def _run_agent(
         if handed:
             # Öğretmen bu tur eklendiyse `ask_teacher` aracı defterde olmalı.
             registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    execution = deps.execution
+    execution = replace(
+        deps.execution,
+        forbidden_tool_families=(
+            deps.execution.forbidden_tool_families | deps.turn_forbidden_families
+        ),
+    )
     if chat_mode:
         # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
         execution = chat_execution(execution)
-        allowed_tools = set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
+        if deps.mcp_discovery is None:
+            allowed_tools = (
+                set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
+            )
     elif (
         not plan_mode and execution.allow_mutation and execution.required_effect == "workspace_read"
     ):
@@ -1241,12 +1300,149 @@ async def _run_agent(
         # bir yetenek kısıtına (`allow_mutation=False`) çarpmışsa o kısıt
         # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
         execution = observe_execution(execution, WORKSPACE_READ_REASON)
-    if denied_tools:
+    deps.execution = execution
+    if deps.mcp_discovery is not None:
+        if deps.mcp_surface_factory is not None:
+            surface = deps.mcp_surface_factory(incoming_execution_cap)
+        else:
+            persona = deps.session_persona if depth == 0 else None
+
+            def project(current: ToolRegistry) -> set[str] | None:
+                names = set(chat_tool_names(current)) if chat_mode else None
+                if persona is None:
+                    return names
+                from .team import SubTask
+                from .team_policy import allowed_tools as persona_tools
+
+                persona_names = persona_tools(
+                    deps, persona, SubTask(task), available=current.names(), registry=current
+                )
+                if names is None:
+                    return persona_names
+                return names if persona_names is None else names & persona_names
+
+            surface = RuntimeToolSurface(
+                task=task,
+                allowed=original_allowed_tools,
+                validate=deps.mcp_discovery.permitted_names,
+                denied=frozenset(denied_tools) | deps.denied_tools,
+                fixed_names=incoming_execution_cap,
+                project=project,
+                server_filter=frozenset(persona.mcp_servers) if persona else frozenset(),
+                admission_caps=(frozenset(persona.tools),)
+                if persona and persona.tools is not None
+                else (),
+            )
+        deps.runtime_surface = surface
+        bind_surface(registry, surface)
+        deps.runtime_tool_cap = original_allowed_tools
+        from .runtime_surface import DISCOVER_MCP_TOOLS
+
+        def permitted() -> set[str]:
+            return (
+                _permitted(
+                    None,
+                    registry,
+                    deps.execution or execution,
+                    deps.tool_context.task_kinds,
+                    denied=surface_denied(deps, registry.names()),
+                    task=task,
+                    phase=deps.tool_context.tool_phase,
+                )
+                or set()
+            )
+
+        def preflight_admit(server: str) -> bool:
+            from ...core.mcp_tool_names import claude_mcp_tool_name
+            from .bare_deny import bare_denied_tools
+
+            probe = claude_mcp_tool_name(server, "discovery_metadata")
+            return surface.admit(server, registry) and not bare_denied_tools(
+                deps.permission_rules, (probe,)
+            )
+
+        def admit(server: str) -> bool:
+            return DISCOVER_MCP_TOOLS in permitted() and preflight_admit(server)
+
+        def selected_wait_admit(server: str) -> bool:
+            return "WaitForMcpServers" in permitted() and preflight_admit(server)
+
+        # Binding also rehomes selected pending waits into this runtime. It must
+        # run even when initiating new discovery is explicitly unavailable.
+        tool = deps.mcp_discovery.bind(
+            registry,
+            permitted=permitted,
+            admit=admit,
+            selected_admit=selected_wait_admit,
+            deps=deps,
+        )
+        if DISCOVER_MCP_TOOLS not in deps.config.runtime.disabled_tools:
+            registry.register(tool)
+        if depth > 0:
+            expansion = await deps.mcp_discovery.preflight_selected(
+                registry,
+                surface.preflight_patterns(),
+                task=task,
+                permitted=permitted,
+                admit=preflight_admit,
+                deps=deps,
+            )
+            for note in expansion.notes:
+                deps.publisher.publish(StatusChanged(note))
+            for warning in expansion.warnings:
+                deps.publisher.publish(ErrorOccurred(warning, fatal=False))
+            if expansion.error:
+                return AgentOutcome(final_text=expansion.error, messages=messages, ok=False)
+            if expansion.context or expansion.task != task:
+                deps.mcp_external_content = True
+            if expansion.task != task:
+                tightened = policy_for(deps.config, _active_spec(deps, execution), expansion.task)
+                if tightened.allow_mutation and tightened.required_effect == "workspace_read":
+                    tightened = observe_execution(tightened, WORKSPACE_READ_REASON)
+                cap = execution.allowed_tool_names
+                if tightened.allowed_tool_names is not None:
+                    cap = (
+                        tightened.allowed_tool_names
+                        if cap is None
+                        else cap & tightened.allowed_tool_names
+                    )
+                execution = replace(
+                    execution,
+                    allow_mutation=execution.allow_mutation and tightened.allow_mutation,
+                    offer_tools=execution.offer_tools and tightened.offer_tools,
+                    forbidden_tool_families=execution.forbidden_tool_families
+                    | tightened.forbidden_tool_families,
+                    allowed_tool_names=cap,
+                    observe_only=execution.observe_only or tightened.observe_only,
+                    requires_tool_evidence=execution.requires_tool_evidence
+                    or tightened.requires_tool_evidence,
+                    required_effect=execution.required_effect or tightened.required_effect,
+                    requires_web_lookup=execution.requires_web_lookup
+                    or tightened.requires_web_lookup,
+                    required_web_urls=tuple(
+                        dict.fromkeys((*execution.required_web_urls, *tightened.required_web_urls))
+                    ),
+                )
+                deps.turn_forbidden_families |= tightened.forbidden_tool_families
+                deps.execution = execution
+                for index in range(len(messages) - 1, -1, -1):
+                    if messages[index].role == "user" and messages[index].content == task:
+                        messages[index] = replace(messages[index], content=expansion.task)
+                        break
+                task = expansion.task
+                surface = replace(surface, task=task)
+                deps.runtime_surface = surface
+                bind_surface(registry, surface)
+            if expansion.context:
+                messages = with_system_note(messages, expansion.context)
+    if denied_tools and deps.mcp_discovery is None:
         # Oturum kişiliğinin `disallowedTools`u (P-053): izin kümesi verilmemişse defterin
         # tamamından, verilmişse ondan düşer; `sunucu__*` deseni defter adlarına açılır.
         base = set(registry.names()) if allowed_tools is None else set(allowed_tools)
         allowed_tools = base - expand_tool_patterns(set(denied_tools), registry.names())
-    if allowed_tools is not None:
+    if deps.mcp_discovery is None and (
+        allowed_tools is not None or execution.forbidden_tool_families
+    ):
         names = frozenset(
             _permitted(
                 allowed_tools,
@@ -1260,6 +1456,7 @@ async def _run_agent(
             or ()
         )
         execution = replace(execution, allowed_tool_names=names)
+    deps.execution = execution
     # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
     # üretir. SWE-agent'ın ölçümü turda ~100 satırı en iyi pencere olarak veriyor;
     # API yolunda mevcut ölçülmüş davranış (800 satır) korunur.
@@ -1286,15 +1483,18 @@ async def _run_agent(
         and messages[0].role == "system"
         and GUIDE not in messages[0].content
     ):
-        teacher = deps.config.teacher.model if deps.config.teacher is not None else ""
-        messages[0] = Message(
-            "system",
-            f"{messages[0].content}\n\n"
-            f"{knowledge_block([tool.name for tool in registry], teacher)}",
-        )
+        messages[0] = Message("system", f"{messages[0].content}\n\n{GUIDE}")
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
+    if depth == 0 and not internal and not plan_mode:
+        budget.research_contract = deps.tool_context.delivery_contract.for_owner(
+            deps.tool_context.root, deps.tool_context.job_scope
+        )
+        budget.research_required = execution.source_read_requirement == "document" and (
+            execution.requires_web_lookup or bool(execution.required_web_urls)
+        )
+
     if execution.total_timeout_s is not None:
         budget.constrain_remaining_s(execution.total_timeout_s - budget.elapsed_s)
     if budget.idle_timeout_s is None and execution.idle_timeout_s is not None:
@@ -1346,13 +1546,14 @@ async def _run_agent(
             )
 
     if depth == 0 and not internal and not plan_mode and not chat_mode:
-        await _publish_intro(task, messages, deps, execution, tuple(registry.names()))
+        await _publish_intro(response_task, messages, deps, execution, tuple(registry.names()))
         # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
         # Ölçüldü (1 Ekim olayı): "silmiş olabilir misin?" sorusu kurtarma planına
         # dönüştü ve ajan cevap yerine dosya yazdı.
-        if execution.allow_mutation:
+        if execution.allow_mutation and execution.complex_task:
             await prepare_teacher_plan(task, messages, deps, registry)
-        await run_platform_check(task, messages, deps, registry)
+        if not prohibited_tool("web_search", execution.forbidden_tool_families):
+            await run_platform_check(task, messages, deps, registry)
 
     if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
@@ -1385,8 +1586,9 @@ async def _run_agent(
         step_limit=step_limit,
         execution=execution,
         internal=internal,
-        auto_teacher=depth == 0 and not internal,
+        auto_teacher=depth == 0 and not internal and execution.complex_task,
         require_local_mutation=require_local_mutation,
+        depth=depth,
     )
 
     verification = None
@@ -1440,6 +1642,8 @@ async def _run_agent(
             outcome, verification, deps, fix_rounds=fix_rounds, plan_mode=plan_mode, depth=depth
         )
 
+    from .self_review_policy import ordinary_self_review_enabled
+
     is_measurement_failure = (
         verification is not None
         and not verification.ok
@@ -1453,7 +1657,24 @@ async def _run_agent(
         and budget.stop is None
         and not is_measurement_failure
     ):
-        teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
+        teacher_findings = await review_teacher_changes(
+            task,
+            outcome,
+            deps,
+            registry,
+            verification=verification,
+            ordinary_self_review_enabled=(not budget.research_required)
+            and ordinary_self_review_enabled(
+                outcome,
+                budget,
+                configured=deps.config.runtime.self_review,
+                override=self_review,
+                plan_mode=plan_mode,
+                depth=depth,
+                measurement_failure=is_measurement_failure,
+                browser_prefixes=_BROWSER_TOOL_PREFIXES,
+            ),
+        )
         if teacher_findings:
             teacher_gate = VerificationResult(
                 ok=False,
@@ -1470,7 +1691,14 @@ async def _run_agent(
                     "\n\nÖğretmen bulgusu için doğrulanmış bir düzeltme yapılmadı."
                 )
             else:
-                remaining = await review_teacher_changes(task, outcome, deps, registry)
+                remaining = await review_teacher_changes(
+                    task,
+                    outcome,
+                    deps,
+                    registry,
+                    verification=verification,
+                    resolving_findings=True,
+                )
                 if remaining is None or remaining:
                     outcome.ok = False
                     outcome.final_text += "\n\nÖğretmen bulgularının giderildiği doğrulanamadı."
@@ -1478,44 +1706,44 @@ async def _run_agent(
     if verification is not None and not verification.ok:
         outcome.ok = False
 
-    # Deterministik kapılar olasılıksal model hakeminden önce çalışır. Somut bir
-    # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
-    # hatanın bütçe kapanınca verifier'a hiç ulaşmamasına yol açıyordu.
-    should_review = deps.config.runtime.self_review if self_review is None else self_review
-    # Öz-denetim yalnız GERÇEK bir dosya mutasyonu olduğunda çalışır. Ölçüldü
-    # (B2 gecikmesi): "Sadece 'merhaba' yaz" gibi araçsız bir tur, eski koşulda
-    # (web taşımasında regex tabanlı `_web_self_review_needed`, API taşımasında
-    # koşulsuz) yine de bir hakem çağrısı harcıyordu. Koşul artık YAPISAL: metne
-    # bakmaz, yalnızca turda GERÇEKTEN mutasyon olup olmadığına bakar.
-    if outcome.mutating_tool_calls_made == 0:
-        should_review = False
-    # Tarayıcı araçları kayıtta "değiştirici" olsa da denetlenecek DOSYA bırakmaz.
-    # Ölçüldü (27 Eylül): Chrome okuma turunda öz-denetim fazladan bir model çağrısı
-    # yapıyor, panel hazır cevabı ancak ondan sonra görüyordu.
-    if all(
-        name.startswith(_BROWSER_TOOL_PREFIXES)
-        for name, _args, mutating in budget.successful_tool_evidence
-        if mutating
-    ):
-        should_review = False
-    # Kullanıcı GERÇEKTEN reddettiyse (`USER_DENIED`) öz-denetim çalışmaz: `_drive`
-    # bu turda modeli BİR DAHA ÇAĞIRMAYACAĞINI zaten garanti eder (bkz. döngü
-    # başındaki kontrol); öz-denetim bir model çağrısı daha yaparak bunu ihlal
-    # ederdi. Diğer bütçe durdurmaları (sözleşme onarılamadı, zaman aşımı…) bunun
-    # dışındadır: gerçek bir mutasyon olmuşsa öz-denetim yine de çalışmalı — onu
-    # kapatmak `test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz`
-    # ile ölçülen davranışı (geç bir sözleşme hatası yazılmış artefaktı denetimsiz
-    # bırakmamalı) bozardı.
-    if budget.stop is BudgetStop.USER_DENIED:
-        should_review = False
-    # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
-    # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
-    # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
-    # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
-    if outcome.wrong_workspace or is_measurement_failure:
-        should_review = False
-    if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
+    # Use the same actual eligibility before consultation deduplication and
+    # again after a possible teacher correction. Overrides and deterministic
+    # gate outcomes must not drift between the two decisions.
+    should_review = ordinary_self_review_enabled(
+        outcome,
+        budget,
+        configured=deps.config.runtime.self_review,
+        override=self_review,
+        plan_mode=plan_mode,
+        depth=depth,
+        measurement_failure=is_measurement_failure,
+        browser_prefixes=_BROWSER_TOOL_PREFIXES,
+    )
+    if should_review and not budget.research_required:
+        before_review = await asyncio.to_thread(take_fingerprint, deps.tool_context.root)
+        before_versions = await asyncio.to_thread(changed_file_versions, deps.tool_context)
+        previous_mutations = outcome.mutating_tool_calls_made
         outcome = await _self_review(task, outcome, deps, verification=verification)
+        after_review = await asyncio.to_thread(take_fingerprint, deps.tool_context.root)
+        after_versions = await asyncio.to_thread(changed_file_versions, deps.tool_context)
+        has_new_mutation = outcome.mutating_tool_calls_made > previous_mutations
+        measurement_incomplete = before_review is None or before_versions is None
+        if verify and (
+            before_review != after_review
+            or before_versions != after_versions
+            or (has_new_mutation and (measurement_incomplete or not before_versions))
+        ):
+            # Öz-denetim eski kanıtı sonradan değişen dosyalara taşıyamaz.
+            verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+            if verification is not None and not verification.ok:
+                outcome.ok = False
+
+    if verify and depth == 0 and not internal and budget.research_required:
+        from .research_grounding import finalize_grounding
+
+        verification = await finalize_grounding(outcome, deps, verification)
+        if verification is not None and not verification.ok:
+            outcome.ok = False
 
     # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
     # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
@@ -1533,7 +1761,7 @@ async def _run_agent(
     # (`_turn_report_text`) tüm adımların `tool_uses`'ından ayrıca kurduğu için
     # buradaki iç turların atlanması onu bozmaz, aksine aynı çiftlenmeyi orada
     # da önler.
-    if not chat_mode and not internal and depth == 0:
+    if (not chat_mode or budget.research_required) and not internal and depth == 0:
         from ...tools.job_current import snapshot_current_jobs
 
         current_jobs = await asyncio.to_thread(
@@ -1546,7 +1774,7 @@ async def _run_agent(
             gate=verification,
             current_jobs=current_jobs,
             change_lines=digest,
-            task=task,
+            task=response_task,
             require_behavioral_evidence=(
                 verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
             ),
@@ -1562,7 +1790,8 @@ async def _run_agent(
         ensure_limitations_disclosed(outcome, deps)
         # "PR'ı açtım" beyanı `gh pr create` kanıtı olmadan teslim edilmez (P-057).
         disclose_unverified_pr(outcome)
-    await _announce_answer(outcome, deps, depth=depth, internal=internal)
+        _finalize_response_format(outcome, response_task)
+    await _announce_answer(outcome, deps, depth=depth, internal=internal, task=response_task)
 
     # Altyapı/sağlayıcı kesintisi ürün dersi veya ders güveni sinyali değildir.
     if not is_measurement_failure:
@@ -1624,6 +1853,14 @@ def _apply_turn_report(
     changed_paths = tuple(
         display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
     )
+    from .observation_delivery import internal_observation_paths
+
+    observations = tuple(
+        display_path(deps.tool_context, path)
+        for path in internal_observation_paths(
+            deps.tool_context, task=task, turn_id=getattr(deps, "attempt_id", None) or ""
+        )
+    )
     tamper = collect_test_tampering(deps, outcome.tool_uses, task)
     report = build_turn_report(
         changed_paths,
@@ -1633,28 +1870,59 @@ def _apply_turn_report(
         require_behavioral_evidence=require_behavioral_evidence,
         test_tamper=tamper,
         change_lines=change_lines,
+        internal_observation_paths=observations,
     )
-    if report.is_verified is False and claims_command_success(outcome.final_text):
+    if report.unsupported_command_claim(
+        outcome.final_text
+    ) or report.unsupported_contact_delivery_claim(outcome.final_text):
         # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
         # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
         report = replace(report, false_claim=True)
+    if outcome.verification_repaired:
+        from .delivery_contract import repaired_document_text
+
+        delivery_text = repaired_document_text(
+            deps.tool_context, report, task, successful=outcome.ok and not report.blocks_success
+        )
+        if delivery_text is not None:
+            outcome.final_text = delivery_text
     outcome.completion_report = report
-    outcome.final_text = report.render_with_model_text(outcome.final_text)
     if report.blocks_success:
         outcome.ok = False
-    _publish_evidence(outcome, report, deps)
+    separate = _finalize_response_format(outcome, task)
+    if not separate:
+        outcome.final_text = report.render_with_model_text(outcome.final_text)
+    _publish_evidence(outcome, report, deps, separate=separate)
 
 
-def _publish_evidence(outcome: AgentOutcome, report: TurnReport, deps: AgentDeps) -> None:
+def _finalize_response_format(outcome: AgentOutcome, task: str) -> bool:
+    """Apply format presentation after reports or disclosures without republishing evidence."""
+    from .response_format import format_reported_response
+
+    if outcome.completion_report is None:
+        return False
+    formatted = format_reported_response(
+        task, outcome.final_text, outcome.completion_report, successful=outcome.ok
+    )
+    if formatted is None:
+        return False
+    outcome.final_text, outcome.ok = formatted
+    return True
+
+
+def _publish_evidence(
+    outcome: AgentOutcome, report: TurnReport, deps: AgentDeps, *, separate: bool = False
+) -> None:
     """Rapor bloğu ekrana ULAŞMAYACAKSA geçen kanıtı ve gerçek farkı olay olarak yay.
 
     Rapor `final_text`'e eklenir; o metin yalnız `TurnAnswered` (akıtılmayan cevap) ya da
     `ErrorOccurred` (başarısız tur) ile ekrana düşer. Cevabı akıtılan BAŞARILI turda
     ikisi de çalışmaz: ölçüldü (30 Ekim, g4), tarayıcı kapısı sayfayı açıp denetlemişti
     ama kullanıcı hiçbir kanıt satırı görmedi. Metin zaten gidecekse olay yayılmaz;
-    aynı bilgi iki kez basılmaz.
+    aynı bilgi iki kez basılmaz. Kullanıcı katı yanıt biçimi istediğinde rapor
+    düzyazısı cevaba eklenmez; gerçek kanıt bu ayrı olaylardan yine görünür.
     """
-    if not (outcome.ok and outcome.answer_streamed and report.changed_paths):
+    if not (outcome.ok and (outcome.answer_streamed or separate) and report.changed_paths):
         return
     summary = summarize_evidence(report)
     if not summary.is_empty:
@@ -1666,7 +1934,7 @@ def _publish_evidence(outcome: AgentOutcome, report: TurnReport, deps: AgentDeps
 
 
 async def _announce_answer(
-    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool
+    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool, task: str = ""
 ) -> None:
     """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
 
@@ -1697,8 +1965,16 @@ async def _announce_answer(
         return
     if not outcome.final_text.strip():
         return
+    from .response_format import clean_requested_response, is_valid_json, requested_response_format
+
+    # Valid requested JSON is structured data: a marker inside one of its string
+    # values is not a leaked tool frame. Keep normal prose filtering and the
+    # user's MessageDisplay hook; never dispatch the data as a tool call.
+    response = clean_requested_response(task, outcome.final_text)
+    structured = requested_response_format(task) == "json" and is_valid_json(response)
+    text = response if structured else strip_harness_leaks(response)
     # Görünen metin MessageDisplay süzgecinden geçer (#90); kayıt `outcome`tan yazılır.
-    shown = await display_filter.transform(strip_harness_leaks(outcome.final_text))
+    shown = await display_filter.transform(text)
     if shown:
         deps.publisher.publish(TurnAnswered(channel=deps.channel, text=shown))
 
@@ -1717,11 +1993,15 @@ class _State:
     üretir ve çağıran tarafından toplanır.
     """
 
+    depth: int = 0
+    catalog_agents: tuple[Capability, ...] = ()
     observation_calls: int = 0
     tool_calls_made: int = 0
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     model_calls_made: int = 0
+    desktop_grounding: DesktopGrounding = field(default_factory=DesktopGrounding)
+    native_stale_recovery: NativeStaleRecovery = field(default_factory=NativeStaleRecovery)
     #: Çıktı bütçesi çarpanı: model bütçeyi düşünmeye harcayıp cevapsız kalırsa büyür.
     max_tokens_scale: int = 1
     #: Çıktı bütçesi düşünmeye gittiyse turun kalanında düşünme yoğunluğu düşürülür.
@@ -1785,6 +2065,8 @@ class _State:
     unresponsive_reason: str = ""
     #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
     failed_mutations_in_row: int = 0
+    #: Son başarısız değiştirici native girdiyse dosya-düzenleme kurtarması uygulanmaz.
+    last_failed_mutation_is_native: bool = False
     #: Döngü kapısı bu turda kaç kez konuştu.
     edit_loop_pushes: int = 0
     #: Modele en son kaç değişiklik kaydı bildirildi.
@@ -1824,12 +2106,64 @@ async def _drive(
     internal: bool = False,
     auto_teacher: bool = False,
     require_local_mutation: bool = False,
+    depth: int = 0,
 ) -> AgentOutcome:
     state = _State(
         internal=internal,
         require_local_mutation=require_local_mutation,
+        depth=depth,
+        catalog_agents=deps.capabilities.agents() if depth == 0 and deps.capabilities else (),
     )
+    event_loop = asyncio.get_running_loop()
+
+    def cleanup_failed(message: str) -> None:
+        if not event_loop.is_closed():
+            # Failure is already logged/retained; a closed transport cannot
+            # receive a late status event.
+            with suppress(RuntimeError):
+                event_loop.call_soon_threadsafe(
+                    deps.publisher.publish,
+                    StatusChanged(f"Fare temizliği tamamlanamadı: {message}"),
+                )
+
+    state.desktop_grounding.failure_reporter = cleanup_failed
+    try:
+        return await _drive_loop(
+            messages,
+            deps,
+            registry,
+            state=state,
+            plan_mode=plan_mode,
+            allowed_tools=allowed_tools,
+            step_limit=step_limit,
+            execution=execution,
+            internal=internal,
+            auto_teacher=auto_teacher,
+        )
+    finally:
+        state.desktop_grounding.close()
+        if state.desktop_grounding.cleanup_error:
+            raise CleanupFailedError(state.desktop_grounding.cleanup_error)
+
+
+async def _drive_loop(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    *,
+    state: _State,
+    plan_mode: bool,
+    allowed_tools: set[str] | None,
+    step_limit: int | None,
+    execution: ExecutionPolicy,
+    internal: bool,
+    auto_teacher: bool,
+) -> AgentOutcome:
     budget = deps.require_budget()
+    recovery_context = reflexion.recovery_context(
+        required_effect=execution.required_effect,
+        desktop="masaustu" in deps.tool_context.task_kinds,
+    )
     final_text = ""
     # Tur geneli model çağrısı sınırı BÜTÇEDEDİR: iç içe düzeltici turlar aynı
     # bütçeden yer. Buradaki `local_limit` yalnızca BU çağrıyı daha da daraltır
@@ -1838,6 +2172,7 @@ async def _drive(
     if execution.max_model_calls is not None:
         local_limit = min(local_limit or execution.max_model_calls, execution.max_model_calls)
     local_calls = 0
+    _bind_tool_search_permissions(registry, messages, deps, execution, allowed_tools)
     if not internal and deps.channel is not Channel.SUBAGENT:
         await _resume_deferred(
             messages, deps, registry, state, execution=execution, plan_mode=plan_mode
@@ -1850,6 +2185,7 @@ async def _drive(
         # Arka plana taşınmış MCP çağrılarının sonuçları (#233); ana sohbet dışında boştur.
         messages.extend(take_mcp_background_notices(deps.tool_context))
         if notices:
+            deps.mcp_external_content = True
             messages.append(
                 Message(
                     "user",
@@ -2049,6 +2385,8 @@ async def _drive(
                 wait=not deps.child_runs.persistent,
             )
             if completions:
+                # Actual owned completion delivery, not a marker in user text.
+                deps.mcp_external_content = True
                 messages.append(
                     Message(
                         "user",
@@ -2069,7 +2407,10 @@ async def _drive(
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
             # dosya değişmeyen turda olduğu gibi gösteriliyordu.
-            final_text = strip_thinking(result.text).strip()
+            from .response_format import clean_requested_response, effective_response_task
+
+            response_task = effective_response_task(None, messages)
+            final_text = clean_requested_response(response_task, result.text)
             # İstek sınıflandırılmasa bile modelin işlem beyanı kanıt ister.
             # Bu kapı modele/sağlayıcıya değil GERÇEK araç sonuçlarına bakar.
             unsupported_claim = next(
@@ -2077,7 +2418,13 @@ async def _drive(
                     effect
                     for effect in claimed_effects(final_text)
                     if not _tool_evidence_satisfied(
-                        replace(execution, required_effect=effect), budget
+                        replace(
+                            execution,
+                            required_effect=effect,
+                            required_web_urls=(),
+                            requires_web_lookup=False,
+                        ),
+                        budget,
                     )
                 ),
                 None,
@@ -2093,7 +2440,7 @@ async def _drive(
                     messages.pop()  # Kanıtsız iddia sonraki turda olgu olarak taşınmaz.
                     messages.append(
                         reflexion.tool_evidence_required_note(
-                            execution.required_effect, state.evidence_reprompts
+                            _evidence_recovery_effect(execution, budget), state.evidence_reprompts
                         )
                         if execution.requires_tool_evidence
                         else reflexion.unsupported_claim_note()
@@ -2141,12 +2488,14 @@ async def _drive(
                     state.evidence_reprompts += 1
                     messages.append(
                         reflexion.tool_evidence_required_note(
-                            execution.required_effect, state.evidence_reprompts
+                            _evidence_recovery_effect(execution, budget), state.evidence_reprompts
                         )
                     )
                     continue
                 return _outcome(
-                    reflexion.unverified_action_message(execution.required_effect),
+                    reflexion.unverified_action_message(
+                        _evidence_recovery_effect(execution, budget)
+                    ),
                     messages,
                     state,
                     ok=False,
@@ -2167,6 +2516,7 @@ async def _drive(
                 plan_mode=plan_mode,
                 execution=execution,
                 truncated=result.truncated,
+                task=response_task,
             )
             if continue_note is not None:
                 if continue_note.content == reflexion.AUTO_CONTINUE_NOTE:
@@ -2240,14 +2590,11 @@ async def _drive(
             state.exploration_pushes += 1
             messages.append(Message("user", exploration_note, harness_note=True))
         teacher_stall = _plateau_reason(state, deps, exploration_note=exploration_note)
-        # Gerçek takılma (aynı hata, tekrar koruması, ilerleme yok) görev BÜYÜKLÜĞÜNE
-        # bakmaz. Ölçüldü (2 Ekim, kabul koşusu): görev "basit" sınıflandırıldı, model
-        # aynı "Access denied" hatasını üç kez aldı ve öğretmen hazır olduğu halde
-        # hiç sorulmadı. Yalnız "okuma uzun sürdü" nedeni karmaşık işe özeldir.
-        gercek_takilma = _teacher_stall_reason(state) is not None
+        # A failed observation is not a request for an operational plan. Automatic
+        # teacher recovery is reserved for tasks with an affirmative change effect.
         if (
             auto_teacher
-            and (execution.complex_task or gercek_takilma)
+            and execution.complex_task
             and teacher_stall is not None
             and not deps.auto_teacher_used
             and teacher_is_ready(deps, registry)
@@ -2266,7 +2613,11 @@ async def _drive(
                 ),
                 "",
             )
-            execution = policy_for(deps.config, takeover, original_task)
+            execution = replace(
+                policy_for(deps.config, takeover, original_task),
+                forbidden_tool_families=execution.forbidden_tool_families,
+                allowed_tool_names=execution.allowed_tool_names,
+            )
             deps.execution = execution
             if deps.tool_context.read_window is None:
                 deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
@@ -2304,10 +2655,11 @@ async def _drive(
             # ilerlemesiz dizide bir kez gelsin, her turda değil.
             budget.idle_rounds = 0
             state.stalled = True
-            messages.append(reflexion.stall_rescue_note())
+            messages.append(reflexion.stall_rescue_note(context=recovery_context))
             deps.publisher.publish(StatusChanged(STALL_STATUS))
             if (
                 auto_teacher
+                and execution.complex_task
                 and not deps.auto_teacher_used
                 and teacher_is_ready(deps, registry)
                 and (allowed_tools is None or "ask_teacher" in allowed_tools)
@@ -2325,7 +2677,7 @@ async def _drive(
             # sayaca bakıyor ve sayaç yeni sıfırlanmış oluyordu (ölçüldü — tur ölü
             # kilide düştü). Kapının kaç kez konuştuğu ayrı sayaçta tutulur.
         elif errored and deps.config.runtime.reflexion and not plan_mode:
-            messages.append(reflexion.note(persistent=False))
+            messages.append(reflexion.note(persistent=False, context=recovery_context))
         if _looks_like_wrong_workspace(state):
             state.warned_wrong_workspace = True
             oneri = find_workspace_for(tuple(state.missing_paths), deps.tool_context.root)
@@ -2530,6 +2882,55 @@ _WORKSPACE_READ_TOOLS = frozenset(
 )
 
 
+def _covered_source_urls(execution: ExecutionPolicy, budget: TurnBudget) -> tuple[str, ...]:
+    allowed = (
+        {"document", "interactive"}
+        if execution.source_read_requirement == "controls"
+        else {"document"}
+    )
+    return tuple(
+        url
+        for url, scope in getattr(budget, "successful_source_read_scopes", ())
+        if scope in allowed
+    )
+
+
+def _missing_source_evidence(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
+    if execution.source_read_requirement == "restricted":
+        return True
+    if not execution.required_web_urls and execution.source_read_requirement == "controls":
+        return not _covered_source_urls(execution, budget)
+    if not execution.required_web_urls:
+        from .research_scope import web_lookup_observed
+
+        return execution.requires_web_lookup and not web_lookup_observed(
+            budget.successful_tool_evidence
+        )
+    from .research_scope import requested_sources_read
+
+    return not requested_sources_read(
+        execution.required_web_urls,
+        budget.successful_tool_evidence,
+        observed_sources=_covered_source_urls(execution, budget),
+    )
+
+
+def _evidence_recovery_effect(execution: ExecutionPolicy, budget: TurnBudget) -> str | None:
+    if execution.source_read_requirement == "restricted" and _missing_source_evidence(
+        execution, budget
+    ):
+        return "web_scope"
+    if (
+        execution.source_read_requirement == "document"
+        and _missing_source_evidence(execution, budget)
+        and bool(getattr(budget, "successful_source_reads", ()))
+    ):
+        return "web_content"
+    return (
+        "web_lookup" if _missing_source_evidence(execution, budget) else execution.required_effect
+    )
+
+
 def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
     """Gerçek eylem isteği başarılı bir araç sonucu ile kanıtlandı mı?
 
@@ -2540,9 +2941,13 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     """
 
     effect = execution.required_effect
+    if _missing_source_evidence(execution, budget):
+        return False
     if effect is None:
         return True
     evidence = budget.successful_tool_evidence
+    if effect == "bulk_count":
+        return bool(budget.data_observations)
     if effect == "git_push":
         return any(
             tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "push")
@@ -2558,12 +2963,19 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     if effect == "workspace_mutation":
         return any(mutating for _, _, mutating in evidence)
     if effect == "web_lookup":
+        if execution.required_web_urls:
+            from .research_scope import requested_sources_read
+
+            return requested_sources_read(
+                execution.required_web_urls,
+                evidence,
+                observed_sources=_covered_source_urls(execution, budget),
+            )
         # Araç AİLESİNDEN okunur (A2-21): sabit üç ad `site_crawl`/`site_design`
         # gibi arama araçlarını kanıt saymıyordu. İndirme arama değildir.
-        return any(
-            tool_family(name) is ToolFamily.WEB and name != "download_file"
-            for name, _, _ in evidence
-        )
+        from .research_scope import web_lookup_observed
+
+        return web_lookup_observed(evidence)
     if effect.startswith("file:"):
         # Dosya teslim eden adımın kanıtı DEĞİŞTİREN bir araçtır.
         #
@@ -2621,7 +3033,11 @@ async def _publish_intro(
     ve her web çağrısı onlarca saniye sürer. Giriş modele de not olarak verilir
     ki aynı cümleleri tekrarlamasın.
     """
-    if not execution.complex_task or execution.is_web:
+    if (
+        not execution.complex_task
+        or execution.is_web
+        or classify_teacher_task(task).size == "basit"
+    ):
         return
     intro = await intro_paragraph(
         task, _active_spec(deps, execution), deps.config, deps.publisher, tool_names
@@ -2949,6 +3365,38 @@ def _widen_profile_for(
     )
 
 
+_MODEL_IDENTITY_OPEN = "<fusion-model-identity>\n"
+_MODEL_IDENTITY_CLOSE = "\n</fusion-model-identity>"
+
+
+def _refresh_model_identity(messages: list[Message], spec: ModelSpec) -> None:
+    """Bind harness identity to the already resolved provider request, not its default."""
+    hint = identity_hint(spec.model)
+    if spec.fallback:
+        # The chain passes this same request to its leaves. The serving leaf is
+        # known only after a result; calling the primary the current model lies
+        # on a successful fallback, including a strict availability fallback.
+        hint = (
+            f"Bu çağrı için istenen birincil model `{spec.model}`. Yedek zinciri açık; "
+            "isteği gerçekten yanıtlayacak model henüz doğrulanmadı. Kullanıcı model "
+            "kimliğini sorarsa Fusion olduğunu söyle; birincil modeli kesin çalışan "
+            "model diye sunma, teknik ayrıntı uydurma."
+        )
+    system = messages[0].content if messages and messages[0].role == "system" else ""
+    before, separator, previous = system.rpartition("\n\n" + _MODEL_IDENTITY_OPEN)
+    if separator and previous.endswith(_MODEL_IDENTITY_CLOSE):
+        system = before
+    elif system.startswith(_MODEL_IDENTITY_OPEN) and system.endswith(_MODEL_IDENTITY_CLOSE):
+        system = ""
+    if hint:
+        block = _MODEL_IDENTITY_OPEN + hint + _MODEL_IDENTITY_CLOSE
+        system = f"{system}\n\n{block}" if system else block
+    if messages and messages[0].role == "system":
+        messages[0] = replace(messages[0], content=system)
+    elif system:
+        messages.insert(0, Message("system", system))
+
+
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -2972,20 +3420,14 @@ async def _call_model(
             ok=False,
             error="Model çağrı bütçesi tükendi veya sabit model sözleşmesi değişti.",
         )
+    _refresh_model_identity(messages, spec)
+    permitted = _bind_tool_search_permissions(registry, messages, deps, execution, allowed_tools)
     offered_tools = (
         tuple(
             registry.schemas(
                 # Araç araması (#258): ertelenmiş ve yüklenmemiş MCP şemaları gönderilmez.
                 visible_tool_names(
-                    _permitted(
-                        allowed_tools,
-                        registry,
-                        execution,
-                        deps.tool_context.task_kinds,
-                        denied=surface_denied(deps, registry.names()),
-                        task=_surface_task(messages),
-                        phase=deps.tool_context.tool_phase,
-                    ),
+                    permitted(),
                     registry,
                     lambda: input_window_tokens(spec.model),
                     model=spec.model,
@@ -2999,7 +3441,17 @@ async def _call_model(
     if offered_tools:
         _publish_surface(deps, registry, execution, offered_tools)
     await localization.refresh_prompt(messages, deps.tool_context)
-    gorunum = _masked_view(messages, deps, spec)
+    from .capability_context import request_capability_messages
+
+    request_messages = request_capability_messages(
+        messages,
+        deps,
+        permitted(),
+        offer_tools=offer_tools,
+        depth=state.depth,
+        agents=state.catalog_agents,
+    )
+    gorunum = _masked_view(request_messages, deps, spec)
     if gorunum.masked:
         deps.publisher.publish(
             ToolOutputsMasked(
@@ -3036,11 +3488,16 @@ async def _call_model(
         ),
         prompt_cache_ttl=getattr(deps, "prompt_cache_ttl", "") or "",
     )
+    desktop_observation = state.desktop_grounding.for_request(
+        request.messages, deps.tool_context, deps.conversation_id, deps.attempt_id
+    )
     provider = build_provider(
         spec,
+        model_specs=configured_model_specs(deps.config),
         publisher=deps.publisher,
         retry_delays_s=runtime.retry_delays_s,
         channel=deps.channel,
+        purpose="actor" if deps.channel is Channel.MAIN else "other",
         health=deps.health,
         web_sessions=web_registry_for(deps.config),
     )
@@ -3087,6 +3544,26 @@ async def _call_model(
             if outcome.model == spec.model
             else None,
         )
+    from ...config.model_lookup import model_spec_for
+
+    served_spec = (
+        spec
+        if outcome.model == spec.model
+        else model_spec_for(outcome.model, configured_model_specs(deps.config))
+    )
+    observed_spec = model_spec_for(outcome.served_by, configured_model_specs(deps.config))
+    if observed_spec is not None:
+        served_spec = observed_spec
+    state.desktop_grounding.acknowledge(
+        desktop_observation,
+        usable=outcome.ok and outcome.is_usable,
+        images_supported=desktop_observation is not None
+        and served_spec is not None
+        and capabilities_for(served_spec, deps.config.web_sessions).images,
+        context=deps.tool_context,
+        conversation_id=deps.conversation_id,
+        attempt_id=deps.attempt_id,
+    )
     return outcome
 
 
@@ -3139,6 +3616,36 @@ def _observe_stream_item(item: object, state: _State) -> None:
 #: ya da belirsizliği gideremez.
 #: Denetlenecek dosya bırakmayan, uzak sayfada çalışan araçların ad önekleri.
 _BROWSER_TOOL_PREFIXES = ("chrome_", "claude-in-chrome__", "browser_")
+
+
+def _bind_tool_search_permissions(
+    registry: ToolRegistry,
+    messages: Sequence[Message],
+    deps: AgentDeps,
+    execution: ExecutionPolicy,
+    allowed_tools: set[str] | None,
+) -> Callable[[], set[str]]:
+    """Bind before resumed dispatch as well as requests, using original active policy."""
+    update_surface_task(registry, _surface_task(messages))
+
+    def permitted() -> set[str]:
+        return (
+            _permitted(
+                allowed_tools,
+                registry,
+                execution,
+                deps.tool_context.task_kinds,
+                denied=surface_denied(deps, registry.names()),
+                task=_surface_task(messages),
+                phase=deps.tool_context.tool_phase,
+            )
+            or set()
+        )
+
+    bind_tool_search(registry, permitted)
+    return permitted
+
+
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
 
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
@@ -3198,6 +3705,16 @@ def _permitted(
     Düzenleme sözleşmesi tüm sağlayıcılarda aynıdır (`edit_file` / `multi_edit` /
     `write_file`); sağlayıcıya göre şema daraltılmaz.
     """
+    dynamic = surface_for(registry)
+    if dynamic is not None:
+        task = surface_task(registry)
+        if allowed_tools is not None:
+            allowed_tools = expand_tool_patterns(set(allowed_tools), registry.names())
+    explicit_tools = (
+        dynamic.explicit_names(registry)
+        if dynamic is not None and allowed_tools is None
+        else allowed_tools
+    )
     if allowed_tools is not None and not allowed_tools:
         return set()
     names = (
@@ -3205,8 +3722,11 @@ def _permitted(
         if allowed_tools is None
         else ((allowed_tools | ALWAYS_ALLOWED) & set(registry.names()))
     )
+    if dynamic is not None:
+        names &= dynamic.names(registry)
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
+    names = {name for name in names if not prohibited_tool(name, execution.forbidden_tool_families)}
     if denied:
         # Yasak liste (`--disallowed-tools`) şema yüzeyinden düşer: salt-okunur araçta onay
         # politikası hiç çalışmadığı için tek güvenilir kapı burasıdır (31 Ekim).
@@ -3217,7 +3737,7 @@ def _permitted(
         for name in names
         if name not in SCOPED_TOOLS
         or SCOPED_TOOLS[name] in task_kinds
-        or (allowed_tools is not None and name in allowed_tools)
+        or (explicit_tools is not None and name in explicit_tools)
     }
     if execution.compact_tool_surface:
         names = narrow_to_compact_surface(
@@ -3225,7 +3745,7 @@ def _permitted(
             registry,
             max_external_tools=execution.max_external_tools,
             task_kinds=task_kinds,
-            explicit=allowed_tools,
+            explicit=explicit_tools,
             profiles=execution.tool_profiles,
             external_tool_selection=execution.external_tool_selection,
             task=task,
@@ -3236,7 +3756,7 @@ def _permitted(
     names = {
         name
         for name in names
-        if name not in hidden_tasks or (allowed_tools is not None and name in allowed_tools)
+        if name not in hidden_tasks or (explicit_tools is not None and name in explicit_tools)
     }
     if not execution.allow_mutation:
         names = {
@@ -3274,6 +3794,7 @@ def _auto_continue_note(
     plan_mode: bool,
     execution: ExecutionPolicy,
     truncated: bool,
+    task: str = "",
 ) -> Message | None:
     """Tur devam ettirilecekse modele enjekte edilecek notu döndür, yoksa `None`.
 
@@ -3290,10 +3811,16 @@ def _auto_continue_note(
     # Taşıma bütünlüğü her teşhisin önündedir: kesilmiş yanıt, kapanmamış blok ve
     # boş yanıt farklı hamleler ister. Üçünü "işi yarım bıraktın" notuna bağlamak
     # ya yapılan işi çöpe atıyor ya da modele yanlış şeyi düzelttiriyordu.
-    butunluk = classify_response(final_text, truncated=truncated, has_tool_calls=False)
-    tasima_notu = reflexion.integrity_note(butunluk)
-    if tasima_notu is not None:
-        return _spend(deps, tasima_notu)
+    from .response_format import is_valid_json, requested_response_format
+
+    structured = (
+        not truncated and requested_response_format(task) == "json" and is_valid_json(final_text)
+    )
+    if not structured:
+        butunluk = classify_response(final_text, truncated=truncated, has_tool_calls=False)
+        tasima_notu = reflexion.integrity_note(butunluk)
+        if tasima_notu is not None:
+            return _spend(deps, tasima_notu)
     # Bloklayan doğrulama düzeltmesi araçsız kapanamaz; bu tek dal korunur (bkz.
     # `_never_acted`). Kapsamı büyüten genel dürtme kapıları (hiç çağrı yapmadan
     # soru sorma, keşifte takılma, "yarım kalmış gibi görünme") kaldırıldı: model
@@ -3349,7 +3876,11 @@ MAX_EDIT_LOOP_PUSHES = 2
 
 def _stuck_editing(state: _State, *, plan_mode: bool) -> bool:
     """Model aynı düzenlemeyi tekrar tekrar deneyip düşüyor mu?"""
-    if plan_mode or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES:
+    if (
+        plan_mode
+        or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES
+        or state.last_failed_mutation_is_native
+    ):
         return False
     return state.failed_mutations_in_row >= MAX_FAILED_MUTATIONS_IN_ROW
 
@@ -3421,12 +3952,15 @@ def _inject_nested_instructions(messages: list[Message], deps: AgentDeps, state:
         sinir = max_chars_for_window(context_budget(deps.config, _context_spec(deps)).window_tokens)
     except (AttributeError, TypeError, ValueError):
         sinir = max_chars_for_window(None)
+    managed_only = instruction_files_mode(kok, deps.home) == "managed-only"
     hedefler: list[Path] = []
     for ham in dict.fromkeys(yollar):
         hedef = resolve_access_path(deps.tool_context, ham)
         if hedef is None:
             continue
         hedefler.append(hedef)
+        if managed_only:
+            continue
         # `--add-dir` dizininin `paths` alanlı kuralları (#170; ortam değişkeni açıkken).
         ek_kurallar = extra_dir_rules.hits_for(
             tuple(getattr(deps.tool_context, "extra_roots", ()) or ()),
@@ -3531,10 +4065,11 @@ def _exploration_note(
         return None
     note = (
         "FUSION_NOT: Bu görevde en az 5 araç çağrısı yaptın ama henüz "
-        "hiç dosya değiştirmedin. Daha fazla genel dizin taraması yapma. "
-        "İncelediğin dosyalardan ilk somut değişikliği seç ve uygula."
+        "hiç dosya değiştirmedin. Gerekli bağlamı topladıysan incelediğin "
+        "dosyalardan ilk somut değişikliği seç ve uygula. Bağlam eksikse "
+        "yalnız gerekli hedefli okumayı tamamla."
     )
-    if teacher_available:
+    if teacher_available and _teacher_stall_reason(state) is not None:
         note += (
             " Mimari karar veya doğrulama konusunda bir belirsizlik kaldıysa "
             "`ask_teacher` ile tek somut soru sor, cevabı değerlendir, ardından uygula."
@@ -3605,16 +4140,10 @@ def _has_teacher_plan(deps: AgentDeps) -> bool:
 def _plateau_reason(state: _State, deps: AgentDeps, *, exploration_note: str | None) -> str | None:
     """Otomatik öğretmen danışması için somut takılma nedeni; yoksa None.
 
-    Plan varken "okuma uzun sürdü" tek başına neden değildir: plan zaten ilk
-    adımı söyledi. Ölçüldü (29 Eylül, canlı): plan alındıktan 30 sn sonra bu
-    yüzden ikinci, genel bir öğretmen sorusu gidiyordu.
+    Başarılı yeni okumalar ilerlemedir. Çağrı sayısı ve henüz değişiklik
+    yapılmaması, plan olup olmamasından bağımsız olarak takılma kanıtı değildir.
     """
-    reason = _teacher_stall_reason(state)
-    if reason is not None:
-        return reason
-    if exploration_note and not _has_teacher_plan(deps):
-        return "okuma ve arama adımlarında ilerleme yok"
-    return None
+    return _teacher_stall_reason(state)
 
 
 def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None) -> str:
@@ -3637,8 +4166,8 @@ def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None)
             "şimdi hangi somut adımı atmalıyım? Kısa, uygulanabilir cevap ver."
         )
     return (
-        "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
-        "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
+        f"Bu görevde takıldım: {reason}. Görevi sürdürmek için şimdi hangi somut "
+        "adımı atmalı ve sonucu nasıl doğrulamalıyım? Kısa, uygulanabilir cevap ver."
     )
 
 
@@ -3663,6 +4192,14 @@ async def _consult_teacher_on_plateau(
     The task excerpt is bounded and redacted; source file contents are not copied
     into the brief. The existing ``teacherless`` setting disables the tool.
     """
+    phase_deadline = _automatic_phase_deadline(deps)
+    if deps.budget is not None and (remaining := deps.budget.remaining_s()) is not None:
+        phase_deadline = min(
+            phase_deadline, asyncio.get_running_loop().time() + max(0.0, remaining) / 4
+        )
+    if _phase_expired(phase_deadline):
+        _notify_phase_expired(deps)
+        return
     original_task = next(
         (
             message.content
@@ -3684,11 +4221,19 @@ async def _consult_teacher_on_plateau(
         arguments=json.dumps(args, ensure_ascii=False),
     )
     messages.append(Message("assistant", "", tool_calls=(call,)))
+    task = asyncio.current_task()
+    cancellation_count = task.cancelling() if task is not None else 0
     try:
-        async with asyncio.timeout(max(1.0, deps.config.runtime.request_timeout_s)):
+        async with asyncio.timeout_at(phase_deadline):
             result = await registry.execute("ask_teacher", args, deps.tool_context)
     except TimeoutError:
         result = ToolResult.failure("Öğretmen yanıtı süre sınırında tamamlanmadı.")
+    finally:
+        if task is not None and task.cancelling() > cancellation_count:
+            raise asyncio.CancelledError
+    if _phase_expired(phase_deadline):
+        _notify_phase_expired(deps)
+        result = ToolResult.failure("Otomatik öğretmen danışmasının süre bütçesi doldu.")
     state.tool_calls_made += 1
     state.tool_rounds += 1
     if not result.ok:
@@ -4127,9 +4672,17 @@ async def _run_tools(
         duplicate_limit = (
             1 if tool is not None and tool.mutating else execution.max_same_tool_without_change
         )
+        # Desktop observations can change independently of workspace/remote epochs
+        # (including after a rejected stale-element action). Re-read the live state;
+        # neither a cached fingerprint nor a cached screenshot is fresh evidence.
+        live_desktop_read = (
+            tool is not None
+            and not tool.mutating
+            and (tool_family(call.name) is ToolFamily.DESKTOP or call.name == "view_image")
+        )
         # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
-        if seen >= duplicate_limit:
+        if seen >= duplicate_limit and not live_desktop_read:
             # Engellenen yineleme, işin ZATEN YAPILDIĞININ kanıtıdır: düşen
             # çağrılar bu noktaya gelmeden unutulur (`forget_call`).
             state.already_done_calls += 1
@@ -4220,8 +4773,16 @@ async def _run_tools(
         pending_diff = file_diff(call.name, args, deps.tool_context)
         todos_before = tuple(deps.tool_context.todos.items)
         recorded_uses = len(state.tool_uses)
+        native_invocations: list[NativeRecoveryInvocation] = []
         result, outcome = await _execute(
-            call, args, deps, registry, execution=execution, plan_mode=plan_mode, state=state
+            call,
+            args,
+            deps,
+            registry,
+            execution=execution,
+            plan_mode=plan_mode,
+            state=state,
+            native_invocations=native_invocations,
         )
         repair_feedback = record_failure_evidence(result, budget)
         if result.is_observation:
@@ -4280,7 +4841,7 @@ async def _run_tools(
                 state.observation_calls += 1
             # Okuma sonucu turda saklanır: aynı okuma yinelenirse engel yerine
             # bu sonuç döner (bkz. tekrar kapısı).
-            if tool is not None and not tool.mutating:
+            if tool is not None and not tool.mutating and not live_desktop_read:
                 budget.remember_read(signature, result.output)
             if call.name in _FILE_READ_TOOLS:
                 state.successful_file_reads += 1
@@ -4296,12 +4857,22 @@ async def _run_tools(
                 if okunan:
                     state.nested_candidates.append(okunan)
             mutating = bool(tool is not None and tool.mutating)
-            budget.successful_tool_evidence.append((call.name, args, mutating))
+            # Connection metadata and server-authored instructions are not
+            # evidence that the user's requested service operation happened.
+            identity = tool.name if tool is not None else call.name
+            if identity not in DISCOVERY_METADATA_NAMES:
+                budget.successful_tool_evidence.append((identity, args, mutating))
+            if result.source_read_url:
+                budget.successful_source_reads.append(result.source_read_url)
+                budget.successful_source_read_scopes.append(
+                    (result.source_read_url, result.source_read_scope)
+                )
             if mutating and _acts_on_remote_state(call.name):
                 budget.remote_epoch += 1
             if mutating and not result.is_observation:
                 state.mutating_tool_calls_made += 1
                 state.failed_mutations_in_row = 0
+                state.last_failed_mutation_is_native = False
                 # Çağı yalnızca DOSYA değişikliği ilerletir. `run_shell` başarılı
                 # olduğunda da ilerletmek, aynı komutun tekrar imzasını her
                 # seferinde tazeliyor ve tekrar kapısını `run_shell` için işlevsiz
@@ -4326,6 +4897,9 @@ async def _run_tools(
                 if isinstance(istenen, str):
                     state.missing_paths.append(istenen)
             if tool is not None and tool.mutating:
+                state.last_failed_mutation_is_native = is_native_mutation(
+                    tool, remote=registry.is_remote(call.name)
+                )
                 state.failed_mutations_in_row += 1
                 # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:
                 # toparlanmanın tek yolu odur ve tekrar kapısı onu engelliyordu.
@@ -4396,34 +4970,101 @@ async def _run_tools(
         if post_hook.halt is not None:
             state.hook_halt = post_hook.halt
             budget.halt(BudgetStop.USER_DENIED)
+        native_stale_count = None
+        if native_invocations:
+            invocation = native_invocations[0]
+            native_stale_count = state.native_stale_recovery.observe(
+                invocation.tool,
+                invocation.arguments,
+                result,
+                outcome,
+                deps.tool_context,
+                remote=False,
+            )
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
-            not_ = _repeated_failure_note(
-                call.name,
-                result.output,
-                state.repeated_failures[imza],
-                teacher_available=(
-                    deps.config.teacher is not None and not deps.config.runtime.teacherless
-                ),
-            )
+            if native_stale_count is not None:
+                available = (
+                    _permitted(
+                        None,
+                        registry,
+                        execution,
+                        deps.tool_context.task_kinds,
+                        denied=surface_denied(deps, registry.names()),
+                    )
+                    or set()
+                )
+                not_ = (
+                    native_recovery_note(
+                        native_stale_count,
+                        {name for name in available if not registry.is_remote(name)},
+                    )
+                    if native_stale_count >= _YINELENEN_HATA_ESIGI
+                    else None
+                )
+            else:
+                not_ = _repeated_failure_note(
+                    call.name,
+                    result.output,
+                    state.repeated_failures[imza],
+                    teacher_available=(
+                        deps.config.teacher is not None and not deps.config.runtime.teacherless
+                    ),
+                )
             if not_ is not None:
                 govde = f"{govde}\n\n{not_}"
         gorseller = result.images
         if gorseller and not _agent_reads_images(deps):
             gorseller = ()
             govde = f"{govde}\n\n{IMAGES_NOT_SENT_NOTE}"
-        messages.append(
-            Message(
-                "tool",
-                govde,
-                tool_call_id=call.id,
-                name=call.name,
-                ok=result.ok,
-                images=gorseller,
-                tool_diff=diff,
-            )
+        message = Message(
+            "tool",
+            govde,
+            tool_call_id=call.id,
+            name=call.name,
+            ok=result.ok,
+            images=gorseller,
+            tool_diff=diff,
         )
+        messages.append(message)
+        # Semantic evidence must be the trusted reader body actually delivered
+        # to the actor. Hooks may withhold/replace it; their replacement is never
+        # promoted into a reader receipt. Operation observations remain separate.
+        if (
+            outcome is ToolOutcome.OK
+            and budget.research_required
+            and result.source_receipt is not None
+            and post_hook.replaced_output is None
+            and result.output
+            and result.output in govde
+            and result.source_receipt.text
+            and result.source_receipt.text in govde
+        ):
+            from .research_grounding import capture_source
+
+            contract = budget.research_contract
+            if contract is not None and (
+                contract.owner == deps.tool_context.job_scope
+                and deps.tool_context.delivery_contract.accepted == contract
+            ):
+                budget.research_sources.append(
+                    capture_source(result.source_receipt, contract, call.id)
+                )
+        if (
+            result.visual_observation is not None
+            and outcome is ToolOutcome.OK
+            and post_hook.replaced_output is None
+            and result.output
+            and result.output in govde
+        ):
+            state.desktop_grounding.note_helper(
+                result.visual_observation,
+                message,
+                deps.tool_context,
+                deps.conversation_id,
+                deps.attempt_id,
+            )
     return errored
 
 
@@ -4451,14 +5092,33 @@ async def _execute(
     execution: ExecutionPolicy,
     plan_mode: bool = False,
     state: _State | None = None,
+    native_invocations: list[NativeRecoveryInvocation] | None = None,
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     args = deepcopy(args)
+    if prohibited_tool(call.name, execution.forbidden_tool_families | deps.turn_forbidden_families):
+        return ToolResult.failure(
+            "Kullanıcının bu turdaki açık araç sınırı bu araç ailesine izin vermiyor. "
+            "İzin verilen gözlemlerle yanıtla; mümkün değilse sınırlamayı açıkla."
+        ), ToolOutcome.BLOCKED
     tool = registry.get(call.name)
-    if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
+    dynamic = surface_for(registry)
+    execution_names = (
+        _permitted(
+            None,
+            registry,
+            execution,
+            deps.tool_context.task_kinds,
+            denied=surface_denied(deps, registry.names()),
+            phase=deps.tool_context.tool_phase,
+        )
+        if dynamic is not None
+        else execution.allowed_tool_names
+    )
+    if execution_names is not None and call.name not in execution_names:
         # Serbest araçlar SÖYLENMELİ: gözlem turunda model yalnız "kapsamda değil"
         # cevabını görünce aynı yazma aracını başka argümanla yeniden deniyordu.
-        allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
+        allowed = ", ".join(sorted(execution_names)) or "yok"
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
         ), ToolOutcome.BLOCKED
@@ -4512,6 +5172,26 @@ async def _execute(
     if chrome_call is not None:
         call, args, rules = chrome_call
         tool = registry.get(call.name)
+    # Görülmemiş/eski koordinat için yerel hedef önizlemesi veya onay isteme.
+    # Bu erken kapı yalnız bellek içi kanıtı denetler; dosya içeriği ve nihai
+    # odak/kuşak denetimi onaydan sonra aşağıda yeniden yapılır.
+    if (
+        state is not None
+        and state.desktop_grounding.matching_release(
+            call.name, args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        is None
+    ):
+        grounding_error = state.desktop_grounding.preflight(
+            call.name,
+            args,
+            deps.tool_context,
+            deps.conversation_id,
+            deps.attempt_id,
+            check_content=False,
+        )
+        if grounding_error is not None:
+            return ToolResult.failure(grounding_error), ToolOutcome.BLOCKED
     if tool is not None and (
         tool.mutating
         or tool.effect_resolver is not None
@@ -4625,8 +5305,57 @@ async def _execute(
                 ToolResult.failure("Dış işlem başlamadan süre sınırı doldu."),
                 ToolOutcome.BLOCKED,
             )
+    owned_release = (
+        state.desktop_grounding.matching_release(
+            call.name, args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        if state is not None
+        else None
+    )
+    if state is not None and owned_release is None:
+        grounding_error = state.desktop_grounding.preflight(
+            call.name, args, deps.tool_context, deps.conversation_id, deps.attempt_id
+        )
+        if grounding_error is not None:
+            return ToolResult.failure(grounding_error), ToolOutcome.BLOCKED
+    # Hooks and approval can rewrite the target. Only dispatched, trusted native
+    # inputs enter recovery feedback; original model arguments are not evidence.
+    if (
+        native_invocations is not None
+        and tool is not None
+        and is_native_mutation(tool, remote=registry.is_remote(call.name))
+    ):
+        native_invocations.append(NativeRecoveryInvocation(tool, deepcopy(args)))
     deps.publisher.publish(ToolStarted(name=call.name, args=args, call_id=call.id))
-    result = await _execute_registered_tool(call, args, deps, registry, tool, state)
+    if state is not None and owned_release is not None:
+        from ...core.owned_thread import await_cancellable_thread
+
+        tool_running(deps, call.name, args, call.id)
+        result = await await_cancellable_thread(
+            state.desktop_grounding.release, owned_release.context.cancelled.set, owned_release
+        )
+        await localization.record_result(call, result, deps.tool_context)
+        _note_tool_use(
+            state,
+            call.name,
+            tool,
+            ok=result.ok,
+            arguments=args,
+            output=result.output,
+            call_id=call.id,
+        )
+    else:
+        observation_args = deepcopy(args)
+        result = await _execute_registered_tool(call, args, deps, registry, tool, state)
+        from ...core.tools import ToolEvidenceRole, resolved_evidence_role
+
+        if (
+            result.ok
+            and tool is not None
+            and resolved_evidence_role(tool, observation_args, result)
+            is ToolEvidenceRole.DATA_OBSERVATION
+        ):
+            budget.data_observations.append(DataObservation(tool.name, call.id))
     if recorder is not None and external:
         await recorder.finish(call.id, result.ok)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
@@ -4654,7 +5383,16 @@ async def _execute_registered_tool(
         else None
     )
     tool_running(deps, call.name, args, call.id)  # `duration_ms` onaydan sonra başlar
-    result = await registry.execute(call.name, args, deps.tool_context)
+    context = deps.tool_context
+    if state is not None and call.name in {"desktop_click", "desktop_mouse", "desktop_scroll"}:
+        context = state.desktop_grounding.mouse_context(
+            context, deps.conversation_id, deps.attempt_id
+        )
+    result = (
+        await registry.execute_registered(tool, args, context)
+        if tool is not None
+        else await registry.execute(call.name, args, context)
+    )
     await localization.record_result(call, result, deps.tool_context)
     if state is not None:
         after = await asyncio.to_thread(source_digest, deps.tool_context.root) if is_shell else ""
@@ -4834,6 +5572,20 @@ _REPEATED_READ_NOTE = (
 #: verildiği sanmaması için Fusion'ın kendi sesiyle işaretlenir.
 
 
+_SELF_REVIEW_FINALIZE_RESERVE_S = 1.0
+
+
+def _self_review_timeout(deps: AgentDeps) -> float | None:
+    remaining = []
+    if deps.deadline is not None:
+        remaining.append(deps.deadline.remaining_s())
+    if deps.budget is not None and (seconds := deps.budget.remaining_s()) is not None:
+        remaining.append(seconds)
+    # Optional feedback must leave time to publish the already measured result;
+    # neither this reserve nor the reviewer renews the actual hard deadline.
+    return max(0.0, min(remaining) - _SELF_REVIEW_FINALIZE_RESERVE_S) if remaining else None
+
+
 async def _self_review(
     task: str,
     outcome: AgentOutcome,
@@ -4843,19 +5595,26 @@ async def _self_review(
 ) -> AgentOutcome:
     from .evidence_handoff import current_diff
 
-    deps.publisher.publish(SelfReviewStarted())
-    feedback = await review.review_turn(
-        task,
-        outcome.final_text,
-        outcome.messages,
-        config=deps.config,
-        publisher=deps.publisher,
-        diff=await asyncio.to_thread(current_diff, deps)
-        if deps.config.runtime.review_diff_only
-        else "",
-        criteria=verification.evidence if verification else (),
-        failures=verification.findings if verification else (),
-    )
+    timeout = _self_review_timeout(deps)
+    feedback = None
+    if timeout is None or timeout > 0:
+        deps.publisher.publish(SelfReviewStarted())
+        try:
+            async with asyncio.timeout(timeout):
+                feedback = await review.review_turn(
+                    task,
+                    outcome.final_text,
+                    outcome.messages,
+                    config=deps.config,
+                    publisher=deps.publisher,
+                    diff=await asyncio.to_thread(current_diff, deps)
+                    if deps.config.runtime.review_diff_only
+                    else "",
+                    criteria=verification.evidence if verification else (),
+                    failures=verification.findings if verification else (),
+                )
+        except TimeoutError:
+            pass
     deps.publisher.publish(
         SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
     )
@@ -4876,6 +5635,7 @@ async def _self_review(
     correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
+    correction.verification_repaired = True
     return correction
 
 
@@ -4896,11 +5656,17 @@ async def _verify(
     eklendi — kullanıcının kodunda hiçbir şey değişmemişken. Kapının sorusu
     "bozdum mu"dur; hiçbir şeyi değiştirmeyen turda sorulacak bir soru yoktur.
     """
-    if deps.verifier is None or plan_mode or depth > 0:
+    if plan_mode or depth > 0:
         return None
+    mechanical = None
     if outcome.mutating_tool_calls_made == 0:
-        return None
-    return await deps.verifier.verify()
+        if deps.tool_context.requested_outputs:
+            mechanical = await OutputPathVerifier(deps.tool_context).verify()
+    elif deps.verifier is not None:
+        mechanical = await deps.verifier.verify()
+    from .research_grounding import finalize_grounding
+
+    return await finalize_grounding(outcome, deps, mechanical)
 
 
 async def _fix_findings(
@@ -4955,6 +5721,7 @@ async def _fix_findings(
     correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
+    correction.verification_repaired = True
     return correction
 
 
@@ -5037,7 +5804,7 @@ async def _run_verification_correction_attempt(
         history=history,
         self_review=False,
         internal=True,
-        require_local_mutation=True,
+        require_local_mutation=not task.startswith(CORRECTION_NOTE_PREFIX + " Kaynak"),
         # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
         verify=False,
     )
@@ -5109,12 +5876,6 @@ def _context_spec(deps: AgentDeps) -> ModelSpec:
     )
 
 
-def _effective_threshold(configured: int, deps: AgentDeps) -> int:
-    """Yapılandırılmış eşik ile hatadan öğrenilen eşiğin küçüğü."""
-    learned = deps.learned_compression_chars
-    return configured if learned is None else min(configured, learned)
-
-
 def _is_context_overflow(error: str | None) -> bool:
     from .context_budget import is_context_overflow
 
@@ -5158,13 +5919,11 @@ async def _compact_before_call(
     if deps.agent_transcript is not None:
         deps.agent_transcript.reset(messages)
     selected = _context_spec(deps)
-    from .context_budget import context_budget, fixed_prefix_cap
+    from .context_budget import compression_threshold, context_budget
 
     budget_spec = context_budget(deps.config, selected)
-    threshold = fixed_prefix_cap(
-        _effective_threshold(budget_spec.compression_chars, deps),
-        budget_spec.window_tokens,
-        len(messages[0].content) if messages and messages[0].role == "system" else 0,
+    threshold = compression_threshold(
+        budget_spec, messages, learned_chars=deps.learned_compression_chars
     )
     # Eşik, modelin GERÇEKTE göreceği (maskeli) görünüme göre ölçülür: maskeleme zaten
     # küçülttüyse geçmişi özetleyip bilgi kaybetmek gereksiz.
@@ -5206,9 +5965,13 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
     before = len(messages)
     await prepare_context(messages, deps)
     selected = _context_spec(deps)
-    from .context_budget import context_budget
+    from .context_budget import compression_threshold, context_budget
 
-    threshold = _effective_threshold(context_budget(deps.config, selected).compression_chars, deps)
+    threshold = compression_threshold(
+        context_budget(deps.config, selected),
+        messages,
+        learned_chars=deps.learned_compression_chars,
+    )
     compressed = await compact_context(messages, deps, threshold, between_turns=True)
     if deps.agent_transcript is not None:
         deps.agent_transcript.reset(compressed)
@@ -5291,7 +6054,17 @@ def _initial_messages(
             gecmis.insert(
                 0, Message("user", PROJECT_CONTEXT_HEADER + project_context, harness_note=True)
             )
-    return [Message("system", system), *gecmis, Message("user", task, images=images)]
+    return [
+        Message("system", system),
+        *gecmis,
+        Message(
+            "user",
+            task,
+            images=images,
+            harness_note=inherit_system
+            and any(message.role == "user" and not message.harness_note for message in gecmis),
+        ),
+    ]
 
 
 def _current_policy(deps: AgentDeps) -> ApprovalPolicy:

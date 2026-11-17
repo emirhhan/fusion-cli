@@ -40,6 +40,7 @@ from ..core.types import (
     TextChunk,
 )
 from ..core.web_provenance import WebCallContext, WebResponseProvenance
+from .credential_worker import resolve_credential
 
 _logger = logging.getLogger(__name__)
 
@@ -152,7 +153,9 @@ class WebProviderAdapter:
         tool_support: ToolSupport = ToolSupport.NONE,
         supports_images: bool = False,
         clock: Clock | None = None,
+        credential_factory: Callable[[], WebSessionCredential] | None = None,
     ) -> None:
+        self._credential_factory = credential_factory
         self._model = model
         self._credential = credential
         self._transport = transport
@@ -232,9 +235,9 @@ class WebProviderAdapter:
         except Exception:
             _logger.debug("web notu iletilemedi", exc_info=True)
 
-    def _call_transport(
+    async def _call_transport(
         self, request: CompletionRequest, messages: tuple[Message, ...]
-    ) -> Awaitable[WebTurn]:
+    ) -> WebTurn:
         """Taşımayı çağır; tur bağlamı yalnız doluysa geçirilir."""
         context = WebTurnContext(
             conversation_id=request.conversation_id,
@@ -243,9 +246,15 @@ class WebProviderAdapter:
             web_call_context=request.web_call_context,
             is_capture_probe=request.is_capture_probe,
         )
+        # Yedek adaptörünü kurmak, henüz kullanılmayan credential'ı okumak değildir.
+        credential = (
+            await resolve_credential(self._credential_factory)
+            if self._credential_factory
+            else self._credential
+        )
         if context.is_empty or not self._transport_takes_context:
-            return self._transport(self._credential, messages, self._model)
-        return self._transport(self._credential, messages, self._model, context=context)
+            return await self._transport(credential, messages, self._model)
+        return await self._transport(credential, messages, self._model, context=context)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         # Oturum tabanlı uçlar çoğu zaman akıtılamaz: tek seferde alınır, sonra parça

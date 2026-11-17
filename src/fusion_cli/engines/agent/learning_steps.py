@@ -11,20 +11,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable
+from contextlib import suppress
 from dataclasses import replace
+from pathlib import Path
 
 # Döngüsel import'tan kaçınmak için tip yalnızca kontrol anında içe alınır.
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...core.events import LessonsLearned, LessonsRecalled
-from ...core.lesson_runtime import HINT_LIMIT, LessonDelivery
+from ...core.lesson_runtime import LessonDelivery
 from ...core.mcp_tool_names import mcp_server_of
 from ...core.memory import Lesson, LessonKind, agent_lesson_tag
 from ...core.types import Message
 from ...core.verification import VerificationResult
 from . import learning, lesson_attribution
-from .verification import resolve_turn_success
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +62,17 @@ def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
     MCP sunucusu ayrı bir etikettir: bir MCP aracının kuralı, projenin türünden
     bağımsız olarak o sunucu bağlıyken geçerlidir.
     """
+    context = deps.tool_context
+    return _lesson_tags_for(context.root, tuple(context.available_tools), deps.lesson_owner)
+
+
+def _lesson_tags_for(root: Path, tools: tuple[str, ...], owner: str) -> tuple[str, ...]:
+    """Immutable scope inputs shared by manual and automatic reads."""
     from .verify_discovery import project_kinds
 
-    context = deps.tool_context
-    sunucular = {mcp_server_of(ad) for ad in context.available_tools} - {""}
-    # Kendi belleği olan alt ajanın dersi kişilik etiketi taşır (P-055): çıkarımda yazılır,
-    # geri çağırmada süzgeç olur (`core.memory.visible_to`).
-    owner = getattr(deps, "lesson_owner", "")
-    sahip = {agent_lesson_tag(owner)} if owner else set()
-    return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular), *sahip}))
+    servers = {mcp_server_of(name) for name in tools} - {""}
+    owners = {agent_lesson_tag(owner)} if owner else set()
+    return tuple(sorted({*project_kinds(root), *(f"mcp:{s}" for s in servers), *owners}))
 
 
 def recall_lessons(query: str, deps: AgentDeps, *, limit: int = RECALL_LIMIT) -> tuple[Lesson, ...]:
@@ -103,33 +107,18 @@ async def reinforce_recalled(
     plan_mode: bool,
     verification: VerificationResult | None = None,
 ) -> None:
-    """Bu turda hatırlanan derslerin güvenini turun sonucuna göre güncelle.
+    """Geri çağırma güven üretmez; yalnız ilişkili ve doğrulanmış kullanım pekişir.
 
-    Tur başarısı: model temiz bitti, adım sınırına dayanılmadı ve (doğrulama kapısı
-    devredeyse) kapı geçti. Böylece "doğrulamadan bitirme" gibi kurallar dekoratif
-    kalmaz, gerçekten uygulanır. Aynı ders turda iki kez istendiyse bir kez
-    pekiştirilir.
-
-    `verification` DIŞARIDAN gelir: kapı tur başına bir kez çalışır ve aynı sonuç hem
-    modele düzeltme talimatı olur hem buraya sinyal olarak düşer.
+    Aynı kök turun operasyon/kriter bağları lesson_state içinde tutulur.
+    Salt başarılı kapanış, okunan web içeriği veya prose kullanım beyanı yeterli değildir.
     """
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
-    if deps.config.runtime.lesson_attributed_feedback:
-        lesson_attribution.settle(outcome, deps)
+    if plan_mode:
         return
-    if plan_mode or not deps.recalled_lessons:
-        return
-    success = resolve_turn_success(
-        outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
-    )
-    texts = tuple(dict.fromkeys(lesson.text for lesson in deps.recalled_lessons))
-    deps.recalled_lessons.clear()
-    if success and learning.reads_external_content(outcome.tool_uses):
-        # Dış içerik okunan başarılı tur "dış kaynaklı" dersi doğrulamaz (MINJA).
-        deps.lessons.reinforce(texts, success=True, external_turn=True)
-    else:
-        deps.lessons.reinforce(texts, success=success)
+    # Retrieval is exposure, not operational use. The same proof contract applies
+    # with attribution telemetry disabled; outcome.ok alone cannot reward memory.
+    lesson_attribution.settle(outcome, deps)
 
 
 def should_learn(outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True) -> bool:
@@ -186,7 +175,9 @@ async def learn(
     if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
-    external = learning.reads_external_content(outcome.tool_uses)
+    external = learning.reads_external_content(outcome.tool_uses) or bool(
+        getattr(deps, "mcp_external_content", False)
+    )
     verification = deps.lesson_state.verification if deps.lesson_state else None
     work = _bounded(
         _extract_and_store(
@@ -245,28 +236,27 @@ async def _extract_and_store(
     lessons = tuple(
         replace(lesson, source_split=deps.lesson_context.policy.source_split) for lesson in lessons
     )
-    if deps.config.runtime.lesson_attributed_feedback:
-        from ...core.evidence import EvidenceStatus
+    from ...core.evidence import EvidenceStatus
 
-        refs = (
-            tuple(
-                item.criterion_id
-                for item in verification.evidence
-                if item.status is EvidenceStatus.PASSED and item.applicable
-            )
-            if verification
-            else ()
+    refs = (
+        tuple(
+            item.criterion_id
+            for item in verification.evidence
+            if item.status is EvidenceStatus.PASSED and item.applicable
         )
-        is_verified = bool(
-            verification and verification.ok and not verification.failure_evidence and refs
-        )
-        lessons = tuple(
-            replace(lesson, verified_at=str(deps.clock.now()), evidence_refs=refs)
-            if lesson.kind is LessonKind.SUCCESS
-            else lesson
-            for lesson in lessons
-            if lesson.kind is not LessonKind.SUCCESS or is_verified
-        )
+        if verification
+        else ()
+    )
+    is_verified = bool(
+        verification and verification.ok and not verification.failure_evidence and refs
+    )
+    lessons = tuple(
+        replace(lesson, verified_at=str(deps.clock.now()), evidence_refs=refs)
+        if lesson.kind is LessonKind.SUCCESS
+        else lesson
+        for lesson in lessons
+        if lesson.kind is not LessonKind.SUCCESS or is_verified
+    )
     if external:
         lessons = learning.mark_external(
             lessons, getattr(deps.config.runtime, "external_lesson_confidence", 0.5)
@@ -278,6 +268,7 @@ async def _extract_and_store(
         lessons,
         existing,
         has_evidence=learning.has_measurable_evidence(messages),
+        has_failure_evidence=any(m.role == "tool" and m.ok is False for m in messages),
     )
     # Ders görev-türü kapsamı olmadan (genel) saklanır: tür artık hesaplanmıyor.
     # Proje ve teknoloji süzgeci `workspace` ve `tags` ile zaten korunuyor.
@@ -298,15 +289,132 @@ async def _extract_and_store(
         deps.publisher.publish(LessonsLearned(count=stored, external=stored if external else 0))
 
 
-def recall_hints(task: str, deps: AgentDeps) -> str:
-    """Açık bayrakla en fazla iki dersi gerçek isteme sun."""
-    if not deps.config.runtime.lesson_recall_hints:
-        return ""
-    from ...memory.lessons import as_prompt_block
+def _hint_remaining_s(deps: AgentDeps) -> float | None:
+    limits = []
+    if deps.deadline is not None:
+        limits.append(deps.deadline.remaining_s())
+    if deps.budget is not None and (remaining := deps.budget.remaining_s()) is not None:
+        limits.append(remaining)
+    return min(limits) if limits else None
 
-    lessons = recall_lessons(task, deps, limit=HINT_LIMIT)[:HINT_LIMIT]
-    lesson_attribution.offer(lessons, deps, LessonDelivery.HINT)
-    return as_prompt_block(lessons)
+
+async def recall_hints(task: str, deps: AgentDeps) -> str:
+    """Emit one private terminal outcome on the owning loop; diagnostics are optional."""
+    from ...core.events import AutomaticRecallDiagnostic
+
+    started = time.monotonic()
+    diagnostic: dict[str, Any] = {"status": "error", "phase": "gate", "memory_kind": "other"}
+    # No dynamic class names, store attributes, initialization or backend calls.
+    with suppress(Exception):
+        from ...memory.lessons import ChromaLessonMemory
+        from ...memory.null import NullLessonMemory
+
+        memory = deps.lessons
+        diagnostic["memory_kind"] = (
+            "none"
+            if memory is None
+            else "chroma"
+            if isinstance(memory, ChromaLessonMemory)
+            else "null"
+            if isinstance(memory, NullLessonMemory)
+            else "other"
+        )
+    try:
+        return await _recall_hints(task, deps, diagnostic)
+    except asyncio.CancelledError:
+        diagnostic["status"] = "cancelled"
+        raise
+    finally:
+        # A diagnostic observer cannot suppress a usable hint or cancellation.
+        with suppress(Exception):
+            deps.publisher.publish(
+                AutomaticRecallDiagnostic(
+                    **diagnostic,
+                    elapsed_ms=max(0, min(86_400_000, int((time.monotonic() - started) * 1000))),
+                )
+            )
+
+
+async def _recall_hints(task: str, deps: AgentDeps, diagnostic: dict[str, Any]) -> str:
+    """Offer timely automatic hints only on their owning attempt's event loop."""
+    if not deps.config.runtime.lessons:
+        diagnostic["status"] = "disabled_lessons"
+        return ""
+    if not deps.config.runtime.lesson_recall_hints:
+        diagnostic["status"] = "disabled_hints"
+        return ""
+    if deps.lessons is None:
+        diagnostic["status"] = "no_memory"
+        return ""
+    from .automatic_recall import RecallRequest, retrieve
+
+    remaining = _hint_remaining_s(deps)
+    if remaining is not None and remaining <= 0:
+        diagnostic["status"] = "exhausted_budget"
+        return ""
+    attempt = deps.attempt_id
+    cursor = deps.original_cursor
+    cursor_turn_id = cursor.turn_id
+    state = deps.lesson_state
+    context = deps.tool_context
+    try:
+        result = await retrieve(
+            RecallRequest(
+                deps.lessons,
+                task,
+                context.root,
+                tuple(context.available_tools),
+                deps.lesson_owner,
+                lesson_attribution.recall_policy(deps),
+            ),
+            max_wait_s=remaining,
+            diagnostic=diagnostic,
+        )
+    except Exception as error:
+        from ...memory.store import _diagnostic_error_class
+
+        diagnostic.update(status="error", error_class=_diagnostic_error_class(error))
+        logger.debug("Otomatik ders ipucu atlandı (%s).", type(error).__name__)
+        return ""
+    diagnostic.update(result.diagnostic)
+    if not result.block or not result.lessons:
+        return ""
+    if (
+        deps.attempt_id != attempt
+        or deps.original_cursor is not cursor
+        or cursor.turn_id != cursor_turn_id
+        or deps.lesson_state is not state
+    ):
+        diagnostic["status"] = "stale_owner"
+        return ""
+    if (remaining := _hint_remaining_s(deps)) is not None and remaining <= 0:
+        diagnostic["status"] = "exhausted_budget"
+        return ""
+    recalled_count = len(deps.recalled_lessons)
+    offered = dict(state.offered) if state is not None else {}
+    try:
+        deps.recalled_lessons.extend(result.lessons)
+        deps.publisher.publish(
+            LessonsRecalled(
+                count=len(result.lessons),
+                lesson_ids=tuple(lesson.id for lesson in result.lessons if lesson.id),
+            )
+        )
+        lesson_attribution.offer(result.lessons, deps, LessonDelivery.HINT)
+    except Exception as error:
+        # An optional observer cannot abort the actor or leave phantom feedback candidates.
+        del deps.recalled_lessons[recalled_count:]
+        if state is not None:
+            state.offered.clear()
+            state.offered.update(offered)
+        deps.lesson_state = state
+        from ...memory.store import _diagnostic_error_class
+
+        diagnostic.update(status="offer_error", error_class=_diagnostic_error_class(error))
+        logger.debug("Otomatik ders bildirimi atlandı (%s).", type(error).__name__)
+        return ""
+    diagnostic["status"] = "offered"
+    return result.block
 
 
 async def finish_learning(

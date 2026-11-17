@@ -188,6 +188,7 @@ def _snippet_provider(config: Config) -> SnippetProvider:
     """Ek madde öneren GERÇEK model sağlayıcısı (testte değiştirilir)."""
     from prompt_opt.model_provider import ModelSnippetProvider
 
+    from ..config.model_lookup import configured_model_specs
     from ..providers.factory import build_provider
     from ..providers.web_registry import web_registry_for
 
@@ -198,6 +199,7 @@ def _snippet_provider(config: Config) -> SnippetProvider:
         retry_delays_s=runtime.retry_delays_s,
         background=True,
         web_sessions=web_registry_for(config),
+        model_specs=configured_model_specs(config),
     )
     return ModelSnippetProvider(
         provider,

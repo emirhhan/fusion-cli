@@ -276,3 +276,24 @@ def test_ilgi_secimi_bos_gorevde_deterministiktir_ve_gecersiz_stratejiyi_reddede
         narrow_to_compact_surface(
             set(registry.names()), registry, **arguments, external_tool_selection="unknown"
         )
+
+
+async def test_explicit_remote_does_not_consume_recent_search_slot():
+    from fusion_cli.engines.agent.tool_surface import narrow_to_compact_surface
+    from fusion_cli.tools.tool_search import TOOL_SEARCH, ToolSearchMode
+    from tests.test_mcp_tool_search import _ara, _Arac, _defter
+
+    registry = await _defter(
+        ToolSearchMode(True), _Arac("explicit"), _Arac("default"), _Arac("loaded")
+    )
+    await _ara(registry, {"query": "select:mcp__gh__loaded"})
+    kept = narrow_to_compact_surface(
+        set(registry.names()),
+        registry,
+        max_external_tools=1,
+        task_kinds=(),
+        explicit={"mcp__gh__explicit"},
+        external_tool_selection="relevance",
+        task="default",
+    )
+    assert kept == {TOOL_SEARCH, "mcp__gh__explicit", "mcp__gh__loaded"}

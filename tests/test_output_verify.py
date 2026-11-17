@@ -67,11 +67,11 @@ async def test_istenen_yerde_varsa_gecer(tmp_path: Path, monkeypatch):
     assert (await OutputPathVerifier(context).verify()).ok
 
 
-async def test_hicbir_sey_yazilmadiysa_soz_soylemez(tmp_path: Path):
+async def test_acik_teslim_istenmisse_hicbir_sey_yazilmamasi_eksik_ciktiyi_gizlemez(tmp_path: Path):
     context = ToolContext(root=tmp_path)
     context.requested_outputs.add("out/video.mp4")
 
-    assert (await OutputPathVerifier(context).verify()).ok
+    assert not (await OutputPathVerifier(context).verify()).ok
 
 
 def test_ffmpeg_siyah_bolum_ciktisi_okunur():

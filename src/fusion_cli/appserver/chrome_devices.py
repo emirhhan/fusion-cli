@@ -86,6 +86,11 @@ class BrowserDevices:
         chosen = next((d for d in alive if d.device_id == self.selected), None)
         if chosen is not None:
             return chosen
+        if self.selected is not None:
+            raise BrowserChoiceRequiredError(
+                "Seçili tarayıcı bağlantısı koptu. Başka tarayıcıya işlem gönderilmedi. "
+                "Yeniden bağlan veya select_browser ile kullanıcı seçimini güncelle."
+            )
         if len(alive) > 1:
             names = ", ".join(f"{d.name} ({d.device_id})" for d in alive)
             raise BrowserChoiceRequiredError(
@@ -107,7 +112,7 @@ class BrowserDevices:
         """Claude `list_connected_browsers` biçimi."""
         alive = self.connected()
         in_use = self.selected if any(d.device_id == self.selected for d in alive) else None
-        if in_use is None and len(alive) == 1:
+        if self.selected is None and len(alive) == 1:
             in_use = alive[0].device_id
         return [
             {
@@ -124,10 +129,16 @@ class BrowserDevices:
         loop = asyncio.get_running_loop()
         if self._switch is None or self._switch.done():
             self._switch = loop.create_future()
+        waiting = self._switch
         try:
-            return await asyncio.wait_for(asyncio.shield(self._switch), wait_s)
+            return await asyncio.wait_for(asyncio.shield(waiting), wait_s)
         except TimeoutError:
             return None
+        finally:
+            if self._switch is waiting:
+                self._switch = None
+                if not waiting.done():
+                    waiting.cancel()
 
     def close(self) -> None:
         for device in self._devices.values():

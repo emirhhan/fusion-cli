@@ -30,8 +30,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
+from weakref import WeakKeyDictionary
 
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from .registry import ToolRegistry
@@ -40,6 +41,9 @@ __all__ = [
     "TOOL_SEARCH",
     "ToolSearchMode",
     "ToolSearchState",
+    "bind_tool_search",
+    "prioritize_tools",
+    "prioritized_tool_names",
     "refresh_tool_search",
     "tool_search_mode",
     "tool_search_state",
@@ -112,6 +116,8 @@ class ToolSearchState:
     upfront_limit: int = 4096
     deferrable: dict[str, str] = field(default_factory=dict)
     loaded: set[str] = field(default_factory=set)
+    recent: list[str] = field(default_factory=list)
+    result_limit: int = 12
     #: `auto` kipinde eşik bir kez aşıldı mı (aşıldıysa arama açık kalır).
     latched: bool = False
 
@@ -139,21 +145,34 @@ class ToolSearchState:
         if not pending:
             return set()
         if self.mode.threshold_pct is not None and not self.latched:
-            size = sum(_definition_chars(registry.get(name)) for name in self.deferrable)
+            size = sum(_definition_chars(registry.get(name)) for name in pending)
             budget = (context_tokens() or DEFAULT_CONTEXT_TOKENS) * self.mode.threshold_pct / 100
             if size / _CHARS_PER_TOKEN < budget:
                 return set()
             self.latched = True
         return pending - self.loaded
 
-    def search(self, query: str, registry: ToolRegistry, limit: int) -> list[Tool]:
+    def search(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        limit: int,
+        *,
+        permitted: Collection[str] | None = None,
+    ) -> list[Tool]:
         """`select:A,B` birebir seçer; aksi halde ad ve açıklamada sözcük arar (`+x` şart)."""
-        tools = [tool for name in self.deferrable if (tool := registry.get(name)) is not None]
+        tools = [
+            tool
+            for name in self.deferrable
+            if (permitted is None or name in permitted) and (tool := registry.get(name)) is not None
+        ]
         text = query.strip()
         if text.lower().startswith("select:"):
             wanted = [part.strip() for part in text[len("select:") :].split(",") if part.strip()]
             by_name = {tool.name.lower(): tool for tool in tools}
-            return [by_name[name.lower()] for name in wanted if name.lower() in by_name]
+            return [
+                by_name[name.lower()] for name in dict.fromkeys(wanted) if name.lower() in by_name
+            ][:limit]
         terms = [term.lower() for term in text.split() if term.strip("+")]
         required = [term[1:] for term in terms if term.startswith("+")]
         optional = [term.lstrip("+") for term in terms]
@@ -174,6 +193,30 @@ def _definition_chars(tool: Tool | None) -> int:
     if tool is None:
         return 0
     return len(json.dumps(tool.schema(), ensure_ascii=False))
+
+
+_SELECTION_ORDER: WeakKeyDictionary[ToolRegistry, list[str]] = WeakKeyDictionary()
+
+
+def prioritize_tools(registry: ToolRegistry, names: Iterable[str]) -> None:
+    """Prioritize real selected definitions, independently of schema deferral.
+
+    This only orders names that are already registered. Permission and count
+    projections still run before schemas or executors are exposed.
+    """
+    selected = [name for name in dict.fromkeys(names) if registry.get(name) is not None]
+    prior = _SELECTION_ORDER.get(registry, [])
+    recent = (selected + [name for name in prior if name not in selected])[:12]
+    _SELECTION_ORDER[registry] = recent
+    state = tool_search_state(registry)
+    if state is not None:
+        state.recent = list(recent)
+
+
+def prioritized_tool_names(registry: ToolRegistry) -> tuple[str, ...]:
+    state = tool_search_state(registry)
+    names = _SELECTION_ORDER.get(registry, state.recent if state is not None else [])
+    return tuple(name for name in names if registry.get(name) is not None)
 
 
 def tool_search_state(registry: ToolRegistry) -> ToolSearchState | None:
@@ -213,24 +256,49 @@ def refresh_tool_search(registry: ToolRegistry, state: ToolSearchState) -> None:
     _register(registry, state)
 
 
+def bind_tool_search(registry: ToolRegistry, permitted: Callable[[], set[str]]) -> None:
+    """Bind metadata to this active registry, including later MCP publication."""
+    registry._tool_search_permitted = permitted
+    state = tool_search_state(registry)
+    if state is not None:
+        refresh_tool_search(registry, state)
+
+
+def _admitted(registry: ToolRegistry) -> set[str] | None:
+    callback = registry._tool_search_permitted
+    if callback is None:
+        return None  # Standalone library use has no engine authority projection.
+    try:
+        names = callback()
+    except Exception:
+        # Metadata must fail closed without disclosing exception/configuration data.
+        return set()
+    return names if TOOL_SEARCH in names else set()
+
+
 def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         del context
         query = str(args.get("query") or "").strip()
         if not query:
             return ToolResult.failure("'query' gerekli: `select:Ad1,Ad2` ya da anahtar sözcükler.")
-        limit = _max_results(args.get("max_results"))
-        found = state.search(query, registry, limit)
+        limit = min(_max_results(args.get("max_results")), state.result_limit)
+        found = state.search(query, registry, limit, permitted=_admitted(registry))
+        # The callback is fresh; never publish or activate a just-revoked candidate.
+        admitted = _admitted(registry)
+        found = [tool for tool in found if admitted is None or tool.name in admitted]
         if not found:
             return ToolResult(output="Eşleşen ertelenmiş araç yok.")
         state.loaded.update(tool.name for tool in found)
+        selected = [tool.name for tool in found]
+        prioritize_tools(registry, selected)
         return ToolResult(output=_functions_block(found))
 
     _run.tool_search_state = state  # type: ignore[attr-defined]
     registry.register_or_replace(
         Tool(
             name=TOOL_SEARCH,
-            description=_description(state),
+            description=_description(state, _admitted(registry)),
             parameters={
                 "type": "object",
                 "properties": {
@@ -257,11 +325,13 @@ def _register(registry: ToolRegistry, state: ToolSearchState) -> None:
 def _max_results(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int | float) or value < 1:
         return DEFAULT_MAX_RESULTS
-    return int(value)
+    return min(int(value), 12)
 
 
-def _description(state: ToolSearchState) -> str:
-    names = ", ".join(sorted(state.deferrable))
+def _description(state: ToolSearchState, permitted: Collection[str] | None = None) -> str:
+    names = ", ".join(
+        sorted(name for name in state.deferrable if permitted is None or name in permitted)
+    )
     return (
         "Ertelenmiş MCP araçlarının tam şemasını yükler. Aşağıdaki araçların yalnız adı "
         "biliniyor; çağırmadan önce bu araçla yükle (`select:<ad>` ya da anahtar sözcük). "

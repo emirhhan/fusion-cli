@@ -1,7 +1,6 @@
-"""Chrome site izni kartının seçenek adları (#435): CLI, TUI ve masaüstü aynı metni gösterir.
+"""Site izni seçenekleri bütün yüzeylerde eylem, oturum ve kalıcı kapsamı ayırır.
 
-Claude in Chrome: "Allow this action" (bir kez), "Always allow actions on this site" (CLI'de
-oturum boyu), "Decline". Ad Claude'unki, parantez içi Türkçe açıklama.
+Chrome site izni oturumluk, yerleşik Browser site izni kalıcıdır.
 """
 
 from __future__ import annotations
@@ -11,18 +10,18 @@ from dataclasses import replace
 from ..engines.agent.approval import ApprovalRequest
 from .picker import Choice
 
-SITE_ONCE = "Allow this action"
+SITE_ONCE = "Yalnız bu eyleme izin ver"
 SITE_ONCE_DESC = "yalnız bu eylem"
-SITE_SESSION = "Always allow actions on this site"
+SITE_SESSION = "Bu oturumda bu siteye izin ver"
 SITE_SESSION_SHORT = "{host} sitesinde bu oturum boyunca"
-SITE_DENY = "Decline"
+SITE_DENY = "Reddet"
 SITE_DENY_DESC = "bu eylem yapılmaz"
 #: Yerleşik Browser bölmesi (#439): Allow once / Always allow / Deny.
-BUILTIN_ONCE = "Allow once"
-BUILTIN_SESSION = "Always allow"
-BUILTIN_DENY = "Deny"
+BUILTIN_ONCE = "Yalnız bu kez izin ver"
+BUILTIN_SESSION = "Bu siteye kalıcı izin ver"
+BUILTIN_DENY = "Reddet"
 #: Düz terminal ipucu (`o` oturum iznidir).
-SITE_SESSION_HINT = "o = Always allow actions on this site ({host}, bu oturum)"
+SITE_SESSION_HINT = "o = {host} sitesine bu oturum boyunca izin ver"
 
 
 def site_host(request: ApprovalRequest) -> str | None:
@@ -40,7 +39,10 @@ def relabel_choices(request: ApprovalRequest, choices: list[Choice]) -> list[Cho
     once, session, deny = _labels(request)
     names = {
         "once": (once, SITE_ONCE_DESC),
-        "session": (session, SITE_SESSION_SHORT.format(host=host)),
+        "session": (
+            session,
+            request.remembered_scope_description or SITE_SESSION_SHORT.format(host=host),
+        ),
         "deny": (deny, SITE_DENY_DESC),
     }
     relabeled = []
@@ -77,3 +79,14 @@ def _labels(request: ApprovalRequest) -> tuple[str, str, str]:
     if site is not None and site.builtin:
         return BUILTIN_ONCE, BUILTIN_SESSION, BUILTIN_DENY
     return SITE_ONCE, SITE_SESSION, SITE_DENY
+
+
+def site_session_hint(request: ApprovalRequest) -> str:
+    """CLI kısayolu da yerleşik Browser kalıcılığını oturumluk diye sunmaz."""
+    host = site_host(request)
+    if host is None:
+        return ""
+    site = request.chrome_site
+    if site is not None and site.builtin:
+        return f"o = {host} sitesine kalıcı izin ver (yerleşik Browser)"
+    return SITE_SESSION_HINT.format(host=host)

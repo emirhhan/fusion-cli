@@ -13,6 +13,7 @@ from pathlib import Path
 
 from evals.candidate_metrics import CandidateMetrics
 from evals.execution import ModelCallIdentity
+from evals.interactions import InteractionMetrics
 from evals.metrics import RunReport, TaskResult
 from evals.profiles import RunMetadata
 from evals.research_contracts import parse_execution_ids, parse_task_budgets
@@ -31,6 +32,9 @@ def _result_to_dict(result: TaskResult) -> dict[str, object]:
         "duration_seconds": result.duration_seconds,
         "stable": result.kararli,
         "false_success": result.false_success,
+        "rate_limited": result.rate_limited,
+        "rate_limit_detail": result.rate_limit_detail,
+        "interactions": None if result.interactions is None else asdict(result.interactions),
     }
 
 
@@ -139,6 +143,9 @@ def _result_from_dict(item: object) -> TaskResult:
         model_calls=int(item["model_calls"]),
         duration_seconds=float(item["duration_seconds"]),
         false_success=bool(item.get("false_success", False)),
+        rate_limited=bool(item.get("rate_limited", False)),
+        rate_limit_detail=str(item.get("rate_limit_detail", "")),
+        interactions=_interactions_from_dict(item.get("interactions")),
     )
 
 
@@ -255,3 +262,14 @@ def _required_count(value: object) -> int:
     if count is None or count < 0:
         raise ValueError("Aday sayacı pozitif veya sıfır tam sayı olmalı.")
     return count
+
+
+def _interactions_from_dict(value: object) -> InteractionMetrics | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get("mode") != "headless_policy":
+        raise ValueError("Etkileşim ölçümü headless_policy nesnesi olmalı.")
+    return InteractionMetrics(
+        approval_requests=_required_count(value["approval_requests"]),
+        repeated_requests=_required_count(value["repeated_requests"]),
+    )
