@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from .auto_policy import command_words, is_read_only_command, written_files
 from .write_targets import write_targets
@@ -134,13 +134,16 @@ def _protected_hit(raw: str, root: Path, base: Path | None = None) -> str | None
     if not text or text.startswith(("-", "$")):
         return None
     try:
-        absolute = _resolve(text, base or root)
-        relative = os.path.relpath(os.path.normpath(absolute), os.path.normpath(root))
+        absolute = Path(os.path.normpath(_resolve(text, base or root).absolute()))
+        normalized_root = Path(os.path.normpath(root.absolute()))
     except (OSError, RuntimeError, ValueError):
         return None
-    inside = not relative.startswith("..")
-    posix = PurePosixPath(relative if inside else os.path.normpath(absolute)).as_posix().lower()
-    return protected_hit(posix)
+    target = (
+        absolute.relative_to(normalized_root)
+        if absolute.is_relative_to(normalized_root)
+        else absolute
+    )
+    return protected_hit(target.as_posix().lower())
 
 
 def protected_hit(posix: str) -> str | None:

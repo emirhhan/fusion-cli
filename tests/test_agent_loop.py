@@ -245,8 +245,9 @@ async def test_hazirlik_bosta_kalma_penceresini_yese_de_model_cagrisi_kesilmez(
     deps.budget = agent_loop._new_budget(deps.config)
     deps.budget.total_timeout_s = 5.0
     deps.budget.idle_timeout_s = 0.1
-    # Hazırlığın boşta-kalma penceresinin neredeyse tamamını yediği an.
-    deps.budget._last_progress_at -= 0.09
+    # Hazırlık süresini CI çalıştırıcısının hızından bağımsız olarak 90 ms ilerlet.
+    after_preparation = deps.budget._last_progress_at + 0.09
+    monkeypatch.setattr(deps.budget.clock, "monotonic", lambda: after_preparation)
 
     result = await asyncio.wait_for(run_agent("devam et", deps, chat_mode=True), timeout=2)
 

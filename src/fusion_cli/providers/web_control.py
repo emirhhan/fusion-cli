@@ -25,6 +25,7 @@ from ..config.keys import environ_snapshot
 from ..config.models import Config, WebSessionConfig
 from ..core.clock import SystemClock
 from ..core.constants import TOOL_MEASURE_STALE_S
+from ..core.process_liveness import process_alive as probe_process_alive
 from ..core.protocols import Clock
 from ..core.types import ModelSpec
 from ..core.window_mode import WindowMode
@@ -158,14 +159,9 @@ def process_alive(pid: int) -> bool:
         return process.poll() is None
 
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
+        return probe_process_alive(pid) is not False
     except OSError:
         return False
-    return True
 
 
 def login_exit_code(pid: int) -> int | None:

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ImageCreate } from "./ImageCreate";
 import { ImageJobJournal } from "./imageJobJournal";
@@ -23,8 +23,10 @@ it("yeni backend yeteneğinde legacy üretim yerine kimliği önceden kaydedilmi
     expect(journal.read()).toContain(data.requestId);
     return result(String(data.requestId));
   });
-  render(<ImageCreate client={client} jobScope="scope" toUrl={(path) => path} />);
-  await waitFor(() => expect((screen.getByRole("button", { name: "Görsel oluştur" }) as HTMLButtonElement).disabled).toBe(false));
+  await act(async () => {
+    render(<ImageCreate client={client} jobScope="scope" toUrl={(path) => path} />);
+  });
+  expect((screen.getByRole("button", { name: "Görsel oluştur" }) as HTMLButtonElement).disabled).toBe(false);
   fireEvent.change(screen.getByLabelText("Nasıl bir görsel istiyorsun?"), { target: { value: "deneme" } });
   fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
   expect(await screen.findByRole("img", { name: "deneme" })).toBeTruthy();

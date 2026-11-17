@@ -154,6 +154,8 @@ impl TerminalManager {
             .lock()
             .unwrap()
             .insert(terminal_id.clone(), Arc::clone(&terminal));
+        #[cfg(windows)]
+        close_conpty_after_child_exit(Arc::clone(&terminal));
         forward_output(
             terminal_id.clone(),
             reader,
@@ -417,6 +419,39 @@ fn event_worker(
     sender
 }
 
+#[cfg(windows)]
+fn close_conpty_after_child_exit(terminal: Arc<ManagedTerminal>) {
+    use std::os::windows::io::{AsRawHandle, BorrowedHandle, RawHandle};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn WaitForSingleObject(handle: RawHandle, milliseconds: u32) -> u32;
+    }
+    const INFINITE: u32 = u32::MAX;
+    const WAIT_OBJECT_0: u32 = 0;
+
+    let process = terminal.child.lock().unwrap().as_ref().and_then(|child| {
+        let handle = child.as_raw_handle()?;
+        // SAFETY: The locked child owns the handle until this duplicate is made.
+        unsafe { BorrowedHandle::borrow_raw(handle) }
+            .try_clone_to_owned()
+            .ok()
+    });
+    let Some(process) = process else {
+        return;
+    };
+
+    // ConPTY can keep its output pipe open after the shell exits. Close the
+    // console so the reader can drain its final bytes and then report the exit.
+    std::thread::spawn(move || {
+        // SAFETY: The owned process handle stays valid throughout this wait.
+        if unsafe { WaitForSingleObject(process.as_raw_handle(), INFINITE) } == WAIT_OBJECT_0 {
+            let master = terminal.master.lock().unwrap().take();
+            drop(master);
+        }
+    });
+}
+
 fn forward_output(
     id: String,
     mut reader: Box<dyn std::io::Read + Send>,
@@ -562,8 +597,7 @@ fn shell_candidates() -> Vec<String> {
 mod tests {
     use super::{
         claim_explicit_terminal, close_terminal, event_worker, forward_output, queue_closed_once,
-        wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap,
-        TerminalOutput,
+        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
     };
     use portable_pty::{
         native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, PtySize,
@@ -615,6 +649,18 @@ mod tests {
                 })),
             )
             .unwrap();
+        #[cfg(windows)]
+        {
+            wait_for_bytes(CURSOR_QUERY, OUTPUT_TIMEOUT, || {
+                alinan.lock().unwrap().clone()
+            });
+            manager
+                .write(&snapshot.terminal_id, CURSOR_RESPONSE.to_vec())
+                .unwrap();
+            wait_for_bytes(b"> ", POWERSHELL_START_TIMEOUT, || {
+                alinan.lock().unwrap().clone()
+            });
+        }
         manager
             .write(&snapshot.terminal_id, print_command("fusion-raw-kanal"))
             .unwrap();
@@ -714,16 +760,28 @@ mod tests {
         (manager, outputs, closed)
     }
 
+    const OUTPUT_TIMEOUT: Duration = Duration::from_secs(5);
+    #[cfg(windows)]
+    const POWERSHELL_START_TIMEOUT: Duration = Duration::from_secs(20);
+
+    fn terminal_output(outputs: &OutputLog, id: &str) -> Vec<u8> {
+        outputs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| event.terminal_id == id)
+            .flat_map(|event| event.data.iter().copied())
+            .collect()
+    }
+
     fn wait_for_output(outputs: &OutputLog, id: &str, needle: &[u8]) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        wait_for_bytes(needle, OUTPUT_TIMEOUT, || terminal_output(outputs, id));
+    }
+
+    fn wait_for_bytes(needle: &[u8], timeout: Duration, read: impl Fn() -> Vec<u8>) {
+        let deadline = Instant::now() + timeout;
         loop {
-            let bytes: Vec<u8> = outputs
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|event| event.terminal_id == id)
-                .flat_map(|event| event.data.iter().copied())
-                .collect();
+            let bytes = read();
             if bytes.windows(needle.len()).any(|window| window == needle) {
                 return;
             }
@@ -733,6 +791,36 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    #[cfg(windows)]
+    const CURSOR_QUERY: &[u8] = b"\x1b[6n";
+    #[cfg(windows)]
+    const CURSOR_RESPONSE: &[u8] = b"\x1b[1;1R";
+
+    fn open_interactive_fixture(
+        manager: &TerminalManager,
+        outputs: &OutputLog,
+        cwd: &Path,
+    ) -> super::TerminalSnapshot {
+        let snapshot = manager
+            .open(cwd.to_string_lossy().into_owned(), 80, 24)
+            .unwrap();
+        #[cfg(windows)]
+        {
+            // ConPTY asks the terminal client for the cursor location before
+            // processing input. xterm answers this in the app.
+            wait_for_output(outputs, &snapshot.terminal_id, CURSOR_QUERY);
+            manager
+                .write(&snapshot.terminal_id, CURSOR_RESPONSE.to_vec())
+                .unwrap();
+            wait_for_bytes(b"> ", POWERSHELL_START_TIMEOUT, || {
+                terminal_output(outputs, &snapshot.terminal_id)
+            });
+        }
+        #[cfg(not(windows))]
+        let _ = outputs;
+        snapshot
     }
 
     fn wait_for_closed(closed: &ClosedLog, id: &str) -> TerminalClosed {
@@ -762,7 +850,9 @@ mod tests {
 
     #[cfg(windows)]
     fn print_command(text: &str) -> Vec<u8> {
-        format!("Write-Output '{text}'\r\n").into_bytes()
+        // Keep the expected output out of the command text echoed by PowerShell.
+        let (first, rest) = text.split_at(1);
+        format!("Write-Output ('{first}' + '{rest}')\r").into_bytes()
     }
 
     #[test]
@@ -773,38 +863,26 @@ mod tests {
         std::fs::write(&marker, b"").unwrap();
         let (manager, outputs, _) = manager();
 
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
-        for _ in 0..25 {
-            #[cfg(unix)]
-            manager
-                .write(&snapshot.terminal_id, b"pwd\n".to_vec())
-                .unwrap();
-            #[cfg(windows)]
-            manager
-                .write(&snapshot.terminal_id, b"Get-Location\r\n".to_vec())
-                .unwrap();
-            let has_cwd = outputs
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|event| event.terminal_id == snapshot.terminal_id)
-                .flat_map(|event| event.data.iter().copied())
-                .collect::<Vec<_>>()
-                .windows(cwd.path().to_string_lossy().len())
-                .any(|window| window == cwd.path().to_string_lossy().as_bytes());
-            if has_cwd {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-
-        wait_for_output(
-            &outputs,
-            &snapshot.terminal_id,
-            cwd.path().to_string_lossy().as_bytes(),
+        let snapshot = open_interactive_fixture(&manager, &outputs, cwd.path());
+        #[cfg(unix)]
+        let (command, expected) = (
+            b"pwd\n".as_slice(),
+            cwd.path().to_string_lossy().into_owned(),
         );
+        #[cfg(windows)]
+        let expected = std::fs::canonicalize(cwd.path()).unwrap();
+        #[cfg(windows)]
+        let expected = expected.to_string_lossy();
+        #[cfg(windows)]
+        let (command, expected) = (
+            b"[Console]::WriteLine(('cwd' + ':') + (Get-Location).ProviderPath)\r".as_slice(),
+            format!("cwd:{}", expected.trim_start_matches(r"\\?\")),
+        );
+        manager
+            .write(&snapshot.terminal_id, command.to_vec())
+            .unwrap();
+
+        wait_for_output(&outputs, &snapshot.terminal_id, expected.as_bytes());
         assert_eq!(Path::new(&snapshot.cwd), cwd.path());
         manager.close_all();
     }
@@ -846,9 +924,31 @@ mod tests {
             .lock()
             .unwrap()
             .insert("raw-byte-helper".into(), Arc::clone(&terminal));
-        forward_output("raw-byte-helper".into(), reader, terminals, terminal);
+        forward_output(
+            "raw-byte-helper".into(),
+            reader,
+            terminals,
+            Arc::clone(&terminal),
+        );
 
-        wait_for_output(&outputs, "raw-byte-helper", b"\x1b[31mfusion-pty-ok\x1b[0m");
+        #[cfg(windows)]
+        {
+            wait_for_output(&outputs, "raw-byte-helper", CURSOR_QUERY);
+            terminal
+                .writer
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .write_all(CURSOR_RESPONSE)
+                .unwrap();
+        }
+        #[cfg(unix)]
+        let expected = b"\x1b[31mfusion-pty-ok\x1b[0m";
+        // ConPTY renders the console buffer, emitting its own line break and SGR reset.
+        #[cfg(windows)]
+        let expected = b"\x1b[31m\r\nfusion-pty-ok\x1b[m";
+        wait_for_output(&outputs, "raw-byte-helper", expected);
     }
 
     #[test]
@@ -865,6 +965,33 @@ mod tests {
         };
         let child = pair.slave.spawn_command(command).unwrap();
         let writer = pair.master.take_writer().unwrap();
+        #[cfg(windows)]
+        let writer = {
+            let mut writer = writer;
+            let mut reader = pair.master.try_clone_reader().unwrap();
+            let startup = Arc::new(Mutex::new(Vec::new()));
+            let startup_from_reader = Arc::clone(&startup);
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let mut buffer = [0; 64];
+                while let Ok(count @ 1..) = reader.read(&mut buffer) {
+                    let mut bytes = startup_from_reader.lock().unwrap();
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if bytes
+                        .windows(CURSOR_QUERY.len())
+                        .any(|part| part == CURSOR_QUERY)
+                    {
+                        break;
+                    }
+                }
+                let _ = io::copy(&mut reader, &mut io::sink());
+            });
+            wait_for_bytes(CURSOR_QUERY, OUTPUT_TIMEOUT, || {
+                startup.lock().unwrap().clone()
+            });
+            writer.write_all(CURSOR_RESPONSE).unwrap();
+            writer
+        };
         let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
         let events = event_worker(
             "exited-still-registered".into(),
@@ -1045,68 +1172,69 @@ mod tests {
 
     #[test]
     fn explicit_reason_is_claimed_before_reader_can_observe_map_removal() {
-        let _guard = pty_test_guard();
-        let cwd = tempfile::tempdir().unwrap();
         let (manager, _, closed) = manager();
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
-
-        let terminal = {
+        let id = "explicit-close";
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
+            id.into(),
+            Arc::clone(&manager.output_sink),
+            Arc::clone(&manager.closed_sink),
+            Arc::clone(&close_delivered),
+        );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(None),
+            writer: Mutex::new(None),
+            child: Mutex::new(None),
+            close_reason: Mutex::new(None),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        {
             let mut terminals = manager.terminals.lock().unwrap();
-            claim_explicit_terminal(&mut terminals, &snapshot.terminal_id).unwrap()
-        };
-        assert!(!manager
-            .terminals
-            .lock()
-            .unwrap()
-            .contains_key(&snapshot.terminal_id));
-
-        queue_closed_once(&terminal, None);
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            let reasons: Vec<_> = closed
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|event| event.reason.clone())
-                .collect();
-            if !reasons.is_empty() {
-                assert_eq!(reasons, ["kullanıcı kapattı"]);
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "reader-side close event was not delivered"
-            );
-            std::thread::sleep(Duration::from_millis(10));
+            terminals.insert(id.into(), Arc::clone(&terminal));
+            claim_explicit_terminal(&mut terminals, id).unwrap();
+            assert!(!terminals.contains_key(id));
         }
 
-        let _ = wait_for_child(&terminal, true);
-        terminal.writer.lock().unwrap().take();
-        terminal.master.lock().unwrap().take();
+        forward_output(
+            id.into(),
+            Box::new(io::empty()),
+            Arc::clone(&manager.terminals),
+            terminal,
+        );
+        let event = wait_for_closed(&closed, id);
+        assert_eq!(event.reason, "kullanıcı kapattı");
+        assert_eq!(event.exit_code, None);
     }
 
     #[test]
     fn natural_shell_exit_reports_its_portable_pty_exit_code() {
+        assert_natural_shell_exit(1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn natural_shell_exit_can_report_the_windows_still_active_value() {
+        assert_natural_shell_exit(259);
+    }
+
+    fn assert_natural_shell_exit(exit_code: u32) {
         let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
-        let (manager, _, closed) = manager();
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
+        let (manager, outputs, closed) = manager();
+        let snapshot = open_interactive_fixture(&manager, &outputs, cwd.path());
 
         #[cfg(unix)]
-        manager
-            .write(&snapshot.terminal_id, b"exit 1\n".to_vec())
-            .unwrap();
+        let command = format!("exit {exit_code}\n");
         #[cfg(windows)]
+        let command = format!("exit {exit_code}\r");
         manager
-            .write(&snapshot.terminal_id, b"exit 1\r\n".to_vec())
+            .write(&snapshot.terminal_id, command.into_bytes())
             .unwrap();
 
         let event = wait_for_closed(&closed, &snapshot.terminal_id);
-        assert_eq!(event.exit_code, Some(1));
+        assert_eq!(event.exit_code, Some(exit_code));
     }
 
     #[test]
@@ -1209,6 +1337,8 @@ mod tests {
         let (output_entered_tx, output_entered_rx) = mpsc::sync_channel(0);
         let (release_output_tx, release_output_rx) = mpsc::sync_channel(0);
         let release_output_rx = Mutex::new(release_output_rx);
+        let startup_output = OutputLog::default();
+        let output_for_startup = Arc::clone(&startup_output);
         let manager = Arc::new(TerminalManager::new(
             move |event| {
                 if event.data.windows(12).any(|bytes| bytes == b"final-output") {
@@ -1216,6 +1346,7 @@ mod tests {
                     release_output_rx.lock().unwrap().recv().unwrap();
                     output_log.lock().unwrap().push("output".into());
                 }
+                output_for_startup.lock().unwrap().push(event);
             },
             move |event| {
                 closed_log
@@ -1224,14 +1355,12 @@ mod tests {
                     .push(format!("closed:{}", event.reason))
             },
         ));
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
+        let snapshot = open_interactive_fixture(&manager, &startup_output, cwd.path());
         manager
             .write(&snapshot.terminal_id, print_command("final-output"))
             .unwrap();
         output_entered_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(5))
             .unwrap();
 
         let closing_manager = Arc::clone(&manager);
@@ -1266,9 +1395,7 @@ mod tests {
         let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let (manager, outputs, _) = manager();
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
+        let snapshot = open_interactive_fixture(&manager, &outputs, cwd.path());
 
         manager.resize(&snapshot.terminal_id, 100, 40).unwrap();
         manager
@@ -1284,9 +1411,7 @@ mod tests {
         let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let (manager, outputs, _) = manager();
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
+        let snapshot = open_interactive_fixture(&manager, &outputs, cwd.path());
 
         #[cfg(unix)]
         manager
@@ -1296,11 +1421,15 @@ mod tests {
         manager
             .write(
                 &snapshot.terminal_id,
-                b"Start-Sleep -Seconds 30\r\n".to_vec(),
+                b"Write-Output ('fusion-' + 'sleeping'); Start-Sleep -Seconds 30\r".to_vec(),
             )
             .unwrap();
+        #[cfg(windows)]
+        wait_for_output(&outputs, &snapshot.terminal_id, b"fusion-sleeping");
         std::thread::sleep(Duration::from_millis(150));
         manager.write(&snapshot.terminal_id, vec![0x03]).unwrap();
+        #[cfg(windows)]
+        std::thread::sleep(Duration::from_millis(150));
         manager
             .write(
                 &snapshot.terminal_id,

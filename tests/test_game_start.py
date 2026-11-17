@@ -7,6 +7,8 @@ import pytest
 from fusion_cli.tools.game_start import start_game
 
 _STATE = "() => JSON.stringify(window.__GAME_STATE__())"
+# Playwright tıklamadan önce öğenin sabit olduğunu birkaç karede doğrular.
+_CLICK_TIMEOUT_MS = 2_000
 
 
 @pytest.mark.parametrize(
@@ -41,7 +43,9 @@ async def test_gercek_tiklama_ve_state_gecisi(style, handler, expected_problem):
         try:
             page = await browser.new_page()
             await page.set_content(source)
-            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            report = await start_game(
+                page, settle_ms=20, timeout_ms=_CLICK_TIMEOUT_MS, state_script=_STATE
+            )
             assert report.has_button
             assert bool(report.problems) is expected_problem
             if not expected_problem:
@@ -73,7 +77,9 @@ async def test_durum_degisse_de_menu_ekrani_ortuyorsa_kalir(rule, expected_probl
         try:
             page = await browser.new_page(viewport={"width": 800, "height": 600})
             await page.set_content(_MENU_GAME.format(rule=rule))
-            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            report = await start_game(
+                page, settle_ms=20, timeout_ms=_CLICK_TIMEOUT_MS, state_script=_STATE
+            )
             assert bool(report.problems) is expected_problem
             if expected_problem:
                 assert "menü ekranda kaldı" in report.problems[0]
@@ -94,7 +100,9 @@ async def test_gizli_ve_devredisi_basla_basari_sayilmaz(attribute):
                 f"<button {attribute} onclick=\"s.state='playing'\">Başla</button>"
                 "<script>const s={state:'menu'};window.__GAME_STATE__=()=>s;</script>"
             )
-            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            report = await start_game(
+                page, settle_ms=20, timeout_ms=_CLICK_TIMEOUT_MS, state_script=_STATE
+            )
             assert await page.evaluate("s.state") == "menu"
             if attribute == "hidden":
                 assert not report.has_button
@@ -127,7 +135,9 @@ async def test_baslat_olmayan_dugmeler_baslat_sayilmaz(etiket):
         try:
             page = await browser.new_page()
             await page.set_content(f"<button>{etiket}</button>")
-            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            report = await start_game(
+                page, settle_ms=20, timeout_ms=_CLICK_TIMEOUT_MS, state_script=_STATE
+            )
             assert not report.has_button
         finally:
             await browser.close()
@@ -151,7 +161,9 @@ async def test_oyun_kabi_konumlu_olsa_da_menu_sayilmaz():
         try:
             page = await browser.new_page()
             await page.set_content(source)
-            report = await start_game(page, settle_ms=20, timeout_ms=250, state_script=_STATE)
+            report = await start_game(
+                page, settle_ms=20, timeout_ms=_CLICK_TIMEOUT_MS, state_script=_STATE
+            )
             assert report.has_button and report.problems == ()
         finally:
             await browser.close()

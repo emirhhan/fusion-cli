@@ -21,6 +21,7 @@ def _receipt(tmp_path, effort, mode, disable=False):
         "HOME": str(tmp_path),
         "PATH": os.defpath,
         "PYTHONPATH": str(root / "src"),
+        "PYTHONUTF8": "1",
         "LITELLM_MODE": "PRODUCTION",
         "PYTHON_DOTENV_DISABLED": "1",
         "LITELLM_LOCAL_MODEL_COST_MAP": "True",
@@ -29,6 +30,8 @@ def _receipt(tmp_path, effort, mode, disable=False):
         "NVIDIA_NIM_API_BASE": "https://nim-fixture.invalid/v1",
         "NVIDIA_NIM_API_KEY": "synthetic-not-a-real-key",
     }
+    if sys.platform == "win32":
+        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
     completed = subprocess.run(
         [
             sys.executable,
@@ -40,7 +43,7 @@ def _receipt(tmp_path, effort, mode, disable=False):
         env=env,
         cwd=tmp_path,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         timeout=30,
         check=True,
     )

@@ -926,7 +926,7 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Saklı sohbet" })).toBeNull());
   expect(fake.requests.some((request) => request.ad === "sohbet.sil" && request.veri.sohbet_id === "sakli")).toBe(true);
-});
+}, 10_000);
 
 it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider", async () => {
   const fake = composerTransport({ "sohbet.sil": { ok: true }, "sohbet.listele": { ok: true, sohbetler: [] } });

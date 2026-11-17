@@ -13,11 +13,11 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from ...core.orchestration_events import WorkflowNodeView
+from ...core.process_liveness import process_alive
 from ...tools.files import atomic_write
 from .workflow_spec import NAME_PATTERN, WorkflowError, WorkflowSpec, parse_workflow
 
@@ -234,16 +234,6 @@ def _read_run(path: Path) -> RunRecord | None:
 
 def _mark_orphan(record: RunRecord) -> RunRecord:
     """Koşuyu yürüten süreç kapandıysa 'calisiyor' kaydı yarım sayılır."""
-    if record.status in FINISHED or record.pid <= 0 or _alive(record.pid):
+    if record.status in FINISHED or record.pid <= 0 or process_alive(record.pid) is not False:
         return record
     return replace(record, status="yarim", message="Koşuyu yürüten süreç kapandı.")
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True

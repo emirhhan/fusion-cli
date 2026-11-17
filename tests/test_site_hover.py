@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from fusion_cli.tools.site_hover import HoverPanel, hover_css
+from fusion_cli.tools.site_hover import HIDE_DELAY_S, HoverPanel, hover_css
 
 
 def _panel(key: str, **fields: str) -> HoverPanel:
@@ -113,8 +113,14 @@ async def _hover_states(tmp_path: object) -> dict[str, str]:
         await page.mouse.move(ex, gy, steps=4)
         await page.mouse.move(gx, gy, steps=4)
         durum["giyim"] = await page.evaluate(gorunur, "0-1")
-        await page.mouse.move(400, 60, steps=6)
-        await page.wait_for_timeout(100)
+        alt_panel = await page.locator('[data-kopya-panel="0-1"]').bounding_box()
+        assert alt_panel is not None
+        # Tek hareket, fare olaylarını yavaş ileten çalıştırıcılarda gecikmeyi tüketmez.
+        await page.mouse.move(
+            alt_panel["x"] + alt_panel["width"] / 2,
+            alt_panel["y"] + alt_panel["height"] / 2,
+        )
+        await page.wait_for_timeout(HIDE_DELAY_S * 1000 + 50)
         durum["alt_icinde"] = await page.evaluate(gorunur, "0-1")
         durum["ust_alt_icinde"] = await page.evaluate(gorunur, "0")
         await tarayici.close()

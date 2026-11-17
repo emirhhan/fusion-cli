@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -13,7 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config.paths import bundled_skills_dir
-from ..core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
+from ..core.constants import MAX_CHECKPOINT_OUTPUT_CHARS, PROCESS_TERMINATE_GRACE_S
+from ..core.errors import CleanupFailedError
+from ..core.owned_thread import await_owned_thread
+from ..core.process_control import process_group_options, terminate_process_tree
 from ..core.remotion_browser import RemotionBrowser as ExistingBrowser
 from ..core.repair_ledger import SourceFingerprint
 from .job_evidence import prepare_manifest
@@ -72,7 +76,7 @@ async def _run(command: tuple[str, ...], root: Path, deadline_s: float) -> Proce
         cwd=root,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
+        **process_group_options(),
     )
     assert process.stdout is not None and process.stderr is not None
     readers = [
@@ -85,9 +89,21 @@ async def _run(command: tuple[str, ...], root: Path, deadline_s: float) -> Proce
         timed_out = True
     finally:
         try:
-            await _terminate_owned_group(process, deadline_s, command)
+            if os.name == "nt":
+                if process.returncode is None:
+                    try:
+                        await await_owned_thread(terminate_process_tree, process.pid, force=True)
+                    except CleanupFailedError:
+                        with contextlib.suppress(ProcessLookupError):
+                            process.kill()
+                        raise
+                async with asyncio.timeout(PROCESS_TERMINATE_GRACE_S):
+                    await process.wait()
+            else:
+                await _terminate_owned_group(process, deadline_s, command)
         finally:
-            stdout, stderr = await asyncio.gather(*readers)
+            async with asyncio.timeout(PROCESS_TERMINATE_GRACE_S):
+                stdout, stderr = await asyncio.gather(*readers)
     return ProcessOutput(
         process.returncode or 0, stdout.text, stderr.text, timed_out, stdout.framed_count
     )
@@ -142,7 +158,8 @@ async def _terminate_owned_group(
         # Tekrar iptal de bu senkron sinyali atlayamaz.
         for pid in {process.pid, *_detached_groups(command)}:
             _signal_owned_group(pid, signal.SIGKILL)
-        await process.wait()
+        async with asyncio.timeout(PROCESS_TERMINATE_GRACE_S):
+            await process.wait()
 
 
 def _detached_groups(command: tuple[str, ...]) -> tuple[int, ...]:
@@ -206,7 +223,7 @@ async def observe_frame(
             )
             script = bundled_skills_dir() / "remotion-video/kit/observe.cjs"
             process = await runner(("node", str(script), payload), request.root, request.timeout_s)
-    except (OSError, TimeoutError) as error:
+    except (CleanupFailedError, OSError, TimeoutError) as error:
         after = await asyncio.to_thread(_manifest, request)
         return RenderedFrame(session, False, None, before, after, type(error).__name__)
     after = await asyncio.to_thread(_manifest, request)

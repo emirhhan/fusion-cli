@@ -75,9 +75,12 @@ def test_interrupt_suren_turu_keser_ve_cevaplar():
         feed.put(_control("interrupt", "k1"))
         with pytest.raises(asyncio.CancelledError):
             await task
+        await _until(lambda: bool(out))
 
-    asyncio.run(scenario())
-    feed.put(None)
+    try:
+        asyncio.run(scenario())
+    finally:
+        feed.put(None)
     assert channel.interrupted
     assert out[0]["type"] == "control_response"
     assert out[0]["response"] == {"subtype": "success", "request_id": "k1", "response": {}}
