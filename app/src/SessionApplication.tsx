@@ -116,7 +116,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { buildVoiceRequest, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { buildVoiceRequest, voiceBackgroundTask, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { AccountProfile } from "./account/AccountProfile";
@@ -1254,6 +1254,25 @@ export function SessionUygulama({
       const current = activeRef.current;
       if (!current) return;
       if (!firstTimeVoiceMessage.current(mesaj.id)) return;
+      const backgroundTask = voiceBackgroundTask(mesaj.metin);
+      if (backgroundTask) {
+        void current.client.request("arkaplan.baslat", { gorev: backgroundTask }).then(result => {
+          if (result.ok !== true) throw new Error(String(result.metin ?? "Arka plan görevi başlatılamadı."));
+          if (activeRef.current?.id !== current.id || activeVoiceTurn.current) return;
+          const turn = createVoicePlayback(current.client, "Görevi arka plana aldım.", publishVoiceRuntimeState);
+          activeVoiceTurn.current = turn;
+          void turn.finished.finally(() => {
+            if (activeVoiceTurn.current === turn) {
+              activeVoiceTurn.current = null;
+              setVoicePlaybackRevision(value => value + 1);
+            }
+          }).catch(() => undefined);
+        }).catch((error: unknown) => publishVoiceRuntimeState({
+          durum: "error",
+          metin: error instanceof Error ? error.message : "Arka plan görevi başlatılamadı.",
+        }));
+        return;
+      }
       const gorev = buildVoiceRequest(mesaj.metin, mesaj.kesilen);
       const requestId = nextSessionId();
       const accepted = controllerRef.current.send(current.id, gorev.text, [], true, gorev.voice, requestId);

@@ -34,7 +34,7 @@ if (nativeMainWindow && isMacOS()) document.documentElement.dataset.fusionTitleb
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <RenderErrorBoundary>
-      {isVoiceWindow() ? <VoiceWindow /> : sessionWindow ? <SessionWindow id={sessionWindow} /> : <App />}
+      {isVoiceWindow() ? <VoiceWindow autoListen continuous /> : sessionWindow ? <SessionWindow id={sessionWindow} /> : <App />}
     </RenderErrorBoundary>
   </React.StrictMode>,
 );

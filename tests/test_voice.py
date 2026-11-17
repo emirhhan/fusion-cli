@@ -35,6 +35,12 @@ def test_windows_powershell_sentezleyicisini_kullanir():
     assert "Merhaba" in birlesik
 
 
+def test_macos_sistem_sesi_hiz_ayarini_uygular():
+    assert speak_argv("Darwin", "Merhaba", voice="Yelda", rate=0.9)[-3:] == [
+        "-r", "158", "Merhaba"
+    ]
+
+
 def test_desteklenmeyen_platform_sessizce_gecilmez():
     with pytest.raises(ValueError):
         speak_argv("Linux", "Merhaba", voice=None)
@@ -586,7 +592,7 @@ def test_durum_ema_devredeyken_sistem_sesi_onermez(tmp_path, monkeypatch):
     durum = voice.status()
     assert durum["motor"] == "ema" and durum["ses"] == voice.EMA_VOICE_NAME
     assert durum["model_kurulu"] is True and durum["yukseltme"] is None
-    assert durum["ayar"] == {"hiz": 1.0}
+    assert durum["ayar"] == {"hiz": 0.9}
 
 
 def test_ses_hizi_kaydedilir_ve_araligin_disina_cikamaz(tmp_path, monkeypatch):
@@ -609,7 +615,7 @@ def test_ayarlar_bozuksa_varsayilana_dusulur(tmp_path, monkeypatch):
 
     monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
     (tmp_path / "voice-settings.json").write_text("{bozuk", encoding="utf-8")
-    assert voice.load_settings() == {"hiz": 1.0}
+    assert voice.load_settings() == {"hiz": 0.9}
 
 
 def test_eski_robotik_ve_model_alanlari_yok_sayilir(tmp_path, monkeypatch):

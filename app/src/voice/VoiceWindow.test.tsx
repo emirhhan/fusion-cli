@@ -802,9 +802,7 @@ describe("VoiceWindow — uyandırma sınırı", () => {
 });
 
 it("Fusion sözü yerel Hm yanıtı üretir ve modele gönderilmez", async () => {
-  const speak = vi.fn();
-  vi.stubGlobal("speechSynthesis", { speak });
-  vi.stubGlobal("SpeechSynthesisUtterance", class { text: string; constructor(text: string) { this.text = text; } });
+  const speak = vi.spyOn(cues, "playHum").mockImplementation(() => undefined);
   try {
     const fake = fakeRuntime();
     render(<VoiceWindow continuous runtime={fake.runtime} />);
@@ -812,9 +810,8 @@ it("Fusion sözü yerel Hm yanıtı üretir ve modele gönderilmez", async () =>
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     act(() => fake.recognition({ tur: "son", metin: "Fusion" }));
     await waitFor(() => expect(speak).toHaveBeenCalledOnce());
-    expect(speak.mock.calls[0][0].text).toBe("Hm");
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
-  } finally { vi.unstubAllGlobals(); }
+  } finally { speak.mockRestore(); }
 });
 it("Dikte kapalıysa otomatik yeniden deneme döngüsü durur", async () => {
   const fake = fakeRuntime();
@@ -886,9 +883,7 @@ it("aynı süreçte sonraki tek partial da zaman aşımında gönderilir; eski p
 });
 
 it("Füzyon kısmi tanıması son sonucu beklemeden bir kez Hm der", async () => {
-  const speak = vi.fn();
-  vi.stubGlobal("speechSynthesis", { speak });
-  vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
+  const speak = vi.spyOn(cues, "playHum").mockImplementation(() => undefined);
   try {
     const fake = fakeRuntime();
     render(<VoiceWindow continuous runtime={fake.runtime} />);
@@ -903,7 +898,7 @@ it("Füzyon kısmi tanıması son sonucu beklemeden bir kez Hm der", async () =>
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
     act(() => fake.recognition({ tur: "kismi", metin: "Füzyon", segment: 2 }));
     expect(speak).toHaveBeenCalledTimes(2);
-  } finally { vi.unstubAllGlobals(); }
+  } finally { speak.mockRestore(); }
 });
 
 it("hitaplı selamdan sonra sohbeti sürdürürken adı tekrar istemez", async () => {
@@ -979,6 +974,11 @@ describe("VoiceWindow — sesli onay güvenliği (WP14 madde 2)", () => {
 });
 
 describe("VoiceWindow — dalga 4 ekran düzeltmeleri (U2)", () => {
+  it("Talk açılışında ikinci tıklama olmadan mikrofonu başlatır", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow autoListen continuous runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  });
   it("tek komut modunda da düşünme ipucu çalar (U2-03)", async () => {
     const hum = vi.spyOn(cues, "playHum").mockImplementation(() => undefined);
     const stop = vi.spyOn(cues, "stopHum").mockImplementation(() => undefined);
@@ -1074,9 +1074,7 @@ describe("VoiceWindow — dalga 4 ekran düzeltmeleri (U2)", () => {
   });
 
   it("uyandırma 'Hm'i çalınamazsa konuşma adayını silen hata kartı çıkmaz (U2-16)", async () => {
-    const speak = vi.fn((utterance: { onerror?: () => void }) => utterance.onerror?.());
-    vi.stubGlobal("speechSynthesis", { speak });
-    vi.stubGlobal("SpeechSynthesisUtterance", class { text: string; onerror?: () => void; constructor(text: string) { this.text = text; } });
+    const speak = vi.spyOn(cues, "playHum").mockImplementation(() => { throw new Error("Ses çıkışı yok"); });
     try {
       const fake = fakeRuntime();
       render(<VoiceWindow continuous runtime={fake.runtime} />);
@@ -1085,7 +1083,7 @@ describe("VoiceWindow — dalga 4 ekran düzeltmeleri (U2)", () => {
       act(() => fake.recognition({ tur: "son", metin: "Fusion" }));
       await waitFor(() => expect(speak).toHaveBeenCalledOnce());
       expect(screen.queryByRole("alert")).toBeNull();
-    } finally { vi.unstubAllGlobals(); }
+    } finally { speak.mockRestore(); }
   });
 
   it("ana pencere dinleyicisi geç kurulursa tercih isteği cevap gelene dek yeniden denenir (U2-47)", async () => {

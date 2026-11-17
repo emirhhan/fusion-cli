@@ -32,6 +32,10 @@ export function buildVoiceRequest(text: string, interrupted?: string): {
   return { text, voice: interrupted ? { kesilen: interrupted } : {} };
 }
 
+export function voiceBackgroundTask(text: string): string | null {
+  return text.trim().match(/^(?:\/bg\s+|arka planda çalış(?:\s*[:,]\s*|\s+))(.+)$/isu)?.[1].trim() || null;
+}
+
 export async function speakVoiceAnswer(
   client: VoiceClient,
   text: string,

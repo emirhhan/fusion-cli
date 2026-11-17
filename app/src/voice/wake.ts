@@ -28,22 +28,61 @@ export function speechFailureText(text: string, kod?: string): string {
     : text;
 }
 
-/** Sistem sesi kullanılır; model veya uzak ses hizmeti çağrılmaz. */
+/** Uyandırma, kelime yerine yerel düşünme sesini çalar. */
 export function acknowledgeWake(onError?: (message: string) => void): void {
-  if (!("speechSynthesis" in window)) throw new Error("Bu sistemde sesli uyandırma yanıtı kullanılamıyor.");
-  const utterance = new SpeechSynthesisUtterance("Hm");
+  try { playHum(); }
+  catch { onError?.("Kısa uyandırma sesi çalınamadı."); }
+}
+
+const thinkingPhrases = [
+  [15_000, "Düşünüyorum."],
+  [24_000, "Hâlâ düşünüyorum."],
+  [30_000, "Bu soru biraz kafamı karıştırdı, düşünüyorum."],
+] as const;
+
+let cueUtterance: SpeechSynthesisUtterance | undefined;
+
+function speakThinkingCue(text?: string): void {
+  if (!text) { playHum(); return; }
+  const speech = window.speechSynthesis;
+  const voice = speech?.getVoices().find(candidate =>
+    candidate.localService && candidate.lang.toLowerCase().startsWith("tr"),
+  );
+  if (!voice) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.voice = voice;
   utterance.lang = "tr-TR";
   utterance.rate = 0.9;
-  utterance.onerror = () => onError?.("Uyandırma duyuldu fakat kısa sesli yanıt çalınamadı. Sistem ses çıkışını kontrol et.");
-  window.speechSynthesis.speak(utterance);
+  utterance.onend = utterance.onerror = () => {
+    if (cueUtterance === utterance) cueUtterance = undefined;
+  };
+  cueUtterance = utterance;
+  speech.speak(utterance);
 }
 
-/** Düşünme sırasında kullanıcı "takıldı mı?" diye merak etmesin: Web Audio ile üretilen kısa "hmm" (model sesi değil). */
-export function speakThinkingCue(): void {
-  playHum();
+export function scheduleThinkingCues(play: (text?: string) => void = speakThinkingCue): () => void {
+  const cue = (text?: string) => {
+    try { play(text); } catch { /* Ses aygıtı yanıtı engellemesin. */ }
+  };
+  cue();
+  const timers = [
+    window.setTimeout(cue, 5_000),
+    ...thinkingPhrases.map(([delay, text]) => window.setTimeout(() => cue(text), delay)),
+    ...[45_000, 60_000, 75_000].map(delay => window.setTimeout(cue, delay)),
+  ];
+  return () => {
+    timers.forEach(timer => window.clearTimeout(timer));
+    stopHum();
+    if (cueUtterance) {
+      cueUtterance = undefined;
+      window.speechSynthesis?.cancel();
+    }
+  };
 }
 
-/** Düşünme "Hmm"i yarım kalmasın: asıl cevap başlarken bekleyen ipucunu sustur. */
-export function cancelThinkingCue(): void {
-  stopHum();
+export function isThinkingCueEcho(text: string): boolean {
+  const normalize = (value: string) => value.toLocaleLowerCase("tr-TR")
+    .replace(/â/gu, "a").replace(/[^\p{L}\s]/gu, "").trim();
+  const heard = normalize(text);
+  return thinkingPhrases.some(([, phrase]) => normalize(phrase) === heard);
 }

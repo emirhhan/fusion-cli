@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed } from "./voiceTurn";
+import { buildVoiceRequest, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed, voiceBackgroundTask } from "./voiceTurn";
 
 describe("sesli model isteği", () => {
+  it("açıkça arka plana verilen işi ayırır", () => {
+    expect(voiceBackgroundTask("Arka planda çalış: Ekim raporunu hazırla.")).toBe("Ekim raporunu hazırla.");
+    expect(voiceBackgroundTask("Arka planda hangi işler var?")).toBeNull();
+    expect(voiceBackgroundTask("Ekim raporunu hazırla")).toBeNull();
+  });
   it("selamlaşmayı talimat eklemeden gönderir", () => {
     expect(buildVoiceRequest("Merhaba!")).toEqual({ text: "Merhaba!", voice: {} });
   });

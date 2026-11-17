@@ -124,6 +124,21 @@ describe("KitsVoiceHost", () => {
     ));
   });
 
+  it("ses kimliği durdurmadan sonra gelirse eski turu iptal eder", async () => {
+    const f = fixture();
+    let started!: (value: Record<string, unknown>) => void;
+    f.request.mockImplementation(async (name) =>
+      name === "ses.konus" ? new Promise((resolve) => { started = resolve; }) : { ok: true },
+    );
+    f.send({ type: VOICE_REQUEST, nonce: "s1", action: "speak", text: "Eski cevap." });
+    await vi.waitFor(() => expect(f.request).toHaveBeenCalledWith("ses.konus", { metin: "Eski cevap." }));
+    f.send({ type: VOICE_REQUEST, nonce: "s2", action: "stop-speaking" });
+    await vi.waitFor(() => expect(f.frame.postMessage).toHaveBeenCalledWith(result("s2"), ORIGIN));
+    started({ ok: true, tur_id: "late" });
+    await vi.waitFor(() => expect(f.request).toHaveBeenCalledWith("ses.durdur", { tur_id: "late" }));
+    expect(f.request).not.toHaveBeenCalledWith("ses.bekle", { tur_id: "late" });
+  });
+
   it("kapanınca dinlemeyi bırakır ve yeni istekleri yok sayar", async () => {
     const f = fixture();
     f.send({ type: VOICE_REQUEST, nonce: "l1", action: "listen" });

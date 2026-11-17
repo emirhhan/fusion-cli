@@ -1,5 +1,27 @@
-import { describe, expect, it } from "vitest";
-import { diktePasifMi, routeWakeSpeech, speechFailureText } from "./wake";
+import { describe, expect, it, vi } from "vitest";
+import { diktePasifMi, routeWakeSpeech, scheduleThinkingCues, speechFailureText } from "./wake";
+
+it("bekleme seslerini istenen saniyelerde çalar ve yanıt başlayınca durur", () => {
+  vi.useFakeTimers();
+  try {
+    const play = vi.fn();
+    const cancel = scheduleThinkingCues(play);
+    expect(play.mock.calls).toEqual([[undefined]]);
+    vi.advanceTimersByTime(5_000);
+    expect(play.mock.calls).toEqual([[undefined], [undefined]]);
+    vi.advanceTimersByTime(10_000);
+    expect(play).toHaveBeenLastCalledWith("Düşünüyorum.");
+    vi.advanceTimersByTime(9_000);
+    expect(play).toHaveBeenLastCalledWith("Hâlâ düşünüyorum.");
+    vi.advanceTimersByTime(6_000);
+    expect(play).toHaveBeenLastCalledWith("Bu soru biraz kafamı karıştırdı, düşünüyorum.");
+    cancel();
+    vi.advanceTimersByTime(60_000);
+    expect(play).toHaveBeenCalledTimes(5);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 describe("uyandırma", () => {
   it("arka plan konuşmasını göndermez", () => expect(routeWakeSpeech("dosyayı sil", false)).toEqual({ awake: false, acknowledge: false, message: null }));
   it("Fusion tek başına yalnız uyandırır", () => expect(routeWakeSpeech("Fusion!", false)).toEqual({ awake: true, acknowledge: true, message: null }));

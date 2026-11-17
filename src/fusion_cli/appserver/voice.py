@@ -245,6 +245,7 @@ def ema_ready() -> bool:
 #: anlaşılmaz hızlanır, üst sınırın üstünde ağır çeker; ikisi de dinlenerek
 #: bulundu.
 HIZ_ARALIGI: tuple[float, float] = (0.6, 1.6)
+VARSAYILAN_HIZ = 0.9
 
 
 def settings_path() -> Path:
@@ -263,13 +264,13 @@ def load_settings() -> dict[str, Any]:
     JSON yüzünden konuşmanın tamamen susması kabul edilemez. EMA tek sesli ve
     tek parametreli (hız) olduğundan başka ayar tutulmaz.
     """
-    hiz = 1.0
+    hiz = VARSAYILAN_HIZ
     try:
         ham = json.loads(settings_path().read_text(encoding="utf-8"))
         if isinstance(ham, dict):
-            hiz = _clamp(float(ham.get("hiz", 1.0)), *HIZ_ARALIGI)
+            hiz = _clamp(float(ham.get("hiz", VARSAYILAN_HIZ)), *HIZ_ARALIGI)
     except (OSError, ValueError, TypeError):
-        hiz = 1.0
+        hiz = VARSAYILAN_HIZ
     return {"hiz": hiz}
 
 
@@ -370,7 +371,9 @@ def installed_voices() -> tuple[str, ...]:
     return tuple(line for line in result.stdout.splitlines() if line.strip())
 
 
-def speak_argv(system: str, text: str, *, voice: str | None) -> list[str]:
+def speak_argv(
+    system: str, text: str, *, voice: str | None, rate: float | None = None
+) -> list[str]:
     """Metni seslendirecek komutu üret.
 
     Metin TEK argüman olarak geçer ve kabuktan geçirilmez: seslendirilecek metin
@@ -381,6 +384,8 @@ def speak_argv(system: str, text: str, *, voice: str | None) -> list[str]:
         argv = ["say"]
         if voice:
             argv += ["-v", voice]
+        if rate is not None:
+            argv += ["-r", str(round(175 * rate))]
         return [*argv, text]
     if name == "windows":
         # PowerShell tek satırlık betiği argüman olarak alır; metin betiğin
@@ -564,7 +569,7 @@ def speak(text: object) -> dict[str, Any]:
 
     voice = best_voice(installed_voice_records())
     try:
-        argv = speak_argv(platform.system(), content, voice=voice)
+        argv = speak_argv(platform.system(), content, voice=voice, rate=load_settings()["hiz"])
     except ValueError as error:
         return {"ok": False, "metin": str(error)}
     try:

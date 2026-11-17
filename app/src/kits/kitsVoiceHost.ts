@@ -41,6 +41,7 @@ export class KitsVoiceHost {
   private unlisten: (() => void)[] = [];
   /** Aynı anda süren seslendirme turları (art arda `speak` biri ötekini sahipsiz bırakmasın). */
   private readonly speechTurns = new Set<string>();
+  private speechGeneration = 0;
   /** Dinleme başlat/durdur işlemleri sırayla çalışır; eşzamanlı iki `listen` oturum sızdırmasın. */
   private listenQueue: Promise<void> = Promise.resolve();
   /** Kullanıcı bu pencere ömrü boyunca mikrofona izin verdiyse true ("bu oturumda hatırla"). */
@@ -173,10 +174,15 @@ export class KitsVoiceHost {
 
   private async speak(text: string) {
     if (!text.trim()) return;
+    const generation = this.speechGeneration;
     const started = await this.request("ses.konus", { metin: text });
     const turn = typeof started.tur_id === "string" ? started.tur_id : null;
     if (started.ok !== true || !turn) {
       throw new Error(typeof started.metin === "string" ? started.metin : "Fusion sesli yanıtı başlatamadı.");
+    }
+    if (generation !== this.speechGeneration) {
+      await this.request("ses.durdur", { tur_id: turn });
+      return;
     }
     this.speechTurns.add(turn);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -195,6 +201,7 @@ export class KitsVoiceHost {
   }
 
   private async stopSpeaking() {
+    ++this.speechGeneration;
     const turns = [...this.speechTurns];
     this.speechTurns.clear();
     await Promise.all(turns.map((turn) => this.request("ses.durdur", { tur_id: turn }).catch(() => undefined)));
