@@ -220,6 +220,12 @@ async def stop_continuation(
     }
     if subagent:
         fields["agent_type"] = agent_type
+        fields["agent_id"] = deps.runtime_agent_id
+        from ...memory.turn_journal import FileTurnJournal
+
+        if isinstance(deps.journal, FileTurnJournal) and deps.journal.path.is_file():
+            fields["agent_transcript_path"] = str(deps.journal.path)
+            fields["transcript_path"] = str(deps.journal.path)
     else:
         session.record("assistant", final_text)
     verdict = await session.emit(event, subjects=(agent_type,), fields=fields)
@@ -256,6 +262,8 @@ async def continue_until_stop_allowed(
     for continuation in range(MAX_STOP_CONTINUATIONS):
         if not _ended_cleanly(deps, outcome):
             return outcome
+        if subagent and deps.agent_transcript is not None:
+            await deps.agent_transcript.capture(outcome.messages)
         prompt = await stop_continuation(
             deps, outcome.final_text, subagent=subagent, continuations=continuation
         )

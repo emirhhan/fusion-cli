@@ -12,7 +12,7 @@ Bu modül saf tiptir: süreç açmaz, dosya okumaz (çalıştırma `engines/hook
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from .matcher import matcher_matches
@@ -27,6 +27,7 @@ class HookEvent(Enum):
     USER_PROMPT_SUBMIT = "UserPromptSubmit"
     STOP = "Stop"
     SUBAGENT_STOP = "SubagentStop"
+    SUBAGENT_START = "SubagentStart"
     SESSION_START = "SessionStart"
     SESSION_END = "SessionEnd"
     NOTIFICATION = "Notification"
@@ -45,6 +46,7 @@ MATCHER_SUBJECT: dict[HookEvent, str | None] = {
     HookEvent.USER_PROMPT_SUBMIT: None,
     HookEvent.STOP: None,
     HookEvent.SUBAGENT_STOP: "ajan türü",
+    HookEvent.SUBAGENT_START: "ajan türü",
     HookEvent.SESSION_START: "kaynak (startup|resume|clear|compact)",
     HookEvent.SESSION_END: "neden (clear|logout|prompt_input_exit|other)",
     HookEvent.NOTIFICATION: "bildirim türü (permission_prompt|idle_prompt)",
@@ -85,7 +87,6 @@ CLAUDE_ONLY_EVENTS = frozenset(
         "PermissionDenied",
         "PostToolBatch",
         "MessageDisplay",
-        "SubagentStart",
         "StopFailure",
         "InstructionsLoaded",
         "ConfigChange",
@@ -132,6 +133,13 @@ class HookCommand:
     #: `http`: istek başlıkları; değerdeki `$AD`/`${AD}` yalnız `allowed_env_vars`'tan dolar.
     headers: tuple[tuple[str, str], ...] = ()
     allowed_env_vars: tuple[str, ...] = ()
+    args: tuple[str, ...] | None = None
+    once: bool = False
+    run_async: bool = False
+    async_rewake: bool = False
+    shell: str = ""
+    on_failure: str = ""
+    status_message: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +152,7 @@ class HookSkip:
     reason: str
     source: str = ""
     path: str = ""
+    definition_json: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True, slots=True)

@@ -63,7 +63,6 @@ from . import (
     status_view,
     verify_flow,
     view_commands,
-    worktrees,
 )
 from .commands import (
     ASYNC_COMMANDS,
@@ -667,7 +666,10 @@ class _TuiSession:
                 f"[{theme.DIM}]{messages.TUI_PICKER_NEEDS_ARG.format(name=command.name)}[/{theme.DIM}]"
             )
             return
+        previous = (self._state.root, self._state.conversation_id)
         result = command.handler(self._state, argument)
+        if command.name == "reset" or previous != (self._state.root, self._state.conversation_id):
+            await self._state.reset_child_runs()
         if command.name == "theme":
             self._tui.refresh_style()
         if result:
@@ -949,6 +951,8 @@ class _TuiSession:
                 # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
                 # birleşir (`loop.py` ile aynı sıra).
                 digest = self._state.take_pending_digest()
+                self._state.prepare_persona_config()
+                line = self._state.take_persona_initial(line)
                 persona = persona_turn(self._state.persona)
                 extras = self._state.take_pending_extras()
                 turn_extra_system = "\n\n".join(
@@ -976,6 +980,9 @@ class _TuiSession:
                         home=self._state.home,
                         extra_system=turn_extra_system,
                         system_prompt=persona.system_prompt,
+                        session_persona=self._state.persona,
+                        main_config_applied=self._state.main_config_applied,
+                        child_runs=self._state.child_runs,
                         interactive=True,
                         conversation_id=self._state.conversation_id,
                         memory=self._state.memory,
@@ -1016,7 +1023,7 @@ class _TuiSession:
                 # Ölçüldü (31 Ekim): yalnız düz konsol döngüsü basıyordu, TUI hiç göstermiyordu.
                 print_rule_notices(self._tui.console, self._state.approval_memory)
                 # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır.
-                switched = worktrees.apply_switch(self._state, tool_context)
+                switched = await self._state.apply_worktree_switch(tool_context.worktree_switch)
                 if switched:
                     self._echo(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
                     self._sync_conversation_binding()
@@ -1080,6 +1087,7 @@ async def run_tui_repl(
         await session.tui.application.run_async()
     finally:
         # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
+        await state.child_runs.close()
         session.tui.restore_wheel_modes()
         cron_watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):

@@ -123,9 +123,17 @@ def build_agent_registry(
     # sunulmaz. Ölçüldü (2 Ekim, kabul koşusu): model bunları dört kez çağırdı ve her
     # seferinde "yalnız masaüstü uygulamasında" cevabı aldı.
     extended = _clone(registry, chrome=getattr(deps.tool_context, "chrome", None) is not None)
+    from .agent_runtime_tools import runtime_tools
+
+    extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent, canonical=True))
+    extended.register(
+        spawn_agent_tool(deps, depth=depth, run_agent=run_agent, canonical=True, legacy_name="Task")
+    )
+    for runtime_tool in runtime_tools(deps, depth=depth, run_agent=run_agent):
+        extended.register(runtime_tool)
     extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
     extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
-    for agent_tool in agent_task_tools(deps):
+    for agent_tool in agent_task_tools(deps, depth=depth, run_agent=run_agent):
         extended.register(agent_tool)
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")

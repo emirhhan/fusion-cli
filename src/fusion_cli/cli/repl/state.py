@@ -19,6 +19,7 @@ from ...config.models import Config
 from ...config.permission_rules import PermissionRuleSet, load_permission_rules
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
+from ...core.errors import ConfigError
 from ...core.health import HealthRegistry
 from ...core.pull_request import PullRequestLink
 from ...core.remotion_browser import RemotionBrowser
@@ -26,8 +27,9 @@ from ...core.session_cron import SessionCron
 from ...core.session_goal import SessionGoal
 from ...core.turn_checkpoints import TurnCheckpointLedger
 from ...core.types import FusionResult, Message
-from ...core.worktree import Worktree
+from ...core.worktree import Worktree, WorktreeSwitch
 from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
+from ...engines.agent.child_runs import ChildRuns
 from ...engines.agent.remotion_bridge import FrameTransport
 from ...engines.agent.skill_turn import TurnModelChoice
 from ...engines.agent.team import Persona
@@ -36,7 +38,7 @@ from ...memory.factory import Memory
 from ...memory.plain_memory import PlainMemory, build_plain_memory
 from ...observability.cost import CostTracker
 from ...observability.usage_log import UsageLog
-from ...tools.capabilities import CapabilityRegistry
+from ...tools.capabilities import Capability, CapabilityRegistry
 from ...tools.capability_overrides import registry_from_config
 from ..rule_notices import attach_rule_writer
 from .macros import Mode
@@ -180,11 +182,25 @@ class ReplState:
     checkpoints: TurnCheckpointLedger = field(default_factory=TurnCheckpointLedger)
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
+    #: --agents tanımları yalnız bu oturumun katalog bileşimindedir.
+    session_agents: tuple[Capability, ...] = field(default=(), kw_only=True)
+    #: Aynı asenkron sohbetin turlarından uzun yaşayan, kapanışta beklenen görev sahibi.
+    child_runs: ChildRuns = field(
+        default_factory=lambda: ChildRuns(persistent=True), kw_only=True, repr=False
+    )
+
     #: Düz metin otomatik bellek (P-036); `runtime.auto_memory` kapalıysa None.
     plain_memory: PlainMemory | None = None
     #: Oturum kişiliği (P-053; `--agent <ad>` / `/persona`): tanımın gövdesi her turun
     #: sistem istemine girer, araç kümesi daralır. None = varsayılan Fusion.
     persona: Persona | None = field(default=None, kw_only=True)
+    #: initialPrompt yalnız ana oturumun ilk kullanıcı turunda tüketilir.
+    persona_initial_prompt_applied: bool = field(default=False, kw_only=True)
+    main_config_applied: bool = field(default=False, kw_only=True)
+    _configured_persona: Persona | None = field(default=None, init=False, repr=False)
+    _persona_base_config: Config | None = field(default=None, init=False, repr=False)
+    _persona_applied_config: Config | None = field(default=None, init=False, repr=False)
+
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
     health: HealthRegistry | None = None
@@ -246,6 +262,67 @@ class ReplState:
         if approval is ApprovalMode.BYPASS:
             approval = ApprovalMode.AUTO
         return cls(config=config, engine=engine, approval=approval, **kwargs)  # type: ignore[arg-type]
+
+    async def reset_child_runs(self) -> None:
+        """Sohbet/kök değişiminde önce eski görevleri kapat, sonra yeni sahibi kur."""
+        await self.child_runs.close()
+        self.child_runs = ChildRuns(persistent=True)
+        self.persona_initial_prompt_applied = bool(self.history)
+
+    async def apply_worktree_switch(self, switch: WorktreeSwitch | None) -> str:
+        """Kök değişmeden eski görevleri bekle; aynı kökte sürekliliği koru."""
+        from .worktrees import apply_switch_request
+
+        if switch is None:
+            return ""
+        target = switch.requested.path if switch.requested is not None else self.root
+        if switch.exit_requested and self.worktree is not None:
+            target = self.worktree.origin
+        if target != self.root:
+            await self.reset_child_runs()
+        return apply_switch_request(self, switch)
+
+    def select_persona(self, persona: Persona | None) -> None:
+        """Ayarları seçim anında uygula; ardından kullanıcı tercihi ilk turda da korunur."""
+        previous = self.persona
+        self.persona = persona
+        try:
+            self.prepare_persona_config()
+        except ConfigError:
+            self.persona = previous
+            raise
+
+    def prepare_persona_config(self) -> None:
+        """Kişilik ayarlarını seçimde uygula; sonraki model/efor/MCP tercihini koru."""
+        if self.persona is self._configured_persona:
+            return
+        from ...engines.agent.team_settings import main_agent_config, main_approval_mode
+
+        base = self.config
+        if self._persona_base_config is not None and self._persona_applied_config is not None:
+            base = rebase_session_changes(
+                self._persona_applied_config, base, self._persona_base_config
+            )
+        updated = (
+            main_agent_config(base, self.persona, root=self.root, home=self.home)
+            if self.persona is not None
+            else base
+        )
+        if self.persona is not None:
+            self.approval = main_approval_mode(updated, self.persona, self.approval)
+        self._persona_base_config, self._persona_applied_config = base, updated
+        self.config = updated
+        self._configured_persona = self.persona
+        self.main_config_applied = self.persona is not None
+
+    def take_persona_initial(self, task: str) -> str:
+        """Devam/resume turunda başlangıç görevini yeniden ekleme."""
+        from .persona_commands import initial_persona_task
+
+        if self.persona_initial_prompt_applied or self.persona is None:
+            return task
+        self.persona_initial_prompt_applied = True
+        return task if self.history else initial_persona_task(self.persona, task)
 
     def take_pending(self) -> tuple[str, Mode]:
         """Bekleyen görevi al ve temizle."""
@@ -334,7 +411,11 @@ class ReplState:
         if self.capabilities is None:
             # `capabilities.disabled` ve `overrides` her oturumda uygulanır (P-051).
             self.capabilities = registry_from_config(
-                self.config, self.home, self.root, extra_roots=self.extra_roots
+                self.config,
+                self.home,
+                self.root,
+                extra_roots=self.extra_roots,
+                session_agents=self.session_agents,
             )
         if self.plain_memory is None:
             self.plain_memory = build_plain_memory(self.config, self.root)

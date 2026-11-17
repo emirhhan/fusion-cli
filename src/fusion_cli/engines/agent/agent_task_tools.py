@@ -17,6 +17,7 @@ yalnız arka plan/oturum işi konuşulan turda sunulur (`SCOPED_TOOLS`, istem b�
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import re
 import uuid
@@ -41,7 +42,7 @@ from .approval import ApprovalMode
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
-    from .team import SubTask
+    from .team import RunAgent, SubTask
 
 _STRING = {"type": "string"}
 #: Alt ajanın arka plan görevi açması (iç içe süreç ağacı) engellenir.
@@ -341,7 +342,9 @@ def stop_agent_tool(deps: AgentDeps) -> Tool:
     )
 
 
-def agent_task_tools(deps: AgentDeps) -> tuple[Tool, ...]:
+def agent_task_tools(
+    deps: AgentDeps, *, depth: int = 0, run_agent: RunAgent | None = None
+) -> tuple[Tool, ...]:
     """Ayarlar açıksa araçlar; ikisi de kapalıysa hiçbiri."""
     runtime = _runtime(deps)
     background = getattr(runtime, "background_agents", True)
@@ -351,4 +354,47 @@ def agent_task_tools(deps: AgentDeps) -> tuple[Tool, ...]:
     tools = [list_agents_tool(deps), send_message_tool(deps)]
     if background:
         tools.append(stop_agent_tool(deps))
+    if run_agent is not None:
+        from .agent_runtime_tools import runtime_tools
+
+        canonical = {
+            tool.name: tool for tool in runtime_tools(deps, depth=depth, run_agent=run_agent)
+        }
+        aliases = {
+            "list_agents": "ListAgents",
+            "send_message": "SendMessage",
+            "stop_agent": "TaskStop",
+        }
+        return tuple(_runtime_bridge(tool, canonical[aliases[tool.name]], deps) for tool in tools)
     return tuple(tools)
+
+
+def _runtime_bridge(legacy: Tool, canonical: Tool, deps: AgentDeps) -> Tool:
+    """Eski dış görevler bulunabilir; yeni kimlikler aynı süreç sahibine gider."""
+    from dataclasses import replace
+
+    async def run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        target = str(args.get("to") or args.get("id") or args.get("task_id") or "")
+        known = any(target in {state.agent_id, state.name} for state in deps.child_runs.records())
+        if target and not known:
+            from .agent_runtime_records import _resolve
+
+            try:
+                await _resolve(deps, target)
+                known = True
+            except (ValueError, OSError):
+                known = any(
+                    target in {state.agent_id, state.name} for state in deps.child_runs.records()
+                )
+        if known:
+            result = canonical.run(args, context)
+            return await result if inspect.isawaitable(result) else result
+        original = legacy.run(args, context)
+        previous = await original if inspect.isawaitable(original) else original
+        if legacy.name == "list_agents" and not target:
+            latest = canonical.run({}, context)
+            current = await latest if inspect.isawaitable(latest) else latest
+            return ToolResult(previous.output + "\n" + current.output, ok=previous.ok)
+        return previous
+
+    return replace(legacy, run=run)

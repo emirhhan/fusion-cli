@@ -10,6 +10,20 @@ yerine boş sözlük döner. Claude Code'un skill alanları Türkçe ve İngiliz
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
+from pathlib import Path
+
+import yaml
+
+from ..config.hooks import MAX_HOOK_TIMEOUT_S, parse_hooks_block
+from ..config.mcp_json import parse_project_mcp
+from ..config.models import McpServerConfig
+from ..core.errors import ConfigError
+from ..core.hooks.events import HookSet
+
+_LOG = logging.getLogger(__name__)
+
 #: `tools:` anahtarı VAR ama hiçbir araç çözülemedi (`tools:` boş, `[]`): kısıt YOK değil,
 #: HİÇ ARAÇ YOK demektir. Boş tuple "alan hiç yazılmamış" (tam yetki) anlamına gelir; ikisi
 #: karışırsa salt-okur sanılan ajan `run_shell` yetkisiyle çalışır (T1-13).
@@ -151,6 +165,7 @@ def parse_frontmatter(text: str) -> dict[str, object]:
             field_name, invert = _BOOL_KEYS[name]
             truthy = value.strip().strip("'\"").lower() in _TRUE_WORDS
             fields[field_name] = (not truthy) if invert else truthy
+    fields.update(_structured_agent_fields(stripped[3:end]))
     return fields
 
 
@@ -219,3 +234,98 @@ def body_after_frontmatter(text: str) -> str:
         return text
     end = stripped.find("\n---", 3)
     return text if end == -1 else stripped[end + 4 :].lstrip()
+
+
+def _structured_agent_fields(frontmatter: str) -> dict[str, object]:
+    """İç içe YAML alanlarını güvenli ayrıştır; bozuk tanım hiçbir komut açmaz."""
+    try:
+        raw = yaml.safe_load(frontmatter)
+    except yaml.YAMLError:
+        _LOG.warning("Ajanın yapılandırılmış frontmatter alanları geçersiz YAML; uygulanmadı.")
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    fields = normalize_agent_fields(raw)
+    # Dosya blok skalerinin kapanış satırsonunu eski katalog sözleşmesi gibi kırp.
+    description = fields.get("description")
+    if isinstance(description, str):
+        fields["description"] = description.rstrip("\n")
+    return fields
+
+
+def normalize_agent_fields(raw: Mapping[str, object]) -> dict[str, object]:
+    """Dosya YAML'ı ve doğrulanmış CLI JSON'u için aynı tools-içi alan dönüşümü."""
+    fields: dict[str, object] = {}
+    for key, value in raw.items():
+        name = key.lower().replace("_", "-")
+        if name in {"name", "description"} and isinstance(value, str):
+            fields[name] = value
+        elif name in _PERSONA_KEYS and isinstance(value, str):
+            fields[_PERSONA_KEYS[name]] = value
+        elif name in _TEXT_KEYS and isinstance(value, str):
+            fields[_TEXT_KEYS[name]] = value
+        elif name in AGENT_SETTING_KEYS:
+            fields[AGENT_SETTING_KEYS[name]] = str(value)
+        elif name in _TOOL_LIST_KEYS or name in _PLAIN_LIST_KEYS:
+            items = _normalized_list(value)
+            if name in _TOOL_LIST_KEYS:
+                fields[_TOOL_LIST_KEYS[name]] = items or NO_TOOLS
+            elif name not in {"mcpservers", "mcp-servers"}:
+                fields[_PLAIN_LIST_KEYS[name]] = items
+        elif name in _BOOL_KEYS:
+            target, invert = _BOOL_KEYS[name]
+            truthy = value is True or (isinstance(value, str) and value.lower() in _TRUE_WORDS)
+            fields[target] = not truthy if invert else truthy
+    fields.update(_agent_metadata_fields(raw))
+    return fields
+
+
+def _normalized_list(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return parse_tools(value)
+    if isinstance(value, list | tuple):
+        return tuple(item for item in value if isinstance(item, str) and item)
+    return ()
+
+
+def _agent_metadata_fields(raw: Mapping[str, object]) -> dict[str, object]:
+    """Yapılandırılmış metadata yalnız tools sınırından tipli nesnelerle çıkar."""
+    fields: dict[str, object] = {}
+    initial = raw.get("initialPrompt", raw.get("initial-prompt", ""))
+    if isinstance(initial, str):
+        fields["initial_prompt"] = initial
+    fields["omit_claude_md"] = raw.get("omitClaudeMd", False) is True
+    block = raw.get("hooks")
+    if "hooks" in raw:
+        commands, skipped = parse_hooks_block(
+            block, source="", path=Path(), default_timeout_s=MAX_HOOK_TIMEOUT_S
+        )
+        fields["hook_definitions"] = HookSet(commands=commands, skipped=skipped)
+        fields["hooks"] = tuple(str(event) for event in block) if isinstance(block, dict) else ()
+    servers = raw.get("mcpServers", raw.get("mcp-servers"))
+    if isinstance(servers, list):
+        fields.update(_inline_mcp_fields(servers))
+    elif isinstance(servers, str):
+        fields["mcp_servers"] = parse_tools(servers)
+    return fields
+
+
+def _inline_mcp_fields(raw: list[object]) -> dict[str, object]:
+    """Ad başvurusu ile inline MCP tanımını mevcut .mcp.json çözümleyicisinden geçir."""
+    names: list[str] = []
+    definitions: list[McpServerConfig] = []
+    for item in raw:
+        if isinstance(item, str):
+            names.append(item)
+        elif isinstance(item, dict):
+            for name, entry in item.items():
+                try:
+                    parsed = parse_project_mcp({"mcpServers": {str(name): entry}})
+                except ConfigError:
+                    _LOG.warning(
+                        "Ajanın inline MCP tanımı desteklenmiyor veya geçersiz; uygulanmadı."
+                    )
+                    continue
+                names.append(str(name))
+                definitions.extend(parsed)
+    return {"mcp_servers": tuple(names), "inline_mcp_servers": tuple(definitions)}

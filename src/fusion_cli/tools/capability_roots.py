@@ -65,17 +65,46 @@ def skill_roots(
 
 
 def agent_roots(
-    home: Path, root: Path, extra_roots: tuple[Path, ...], *, installed: Path, bundled: Path
+    home: Path,
+    root: Path,
+    extra_roots: tuple[Path, ...],
+    *,
+    installed: Path,
+    bundled: Path,
+    managed_roots: tuple[Path, ...] = (),
+    working_directory: Path | None = None,
 ) -> Roots:
-    """Ajan kökleri: proje/ek proje, kullanıcı, dış kaynak ve yerleşik sırası."""
+    """Yönetilen kökler ve en yakın projeden başlayan ajan arama dizinleri.
+
+    Yönetilen yolların yetkisi config çağıranındadır; burada ortam veya genel cwd okunmaz.
+    CLI tanımları dosya kökü değildir; katalog onları ayrı, tiplenmiş girdilerden alır.
+    """
     return (
-        (root / ".claude" / "agents", "proje"),
+        *((folder, "managed") for folder in managed_roots),
+        *(
+            (folder / ".claude" / "agents", "proje")
+            for folder in _project_chain(root, working_directory)
+        ),
         *((extra / ".claude" / "agents", "ek-kok") for extra in extra_roots),
         (home / ".claude" / "agents", "claude"),
         (home / ".codex" / "agents", "codex"),
         *((folder / "agents", "kurulu") for folder in installed_folders(installed)),
         (bundled, "fusion"),
     )
+
+
+def _project_chain(root: Path, working_directory: Path | None) -> tuple[Path, ...]:
+    """Çalışma dizininden açık proje sınırına kadar olan kökler; dış yol taşınmaz."""
+    if working_directory is None:
+        return (root,)
+    boundary, current = root.resolve(), working_directory.resolve()
+    if not current.is_relative_to(boundary):
+        return (root,)
+    folders = [current]
+    while current != boundary:
+        current = current.parent
+        folders.append(current)
+    return tuple(folders)
 
 
 def installed_folders(installed: Path) -> tuple[Path, ...]:

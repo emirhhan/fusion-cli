@@ -35,9 +35,14 @@ from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..core.worktree import Worktree, WorktreeSwitch
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, parse_mode
+from ..engines.agent.team import Persona
+from ..engines.agent.team_settings import validate_agent_hooks
 from ..observability.usage_log import open_usage_log
 from ..remote.constants import APPROVAL_TRUST_MAX_HOURS, DEFAULT_REMOTE_PORT
+from ..tools.agent_catalog_launch import session_agents_from_json
 from ..tools.agent_tasks import WORKER_COMMAND
+from ..tools.capabilities import Capability
+from ..tools.capability_overrides import registry_from_config
 from ..ui import background_messages as bg_texts
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
@@ -69,7 +74,7 @@ from .desktop_never import AppDenials, config_persist
 from .extension_cli import register_extension_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl, session_resume, worktrees
-from .repl.persona_commands import persona_turn
+from .repl.persona_commands import initial_persona_task, persona_turn
 from .rule_notices import attach_rule_writer, print_rule_notices
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
 from .setup_command import run_setup
@@ -145,6 +150,9 @@ def main_callback(
             ".claude/agents'taki bir ad); oturumda /persona ile değiştirilir.",
         ),
     ] = None,
+    agents_json: Annotated[
+        str, typer.Option("--agents", help="Yalnız bu oturum için JSON ajan tanımları.")
+    ] = "",
     config_set: Annotated[
         list[str] | None,
         typer.Option(
@@ -189,6 +197,7 @@ def main_callback(
     ] = "",
 ) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
+    _SESSION.agents_json = agents_json
     if ctx.invoked_subcommand is not None:
         # `-c`/`--profile` alt komutlarda da geçerlidir (Codex `-c … exec` gibi). Ölçüldü
         # (31 Ekim): bayraklar burada sessizce yok sayılıyordu. Alt komutlar yapılandırmayı
@@ -232,6 +241,7 @@ def main_callback(
                 resume=target,
                 worktree=tree,
                 persona=persona,
+                session_agents=_cli_session_agents(agents_json, root),
             )
         )
     )
@@ -447,6 +457,7 @@ def agent(
     bare: bool = typer.Option(
         False, "--bare", help="Bellek, MCP/bağlayıcı ve proje talimatı yüklemeden çalış."
     ),
+    agents_json: str = typer.Option("", "--agents", help="Bu koşuya özel JSON ajan tanımları."),
     agent_name: str | None = typer.Option(
         None, "--agent", help="Baş ajan tanımı (.claude/agents/<ad>.md): sistem metni ve araç seti."
     ),
@@ -490,13 +501,16 @@ def agent(
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if background:
         _reject_background_flags(output_format, as_json, json_schema, permission_channel)
+    base_config = _session_config()
     options = _headless_options(
         task,
         mode=mode,
         as_json=as_json,
         output_format=output_format,
         json_schema=json_schema,
-        agent_name=agent_name,
+        agent_name=agent_name or base_config.agent_launch.default_agent,
+        launch_config=base_config,
+        session_agents=_cli_session_agents(agents_json or _SESSION.agents_json, Path.cwd()),
         permission_channel=permission_channel,
         append_system_prompt=append_system_prompt,
         allowed_tools=allowed_tools,
@@ -504,6 +518,10 @@ def agent(
         from_pr=from_pr,
     )
     if background:
+        if agents_json or _SESSION.agents_json:
+            raise typer.BadParameter(
+                "--agents oturumluk tanımları --bg süreçlerine taşınmıyor; ön planda çalıştırın."
+            )
         pairs, tier = _SESSION.overrides
         if pairs or tier:
             _session_config()  # geçersiz `-c`/`--profile` başlatmadan önce reddedilir (kod 2)
@@ -527,7 +545,7 @@ def agent(
         console.print(bg_texts.BG_CLI_STARTED.format(id=started.id, name=started.name))
         return
     config = headless.apply_limits(
-        _session_config(), max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
+        base_config, max_turns=max_turns, max_budget_usd=max_budget_usd, bare=bare
     )
     try:
         root, tree = worktrees.resolve_launch_root(Path.cwd(), worktree)
@@ -597,6 +615,14 @@ def agent(
                 extra_roots=tuple(add_dir or ()),
                 extra_system=options.extra_system,
                 system_prompt=options.system_prompt,
+                session_persona=options.session_persona,
+                capabilities=registry_from_config(
+                    config,
+                    Path.home(),
+                    root,
+                    session_agents=options.session_agents,
+                    extra_roots=tuple(add_dir or ()),
+                ),
                 allowed_tools=options.allowed_tools,
                 denied_tools=options.denied_tools,
                 strict_tool_names=True,
@@ -672,6 +698,8 @@ class _HeadlessOptions:
     allowed_tools: set[str] | None
     denied_tools: frozenset[str]
     channel: headless.PermissionChannel | None
+    session_persona: Persona | None = None
+    session_agents: tuple[Capability, ...] = ()
 
     @property
     def channel_name(self) -> str | None:
@@ -691,6 +719,8 @@ def _headless_options(
     allowed_tools: list[str] | None,
     disallowed_tools: list[str] | None,
     from_pr: int | None = None,
+    launch_config: Config | None = None,
+    session_agents: tuple[Capability, ...] = (),
 ) -> _HeadlessOptions:
     """Bayrakları doğrula ve çöz; her hata Typer'ın `BadParameter` mesajına döner."""
     try:
@@ -703,8 +733,6 @@ def _headless_options(
     if channel is not None and raw_task.strip() in ("", "-"):
         raise typer.BadParameter(messages.HEADLESS_STDIN_CHANNEL_CONFLICT)
     task = headless.read_task(raw_task, sys.stdin, is_tty=sys.stdin.isatty())
-    if not task:
-        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
     if from_pr is not None:
         # `--from-pr N` (Claude Code): PR özeti görevin başına eklenir (P-057).
         from ..tools.github_cli import pr_context
@@ -719,10 +747,23 @@ def _headless_options(
     allowed = headless.parse_tool_list(allowed_tools)
     if allowed is not None:
         allowed = headless.map_claude_tool_names(allowed)
+    session_persona = None
     if agent_name:
         try:
-            persona = headless.resolve_agent(agent_name, home=Path.home(), root=Path.cwd())
-        except ValueError as error:
+            roots = (
+                launch_config.agent_launch.managed_agent_roots if launch_config is not None else ()
+            )
+            persona = headless.resolve_agent(
+                agent_name,
+                home=Path.home(),
+                root=Path.cwd(),
+                managed_roots=tuple(Path(value) for value in roots),
+                session_agents=session_agents,
+            )
+            validate_agent_hooks(persona)
+            session_persona = persona
+            task = initial_persona_task(persona, task)
+        except (ValueError, ConfigError) as error:
             raise typer.BadParameter(str(error)) from None
         # REPL ile aynı etki: gövde çekirdeği değiştirir, başlık ek nottur.
         # Araç izinleri kesişir; yasaklar birleştirilir.
@@ -737,6 +778,8 @@ def _headless_options(
                 else allowed & frozenset(turn.allowed_tools)
             )
         persona_denied = turn.denied_tools
+    if not task:
+        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
     if append_system_prompt:
         parts.append(append_system_prompt)
     if schema is not None:
@@ -754,6 +797,8 @@ def _headless_options(
         )
         | persona_denied,
         channel=channel,
+        session_persona=session_persona,
+        session_agents=session_agents,
     )
 
 
@@ -1284,9 +1329,20 @@ class _SessionOverrides:
     """
 
     overrides: tuple[tuple[str, ...], str | None] = ((), None)
+    agents_json: str = ""
 
 
 _SESSION = _SessionOverrides()
+
+
+def _cli_session_agents(raw: str, root: Path) -> tuple[Capability, ...]:
+    """Tek JSON doğrulayıcı sınırını CLI hata biçimine çevir."""
+    if not raw.strip():
+        return ()
+    try:
+        return session_agents_from_json(raw, root=root)
+    except ConfigError as error:
+        raise typer.BadParameter(str(error)) from None
 
 
 def _session_config() -> Config:

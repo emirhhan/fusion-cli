@@ -4,15 +4,15 @@ Claude Code'un `claude --agent <name>` davranışının karşılığı: oturumun
 tanımıyla çalışır — tanımın gövdesi sistem istemine girer, `tools`/`disallowedTools`
 kümesi araçları daraltır. Yerleşik `explore` (salt-okur keşif) ve `plan` (planlayıcı)
 dahil `.claude/agents`, `.codex/agents` ve proje tanımları kullanılabilir. Kişilik tur
-bazında uygulanır; `/persona off` ile kapanır. Alt ajan ayarlarının geri kalanı
-(model/izin kipi) oturumda uygulanmaz: oturumun modeli `/model`, kipi `/auto` gibi
-komutlarla kullanıcı seçer.
+bazında uygulanır; `/persona off` ile kapanır. Model/efor/izin ve diğer desteklenen
+ayarlara ait tipli kişilik ortak motor yoluna aktarılır.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ...core.errors import ConfigError
 from ...engines.agent.team import GENERIC_PERSONA, Persona, resolve_persona
 from ...tools.capabilities import CapabilityRegistry
 from ...ui import messages
@@ -73,15 +73,25 @@ def persona(state: ReplState, argument: str) -> str:
             return messages.PERSONA_NONE
         return messages.PERSONA_CURRENT.format(title=state.persona.title, name=state.persona.name)
     if word.lower() in _OFF_WORDS:
-        state.persona = None
+        state.select_persona(None)
         return messages.PERSONA_CLEARED
     found = resolve_session_persona(state.capabilities, word)
     if found is None:
         return messages.PERSONA_UNKNOWN.format(name=word)
-    state.persona = found
+    try:
+        state.select_persona(found)
+    except ConfigError as error:
+        return str(error)
     tools = (
         messages.PERSONA_TOOLS_ALL
         if found.tools is None
         else ", ".join(sorted(found.tools - found.disallowed_tools)) or "-"
     )
     return messages.PERSONA_SET.format(title=found.title, name=found.name, tools=tools)
+
+
+def initial_persona_task(persona: Persona | None, task: str) -> str:
+    """Ajanın başlangıç istemini kullanıcı görevinden önce ekle; çağıran bir kez tüketir."""
+    if persona is None or persona.source == "eklenti" or not persona.initial_prompt.strip():
+        return task
+    return "\n\n".join(part for part in (persona.initial_prompt.strip(), task) if part)

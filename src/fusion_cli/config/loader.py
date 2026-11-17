@@ -31,6 +31,8 @@ from ..core.errors import ConfigError
 from ..core.shell_sandbox import SHELL_SANDBOX_MODES
 from ..core.types import ModelSpec
 from . import trust
+from .agent_launch_compat import read_agent_launch
+from .agent_launch_settings import AgentLaunchConfig
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
     BrowserConfig,
@@ -80,6 +82,7 @@ _SECTIONS = (
     "capabilities",
     "sandbox",
     "desktop",
+    "agent_launch",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -187,6 +190,12 @@ def load_config(path: str | Path | None = None) -> Config:
         # Kurulu olmayan sağlayıcıların modelleri zincirden düşürülür: NIM anahtarı
         # olmayan kullanıcı her rolde önce başarısız bir çağrı yapıp yedeğe düşerdi.
         yapilandirma = _assemble(merged, source)
+        yapilandirma = dataclasses.replace(
+            yapilandirma,
+            agent_launch=read_agent_launch(
+                yapilandirma.agent_launch, home=Path.home(), root=Path.cwd(), environ=os.environ
+            ),
+        )
         # Proje kökündeki `.mcp.json` (Claude Code biçimi) güvenilen projede eklenir;
         # aynı adda proje kaydı kullanıcı kaydını geçer (P-049).
         yapilandirma = _with_project_mcp_servers(yapilandirma, Path.cwd())
@@ -240,6 +249,9 @@ def _restrict_untrusted_project(
     if state.trusted:
         return user
     cleaned, removed = trust.without_execution_settings(user)
+    if "agent_launch" in cleaned:
+        cleaned = {key: value for key, value in cleaned.items() if key != "agent_launch"}
+        removed = (*removed, "agent_launch")
     if removed:
         _logger.warning(
             "Proje yapılandırması (%s) güvenilir değil (%s); şu ayarlar uygulanmadı: %s. "
@@ -283,6 +295,7 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         # Eski dosyada `sandbox:` yoksa varsayılan politika (P-010).
         sandbox=validate_sandbox(_build(SandboxConfig, merged.get("sandbox") or {}, "sandbox")),
         desktop=_build_desktop(merged.get("desktop") or {}),
+        agent_launch=_build(AgentLaunchConfig, merged.get("agent_launch") or {}, "agent_launch"),
     )
 
 

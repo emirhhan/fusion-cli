@@ -1122,3 +1122,18 @@ sandbox:
   # true: sandbox içindeki komutun ortamından sır gibi görünen değişkenler (*_API_KEY,
   # *_TOKEN, *_SECRET, *PASSWORD*) çıkarılır.
   hide_secret_env: true
+
+# Ajan başlatma: boş ayarlar mevcut anahtarsız modeli korur.
+agent_launch:
+  subagent_model: ""
+  force_subagent_model: false
+  model_aliases: []
+  available_models: null
+  provider: anthropic
+  unresolved_parent_family: false
+  disable_auto_mode: false
+  disable_background_tasks: false
+  fork_enabled: true
+  auto_supported_models: []
+  managed_agent_roots: []
+  default_agent: ""

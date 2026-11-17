@@ -17,6 +17,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.agent_runtime_state import AgentRunState
 from ..core.atomic_file import atomic_replace_text
 from ..core.clock import SystemClock
 from ..core.file_lease import FileLease
@@ -24,7 +25,13 @@ from ..core.original_trace import OriginalTraceRead, OriginalTraceScope
 from ..core.protocols import Clock
 from ..core.redaction import redact
 from ..core.types import Message
-from .turn_journal_codec import message_from, message_to, original_messages_from
+from .turn_journal_codec import (
+    agent_state_from,
+    agent_state_to,
+    message_from,
+    message_to,
+    original_messages_from,
+)
 
 _LOG = logging.getLogger(__name__)
 _SCHEMA = 1
@@ -45,6 +52,7 @@ class JournalEntry:
     #: Kullanıcıya "yarıda kaldı" notu zaten gösterildi mi? İki kez yazılmasın.
     notified: bool
     revision: str = ""
+    agent_state: AgentRunState | None = None
 
 
 class FileTurnJournal:
@@ -57,12 +65,14 @@ class FileTurnJournal:
         task: str = "",
         clock: Clock | None = None,
         original_owner_id: str = "",
+        agent_state: AgentRunState | None = None,
     ) -> None:
         self._path = path
         #: Kullanıcıya "şu iş yarıda kaldı" diye gösterilecek görev metni.
         self._task = task
         self._clock = clock or SystemClock()
         self._original_owner_id = original_owner_id
+        self.agent_state = agent_state
 
     @property
     def path(self) -> Path:
@@ -109,6 +119,7 @@ class FileTurnJournal:
             saved_at=float(saved_at),
             notified=bool(raw.get("bildirildi", False)),
             revision=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+            agent_state=agent_state_from(raw.get("ajan")),
         )
 
     def mark_notified(self, entry: JournalEntry) -> None:
@@ -314,6 +325,8 @@ class FileTurnJournal:
             "bildirildi": notified,
             "mesajlar": [message_to(message) for message in messages],
         }
+        if self.agent_state is not None:
+            payload["ajan"] = agent_state_to(self.agent_state)
         try:
             atomic_replace_text(self._path, json.dumps(payload, ensure_ascii=False))
         except OSError as error:

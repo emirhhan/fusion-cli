@@ -146,7 +146,7 @@ async def test_ekip_ayni_dalgadaki_uyeleri_gercekten_es_zamanli_kosar(tmp_path):
         deps,
         [
             SubTask("ara", persona="arastirmaci", read_only=True),
-            SubTask("tasarla", persona="x", write_scope=("site",)),
+            SubTask("tasarla", persona="general-purpose", write_scope=("site",)),
         ],
         depth=0,
         run_agent=_sahte_ajan,

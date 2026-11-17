@@ -67,6 +67,7 @@ from ...observability.tracing import LangfuseTracer
 from ...observability.usage_log import open_usage_log
 from ...providers.capabilities import apprentice_active
 from ...providers.health_setup import build_health
+from ...tools.capabilities import Capability
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ...ui.text import summarize_error
@@ -152,6 +153,7 @@ async def run_repl(
     remotion_transport: FrameTransport | None = None,
     remotion_browser: RemotionBrowser | None = None,
     persona: str = "",
+    session_agents: tuple[Capability, ...] = (),
     resume: session_resume.ResumeTarget | None = None,
     worktree: Worktree | None = None,
 ) -> int:
@@ -174,6 +176,7 @@ async def run_repl(
         memory=memory,
         root=root,
         home=Path.home(),
+        session_agents=session_agents,
         extra_roots=extra_roots,
         remotion_transport=remotion_transport,
         remotion_browser=remotion_browser,
@@ -185,14 +188,22 @@ async def run_repl(
     if resume is not None:
         session_resume.apply_target(state, resume)
     try:
-        if persona.strip():
-            notice = persona_commands.persona(state, persona)
+        requested_persona = persona.strip() or config.agent_launch.default_agent
+        if requested_persona:
+            notice = persona_commands.persona(state, requested_persona)
             if state.persona is None:
                 console.print(f"[{theme.WARN}]{escape(notice)}[/{theme.WARN}]")
                 return 1
             console.print(f"[{theme.INFO}]{escape(notice)}[/{theme.INFO}]")
+            if (
+                state.persona is not None
+                and state.persona.initial_prompt.strip()
+                and not state.history
+            ):
+                state.pending_task = state.take_persona_initial("")
         return await _run_surface(state, config, console, resume)
     finally:
+        await state.child_runs.close()
         if state.hook_session is not None:
             await state.hook_session.end("prompt_input_exit")
         # `--worktree`: oturum bitince temiz ağaç kaldırılır, iş kalmışsa yolu söylenir.
@@ -549,7 +560,10 @@ async def _run_command(
                 console.print(f"[{theme.WARN}]{cancelled}[/{theme.WARN}]")
         return
 
+    previous = (state.root, state.conversation_id)
     result = command.handler(state, argument)
+    if command.name == "reset" or previous != (state.root, state.conversation_id):
+        await state.reset_child_runs()
     reader.mode = state.approval
     reader.vim_mode = bool(getattr(state.config.runtime, "vim_mode", False))
     _sync_status_bar(reader, state)
@@ -800,7 +814,10 @@ async def _agent_turn(
     from ...engines.agent.team_fork import run_forked_turn
     from ...engines.agent.verification import build_verifier
     from ...memory.checkpoint_store import JsonCheckpointStore
+    from ..session import agent_mcp_scope
 
+    state.prepare_persona_config()
+    line = state.take_persona_initial(line)
     renderer = ConsoleRenderer(console, show_thinking=state.show_thinking, bell=state.bell)
     tracer = LangfuseTracer(task=line)
     async with EventBus() as bus:
@@ -830,6 +847,11 @@ async def _agent_turn(
         confirm_prompter = notifying(prompter, state.hooks())
         deps = AgentDeps(
             config=state.config,
+            session_persona=state.persona,
+            main_config_applied=state.main_config_applied,
+            mcp_connector=agent_mcp_scope,
+            child_runs=state.child_runs,
+            interactive=True,
             publisher=bus,
             policy=build_policy(state.approval, confirm_prompter, state.approval_memory),
             approval_mode=lambda: state.approval,
@@ -953,7 +975,7 @@ async def _agent_turn(
     # Turda açılan/okunan PR oturumun künyesi olur; durum satırında görünür (P-057).
     linked_pr.bind_from_turn(state, outcome.tool_uses)
     # `enter_worktree`/`exit_worktree` isteği tur bitince uygulanır (kök tur ortasında değişmez).
-    switched = worktrees.apply_switch(state, tool_context)
+    switched = await state.apply_worktree_switch(tool_context.worktree_switch)
     if switched:
         console.print(f"[{theme.DIM}]{escape(switched)}[/{theme.DIM}]")
 

@@ -75,8 +75,20 @@ _CLAUDE_TOOLS: dict[str, frozenset[str]] = {
     "Skill": frozenset({"read_skill", "find_skill"}),
     # Çekirdekte alt ajan araçları `spawn_agent`/`spawn_agents`tır (ölçüldü, 31 Ekim:
     # yalnız `invoke_agent` bağlıydı, `Agent(*)` deny hiçbir şeyle eşleşmiyordu).
-    "Agent": frozenset({"spawn_agent", "spawn_agents", "invoke_agent", "find_agent"}),
-    "Task": frozenset({"spawn_agent", "spawn_agents", "invoke_agent"}),
+    "Agent": frozenset(
+        {
+            "Agent",
+            "Task",
+            "invoke_subagent",
+            "spawn_agent",
+            "spawn_agents",
+            "invoke_agent",
+            "find_agent",
+        }
+    ),
+    "Task": frozenset(
+        {"Agent", "Task", "invoke_subagent", "spawn_agent", "spawn_agents", "invoke_agent"}
+    ),
 }
 _MCP_PREFIX = "mcp__"
 #: `/cd` hedefinin kural adı (Claude Code `Cd`); araç değil, REPL komutudur (P-072).
@@ -214,6 +226,16 @@ def matches(
         return False
     if rule.specifier is None:
         return True
+    if rule.tool in {"Agent", "Task"}:
+        tasks = args.get("gorevler")
+        if isinstance(tasks, list):
+            targets = [item for item in tasks if isinstance(item, Mapping)]
+            hits = [matches(rule, "Agent", item, root) for item in targets]
+            return (
+                bool(hits) and all(hits) if rule.decision is PermissionDecision.ALLOW else any(hits)
+            )
+        target = args.get("subagent_type", args.get("uzman", args.get("agent", "")))
+        return isinstance(target, str) and _spec_prefix(rule, target)
     if tool_family(tool_name) is ToolFamily.SHELL:
         command = args.get("command")
         return isinstance(command, str) and _spec_prefix(rule, command.strip())

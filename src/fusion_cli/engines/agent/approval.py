@@ -89,6 +89,7 @@ class ApprovalMode(Enum):
     SECURITY = "security"
     PLAN = "plan"
     BYPASS = "bypass"
+    DONT_ASK = "dontAsk"
 
 
 #: Shift+Tab döngüsü (Claude'daki sıra). "İzinleri atla" BİLEREK yok: tek tuşla
@@ -113,11 +114,13 @@ def may_run_unasked_commands(mode: ApprovalMode) -> bool:
 
     SECURITY ("okuma dışı her şey sorulur") ve PLAN (hiçbir değişiklik yok) vermez.
     """
-    return mode not in (ApprovalMode.SECURITY, ApprovalMode.PLAN)
+    return mode not in (ApprovalMode.SECURITY, ApprovalMode.PLAN, ApprovalMode.DONT_ASK)
 
 
 #: Kipin elle yazılabilen öteki adları (Claude'daki adlar dahil).
 _MODE_ALIASES = {
+    "dontask": ApprovalMode.DONT_ASK,
+    "dont-ask": ApprovalMode.DONT_ASK,
     "manual": ApprovalMode.SECURITY,
     "manuel": ApprovalMode.SECURITY,
     "default": ApprovalMode.SECURITY,
@@ -142,6 +145,7 @@ MODE_STRICTNESS: dict[ApprovalMode, int] = {
     ApprovalMode.AUTO: 1,
     ApprovalMode.ACCEPT_EDITS: 2,
     ApprovalMode.SECURITY: 3,
+    ApprovalMode.DONT_ASK: 3,
     ApprovalMode.PLAN: 4,
 }
 
@@ -427,6 +431,23 @@ class SecurityApproval(_AskingApproval):
         return request.read_only
 
 
+class DontAskApproval:
+    """Açık izinleri ve okumayı koru; kullanıcı etkileşimi gereken çağrıyı reddet."""
+
+    async def decide(self, request: ApprovalRequest) -> Decision | Denial:
+        if (
+            request.pre_denied is not None
+            or request.pre_ask is not None
+            or request.danger is not None
+            or request.tool.name == "ask_user"
+            or request.effect is ToolEffect.REMOTE_SESSION
+        ):
+            return Decision.BLOCKED
+        if request.pre_allowed or request.read_only:
+            return Decision.ALLOW
+        return Decision.BLOCKED
+
+
 class PlanApproval:
     """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz.
 
@@ -484,6 +505,8 @@ def build_policy(
     `memory` verilmezse tek turluk taze hafıza kurulur; sohbet boyunca yaşayan
     çağıranlar kendi hafızalarını her turda aynı nesneyle geçirir.
     """
+    if mode is ApprovalMode.DONT_ASK:
+        return DontAskApproval()
     if mode is ApprovalMode.PLAN:
         return PlanApproval()
     if mode is ApprovalMode.BYPASS:

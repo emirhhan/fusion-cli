@@ -216,6 +216,7 @@ def trust_project(root: Path) -> None:
     adaylar = [
         *sorted((root / FORGED_TOOLS_DIR).glob("*.py")),
         *(root / relative for relative in PROJECT_LAUNCH_FILES),
+        *_project_agent_files(root),
     ]
     for path in adaylar:
         # Kök dışını gösteren bağ ya da `.py` adlı klasör güvene alınmaz.
@@ -237,6 +238,36 @@ def trust_project(root: Path) -> None:
         settings_sha256=_digest(root / PROJECT_PERMISSIONS_PATH),
         project_settings_sha256=_digest(root / PROJECT_SETTINGS_PATH),
     )
+
+
+#: Keşifte desteklenen proje ajanı biçimleri; güven yalnız bu belirli kökü kapsar.
+_AGENT_TRUST_SUFFIXES = frozenset({".md", ".toml"})
+_AGENT_TRUST_LIMIT = 512
+
+
+def _project_agent_files(root: Path) -> tuple[Path, ...]:
+    """Tanım kökünden çıkmayan, bağlantısız ajan dosyalarını sınırlı sayıda seç."""
+    folder = root / ".claude" / "agents"
+    if folder.is_symlink() or folder.parent.is_symlink() or not folder.is_dir():
+        return ()
+    found: list[Path] = []
+    for path in folder.rglob("*"):
+        if path.suffix not in _AGENT_TRUST_SUFFIXES or path.is_symlink() or not path.is_file():
+            continue
+        if any(
+            parent.is_symlink()
+            for parent in path.parents
+            if parent != root and root in parent.parents
+        ):
+            continue
+        try:
+            path.resolve().relative_to(root.resolve())
+        except ValueError:
+            continue
+        found.append(path)
+        if len(found) > _AGENT_TRUST_LIMIT:
+            raise ConfigError("Proje ajanı güven sınırı aşıldı; ajan tanımlarını sadeleştirin.")
+    return tuple(sorted(found))
 
 
 def approve_file(root: Path, path: Path) -> None:
