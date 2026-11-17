@@ -597,8 +597,7 @@ fn shell_candidates() -> Vec<String> {
 mod tests {
     use super::{
         claim_explicit_terminal, close_terminal, event_worker, forward_output, queue_closed_once,
-        wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap,
-        TerminalOutput,
+        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
     };
     use portable_pty::{
         native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, PtySize,
@@ -1159,46 +1158,40 @@ mod tests {
 
     #[test]
     fn explicit_reason_is_claimed_before_reader_can_observe_map_removal() {
-        let _guard = pty_test_guard();
-        let cwd = tempfile::tempdir().unwrap();
         let (manager, _, closed) = manager();
-        let snapshot = manager
-            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
-            .unwrap();
-
-        let terminal = {
+        let id = "explicit-close";
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
+            id.into(),
+            Arc::clone(&manager.output_sink),
+            Arc::clone(&manager.closed_sink),
+            Arc::clone(&close_delivered),
+        );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(None),
+            writer: Mutex::new(None),
+            child: Mutex::new(None),
+            close_reason: Mutex::new(None),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        {
             let mut terminals = manager.terminals.lock().unwrap();
-            claim_explicit_terminal(&mut terminals, &snapshot.terminal_id).unwrap()
-        };
-        assert!(!manager
-            .terminals
-            .lock()
-            .unwrap()
-            .contains_key(&snapshot.terminal_id));
-
-        queue_closed_once(&terminal, None);
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            let reasons: Vec<_> = closed
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|event| event.reason.clone())
-                .collect();
-            if !reasons.is_empty() {
-                assert_eq!(reasons, ["kullanıcı kapattı"]);
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "reader-side close event was not delivered"
-            );
-            std::thread::sleep(Duration::from_millis(10));
+            terminals.insert(id.into(), Arc::clone(&terminal));
+            claim_explicit_terminal(&mut terminals, id).unwrap();
+            assert!(!terminals.contains_key(id));
         }
 
-        let _ = wait_for_child(&terminal, true);
-        terminal.writer.lock().unwrap().take();
-        terminal.master.lock().unwrap().take();
+        forward_output(
+            id.into(),
+            Box::new(io::empty()),
+            Arc::clone(&manager.terminals),
+            terminal,
+        );
+        let event = wait_for_closed(&closed, id);
+        assert_eq!(event.reason, "kullanıcı kapattı");
+        assert_eq!(event.exit_code, None);
     }
 
     #[test]
